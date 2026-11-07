@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   app,
@@ -8,11 +8,11 @@ import {
   ipcMain,
   Menu,
   MessageChannelMain,
-  nativeTheme,
   shell,
   utilityProcess,
   type UtilityProcess
 } from 'electron'
+import { themeById, type ThemeId } from '@shared/themes.generated'
 
 app.setName('Ladder')
 // Cartella dati alternativa per prove automatiche o profili separati.
@@ -20,6 +20,26 @@ if (process.env.LADDER_USER_DATA) app.setPath('userData', process.env.LADDER_USE
 
 let host: UtilityProcess | null = null
 const windows = new Set<BrowserWindow>()
+
+// ── Impostazioni dell'app (tema): un piccolo file JSON letto dal main prima di aprire le finestre,
+// così il tema è applicato prima del primo paint senza aspettare l'host.
+interface AppSettings {
+  theme: ThemeId
+}
+const settingsPath = () => join(app.getPath('userData'), 'settings.json')
+function loadSettings(): AppSettings {
+  try {
+    const raw = JSON.parse(readFileSync(settingsPath(), 'utf8')) as Partial<AppSettings>
+    return { theme: themeById(raw.theme).id }
+  } catch {
+    return { theme: themeById(null).id }
+  }
+}
+function saveSettings(settings: AppSettings): void {
+  mkdirSync(app.getPath('userData'), { recursive: true })
+  writeFileSync(settingsPath(), JSON.stringify(settings, null, 2))
+}
+let settings: AppSettings = { theme: themeById(null).id }
 
 /** Avvia l'host delle sessioni. Se cade, lo riavvia e ricollega le finestre. */
 function startHost(): void {
@@ -59,10 +79,12 @@ function createWindow(): void {
     title: 'Ladder',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 15 },
-    // Stesso colore della sidebar, così all'avvio non si vede un lampo bianco.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0b0f16' : '#f3f5f8',
+    // Colore della sidebar del tema, così all'avvio non si vede un lampo.
+    backgroundColor: themeById(settings.theme).tokens.sidebar,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      // Il preload legge il tema da qui e lo applica a <html> prima del primo paint.
+      additionalArguments: [`--ladder-theme=${settings.theme}`],
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
@@ -116,12 +138,42 @@ ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: numb
 
 ipcMain.handle('ladder:reveal', (_event, path: string) => shell.showItemInFolder(path))
 
+ipcMain.handle('ladder:set-theme', (_event, id: string) => {
+  const theme = themeById(id)
+  settings = { ...settings, theme: theme.id }
+  saveSettings(settings)
+  for (const window of windows) {
+    window.setBackgroundColor(theme.tokens.sidebar)
+    window.webContents.send('ladder:theme', theme.id)
+  }
+  return theme.id
+})
+
 let quitting = false
 
 /** Menu dell'app: ⌘W chiude la tab di Ladder, quindi la finestra si chiude con ⇧⌘W. */
 function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        {
+          label: 'Impostazioni…',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('ladder:open-settings')
+        },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
     { role: 'editMenu' },
     {
       label: 'Vista',
@@ -136,6 +188,12 @@ function buildMenu(): void {
 }
 
 app.whenReady().then(() => {
+  settings = loadSettings()
+  // In sviluppo il Dock mostra l'icona Circuit; nella build la dà il bundle.
+  if (!app.isPackaged && process.platform === 'darwin') {
+    const icon = join(app.getAppPath(), '../../app-icon/png/circuit/ladder-512.png')
+    if (existsSync(icon)) app.dock?.setIcon(icon)
+  }
   buildMenu()
   startHost()
   createWindow()

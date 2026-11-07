@@ -6,12 +6,10 @@ import {
   FolderOpen,
   FolderPlus,
   Inbox,
-  Monitor,
-  Moon,
   PanelLeft,
   Search,
+  Settings,
   SquarePen,
-  Sun,
   type LucideIcon
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -23,19 +21,14 @@ import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { ThemeMode } from '@/hooks/use-theme'
+import { LadderMark } from '@/components/brand/logo'
+import { useSettings } from '@/hooks/use-theme'
 import { request, send } from '@/lib/host-client'
 import { projectAttention, sessionNote, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { canNavigate, useApp } from '@/store/app-store'
 
-interface AppSidebarProps {
-  themeMode: ThemeMode
-  onCycleTheme: () => void
-}
 
-export const themeIcon: Record<ThemeMode, LucideIcon> = { system: Monitor, light: Sun, dark: Moon }
-export const themeLabel: Record<ThemeMode, string> = { system: 'Tema: sistema', light: 'Tema: chiaro', dark: 'Tema: scuro' }
 
 export async function addProjectFromDialog(): Promise<void> {
   const path = await window.ladder?.pickFolder()
@@ -52,7 +45,7 @@ export function ShowSidebarButton() {
   return <IconButton icon={PanelLeft} label="Mostra sidebar" shortcut="⌘B" onClick={toggleSidebar} className="hover:bg-accent" />
 }
 
-export function AppSidebar({ themeMode, onCycleTheme }: AppSidebarProps) {
+export function AppSidebar() {
   const projects = useApp((s) => s.projects)
   const sessions = useApp((s) => s.sessions)
   const drafts = useApp((s) => s.drafts)
@@ -185,10 +178,10 @@ export function AppSidebar({ themeMode, onCycleTheme }: AppSidebarProps) {
         </div>
       </ScrollArea>
 
-      <footer className="flex items-center gap-2.5 border-t border-sidebar-border px-3 py-2.5 text-[12.5px]">
-        <span className="grid size-6 place-items-center rounded-full bg-sidebar-accent text-[10px] font-semibold text-sidebar-accent-foreground">NC</span>
-        <span className="truncate">Nicolò</span>
-        <IconButton icon={themeIcon[themeMode]} label={themeLabel[themeMode]} onClick={onCycleTheme} className="ml-auto" />
+      <footer className="flex items-center gap-2 border-t border-sidebar-border px-3 py-2.5 text-[12.5px]">
+        <LadderMark className="h-3.5 w-auto" title="Ladder" />
+        <span className="font-semibold tracking-tight">Ladder</span>
+        <IconButton icon={Settings} label="Impostazioni" shortcut="⌘," onClick={() => useSettings.getState().setSettingsOpen(true)} className="ml-auto" />
       </footer>
 
       <RemoveProjectDialog project={removing} onClose={() => setRemoving(null)} />

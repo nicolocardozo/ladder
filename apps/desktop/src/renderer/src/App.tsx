@@ -3,16 +3,26 @@ import { AppSidebar } from '@/components/app-sidebar'
 import { CommandPalette } from '@/components/command-palette'
 import { NewChat, SessionView } from '@/components/main-views'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { useTheme } from '@/hooks/use-theme'
+import { SettingsDialog } from '@/components/settings-dialog'
+import { useSettings } from '@/hooks/use-theme'
 import { isElectron, onHostConnect, onHostEvent, request, send } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
 import type { HostEvent } from '@shared/protocol'
 
 export function App() {
-  const theme = useTheme()
   const selection = useApp((s) => s.selection)
   const connected = useApp((s) => s.connected)
   const sidebarOpen = useApp((s) => s.sidebarOpen)
+
+  // Tema cambiato da un'altra finestra e "Impostazioni…" dal menu dell'app (⌘,).
+  useEffect(() => {
+    const offTheme = window.ladder?.theme.onChange((id) => useSettings.getState().receiveTheme(id))
+    const offSettings = window.ladder?.onOpenSettings(() => useSettings.getState().setSettingsOpen(true))
+    return () => {
+      offTheme?.()
+      offSettings?.()
+    }
+  }, [])
 
   // Collegamento con l'host: eventi in arrivo e istantanea completa a ogni (ri)connessione.
   useEffect(() => {
@@ -105,7 +115,7 @@ export function App() {
   return (
     <TooltipProvider delay={400}>
       <div className="flex h-full">
-        {sidebarOpen && <AppSidebar themeMode={theme.mode} onCycleTheme={theme.cycle} />}
+        {sidebarOpen && <AppSidebar />}
         {!connected ? (
           <main className="drag grid flex-1 place-items-center bg-background text-[13px] text-muted-foreground">Avvio di Ladder…</main>
         ) : selection.kind === 'session' ? (
@@ -114,7 +124,8 @@ export function App() {
           <NewChat projectId={selection.projectId} />
         )}
       </div>
-      <CommandPalette themeMode={theme.mode} onCycleTheme={theme.cycle} />
+      <CommandPalette />
+      <SettingsDialog />
     </TooltipProvider>
   )
 }

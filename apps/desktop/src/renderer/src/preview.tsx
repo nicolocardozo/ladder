@@ -1,4 +1,5 @@
 // Anteprima della chat senza Electron: pnpm dev:web e poi http://localhost:5199/preview.html
+import { THEMES, applyTheme, useSettings } from '@/hooks/use-theme'
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/globals.css'
@@ -18,6 +19,8 @@ import {
   type Fixture
 } from './dev/fixtures'
 import { cn } from './lib/utils'
+
+applyTheme(useSettings.getState().theme)
 
 type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question'
 
@@ -182,7 +185,7 @@ function Preview() {
   const [fixture, setFixtureState] = useState<Fixture>(() => load('normal'))
   const [anchor, setAnchor] = useState<ChatAnchor | null>(null)
   const [restoreAnchor, setRestoreAnchor] = useState<ChatAnchor | null>(null)
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
+  const theme = useSettings((s) => s.theme)
   const [last, setLast] = useState('')
   const [queue, setQueue] = useState<QueuedMessage[]>(INITIAL_QUEUE)
   const [model, setModel] = useState<string | null>(PREVIEW_MODELS[0].id)
@@ -192,9 +195,6 @@ function Preview() {
   const setFixture = useCallback((update: (f: Fixture) => Fixture) => setFixtureState(update), [])
   useStreamingSimulation(mode === 'stream', setFixture, runId)
 
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark)
-  }, [dark])
 
   const choose = (next: Mode) => {
     setMode(next)
@@ -308,8 +308,8 @@ function Preview() {
         <button type="button" className={btn} onClick={remount} title="Smonta e rimonta la chat con l'ultima ancora ricevuta">
           Rimonta con ancora
         </button>
-        <button type="button" className={btn} onClick={() => setDark((d) => !d)}>
-          {dark ? 'Tema chiaro' : 'Tema scuro'}
+        <button type="button" className={btn} onClick={() => { const i = THEMES.findIndex((t) => t.id === theme); useSettings.getState().setTheme(THEMES[(i + 1) % THEMES.length].id) }}>
+          Tema: {THEMES.find((t) => t.id === theme)?.name}
         </button>
       </div>
       <div className="flex h-[700px] w-[900px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_18px_44px_rgb(3_8_20/0.25)]">

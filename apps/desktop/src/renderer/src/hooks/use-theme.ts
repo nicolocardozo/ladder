@@ -1,38 +1,54 @@
-import { useEffect, useState } from 'react'
+// Tema del workspace e finestra delle impostazioni.
+// Il tema vale per tutta l'app: lo salva il processo main, che lo applica anche prima del primo paint.
+import { create } from 'zustand'
+import { THEMES, themeById, type ThemeId, type ThemeInfo } from '@shared/themes.generated'
 
-export type ThemeMode = 'system' | 'light' | 'dark'
+const PREVIEW_KEY = 'ladder.preview-theme'
 
-const STORAGE_KEY = 'ladder.theme'
+/** Applica il tema a <html>: attributo per le variabili, classe `dark` per le varianti di shadcn. */
+export function applyTheme(id: string): ThemeInfo {
+  const theme = themeById(id)
+  document.documentElement.dataset.theme = theme.id
+  document.documentElement.classList.toggle('dark', theme.appearance === 'dark')
+  return theme
+}
 
-function readStoredMode(): ThemeMode {
+function initialTheme(): ThemeId {
+  if (window.ladder) return themeById(window.ladder.theme.initial).id
+  // Pagine di anteprima nel browser: il tema resta solo in questo browser.
   try {
-    const value = localStorage.getItem(STORAGE_KEY)
-    return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
+    return themeById(localStorage.getItem(PREVIEW_KEY)).id
   } catch {
-    return 'system'
+    return themeById(null).id
   }
 }
 
-/** Applica la classe `dark` a <html> seguendo la scelta dell'utente o il tema di sistema. */
-export function useTheme() {
-  const [mode, setMode] = useState<ThemeMode>(readStoredMode)
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = () => {
-      const dark = mode === 'dark' || (mode === 'system' && media.matches)
-      document.documentElement.classList.toggle('dark', dark)
-    }
-    apply()
-    media.addEventListener('change', apply)
-    try {
-      localStorage.setItem(STORAGE_KEY, mode)
-    } catch {
-      // Lo stato del tema è solo una comodità: se lo storage non è disponibile si segue il sistema.
-    }
-    return () => media.removeEventListener('change', apply)
-  }, [mode])
-
-  const cycle = () => setMode((m) => (m === 'system' ? 'light' : m === 'light' ? 'dark' : 'system'))
-  return { mode, setMode, cycle }
+interface SettingsState {
+  theme: ThemeId
+  settingsOpen: boolean
+  setTheme: (id: ThemeId) => void
+  /** Aggiorna lo stato quando il tema cambia da un'altra finestra. */
+  receiveTheme: (id: string) => void
+  setSettingsOpen: (open: boolean) => void
 }
+
+export const useSettings = create<SettingsState>((set) => ({
+  theme: initialTheme(),
+  settingsOpen: false,
+  setTheme: (id) => {
+    const theme = applyTheme(id)
+    set({ theme: theme.id })
+    if (window.ladder) void window.ladder.theme.set(theme.id)
+    else {
+      try {
+        localStorage.setItem(PREVIEW_KEY, theme.id)
+      } catch {
+        // Solo una comodità dell'anteprima.
+      }
+    }
+  },
+  receiveTheme: (id) => set({ theme: applyTheme(id).id }),
+  setSettingsOpen: (open) => set({ settingsOpen: open })
+}))
+
+export { THEMES }

@@ -11,7 +11,7 @@ asar: true
 npmRebuild: false
 mac:
   target: dir
-  icon: resources/icon.icns
+  icon: ../../app-icon/macos/ladder-circuit.icns
   category: public.app-category.developer-tools
   identity: "-"
   hardenedRuntime: false

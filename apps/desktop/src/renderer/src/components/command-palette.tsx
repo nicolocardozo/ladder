@@ -2,22 +2,18 @@
 // prima le sessioni che aspettano l'utente, poi le più recenti.
 import { useMemo, useState } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
-import { CircleAlert, Folder, FolderPlus, PanelLeft, Search, SquarePen } from 'lucide-react'
+import { CircleAlert, Folder, FolderPlus, Palette, PanelLeft, Search, SquarePen } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { addProjectFromDialog, themeIcon, themeLabel } from '@/components/app-sidebar'
+import { addProjectFromDialog } from '@/components/app-sidebar'
 import { SessionGlyph } from '@/components/status'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList, CommandShortcut } from '@/components/ui/command'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
-import type { ThemeMode } from '@/hooks/use-theme'
+import { themeById } from '@shared/themes.generated'
+import { useSettings } from '@/hooks/use-theme'
 import { relativeAge, sessionState } from '@/lib/session-state'
 import { isLiveSession, useApp } from '@/store/app-store'
 
-interface CommandPaletteProps {
-  themeMode: ThemeMode
-  onCycleTheme: () => void
-}
-
-export function CommandPalette(props: CommandPaletteProps) {
+export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen)
   const setPaletteOpen = useApp((s) => s.setPaletteOpen)
 
@@ -27,7 +23,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         <DialogTitle className="sr-only">Cerca in Ladder</DialogTitle>
         <DialogDescription className="sr-only">Sessioni di tutti i progetti, progetti e azioni.</DialogDescription>
         {/* Il contenuto si monta a ogni apertura: la ricerca riparte vuota. */}
-        <PaletteBody {...props} onClose={() => setPaletteOpen(false)} />
+        <PaletteBody onClose={() => setPaletteOpen(false)} />
       </DialogContent>
     </Dialog>
   )
@@ -56,7 +52,8 @@ interface Action {
   perform: () => void
 }
 
-function PaletteBody({ themeMode, onCycleTheme, onClose }: CommandPaletteProps & { onClose: () => void }) {
+function PaletteBody({ onClose }: { onClose: () => void }) {
+  const themeId = useSettings((s) => s.theme)
   const projects = useApp((s) => s.projects)
   const sessions = useApp((s) => s.sessions)
   const sidebarOpen = useApp((s) => s.sidebarOpen)
@@ -123,11 +120,11 @@ function PaletteBody({ themeMode, onCycleTheme, onClose }: CommandPaletteProps &
     },
     {
       id: 'theme',
-      label: 'Cambia tema',
-      icon: themeIcon[themeMode],
-      keywords: 'cambia tema chiaro scuro sistema aspetto',
-      hint: themeLabel[themeMode].replace('Tema: ', 'ora '),
-      perform: () => run(onCycleTheme)
+      label: 'Cambia tema…',
+      icon: Palette,
+      keywords: 'cambia tema chiaro scuro aspetto impostazioni colori circuit',
+      hint: themeById(themeId).name,
+      perform: () => run(() => useSettings.getState().setSettingsOpen(true))
     },
     {
       id: 'sidebar',

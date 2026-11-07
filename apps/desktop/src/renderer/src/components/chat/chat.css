@@ -3,35 +3,24 @@
  * Usano solo i token di globals.css più pochi colori di sintassi, definiti qui per chiaro e scuro.
  */
 :root {
-  --chat-code-bg: #f6f7f9;
-  --chat-code-head: #ffffff;
-  --shiki-foreground: #2a303b;
+  /* Sintassi derivata dai token del tema: nei temi Mono accento, successo e attesa coincidono con il testo
+     e il codice resta in scala di grigi. */
+  --chat-code-bg: var(--ladder-code-background);
+  --chat-code-head: var(--ladder-surface);
+  --shiki-foreground: color-mix(in oklab, var(--ladder-text) 90%, var(--ladder-code-background));
   --shiki-background: transparent;
-  --shiki-token-keyword: #8a3fb8;
-  --shiki-token-string: var(--success);
-  --shiki-token-string-expression: var(--success);
-  --shiki-token-function: #2456b8;
-  --shiki-token-constant: var(--attention);
-  --shiki-token-parameter: #3a3f48;
-  --shiki-token-comment: #8a909b;
-  --shiki-token-punctuation: #5f6878;
-  --shiki-token-link: var(--primary);
-  --shiki-token-inserted: var(--success);
-  --shiki-token-deleted: var(--destructive);
-  --shiki-token-changed: var(--attention);
-}
-
-.dark {
-  --chat-code-bg: #0b0f16;
-  --chat-code-head: #0f141c;
-  --shiki-foreground: #c3ccdb;
-  --shiki-token-keyword: #c29bf2;
-  --shiki-token-string: #85cda2;
-  --shiki-token-string-expression: #85cda2;
-  --shiki-token-function: #8db4ff;
-  --shiki-token-parameter: #b6c0d1;
-  --shiki-token-comment: #67738a;
-  --shiki-token-punctuation: #8a95a8;
+  --shiki-token-keyword: var(--ladder-accent);
+  --shiki-token-string: var(--ladder-success);
+  --shiki-token-string-expression: var(--ladder-success);
+  --shiki-token-function: color-mix(in oklab, var(--ladder-accent) 55%, var(--ladder-text));
+  --shiki-token-constant: var(--ladder-waiting);
+  --shiki-token-parameter: var(--ladder-text);
+  --shiki-token-comment: var(--ladder-text-muted);
+  --shiki-token-punctuation: color-mix(in oklab, var(--ladder-text-muted) 70%, var(--ladder-text));
+  --shiki-token-link: var(--ladder-accent);
+  --shiki-token-inserted: var(--ladder-success);
+  --shiki-token-deleted: var(--ladder-error);
+  --shiki-token-changed: var(--ladder-waiting);
 }
 
 /* Markdown dell'agente. */

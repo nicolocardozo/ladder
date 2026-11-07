@@ -3,6 +3,7 @@ import { Check, ChevronDown, ExternalLink, FolderGit2, FolderPlus, GitBranch, Ha
 import type { Attachment, ChatItem, Effort, PermissionLevel, Project, RequestResponse, SessionSummary } from '@shared/protocol'
 import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
+import { LadderLockup } from '@/components/brand/logo'
 import { Composer } from '@/components/composer'
 import { TabBar } from '@/components/tab-bar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -98,6 +99,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
       </TopBar>
       <div className="flex flex-1 flex-col items-center justify-center px-8 pb-[14vh]">
         <div className="w-full max-w-[680px]">
+          <LadderLockup className="mb-6 ml-1 h-5 w-auto" title="Ladder" />
           <div className="mb-2 flex items-center gap-0.5 pl-1">
             <DropdownMenu>
               <DropdownMenuTrigger className={contextButton}>

@@ -47,7 +47,16 @@ Fase 1 completata. Funziona:
 - menu delle sessioni (rinomina, segna come da leggere, archivia, apri in Cursor o nel Finder), ⌘K per cercare sessioni, progetti e azioni, ⌘B per la sidebar, ⌘[ e ⌘] per tornare indietro e avanti, ⌘⇧A per la prossima sessione che ti aspetta;
 - tab per progetto (⌘1…⌘9, ⌘W), bozze, posizione di lettura e ripresa delle sessioni dopo il riavvio.
 
-Prossime fasi: identità Circuit e dodici temi (1.5, serve prima aggiungere gli asset del brand in `brand/` e `app-icon/`), “In attesa” e notifiche (3), Explorer, diff e terminale (2), Codex e agenti ACP (4).
+Fase 1.5 completata: identità Circuit e dodici temi, scelti in Impostazioni → Aspetto (⌘,). Il tema vale per tutta l’app, si salva in `settings.json` nella cartella dati e si applica prima del primo paint; un valore sconosciuto torna a Circuit.
+
+Prossime fasi: “In attesa” e notifiche (3), Explorer, diff e terminale (2), Codex e agenti ACP (4).
+
+## Brand e temi
+
+- `brand/themes.json` è la fonte dei token dei dodici temi; `brand/themes.css` è il riferimento per le variabili.
+- `pnpm --filter @ladder/desktop sync-brand` rigenera dal JSON e dagli SVG in `logo/svg/` i file usati dall’app: `themes.generated.css`, `src/shared/themes.generated.ts` e i tracciati del logo.
+- `node apps/desktop/scripts/check-contrast.mjs` verifica il contrasto di ogni tema: 4,5:1 per il testo, 3:1 per focus, bordi dei controlli e indicatori.
+- Icone in `app-icon/` (la build usa `app-icon/macos/ladder-circuit.icns`), logo in `logo/`, tavole in `reference/`.
 
 ## Build da installare
 
@@ -55,7 +64,7 @@ Prossime fasi: identità Circuit e dodici temi (1.5, serve prima aggiungere gli 
 pnpm --filter @ladder/desktop dist
 ```
 
-Crea `apps/desktop/dist/mac-arm64/Ladder.app`, firmata solo per questo Mac: trascinala in Applicazioni. L’icona si rigenera con `node apps/desktop/scripts/make-icon.mjs`.
+Crea `apps/desktop/dist/mac-arm64/Ladder.app` con l’icona Circuit (`app-icon/macos/ladder-circuit.icns`), firmata solo per questo Mac: trascinala in Applicazioni.
 
 ## Architettura in breve
 

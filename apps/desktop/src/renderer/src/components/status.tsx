@@ -8,8 +8,8 @@ export function RunningRing({ className }: { className?: string }) {
     <span
       aria-label="In corso"
       className={cn(
-        'block size-[11px] rounded-full border-[1.6px] border-sidebar-accent border-t-muted-foreground animate-spin',
-        'motion-reduce:animate-none motion-reduce:border-dotted motion-reduce:border-muted-foreground',
+        'block size-[11px] rounded-full border-[1.6px] border-border border-t-running animate-spin',
+        'motion-reduce:animate-none motion-reduce:border-dotted motion-reduce:border-running',
         className
       )}
     />
@@ -18,7 +18,7 @@ export function RunningRing({ className }: { className?: string }) {
 
 /** Punto pieno: c'è una risposta da leggere. */
 export function UnreadDot({ className }: { className?: string }) {
-  return <span aria-label="Da leggere" className={cn('block size-2 rounded-full bg-primary', className)} />
+  return <span aria-label="Da leggere" className={cn('block size-2 rounded-full bg-unread', className)} />
 }
 
 /** Simbolo di stato per una riga di sessione. Ogni stato ha una forma propria, non solo un colore. */
@@ -52,7 +52,7 @@ export function ProjectBadges({ attention }: { attention: ProjectAttention }) {
       {attention.unread > 0 && (
         <span
           aria-label={`${attention.unread} risposte da leggere`}
-          className="h-4 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground"
+          className="h-4 min-w-4 rounded-full bg-unread px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground"
         >
           {attention.unread}
         </span>

@@ -1,91 +1,58 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./themes.generated.css";
 
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Tema di Ladder. Neutri con tinta blu, un solo accento blu.
- * Ambra solo per ciò che blocca l'utente, rosso solo per gli errori.
- * I nomi seguono i token di shadcn/ui; attention, success e composer sono di Ladder.
+ * Temi di Ladder. Le variabili --ladder-* arrivano da themes.generated.css (fonte: brand/themes.json)
+ * e cambiano con l'attributo data-theme su <html>. Qui diventano i token di shadcn/ui e quelli di Ladder:
+ * le viste usano solo questi nomi, mai colori diretti.
  */
 :root {
-  --background: #ffffff;
-  --foreground: #141821;
-  --card: #ffffff;
-  --card-foreground: #141821;
-  --popover: #ffffff;
-  --popover-foreground: #141821;
-  --primary: #2a62d6;
-  --primary-foreground: #ffffff;
-  --secondary: #eef1f5;
-  --secondary-foreground: #141821;
-  --muted: #eef1f5;
-  --muted-foreground: #5f6878;
-  --accent: #e8edf5;
-  --accent-foreground: #141821;
-  --destructive: #c0392b;
-  --border: #e1e5eb;
-  --input: #d5dbe4;
-  --ring: #2a62d6;
-  --chart-1: #2a62d6;
-  --chart-2: #5f6878;
-  --chart-3: #a05c00;
-  --chart-4: #2a7148;
-  --chart-5: #c0392b;
+  --background: var(--ladder-background);
+  --foreground: var(--ladder-text);
+  --card: var(--ladder-surface);
+  --card-foreground: var(--ladder-text);
+  --popover: var(--ladder-surface);
+  --popover-foreground: var(--ladder-text);
+  --primary: var(--ladder-accent);
+  --primary-foreground: var(--ladder-on-accent);
+  --secondary: color-mix(in oklab, var(--ladder-surface), var(--ladder-text) 7%);
+  --secondary-foreground: var(--ladder-text);
+  --muted: color-mix(in oklab, var(--ladder-surface), var(--ladder-text) 7%);
+  --muted-foreground: var(--ladder-text-muted);
+  --accent: var(--ladder-selection);
+  --accent-foreground: var(--ladder-on-selection);
+  --destructive: var(--ladder-error);
+  --border: var(--ladder-border);
+  --input: var(--ladder-control-border);
+  --ring: var(--ladder-focus-ring);
+  --chart-1: var(--ladder-accent);
+  --chart-2: var(--ladder-text-muted);
+  --chart-3: var(--ladder-waiting);
+  --chart-4: var(--ladder-success);
+  --chart-5: var(--ladder-error);
   --radius: 0.625rem;
-  --sidebar: #f3f5f8;
-  --sidebar-foreground: #2a303b;
-  --sidebar-primary: #2a62d6;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e5e9f0;
-  --sidebar-accent-foreground: #141821;
-  --sidebar-border: #e1e5eb;
-  --sidebar-ring: #2a62d6;
-  --attention: #a05c00;
-  --attention-foreground: #ffffff;
-  --success: #2a7148;
-  --composer: #ffffff;
-  --faint: #98a0ad;
-}
-
-.dark {
-  --background: #0f141c;
-  --foreground: #e3e9f3;
-  --card: #131a25;
-  --card-foreground: #e3e9f3;
-  --popover: #151c28;
-  --popover-foreground: #e3e9f3;
-  --primary: #5b8ef5;
-  --primary-foreground: #0b0f16;
-  --secondary: #1b2230;
-  --secondary-foreground: #e3e9f3;
-  --muted: #1b2230;
-  --muted-foreground: #7d889c;
-  --accent: #1b2230;
-  --accent-foreground: #e3e9f3;
-  --destructive: #f07a6a;
-  --border: #1a2230;
-  --input: #273144;
-  --ring: #5b8ef5;
-  --chart-1: #5b8ef5;
-  --chart-2: #7d889c;
-  --chart-3: #e7a64c;
-  --chart-4: #62bf8c;
-  --chart-5: #f07a6a;
-  --sidebar: #0b0f16;
-  --sidebar-foreground: #b6c0d1;
-  --sidebar-primary: #5b8ef5;
-  --sidebar-primary-foreground: #0b0f16;
-  --sidebar-accent: #1b2230;
-  --sidebar-accent-foreground: #e3e9f3;
-  --sidebar-border: #1a2230;
-  --sidebar-ring: #5b8ef5;
-  --attention: #e7a64c;
-  --attention-foreground: #0b0f16;
-  --success: #62bf8c;
-  --composer: #131a25;
-  --faint: #566175;
+  --sidebar: var(--ladder-sidebar);
+  --sidebar-foreground: var(--ladder-text);
+  --sidebar-primary: var(--ladder-accent);
+  --sidebar-primary-foreground: var(--ladder-on-accent);
+  --sidebar-accent: var(--ladder-selection);
+  --sidebar-accent-foreground: var(--ladder-on-selection);
+  --sidebar-border: var(--ladder-border);
+  --sidebar-ring: var(--ladder-focus-ring);
+  /* Stati: richiede te, in corso, da leggere, riuscito. Il colore accompagna sempre forma e testo. */
+  --attention: var(--ladder-waiting);
+  --attention-foreground: var(--ladder-on-waiting);
+  --running: var(--ladder-running);
+  --unread: var(--ladder-unread);
+  --success: var(--ladder-success);
+  --composer: var(--ladder-surface);
+  --code-bg: var(--ladder-code-background);
+  /* Testo secondario minore: uguale al muted del tema, verificato per il contrasto. */
+  --faint: var(--ladder-text-muted);
 }
 
 @theme inline {
@@ -96,6 +63,9 @@
   --color-attention-foreground: var(--attention-foreground);
   --color-success: var(--success);
   --color-composer: var(--composer);
+  --color-running: var(--running);
+  --color-unread: var(--unread);
+  --color-code-bg: var(--code-bg);
   --color-faint: var(--faint);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
