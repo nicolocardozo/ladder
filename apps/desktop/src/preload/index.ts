@@ -33,7 +33,11 @@ const api = {
     node: process.versions.node
   },
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('ladder:pick-folder'),
-  openInEditor: (path: string, line?: number): Promise<void> => ipcRenderer.invoke('ladder:open-in-editor', path, line),
+  /** Apre file e riga nell'editor del progetto; senza `editor` prova Cursor e poi VS Code. */
+  openInEditor: (path: string, line?: number, editor?: 'cursor' | 'vscode'): Promise<void> =>
+    ipcRenderer.invoke('ladder:open-in-editor', path, line, editor),
+  /** Editor installati, per il menu "Apri in…". */
+  editors: (): Promise<{ cursor: boolean; vscode: boolean }> => ipcRenderer.invoke('ladder:editors'),
   reveal: (path: string): Promise<void> => ipcRenderer.invoke('ladder:reveal', path),
   theme: {
     initial: initialTheme,

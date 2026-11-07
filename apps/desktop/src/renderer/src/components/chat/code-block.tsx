@@ -125,7 +125,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, path, live }: Cod
         {path ? (
           <button
             type="button"
-            onClick={() => openFile(path)}
+            onClick={(event) => openFile(path, undefined, event.altKey)}
             title={`Apri ${path}`}
             className="min-w-0 truncate text-left text-foreground/85 outline-none hover:text-foreground hover:underline focus-visible:underline"
           >

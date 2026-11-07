@@ -49,7 +49,40 @@ Fase 1 completata. Funziona:
 
 Fase 1.5 completata: identità Circuit e dodici temi, scelti in Impostazioni → Aspetto (⌘,). Il tema vale per tutta l’app, si salva in `settings.json` nella cartella dati e si applica prima del primo paint; un valore sconosciuto torna a Circuit.
 
-Prossime fasi: “In attesa” e notifiche (3), Explorer, diff e terminale (2), Codex e agenti ACP (4).
+Fase 2 completata: file, diff e terminale.
+
+- Ispettore a destra (icona nella barra o ⌘⌥1, ⌘⌥2, ⌘⌥3):
+  - **Modifiche**: per turno, per sessione o non committate, in vista unificata o affiancata. Puoi commentare le righe e inviare i commenti all’agente in un solo messaggio. Puoi ripristinare un file o tutto, e annullare il ripristino.
+  - **File**: albero con stato git e turno che ha toccato il file, viewer con evidenziazione e “Aggiungi alla chat” sulla selezione.
+  - **Cronologia**: checkpoint, ripristini e commit in un’unica linea del tempo.
+- Riferimenti ai file:
+  - nella chat, un clic apre il file nel viewer e ⌥clic lo apre nell’editor del progetto (Cursor o VS Code, da scegliere accanto ad “Apri in…”);
+  - ⌘P apre un file per nome, anche con `percorso:riga`.
+- Terminale (⌃`): xterm.js con node-pty nell’host, schede per progetto. I terminali restano vivi cambiando progetto e dopo un riavvio la shell riparte nella stessa cartella. `@terminal` nel composer allega l’output di un terminale al messaggio.
+- Sessioni terminale: `claude`, `codex` o qualunque comando, scelti nella nuova chat. Lo stato arriva così:
+  - da `claude`, tramite hook iniettati per processo, quindi compare in “In attesa” quando chiede un permesso;
+  - da `codex`, tramite le notifiche della TUI;
+  - per gli altri comandi è stimato.
+- `.ladder/settings.toml` del progetto (più `settings.local.toml` personale, escluso da git tramite `.git/info/exclude`):
+  - worktree con setup, file da copiare e comando di archivio;
+  - azioni `[[run]]` come pulsanti nella barra, nel terminale della sessione;
+  - un blocco di porte per cartella in `LADDER_PORT`: 4100 per il primo progetto, poi 4200 e così via, con un blocco a parte per ogni worktree.
+
+```toml
+[worktree]
+setup   = "pnpm install --frozen-lockfile"
+copy    = [".env.local"]
+archive = "docker compose down"
+
+[[run]]
+name    = "dev"
+command = "pnpm dev --port $LADDER_PORT"
+default = true
+```
+
+I worktree nascono in `~/Developer/.ladder/worktrees/<progetto>/<slug>` su un branch `ladder/<slug>`.
+
+Prossime fasi: “In attesa” con azioni, notifiche e merge (3), Codex e agenti ACP (4).
 
 ## Brand e temi
 
@@ -69,8 +102,14 @@ Crea `apps/desktop/dist/mac-arm64/Ladder.app` con l’icona Circuit (`app-icon/m
 ## Architettura in breve
 
 - `src/main`: finestre, menu, dialoghi; avvia l’host e gli passa una MessagePort per finestra.
-- `src/host`: host delle sessioni in un `utilityProcess`, con SQLite (`node:sqlite`), adapter Claude Code (Agent SDK) e checkpoint git.
+- `src/host`: host delle sessioni in un `utilityProcess`, con SQLite (`node:sqlite`), adapter Claude Code (Agent SDK), checkpoint e diff git (`git.ts`, `workspace.ts`), file (`files.ts`), terminali con node-pty e xterm headless (`terminals.ts`), worktree e porte (`worktrees.ts`), configurazione del progetto (`project-settings.ts`).
 - `src/shared/protocol.ts`: tipi e messaggi tra host e interfaccia.
-- `src/renderer`: React; lo stato arriva dall’host (`store/app-store.ts`), la chat è in `components/chat`.
+- `src/renderer`: React; lo stato arriva dall’host (`store/app-store.ts`), la chat è in `components/chat`, l’ispettore in `components/inspector`, i terminali in `components/terminal` e `lib/terminal-registry.ts`.
 
-Per il debug, la pagina espone `window.__ladder` (`request`, `send`, `store`) e l’app accetta `LADDER_USER_DATA=<cartella>` per usare un archivio separato.
+Per il debug:
+- la pagina espone `window.__ladder` (`request`, `send`, `store`, `settings`);
+- `LADDER_USER_DATA=<cartella>` usa un archivio separato;
+- `LADDER_WORKTREES=<cartella>` sposta i worktree;
+- `LADDER_EDITOR_TRACE=<file>` registra le aperture nell’editor invece di eseguirle, per le prove automatiche.
+
+node-pty è l’unico modulo nativo: usa il prebuild N-API incluso (niente node-gyp), il `postinstall` rende eseguibile lo `spawn-helper` e nella build resta fuori dall’asar.

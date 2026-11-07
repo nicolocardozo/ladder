@@ -36,7 +36,10 @@ export function createToggleStore(): ToggleStore {
 }
 
 export interface ChatActions {
-  openFile: (path: string, line?: number) => void
+  /** Clic: viewer nell'ispettore alla riga. ⌥clic (`external`): editor esterno. */
+  openFile: (path: string, line?: number, external?: boolean) => void
+  /** Pannello Modifiche sul diff di un turno, eventualmente su un file. */
+  openDiff: (turnId: string, path?: string) => void
   respond: (requestId: string, response: RequestResponse) => void
   /** Vero quando il focus è nella chat o da nessuna parte: le card possono prenderlo. */
   canTakeFocus: () => boolean
@@ -47,6 +50,7 @@ const noop = () => {}
 
 export const ChatContext = createContext<ChatActions>({
   openFile: noop,
+  openDiff: noop,
   respond: noop,
   canTakeFocus: () => false,
   toggles: createToggleStore()

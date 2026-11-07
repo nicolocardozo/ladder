@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   app,
@@ -112,27 +112,38 @@ ipcMain.handle('ladder:pick-folder', async (event) => {
   return result.canceled ? null : (result.filePaths[0] ?? null)
 })
 
-/** CLI dell'editore: Cursor se c'è, altrimenti VS Code. Le app GUI non vedono il PATH della shell. */
-function editorCli(): string | null {
-  const candidates = [
-    '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
-    join(app.getPath('home'), 'Applications/Cursor.app/Contents/Resources/app/bin/cursor'),
-    '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
-    join(app.getPath('home'), 'Applications/Visual Studio Code.app/Contents/Resources/app/bin/code')
-  ]
+type EditorId = 'cursor' | 'vscode'
+
+/** CLI degli editor: le app GUI non vedono il PATH della shell, quindi si cercano dentro i bundle. */
+function editorCli(editor: EditorId): string | null {
+  const bundles =
+    editor === 'cursor'
+      ? ['Cursor.app/Contents/Resources/app/bin/cursor']
+      : ['Visual Studio Code.app/Contents/Resources/app/bin/code']
+  const candidates = bundles.flatMap((b) => [join('/Applications', b), join(app.getPath('home'), 'Applications', b)])
   return candidates.find((path) => existsSync(path)) ?? null
 }
 
-ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: number) => {
-  const cli = editorCli()
+ipcMain.handle('ladder:editors', () => ({ cursor: Boolean(editorCli('cursor')), vscode: Boolean(editorCli('vscode')) }))
+
+ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: number, editor?: EditorId) => {
+  // L'editor scelto per il progetto; se non è installato, l'altro.
+  const order: EditorId[] = editor === 'vscode' ? ['vscode', 'cursor'] : ['cursor', 'vscode']
+  const cli = order.map(editorCli).find(Boolean) ?? null
   const isFile = existsSync(path) && statSync(path).isFile()
+  // Prove automatiche: si registra il comando invece di aprire l'editor.
+  if (process.env.LADDER_EDITOR_TRACE) {
+    appendFileSync(process.env.LADDER_EDITOR_TRACE, `${JSON.stringify({ cli, args: isFile ? ['-g', `${path}${line ? `:${line}` : ''}`] : [path] })}\n`)
+    return
+  }
   if (cli) {
     const args = isFile ? ['-g', `${path}${line ? `:${line}` : ''}`] : [path]
     await new Promise<void>((resolve) => execFile(cli, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } }, () => resolve()))
     return
   }
-  // Senza CLI: lo schema cursor:// apre il file alla riga; in ultima istanza l'app predefinita.
-  const opened = await shell.openExternal(`cursor://file${encodeURI(path)}${line ? `:${line}` : ''}`).then(() => true, () => false)
+  // Senza CLI: lo schema dell'editor apre il file alla riga; in ultima istanza l'app predefinita.
+  const scheme = editor === 'vscode' ? 'vscode' : 'cursor'
+  const opened = await shell.openExternal(`${scheme}://file${encodeURI(path)}${line ? `:${line}` : ''}`).then(() => true, () => false)
   if (!opened) await shell.openPath(path)
 })
 

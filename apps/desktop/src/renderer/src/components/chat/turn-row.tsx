@@ -191,7 +191,7 @@ const STATUS_LABEL: Record<FileChange['status'], string> = {
 }
 
 function ChangesCard({ end }: { end: TurnEndItem }) {
-  const { openFile } = useChatActions()
+  const { openFile, openDiff } = useChatActions()
   const added = end.files.reduce((n, f) => n + f.added, 0)
   const removed = end.files.reduce((n, f) => n + f.removed, 0)
   const count = end.files.length
@@ -203,6 +203,13 @@ function ChangesCard({ end }: { end: TurnEndItem }) {
         <span className="ml-auto font-mono text-[11.5px] font-medium">
           <span className="text-success">+{added}</span> <span className="text-destructive">−{removed}</span>
         </span>
+        <button
+          type="button"
+          onClick={() => openDiff(end.turnId)}
+          className="-my-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          Rivedi
+        </button>
       </div>
       <ul>
         {end.files.map((file) => {
@@ -213,8 +220,8 @@ function ChangesCard({ end }: { end: TurnEndItem }) {
             <li key={file.path} className="border-b border-border last:border-b-0 dark:border-input/50">
               <button
                 type="button"
-                onClick={() => openFile(file.path)}
-                title={`${STATUS_LABEL[file.status]} · ${file.path}`}
+                onClick={(event) => (event.altKey ? openFile(file.path, undefined, true) : openDiff(end.turnId, file.path))}
+                title={`${STATUS_LABEL[file.status]} · ${file.path}\nClic: diff del turno · ⌥clic: apri nell’editor`}
                 className="flex w-full min-w-0 items-center gap-2.5 px-3 py-[5px] text-left font-mono text-[11.5px] text-foreground/85 outline-none hover:bg-accent focus-visible:bg-accent"
               >
                 <span aria-label={STATUS_LABEL[file.status]} className="w-3 shrink-0 text-faint">

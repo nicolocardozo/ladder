@@ -1,0 +1,86 @@
+// Worktree delle sessioni e porte per cartella di lavoro.
+import { randomBytes } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { cp } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import type { Project, WorktreeInfo } from '@shared/protocol'
+import type { Db } from './db'
+import { addWorktree, resolveCommit } from './git'
+import { insideRoot } from './files'
+
+/** ~/Developer/.ladder/worktrees se esiste ~/Developer (come nel piano), altrimenti ~/.ladder/worktrees. LADDER_WORKTREES per le prove. */
+export function worktreesRoot(): string {
+  if (process.env.LADDER_WORKTREES) return process.env.LADDER_WORKTREES
+  const developer = join(homedir(), 'Developer')
+  return existsSync(developer) ? join(developer, '.ladder', 'worktrees') : join(homedir(), '.ladder', 'worktrees')
+}
+
+export function slugify(text: string): string {
+  const base = text
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .split('-')
+    .slice(0, 5)
+    .join('-')
+  return `${base || 'sessione'}-${randomBytes(2).toString('hex')}`
+}
+
+/** Crea `ladder/<slug>` in un worktree dal commit attuale del progetto e copia i file non tracciati indicati. */
+export async function createWorktree(project: Project, title: string, copy: string[]): Promise<{ info: WorktreeInfo; copied: string[]; missing: string[] }> {
+  const base = await resolveCommit(project.path, 'HEAD')
+  if (!base) throw new Error('Il progetto non ha ancora commit: un worktree parte da un commit.')
+  const slug = slugify(title)
+  const path = join(worktreesRoot(), project.name, slug)
+  const branch = `ladder/${slug}`
+  await addWorktree(project.path, path, branch, base)
+  const copied: string[] = []
+  const missing: string[] = []
+  for (const rel of copy) {
+    try {
+      const from = insideRoot(project.path, rel)
+      if (!existsSync(from)) {
+        missing.push(rel)
+        continue
+      }
+      await cp(from, insideRoot(path, rel), { recursive: true, force: false, errorOnExist: false })
+      copied.push(rel)
+    } catch {
+      missing.push(rel)
+    }
+  }
+  return { info: { path, branch, base }, copied, missing }
+}
+
+const PORT_BASE = 4100
+const PORT_BLOCK = 100
+
+/**
+ * Un blocco di porte per cartella di lavoro: LADDER_PORT è il primo. Il checkout principale ha 4100,
+ * ogni worktree il blocco successivo libero, così due dev server girano insieme.
+ */
+export class Ports {
+  constructor(private readonly db: Db) {}
+
+  private load(): Record<string, number> {
+    const row = this.db.prepare(`select value from kv where key = 'ports'`).get() as { value: string } | undefined
+    return row ? (JSON.parse(row.value) as Record<string, number>) : {}
+  }
+
+  allocate(cwd: string): number {
+    const slots = this.load()
+    if (slots[cwd] === undefined) {
+      const used = new Set(Object.values(slots))
+      let slot = 0
+      while (used.has(slot)) slot++
+      slots[cwd] = slot
+      this.db
+        .prepare(`insert into kv (key, value) values ('ports', ?) on conflict(key) do update set value = excluded.value`)
+        .run(JSON.stringify(slots))
+    }
+    return PORT_BASE + slots[cwd] * PORT_BLOCK
+  }
+}

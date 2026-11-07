@@ -14,7 +14,9 @@ export default defineConfig({
       externalizeDeps: false,
       rollupOptions: {
         // index: processo main; host: host delle sessioni, avviato come utilityProcess.
-        input: { index: resolve('src/main/index.ts'), host: resolve('src/host/index.ts') }
+        input: { index: resolve('src/main/index.ts'), host: resolve('src/host/index.ts') },
+        // Unica eccezione: node-pty è un modulo nativo e resta in node_modules (fuori dall'asar nella build).
+        external: ['node-pty']
       }
     }
   },

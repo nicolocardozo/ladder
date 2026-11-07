@@ -16,6 +16,19 @@ export type Lang =
   | 'python'
   | 'yaml'
   | 'sql'
+  | 'toml'
+  | 'go'
+  | 'rust'
+  | 'swift'
+  | 'scss'
+  | 'xml'
+  | 'java'
+  | 'ruby'
+  | 'kotlin'
+  | 'dockerfile'
+  | 'vue'
+  | 'svelte'
+  | 'graphql'
 
 const loaders: Record<Lang, () => Promise<{ default: unknown }>> = {
   typescript: () => import('shiki/langs/typescript.mjs'),
@@ -30,7 +43,20 @@ const loaders: Record<Lang, () => Promise<{ default: unknown }>> = {
   diff: () => import('shiki/langs/diff.mjs'),
   python: () => import('shiki/langs/python.mjs'),
   yaml: () => import('shiki/langs/yaml.mjs'),
-  sql: () => import('shiki/langs/sql.mjs')
+  sql: () => import('shiki/langs/sql.mjs'),
+  toml: () => import('shiki/langs/toml.mjs'),
+  go: () => import('shiki/langs/go.mjs'),
+  rust: () => import('shiki/langs/rust.mjs'),
+  swift: () => import('shiki/langs/swift.mjs'),
+  scss: () => import('shiki/langs/scss.mjs'),
+  xml: () => import('shiki/langs/xml.mjs'),
+  java: () => import('shiki/langs/java.mjs'),
+  ruby: () => import('shiki/langs/ruby.mjs'),
+  kotlin: () => import('shiki/langs/kotlin.mjs'),
+  dockerfile: () => import('shiki/langs/dockerfile.mjs'),
+  vue: () => import('shiki/langs/vue.mjs'),
+  svelte: () => import('shiki/langs/svelte.mjs'),
+  graphql: () => import('shiki/langs/graphql.mjs')
 }
 
 const ALIASES: Record<string, Lang> = {
@@ -66,7 +92,28 @@ const ALIASES: Record<string, Lang> = {
   python: 'python',
   yml: 'yaml',
   yaml: 'yaml',
-  sql: 'sql'
+  sql: 'sql',
+  toml: 'toml',
+  go: 'go',
+  rs: 'rust',
+  rust: 'rust',
+  swift: 'swift',
+  scss: 'scss',
+  sass: 'scss',
+  xml: 'xml',
+  svg: 'xml',
+  plist: 'xml',
+  java: 'java',
+  rb: 'ruby',
+  ruby: 'ruby',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  kotlin: 'kotlin',
+  dockerfile: 'dockerfile',
+  vue: 'vue',
+  svelte: 'svelte',
+  graphql: 'graphql',
+  gql: 'graphql'
 }
 
 /** Vero se il valore è il nome di un linguaggio (ts, bash…), non un percorso. */
@@ -79,6 +126,8 @@ export function resolveLang(value: string | null | undefined): Lang | null {
   if (!value) return null
   const key = value.toLowerCase()
   if (ALIASES[key]) return ALIASES[key]
+  const name = key.slice(key.lastIndexOf('/') + 1)
+  if (name === 'dockerfile' || name.startsWith('dockerfile.')) return 'dockerfile'
   const dot = key.lastIndexOf('.')
   return dot >= 0 ? (ALIASES[key.slice(dot + 1)] ?? null) : null
 }

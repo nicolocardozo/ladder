@@ -1,0 +1,486 @@
+// Pannello Modifiche: ambito (turno, sessione, non committate), file con +/−, diff unificato o affiancato,
+// commenti sulle righe inviati all'agente in un solo messaggio, ripristino di un file o di tutto con annullamento.
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, ChevronDown, ChevronRight, Columns2, ExternalLink, Eye, Rows3, Send, Undo2 } from 'lucide-react'
+import type { ChatItem, DiffResult, DiffScope, FileChange, FilePatch, SessionSummary } from '@shared/protocol'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { request, send } from '@/lib/host-client'
+import { cn } from '@/lib/utils'
+import { useApp, type InspectorRequest } from '@/store/app-store'
+import { commentsMessage, useComments, type LineComment } from './comments'
+import { DiffView } from './diff-view'
+import { useRestore } from './use-restore'
+import { openInEditor } from './open-file'
+
+const MODE_KEY = 'ladder.diff-mode'
+const NO_COMMENTS: LineComment[] = []
+/** Ambito scelto per cartella e sessione: resta quando cambi scheda e torni. */
+const rememberedScope = new Map<string, DiffScope>()
+/** Ultima richiesta esterna già applicata: rimontare il pannello non la riapplica. */
+let handledNonce = 0
+
+export function scopeKey(scope: DiffScope): string {
+  switch (scope.kind) {
+    case 'turn':
+      return `turn:${scope.turnId}`
+    case 'session':
+      return `session:${scope.sessionId}`
+    case 'uncommitted':
+      return 'uncommitted'
+    case 'commit':
+      return `commit:${scope.sha}`
+    case 'range':
+      return `range:${scope.from}..${scope.to}`
+  }
+}
+
+interface TurnOption {
+  turnId: string
+  label: string
+  files: number
+  index: number
+}
+
+/** Turni con file modificati, dal più recente, con il messaggio che li ha avviati. */
+function turnOptions(items: ChatItem[]): TurnOption[] {
+  const prompts = new Map<string, string>()
+  for (const item of items) if (item.kind === 'user' && !prompts.has(item.turnId)) prompts.set(item.turnId, item.text.split('\n')[0])
+  const ends = items.filter((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end')
+  return ends
+    .map((end, index) => ({ turnId: end.turnId, label: prompts.get(end.turnId) ?? 'Turno', files: end.files.length, index: index + 1 }))
+    .filter((t) => t.files > 0)
+    .reverse()
+}
+
+function readMode(): 'unified' | 'split' {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'split' ? 'split' : 'unified'
+  } catch {
+    return 'unified'
+  }
+}
+
+interface ChangesPanelProps {
+  projectId: string
+  root: string
+  isGit: boolean
+  session: SessionSummary | null
+  items: ChatItem[]
+  request: InspectorRequest | null
+}
+
+export function ChangesPanel({ projectId, root, isGit, session, items, request: openRequest }: ChangesPanelProps) {
+  const turns = useMemo(() => turnOptions(items), [items])
+  const defaultScope = (): DiffScope =>
+    session && turns[0] ? { kind: 'turn', sessionId: session.id, turnId: turns[0].turnId } : session ? { kind: 'session', sessionId: session.id } : { kind: 'uncommitted' }
+  const memoKey = `${root}|${session?.id ?? ''}`
+  const fresh = openRequest?.tab === 'changes' && openRequest.nonce > handledNonce ? openRequest : null
+  const [scope, setScopeState] = useState<DiffScope>(() => {
+    if (fresh) handledNonce = fresh.nonce
+    return fresh?.scope ?? rememberedScope.get(memoKey) ?? defaultScope()
+  })
+  const setScope = (next: DiffScope) => {
+    rememberedScope.set(memoKey, next)
+    setScopeState(next)
+  }
+  const [focusPath, setFocusPath] = useState<string | null>(fresh?.path ?? null)
+  const [mode, setMode] = useState(readMode)
+  const [result, setResult] = useState<DiffResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const version = useApp((s) => s.fsVersion[root] ?? 0)
+  const key = scopeKey(scope)
+  const live = scope.kind === 'session' || scope.kind === 'uncommitted' || (scope.kind === 'turn' && session?.run !== 'idle')
+  const commentScope = `${root}|${key}`
+  const comments = useComments((s) => s.byScope[commentScope] ?? NO_COMMENTS)
+  const { add, update, remove, clear } = useComments.getState()
+  const { restore, busy, banner } = useRestore(root)
+  const expandedFor = useRef<string | null>(null)
+
+  // Richiesta dall'esterno (card del turno, Cronologia): nuovo ambito e file da mostrare.
+  useEffect(() => {
+    if (!openRequest || openRequest.nonce <= handledNonce || openRequest.tab !== 'changes') return
+    handledNonce = openRequest.nonce
+    if (openRequest.scope) setScope(openRequest.scope)
+    setFocusPath(openRequest.path ?? null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest])
+
+  // Sessione cambiata: l'ambito torna quello predefinito per la nuova sessione.
+  const sessionId = session?.id ?? null
+  const firstRender = useRef(true)
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
+    setScopeState(rememberedScope.get(memoKey) ?? defaultScope())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
+
+  useEffect(() => {
+    if (!isGit) return
+    let cancelled = false
+    setLoading(true)
+    request<DiffResult>({ type: 'diff.files', root, scope })
+      .then((data) => {
+        if (cancelled) return
+        setResult(data)
+        setError(null)
+        // Nuovo ambito: aperti tutti i file se sono pochi. Un aggiornamento dello stesso ambito non tocca ciò che hai aperto.
+        if (expandedFor.current !== key) {
+          expandedFor.current = key
+          const next = new Set<string>()
+          if (data.files.length <= 5) for (const f of data.files) next.add(f.path)
+          if (focusPath) next.add(focusPath)
+          setExpanded(next)
+        }
+      })
+      .catch((e: Error) => {
+        if (!cancelled) {
+          setError(e.message)
+          setResult(null)
+        }
+      })
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root, key, isGit, live ? version : 0, live ? session?.run : null])
+
+  // Il file richiesto si apre e scorre in vista.
+  useEffect(() => {
+    if (!focusPath || !result) return
+    setExpanded((current) => new Set(current).add(focusPath))
+    requestAnimationFrame(() => document.getElementById(`diff-file-${cssId(focusPath)}`)?.scrollIntoView({ block: 'start' }))
+  }, [focusPath, result])
+
+  const changeMode = (next: 'unified' | 'split') => {
+    setMode(next)
+    try {
+      localStorage.setItem(MODE_KEY, next)
+    } catch {
+      // Preferenza solo di questa finestra.
+    }
+  }
+
+  if (!isGit) return <PanelNote>Il progetto non è un repository git: le modifiche si vedono quando la cartella usa git.</PanelNote>
+
+  const running = session ? session.run === 'running' || session.run === 'waiting' || session.run === 'starting' : false
+  const scopeLabel = (() => {
+    if (scope.kind === 'turn') {
+      const t = turns.find((x) => x.turnId === scope.turnId)
+      return t ? `Turno ${t.index} · ${t.label}` : 'Turno'
+    }
+    if (scope.kind === 'session') return 'Tutta la sessione'
+    if (scope.kind === 'uncommitted') return 'Non committate'
+    if (scope.kind === 'commit') return `Commit ${scope.sha.slice(0, 7)}`
+    return scope.label
+  })()
+  const restoreLabel =
+    scope.kind === 'turn'
+      ? 'Riportato a prima del turno'
+      : scope.kind === 'session'
+        ? 'Riportato a prima della sessione'
+        : scope.kind === 'uncommitted'
+          ? 'Scartate le modifiche non committate'
+          : 'Riportato allo stato precedente'
+  const files = result?.files ?? []
+  const added = files.reduce((n, f) => n + f.added, 0)
+  const removed = files.reduce((n, f) => n + f.removed, 0)
+  const canComment = Boolean(session)
+
+  const sendComments = () => {
+    if (!session || comments.length === 0) return
+    const text = commentsMessage(comments)
+    if (session.mode === 'terminal') {
+      // Nella TUI dell'agente il testo arriva come incolla: resta nel prompt, lo invii tu.
+      if (session.terminalId) send({ type: 'terminal.input', id: session.terminalId, data: `\x1b[200~${text}\x1b[201~` })
+    } else {
+      void request({ type: 'session.send', sessionId: session.id, text })
+    }
+    clear(commentScope)
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger className="inline-flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-[12.5px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent">
+            <span className="truncate">{scopeLabel}</span>
+            <ChevronDown className="size-3 shrink-0 text-faint" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-80" align="start">
+            {session && turns.length > 0 && (
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Turni della sessione</DropdownMenuLabel>
+                {turns.slice(0, 20).map((t) => (
+                  <DropdownMenuItem key={t.turnId} onClick={() => setScope({ kind: 'turn', sessionId: session.id, turnId: t.turnId })}>
+                    <Check className={cn('size-3.5', key === `turn:${t.turnId}` ? '' : 'opacity-0')} />
+                    <span className="min-w-0 flex-1 truncate">
+                      Turno {t.index} · {t.label}
+                    </span>
+                    <span className="text-[11px] text-faint">{t.files} file</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            )}
+            {session && turns.length > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuGroup>
+              {session && (
+                <DropdownMenuItem onClick={() => setScope({ kind: 'session', sessionId: session.id })}>
+                  <Check className={cn('size-3.5', scope.kind === 'session' ? '' : 'opacity-0')} />
+                  Tutta la sessione
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => setScope({ kind: 'uncommitted' })}>
+                <Check className={cn('size-3.5', scope.kind === 'uncommitted' ? '' : 'opacity-0')} />
+                Non committate (rispetto a HEAD)
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div className="ml-auto flex items-center gap-0.5">
+          <ToolbarButton label="Vista unificata" active={mode === 'unified'} onClick={() => changeMode('unified')}>
+            <Rows3 className="size-3.5" />
+          </ToolbarButton>
+          <ToolbarButton label="Vista affiancata" active={mode === 'split'} onClick={() => changeMode('split')}>
+            <Columns2 className="size-3.5" />
+          </ToolbarButton>
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2 px-3 py-1.5 text-[12px] text-muted-foreground">
+        <span>
+          {loading && !result ? 'Calcolo il diff…' : files.length === 1 ? '1 file' : `${files.length} file`}
+          {files.length > 0 && (
+            <span className="ml-2 font-mono">
+              <span className="text-success">+{added}</span> <span className="text-destructive">−{removed}</span>
+            </span>
+          )}
+          {result?.live && <span className="ml-2 text-faint">· fino a ora</span>}
+        </span>
+        {files.length > 0 && result && (
+          <button
+            type="button"
+            disabled={running || busy}
+            title={running ? 'La sessione sta lavorando: fermala prima di ripristinare.' : 'Riporta tutti questi file allo stato di partenza. Puoi annullare.'}
+            onClick={() => void restore(result.from, files.flatMap((f) => (f.oldPath ? [f.oldPath, f.path] : [f.path])), restoreLabel)}
+            className="ml-auto inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[12px] outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          >
+            <Undo2 className="size-3.5" />
+            Ripristina tutto
+          </button>
+        )}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {error && <PanelNote tone="error">{error}</PanelNote>}
+        {result && files.length === 0 && !error && <PanelNote>Nessuna modifica in questo ambito.</PanelNote>}
+        {result &&
+          files.map((file) => (
+            <FileSection
+              key={`${key}:${file.path}`}
+              projectId={projectId}
+              root={root}
+              file={file}
+              from={result.from}
+              to={result.to}
+              mode={mode}
+              open={expanded.has(file.path)}
+              onToggle={() =>
+                setExpanded((current) => {
+                  const next = new Set(current)
+                  if (next.has(file.path)) next.delete(file.path)
+                  else next.add(file.path)
+                  return next
+                })
+              }
+              comments={comments.filter((c) => c.path === file.path)}
+              onAddComment={
+                canComment
+                  ? (line, text) =>
+                      add(commentScope, {
+                        path: file.path,
+                        side: line.kind === 'del' ? 'old' : 'new',
+                        line: (line.kind === 'del' ? line.oldNo : line.newNo) ?? 0,
+                        code: line.text,
+                        text
+                      })
+                  : undefined
+              }
+              onUpdateComment={(id, text) => update(commentScope, id, text)}
+              onDeleteComment={(id) => remove(commentScope, id)}
+              restoreDisabled={running || busy}
+              onRestore={() => void restore(result.from, file.oldPath ? [file.oldPath, file.path] : [file.path], `${restoreLabel} · ${baseName(file.path)}`)}
+            />
+          ))}
+      </div>
+
+      {comments.length > 0 && session && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-border bg-muted/60 px-3 py-2 text-[12.5px]">
+          <span className="min-w-0 flex-1">{comments.length === 1 ? '1 commento' : `${comments.length} commenti`}</span>
+          <button type="button" onClick={() => clear(commentScope)} className="h-7 rounded-md px-2 text-muted-foreground outline-none hover:bg-accent">
+            Scarta
+          </button>
+          <button
+            type="button"
+            onClick={sendComments}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <Send className="size-3.5" />
+            {session.mode === 'terminal' ? 'Scrivi nel terminale' : 'Invia all’agente'}
+          </button>
+        </div>
+      )}
+      {banner}
+    </div>
+  )
+}
+
+function cssId(path: string): string {
+  return path.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+const STATUS: Record<FileChange['status'], string> = { A: 'Aggiunto', M: 'Modificato', D: 'Eliminato', R: 'Rinominato' }
+const patchCache = new Map<string, FilePatch>()
+
+interface FileSectionProps {
+  projectId: string
+  root: string
+  file: FileChange
+  from: string
+  to: string
+  mode: 'unified' | 'split'
+  open: boolean
+  onToggle: () => void
+  comments: LineComment[]
+  onAddComment?: Parameters<typeof DiffView>[0]['onAddComment']
+  onUpdateComment: (id: string, text: string) => void
+  onDeleteComment: (id: string) => void
+  restoreDisabled: boolean
+  onRestore: () => void
+}
+
+function FileSection(props: FileSectionProps) {
+  const { projectId, root, file, from, to, mode, open, onToggle, comments, restoreDisabled, onRestore } = props
+  const cacheKey = `${root}|${from}..${to}|${file.path}`
+  const [patch, setPatch] = useState<FilePatch | null>(() => patchCache.get(cacheKey) ?? null)
+  const [error, setError] = useState<string | null>(null)
+  const openInspector = useApp((s) => s.openInspector)
+
+  useEffect(() => {
+    if (!open) return
+    const cached = patchCache.get(cacheKey)
+    if (cached) {
+      setPatch(cached)
+      return
+    }
+    let cancelled = false
+    request<FilePatch>({ type: 'diff.file', root, from, to, path: file.path, oldPath: file.oldPath ?? null })
+      .then((data) => {
+        patchCache.set(cacheKey, data)
+        if (patchCache.size > 200) patchCache.delete(patchCache.keys().next().value as string)
+        if (!cancelled) setPatch(data)
+      })
+      .catch((e: Error) => !cancelled && setError(e.message))
+    return () => {
+      cancelled = true
+    }
+  }, [open, cacheKey, root, from, to, file.path, file.oldPath])
+
+  const slash = file.path.lastIndexOf('/')
+  const dir = slash >= 0 ? file.path.slice(0, slash + 1) : ''
+  const base = file.path.slice(slash + 1)
+
+  return (
+    <section id={`diff-file-${cssId(file.path)}`} className="border-b border-border">
+      <div className="sticky top-0 z-[1] flex h-8 items-center gap-1 bg-background/95 pr-1 pl-1.5 backdrop-blur">
+        <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+          {open ? <ChevronDown className="size-3.5 shrink-0 text-faint" /> : <ChevronRight className="size-3.5 shrink-0 text-faint" />}
+          <span aria-label={STATUS[file.status]} title={STATUS[file.status]} className="w-3 shrink-0 font-mono text-[11px] text-faint">
+            {file.status}
+          </span>
+          <span className="flex min-w-0 font-mono text-[11.5px]" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
+            {dir && <span className="min-w-0 truncate text-muted-foreground">{dir}</span>}
+            <span className="shrink-0">{base}</span>
+          </span>
+          <span className="ml-auto flex shrink-0 gap-1.5 pl-2 font-mono text-[11px] tabular-nums">
+            {file.binary ? <span className="text-faint">binario</span> : null}
+            {file.added > 0 && <span className="text-success">+{file.added}</span>}
+            {file.removed > 0 && <span className="text-destructive">−{file.removed}</span>}
+          </span>
+        </button>
+        {file.status !== 'D' && (
+          <ToolbarButton label="Apri nel viewer" onClick={() => openInspector(projectId, 'files', { path: file.path })}>
+            <Eye className="size-3.5" />
+          </ToolbarButton>
+        )}
+        {file.status !== 'D' && (
+          <ToolbarButton label="Apri nell’editor" onClick={() => openInEditor(projectId, `${root}/${file.path}`)}>
+            <ExternalLink className="size-3.5" />
+          </ToolbarButton>
+        )}
+        <ToolbarButton label={restoreDisabled ? 'La sessione sta lavorando' : 'Ripristina questo file'} disabled={restoreDisabled} onClick={onRestore}>
+          <Undo2 className="size-3.5" />
+        </ToolbarButton>
+      </div>
+      {open &&
+        (error ? (
+          <PanelNote tone="error">{error}</PanelNote>
+        ) : patch ? (
+          <DiffView
+            patch={patch}
+            mode={mode}
+            comments={comments}
+            onAddComment={props.onAddComment}
+            onUpdateComment={props.onUpdateComment}
+            onDeleteComment={props.onDeleteComment}
+          />
+        ) : (
+          <p className="px-3 py-2 text-[12px] text-muted-foreground">Carico il diff…</p>
+        ))}
+    </section>
+  )
+}
+
+export function ToolbarButton({
+  label,
+  active,
+  disabled,
+  onClick,
+  children
+}: {
+  label: string
+  active?: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-40',
+        active && 'bg-accent text-foreground'
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function PanelNote({ children, tone }: { children: React.ReactNode; tone?: 'error' }) {
+  return <p className={cn('px-3 py-3 text-[12.5px]', tone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>{children}</p>
+}

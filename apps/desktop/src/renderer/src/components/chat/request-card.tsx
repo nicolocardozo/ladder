@@ -140,7 +140,7 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
       ) : item.path ? (
         <button
           type="button"
-          onClick={() => item.path && openFile(item.path)}
+          onClick={(event) => item.path && openFile(item.path, undefined, event.altKey)}
           className="flex min-w-0 items-center gap-2 rounded-[7px] border border-border bg-[var(--chat-code-bg)] px-2.5 py-2 text-left font-mono text-[12.5px] text-foreground outline-none hover:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/50 dark:border-input/60"
         >
           <File aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />

@@ -1,17 +1,4 @@
-import {
-  ChevronLeft,
-  ChevronRight,
-  Ellipsis,
-  Folder,
-  FolderOpen,
-  FolderPlus,
-  Inbox,
-  PanelLeft,
-  Search,
-  Settings,
-  SquarePen,
-  type LucideIcon
-} from 'lucide-react'
+import { ChevronLeft, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, GitFork, Inbox, PanelLeft, Search, Settings, SquarePen, SquareTerminal, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Project, SessionSummary } from '@shared/protocol'
 import { IconButton } from '@/components/icon-button'
@@ -232,7 +219,7 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
               aria-current={selected ? 'page' : undefined}
               onClick={() => select({ kind: 'session', projectId: project.id, sessionId: session.id })}
               onDoubleClick={() => startRename(session.id)}
-              title={session.activity ?? session.title}
+              title={[session.title, session.activity, session.estimated ? 'stato stimato' : null, session.worktree?.branch].filter(Boolean).join(' · ')}
               className={cn(
                 'relative grid min-h-7 w-full grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md py-1 pr-2 pl-2.5 text-left text-[12.5px] outline-none',
                 'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
@@ -246,7 +233,11 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
               <span className="grid place-items-center">
                 <SessionGlyph state={state} />
               </span>
-              <span className={cn('truncate', state === 'unread' && 'font-semibold text-sidebar-accent-foreground')}>{session.title}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className={cn('truncate', state === 'unread' && 'font-semibold text-sidebar-accent-foreground')}>{session.title}</span>
+                {session.mode === 'terminal' && <SquareTerminal aria-label="Sessione terminale" className="size-3 shrink-0 text-faint" />}
+                {session.worktree && <GitFork aria-label={`Worktree ${session.worktree.branch}`} className="size-3 shrink-0 text-faint" />}
+              </span>
               {/* Lascia il posto al pulsante "…" quando la riga è sotto il puntatore o ha il focus. */}
               <span
                 className={cn(

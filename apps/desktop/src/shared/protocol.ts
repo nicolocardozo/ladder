@@ -2,6 +2,8 @@
 // L'host è la fonte di verità: il renderer riceve progetti, sessioni ed elementi della chat già pronti.
 
 export type AgentId = 'claude-code' | 'codex'
+/** Chat: l'agente parla con Ladder. Terminale: la CLI originale gira in un PTY. */
+export type SessionMode = 'chat' | 'terminal'
 export type PermissionLevel = 'plan' | 'ask' | 'edit' | 'full'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -51,13 +53,32 @@ export interface SessionSummary {
   archived: boolean
   queue: QueuedMessage[]
   context: { used: number; window: number } | null
+  mode: SessionMode
+  /** Cartella in cui lavora la sessione: il checkout principale o il suo worktree. */
+  cwd: string
+  worktree: WorktreeInfo | null
+  /** Sessione terminale: comando avviato (claude, codex, …) e terminale che lo ospita. */
+  command: string | null
+  terminalId: string | null
+  /** Lo stato viene da euristiche (output, campanello), non da segnali dell'agente. */
+  estimated: boolean
+}
+
+export interface WorktreeInfo {
+  path: string
+  branch: string
+  /** Commit da cui è partito il worktree. */
+  base: string
 }
 
 export interface FileChange {
   path: string
+  /** Percorso prima della rinomina. */
+  oldPath?: string
   added: number
   removed: number
   status: 'A' | 'M' | 'D' | 'R'
+  binary?: boolean
 }
 
 export type ToolKind = 'command' | 'read' | 'edit' | 'search' | 'web' | 'agent' | 'plan' | 'other'
@@ -122,6 +143,8 @@ export type ChatItem =
       files: FileChange[]
       error: string | null
       costUsd: number | null
+      /** Checkpoint git di inizio e fine turno: servono al diff e al ripristino. */
+      checkpoints?: { start: string; end: string } | null
     })
   | (ItemBase & { kind: 'notice'; tone: 'info' | 'error'; text: string })
 
@@ -137,11 +160,120 @@ export interface AgentStatus {
   error: string | null
 }
 
+export type InspectorTab = 'changes' | 'files' | 'history'
+export type EditorId = 'cursor' | 'vscode'
+
 export interface ProjectUiState {
   tabs: string[]
   activeTab: string | null
   /** Ancora di lettura per sessione: elemento in cima alla vista e scostamento in pixel. */
   scroll: Record<string, { itemId: string; offset: number }>
+  /** Ispettore a destra (Modifiche, File, Cronologia) e pannello terminale in basso. */
+  inspector?: { open: boolean; tab: InspectorTab }
+  terminal?: { open: boolean; height: number; active: string | null }
+  /** Editor esterno preferito per il progetto. */
+  editor?: EditorId
+}
+
+// ── File, diff e cronologia ──────────────────────────────────────────────
+
+export type GitStatusCode = 'M' | 'A' | 'D' | '?' | 'U'
+
+export interface FileTree {
+  root: string
+  isGit: boolean
+  /** Percorsi relativi: tracciati più non tracciati non ignorati. */
+  files: string[]
+  status: Record<string, GitStatusCode>
+  truncated: boolean
+}
+
+export interface FileContent {
+  path: string
+  size: number
+  binary: boolean
+  tooLarge: boolean
+  text: string | null
+}
+
+/** Ambito del pannello Modifiche. */
+export type DiffScope =
+  | { kind: 'turn'; sessionId: string; turnId: string }
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'uncommitted' }
+  | { kind: 'commit'; sha: string }
+  | { kind: 'range'; from: string; to: string; label: string }
+
+export interface DiffResult {
+  root: string
+  from: string
+  to: string
+  files: FileChange[]
+  /** Il lato "dopo" è lo stato attuale dei file: cambia mentre lavori. */
+  live: boolean
+}
+
+export interface FilePatch {
+  path: string
+  oldPath: string | null
+  /** Diff unificato di git, con 3 righe di contesto. */
+  patch: string
+  oldText: string | null
+  newText: string | null
+  binary: boolean
+  tooLarge: boolean
+}
+
+export interface HistoryEntry {
+  id: string
+  kind: 'turn' | 'commit' | 'restore'
+  at: number
+  title: string
+  /** Titolo della sessione o autore del commit. */
+  detail: string | null
+  sessionId: string | null
+  turnId: string | null
+  /** Stato a cui si può tornare con "Ripristina". */
+  sha: string
+  /** Modifiche di questo punto. */
+  diff: { from: string; to: string } | null
+  files: number | null
+}
+
+// ── Terminali e configurazione del progetto ──────────────────────────────
+
+export interface TerminalInfo {
+  id: string
+  projectId: string
+  /** Sessione a cui appartiene: la sessione terminale stessa, o quella da cui è partita un'azione. */
+  sessionId: string | null
+  /** shell: pannello in basso; run: azione di avvio o setup; agent: CLI di una sessione terminale. */
+  kind: 'shell' | 'run' | 'agent'
+  title: string
+  cwd: string
+  command: string | null
+  /** stopped: ripristinato dopo un riavvio di Ladder, il processo non c'è più. */
+  state: 'running' | 'exited' | 'stopped'
+  exitCode: number | null
+  createdAt: number
+  /** LADDER_PORT passato al processo. */
+  port: number | null
+}
+
+export interface RunAction {
+  name: string
+  command: string
+  default: boolean
+  concurrent: boolean
+}
+
+export interface ProjectSettings {
+  worktree: { setup: string | null; copy: string[]; ports: number; archive: string | null }
+  run: RunAction[]
+  prompts: Record<string, string>
+  /** File letti, relativi alla radice del progetto. */
+  sources: string[]
+  errors: string[]
 }
 
 /** Chiave delle bozze: id della sessione oppure `new:<projectId>` per la nuova chat. */
@@ -160,7 +292,14 @@ export type HostCommand =
       effort: Effort | null
       permission: PermissionLevel
       attachments?: Attachment[]
+      /** Sessione terminale: comando da avviare al posto della chat. */
+      mode?: SessionMode
+      command?: string
+      /** Lavora in un nuovo worktree invece che nel checkout principale. */
+      worktree?: boolean
     }
+  /** Sessione terminale ferma (dopo un riavvio o un'uscita): riavvia la CLI, riprendendo la conversazione se può. */
+  | { type: 'session.resume'; sessionId: string }
   | { type: 'session.send'; sessionId: string; text: string; attachments?: Attachment[] }
   | { type: 'session.rename'; sessionId: string; title: string }
   | { type: 'session.unread'; sessionId: string }
@@ -176,6 +315,27 @@ export type HostCommand =
   | { type: 'session.archive'; sessionId: string }
   | { type: 'draft.set'; key: DraftKey; text: string }
   | { type: 'ui.set'; projectId: string; state: ProjectUiState }
+  // File, diff e cronologia. `root` è la cartella di un progetto o di una sessione (worktree).
+  | { type: 'fs.tree'; root: string }
+  | { type: 'fs.read'; root: string; path: string }
+  | { type: 'fs.watch'; root: string; on: boolean }
+  | { type: 'diff.files'; root: string; scope: DiffScope }
+  | { type: 'diff.file'; root: string; from: string; to: string; path: string; oldPath?: string | null }
+  /** Riporta i file allo stato di `to`. Restituisce il checkpoint per annullare. */
+  | { type: 'git.restore'; root: string; to: string; paths?: string[]; label: string }
+  | { type: 'history.list'; root: string; sessionId?: string | null }
+  // Terminali.
+  | { type: 'terminal.create'; projectId: string; sessionId?: string | null; cwd?: string }
+  | { type: 'terminal.attach'; id: string; cols: number; rows: number }
+  | { type: 'terminal.input'; id: string; data: string }
+  | { type: 'terminal.resize'; id: string; cols: number; rows: number }
+  | { type: 'terminal.close'; id: string }
+  | { type: 'terminal.restart'; id: string }
+  /** Ultime righe del terminale come testo semplice, per @terminal. */
+  | { type: 'terminal.output'; id: string; lines?: number }
+  // Configurazione del progetto (.ladder/settings.toml) e azioni di avvio.
+  | { type: 'project.settings'; projectId: string }
+  | { type: 'run.start'; projectId: string; sessionId?: string | null; name: string }
 
 export type HostEvent =
   | {
@@ -185,12 +345,18 @@ export type HostEvent =
       drafts: Record<DraftKey, string>
       ui: Record<string, ProjectUiState>
       agents: AgentStatus[]
+      terminals: TerminalInfo[]
     }
   | { type: 'project.upsert'; project: Project }
   | { type: 'project.removed'; projectId: string }
   | { type: 'session.upsert'; session: SessionSummary }
   | { type: 'session.items'; sessionId: string; items: ChatItem[]; replace: boolean }
   | { type: 'agent.status'; status: AgentStatus }
+  | { type: 'terminal.upsert'; terminal: TerminalInfo }
+  | { type: 'terminal.removed'; id: string }
+  | { type: 'terminal.data'; id: string; data: string }
+  /** Qualcosa è cambiato nella cartella: albero, stato git e diff "attuali" vanno riletti. */
+  | { type: 'fs.changed'; root: string }
 
 /** Messaggi sul canale renderer ↔ host. I comandi con `rid` ricevono una risposta con lo stesso id. */
 export type ToHost = { rid?: string; command: HostCommand }

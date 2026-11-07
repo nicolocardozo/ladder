@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { AppSidebar } from '@/components/app-sidebar'
 import { CommandPalette } from '@/components/command-palette'
 import { NewChat, SessionView } from '@/components/main-views'
+import { QuickOpen } from '@/components/quick-open'
+import { focusNextTerminal } from '@/lib/terminal-registry'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { useSettings } from '@/hooks/use-theme'
@@ -43,23 +45,48 @@ export function App() {
     }
   }, [])
 
-  // Scorciatoie globali: ⌘K comandi, ⌘B sidebar, ⌘[ ⌘] indietro e avanti, ⌘N nuova chat,
-  // ⌘1…9 progetti, ⌘W chiude la tab, ⌘. ferma la sessione aperta.
+  // Scorciatoie globali: ⌘K comandi, ⌘P file, ⌘B sidebar, ⌘[ ⌘] indietro e avanti, ⌘N nuova chat,
+  // ⌘1…9 progetti, ⌘⌥1…3 ispettore, ⌃` terminale, ⌘W chiude la tab, ⌘. ferma la sessione aperta.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.ctrlKey) return
       const state = useApp.getState()
+      const projectId = state.selection.projectId
+      // ⌃` (il tasto a sinistra dell'1, su qualunque tastiera): pannello terminale del progetto.
+      if (event.ctrlKey && !event.metaKey && event.code === 'Backquote') {
+        event.preventDefault()
+        if (!projectId || state.paletteOpen || state.quickOpen) return
+        const open = Boolean(state.ui[projectId]?.terminal?.open)
+        if (!open) focusNextTerminal()
+        state.setTerminalPanel(projectId, { open: !open })
+        return
+      }
+      if (!event.metaKey || event.ctrlKey) return
       const { selection: current, select } = state
       const key = event.key.toLowerCase()
       const plain = !event.shiftKey && !event.altKey
 
       if (plain && key === 'k') {
         event.preventDefault()
+        state.setQuickOpen(false)
         state.setPaletteOpen(!state.paletteOpen)
         return
       }
+      if (plain && key === 'p') {
+        event.preventDefault()
+        state.setPaletteOpen(false)
+        state.setQuickOpen(!state.quickOpen)
+        return
+      }
       // Con la palette aperta le altre scorciatoie aspettano: agirebbero sotto la finestra di dialogo.
-      if (state.paletteOpen) return
+      if (state.paletteOpen || state.quickOpen) return
+
+      // ⌘⌥1…3: Modifiche, File, Cronologia. Con ⌥ event.key cambia carattere: conta il tasto fisico.
+      if (event.altKey && !event.shiftKey && projectId && /^Digit[123]$/.test(event.code)) {
+        event.preventDefault()
+        const tab = (['changes', 'files', 'history'] as const)[Number(event.code.slice(5)) - 1]
+        state.toggleInspector(projectId, tab)
+        return
+      }
 
       if (plain && key === 'b') {
         event.preventDefault()
@@ -125,6 +152,7 @@ export function App() {
         )}
       </div>
       <CommandPalette />
+      <QuickOpen />
       <SettingsDialog />
     </TooltipProvider>
   )

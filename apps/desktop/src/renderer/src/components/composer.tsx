@@ -14,13 +14,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { permissionLevels } from '@/lib/agents'
-import { send } from '@/lib/host-client'
+import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 import { acceptImages, AttachmentStrip, IMAGE_ACCEPT, imagePlaceholder, MAX_IMAGES, toAttachment, type PendingImage } from '@/components/composer/attachments'
 import { caretCoordinates } from '@/components/composer/caret'
-import { findMention, mentionToken, rankFiles, refreshProjectFiles, useProjectFiles, type FileEntry } from '@/components/composer/file-index'
-import { MentionPicker, optionId } from '@/components/composer/mention-picker'
+import { findMention, mentionToken, rankFiles, refreshProjectFiles, useProjectFiles } from '@/components/composer/file-index'
+import { MentionPicker, optionId, type MentionOption } from '@/components/composer/mention-picker'
 import { QueueList } from '@/components/composer/queue-list'
 
 const EFFORTS: { id: Effort; label: string }[] = [
@@ -57,7 +57,10 @@ interface ComposerProps {
   className?: string
 }
 
-const NO_FILES: FileEntry[] = []
+const NO_OPTIONS: MentionOption[] = []
+
+/** Token di @terminal nel testo: il titolo senza spazi. */
+const terminalToken = (title: string) => `@terminal:${title.trim().replace(/\s+/g, '-') || 'terminale'}`
 
 const chip =
   'no-drag inline-flex h-7 items-center gap-1.5 rounded-md border border-input/70 px-2 text-[12px] text-secondary-foreground outline-none ' +
@@ -86,10 +89,27 @@ export function Composer(props: ComposerProps) {
   const [pickerStyle, setPickerStyle] = useState<{ left: number; bottom: number; width: number } | null>(null)
   const listId = useId()
   const files = useProjectFiles(projectId)
+  const allTerminals = useApp((s) => s.terminals)
   const mention = useMemo(() => (caret === null ? null : findMention(text, caret)), [text, caret])
   const pickerOpen = mention !== null && focused && !disabled && mention.start !== dismissed
   const query = pickerOpen ? mention.query : null
-  const results = useMemo(() => (query === null ? NO_FILES : rankFiles(files, query)), [files, query])
+  // Terminali citabili con @terminal: compaiono quando scrivi "te…" o parte del loro nome.
+  const terminalRefs = useRef(new Map<string, string>())
+  const results = useMemo<MentionOption[]>(() => {
+    if (query === null) return NO_OPTIONS
+    const lower = query.toLowerCase()
+    const explicit = lower.startsWith('terminal:')
+    const name = explicit ? lower.slice('terminal:'.length) : lower
+    const allOfThem = explicit ? !name : lower.length >= 2 && 'terminal'.startsWith(lower)
+    const terminals: MentionOption[] = Object.values(allTerminals)
+      .filter((t) => t.projectId === projectId)
+      .filter((t) => allOfThem || (name.length >= 2 && t.title.toLowerCase().includes(name)))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 4)
+      .map((t) => ({ kind: 'terminal', id: t.id, title: t.title, detail: t.command ?? t.cwd }))
+    const fileResults: MentionOption[] = explicit ? [] : rankFiles(files, query).map((entry) => ({ kind: 'file', entry }))
+    return [...terminals, ...fileResults]
+  }, [files, query, allTerminals, projectId])
   const activeIndex = active.query === query ? Math.min(active.index, Math.max(0, results.length - 1)) : 0
 
   // Immagini allegate.
@@ -159,9 +179,13 @@ export function Composer(props: ComposerProps) {
     setCaret(el.selectionStart === el.selectionEnd ? el.selectionStart : null)
   }
 
-  const insertMention = (entry: FileEntry) => {
+  const insertMention = (option: MentionOption) => {
     if (!mention || caret === null) return
-    const token = mentionToken(entry.path)
+    let token: string
+    if (option.kind === 'terminal') {
+      token = terminalToken(option.title)
+      terminalRefs.current.set(token, option.id)
+    } else token = mentionToken(option.entry.path)
     const after = text.slice(caret)
     const spaced = /^\s/.test(after)
     pendingCaret.current = mention.start + token.length + 1
@@ -232,13 +256,52 @@ export function Composer(props: ComposerProps) {
   const canSend = !disabled && (text.trim().length > 0 || images.length > 0)
   const idle = !text.trim() && images.length === 0
 
+  /** @terminal:nome diventa un riferimento nel testo, e l'output del terminale va in fondo al messaggio. */
+  const expandTerminals = async (value: string): Promise<string> => {
+    const tokens = [...new Set(value.match(/@terminal:[^\s]+/g) ?? [])]
+    if (tokens.length === 0) return value
+    const blocks: string[] = []
+    let body = value
+    for (const token of tokens) {
+      const title = token.slice('@terminal:'.length)
+      const id =
+        terminalRefs.current.get(token) ??
+        Object.values(useApp.getState().terminals).find((t) => t.projectId === projectId && terminalToken(t.title) === token)?.id
+      if (!id) continue
+      const output = await request<string>({ type: 'terminal.output', id, lines: 200 }).catch(() => null)
+      if (output === null) continue
+      body = body.split(token).join(`il terminale “${title}” (output in fondo)`)
+      blocks.push(`Output del terminale “${title}” (ultime righe):\n\n\`\`\`text\n${output}\n\`\`\``)
+    }
+    return blocks.length ? `${body}\n\n${blocks.join('\n\n')}` : body
+  }
+
   const submit = () => {
     if (!canSend) return
-    onSubmit(text.trim() || imagePlaceholder(images.length), images.map(toAttachment))
+    const value = text.trim() || imagePlaceholder(images.length)
+    const attachments = images.map(toAttachment)
     updateText('')
     setImages([])
     setNotice(null)
+    void expandTerminals(value).then((expanded) => onSubmit(expanded, attachments))
   }
+
+  // Testo da "Aggiungi alla chat" (viewer, terminale): va al cursore, o in fondo, e il focus torna qui.
+  const insertRequest = useApp((s) => (s.composerInsert?.key === draftKey ? s.composerInsert : null))
+  const handledInsert = useRef(insertRequest?.nonce ?? 0)
+  useEffect(() => {
+    if (!insertRequest || insertRequest.nonce === handledInsert.current) return
+    handledInsert.current = insertRequest.nonce
+    const el = textarea.current
+    const at = el && document.activeElement === el ? el.selectionStart : text.length
+    const before = text.slice(0, at)
+    const glue = before && !before.endsWith('\n') ? '\n' : ''
+    const value = before + glue + insertRequest.text + text.slice(at)
+    pendingCaret.current = (before + glue + insertRequest.text).length
+    updateText(value)
+    el?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insertRequest])
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return // accenti e tasti morti: non intercettare durante la composizione

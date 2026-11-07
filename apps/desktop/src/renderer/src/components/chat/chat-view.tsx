@@ -33,7 +33,8 @@ export interface ChatViewProps {
    */
   onAnchorChange: (anchor: ChatAnchor) => void
   onRespond: (requestId: string, response: RequestResponse) => void
-  onOpenFile: (path: string, line?: number) => void
+  onOpenFile: (path: string, line?: number, external?: boolean) => void
+  onOpenDiff?: (turnId: string, path?: string) => void
 }
 
 const PADDING_START = 20
@@ -61,7 +62,8 @@ function ChatViewInner({
   initialAnchor,
   onAnchorChange,
   onRespond,
-  onOpenFile
+  onOpenFile,
+  onOpenDiff
 }: ChatViewProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -70,14 +72,15 @@ function ChatViewInner({
   const turnsRef = useRef(turns)
   turnsRef.current = turns
 
-  const callbacks = useRef({ onAnchorChange, onRespond, onOpenFile })
+  const callbacks = useRef({ onAnchorChange, onRespond, onOpenFile, onOpenDiff })
   useLayoutEffect(() => {
-    callbacks.current = { onAnchorChange, onRespond, onOpenFile }
+    callbacks.current = { onAnchorChange, onRespond, onOpenFile, onOpenDiff }
   })
 
   const actions = useMemo<ChatActions>(
     () => ({
-      openFile: (path, line) => callbacks.current.onOpenFile(path, line),
+      openFile: (path, line, external) => callbacks.current.onOpenFile(path, line, external),
+      openDiff: (turnId, path) => callbacks.current.onOpenDiff?.(turnId, path),
       respond: (requestId, response) => callbacks.current.onRespond(requestId, response),
       canTakeFocus: () => {
         const active = document.activeElement

@@ -1,7 +1,8 @@
 // Stato del renderer: copia di ciò che l'host pubblica più lo stato dell'interfaccia (selezione, cartelle aperte).
 import { create } from 'zustand'
 import { request, send } from '@/lib/host-client'
-import type { AgentStatus, ChatItem, HostEvent, Project, ProjectUiState, SessionSummary } from '@shared/protocol'
+import type { AgentStatus, ChatItem, DiffScope, HostEvent, InspectorTab, Project, ProjectUiState, SessionSummary, TerminalInfo } from '@shared/protocol'
+import { routeTerminalData } from '@/lib/terminal-registry'
 
 export type Selection = { kind: 'new'; projectId: string | null } | { kind: 'session'; projectId: string; sessionId: string }
 
@@ -27,6 +28,14 @@ interface AppState {
   /** Cronologia delle selezioni per Indietro/Avanti; `historyIndex` punta alla selezione corrente. */
   history: Selection[]
   historyIndex: number
+  terminals: Record<string, TerminalInfo>
+  /** Contatore per cartella: cresce quando l'host segnala un cambiamento, e le viste rileggono. */
+  fsVersion: Record<string, number>
+  /** Ultima richiesta di apertura dell'ispettore: un file nel viewer o un ambito del diff. */
+  inspectorRequest: InspectorRequest | null
+  /** Testo da inserire nel composer con la chiave indicata (Aggiungi alla chat, @terminal). */
+  composerInsert: { key: string; text: string; nonce: number } | null
+  quickOpen: boolean
   applyEvent: (event: HostEvent) => void
   select: (selection: Selection) => void
   toggleProject: (projectId: string) => void
@@ -50,18 +59,45 @@ interface AppState {
   goToNextWaiting: () => boolean
   markUnread: (sessionId: string) => void
   markRead: (sessionId: string) => void
+  /** Apre l'ispettore del progetto su una scheda, con un file o un ambito del diff. */
+  openInspector: (projectId: string, tab: InspectorTab, extra?: Omit<InspectorRequest, 'projectId' | 'tab' | 'nonce'>) => void
+  /** Apre o chiude l'ispettore; con `tab` diversa da quella aperta cambia scheda. */
+  toggleInspector: (projectId: string, tab?: InspectorTab) => void
+  setTerminalPanel: (projectId: string, patch: Partial<NonNullable<ProjectUiState['terminal']>>) => void
+  insertIntoComposer: (key: string, text: string) => void
+  setQuickOpen: (open: boolean) => void
 }
+
+export interface InspectorRequest {
+  projectId: string
+  tab: InspectorTab
+  path?: string
+  line?: number
+  scope?: DiffScope
+  nonce: number
+}
+
+export const DEFAULT_TERMINAL_HEIGHT = 260
 
 const MAX_TABS = 8
 const MAX_HISTORY = 50
 const SIDEBAR_KEY = 'ladder.sidebar'
 
-let uiTimer: number | null = null
+// Un timer per progetto: due progetti cambiati a breve distanza non si sovrascrivono il salvataggio.
+const uiTimers = new Map<string, number>()
 function persistUi(projectId: string, state: ProjectUiState): void {
-  if (uiTimer) window.clearTimeout(uiTimer)
-  uiTimer = window.setTimeout(() => send({ type: 'ui.set', projectId, state }), 300)
+  const timer = uiTimers.get(projectId)
+  if (timer) window.clearTimeout(timer)
+  uiTimers.set(
+    projectId,
+    window.setTimeout(() => {
+      uiTimers.delete(projectId)
+      send({ type: 'ui.set', projectId, state })
+    }, 300)
+  )
 }
 const emptyUi = (): ProjectUiState => ({ tabs: [], activeTab: null, scroll: {} })
+let nonce = 0
 
 function readSidebarOpen(): boolean {
   try {
@@ -185,6 +221,11 @@ export const useApp = create<AppState>((set, get) => ({
   heldUnread: null,
   history: [],
   historyIndex: -1,
+  terminals: {},
+  fsVersion: {},
+  inspectorRequest: null,
+  composerInsert: null,
+  quickOpen: false,
 
   applyEvent: (event) =>
     set((state) => {
@@ -195,6 +236,8 @@ export const useApp = create<AppState>((set, get) => ({
           const firstProject = event.projects[0]?.id ?? null
           const selection =
             state.selection.kind === 'new' && !state.selection.projectId ? { kind: 'new' as const, projectId: firstProject } : state.selection
+          const terminals: Record<string, TerminalInfo> = {}
+          for (const t of event.terminals) terminals[t.id] = t
           return {
             connected: true,
             projects: event.projects,
@@ -202,6 +245,7 @@ export const useApp = create<AppState>((set, get) => ({
             drafts: event.drafts,
             ui: event.ui,
             agents: event.agents,
+            terminals,
             selection,
             expanded: state.expanded.length ? state.expanded : firstProject ? [firstProject] : []
           }
@@ -231,7 +275,21 @@ export const useApp = create<AppState>((set, get) => ({
           }
         case 'agent.status':
           return { agents: [...state.agents.filter((a) => a.agent !== event.status.agent), event.status] }
+        case 'terminal.upsert':
+          return { terminals: { ...state.terminals, [event.terminal.id]: event.terminal } }
+        case 'terminal.removed': {
+          const terminals = { ...state.terminals }
+          delete terminals[event.id]
+          return { terminals }
+        }
+        case 'terminal.data':
+          // L'output va direttamente a xterm: passare dallo store rifarebbe il rendering a ogni carattere.
+          routeTerminalData(event.id, event.data)
+          return {}
+        case 'fs.changed':
+          return { fsVersion: { ...state.fsVersion, [event.root]: (state.fsVersion[event.root] ?? 0) + 1 } }
       }
+      return {}
     }),
 
   select: (selection) =>
@@ -337,5 +395,35 @@ export const useApp = create<AppState>((set, get) => ({
   markRead: (sessionId) => {
     if (get().heldUnread === sessionId) set({ heldUnread: null })
     send({ type: 'session.read', sessionId })
-  }
+  },
+
+  openInspector: (projectId, tab, extra = {}) =>
+    set((state) => {
+      const ui = state.ui[projectId] ?? emptyUi()
+      const nextUi = { ...ui, inspector: { open: true, tab } }
+      persistUi(projectId, nextUi)
+      return { ui: { ...state.ui, [projectId]: nextUi }, inspectorRequest: { projectId, tab, ...extra, nonce: ++nonce } }
+    }),
+
+  toggleInspector: (projectId, tab) =>
+    set((state) => {
+      const ui = state.ui[projectId] ?? emptyUi()
+      const current = ui.inspector ?? { open: false, tab: 'changes' as InspectorTab }
+      const open = tab && current.open && current.tab !== tab ? true : !current.open
+      const nextUi = { ...ui, inspector: { open, tab: tab ?? current.tab } }
+      persistUi(projectId, nextUi)
+      return { ui: { ...state.ui, [projectId]: nextUi } }
+    }),
+
+  setTerminalPanel: (projectId, patch) =>
+    set((state) => {
+      const ui = state.ui[projectId] ?? emptyUi()
+      const current = ui.terminal ?? { open: false, height: DEFAULT_TERMINAL_HEIGHT, active: null }
+      const nextUi = { ...ui, terminal: { ...current, ...patch } }
+      persistUi(projectId, nextUi)
+      return { ui: { ...state.ui, [projectId]: nextUi } }
+    }),
+
+  insertIntoComposer: (key, text) => set({ composerInsert: { key, text, nonce: ++nonce } }),
+  setQuickOpen: (open) => set({ quickOpen: open })
 }))

@@ -26,13 +26,13 @@ export function FileChip({ path, line, label }: { path: string; line?: number; l
   const full = line ? `${path}:${line}` : path
   const onClick = (event: MouseEvent) => {
     event.preventDefault()
-    openFile(path, line)
+    openFile(path, line, event.altKey)
   }
   return (
     <button
       type="button"
       onClick={onClick}
-      title={full}
+      title={`${full}\n⌥clic: apri nell’editor`}
       aria-label={`Apri ${full}`}
       className="chat-fref"
     >

@@ -57,7 +57,48 @@ create table if not exists ui_state (
   project_id text primary key,
   json text not null
 );
+create table if not exists checkpoints (
+  id text primary key,
+  session_id text not null,
+  turn_id text,
+  kind text not null,
+  sha text not null,
+  root text not null,
+  label text,
+  at integer not null
+);
+create index if not exists checkpoints_by_session on checkpoints (session_id, at);
+create index if not exists checkpoints_by_root on checkpoints (root, at);
+create table if not exists terminals (
+  id text primary key,
+  project_id text not null,
+  session_id text,
+  kind text not null,
+  title text not null,
+  cwd text not null,
+  command text,
+  created_at integer not null,
+  scrollback text,
+  meta text
+);
 `
+
+/** Colonne aggiunte dopo la prima versione: si creano se mancano, i dati esistenti restano. */
+const COLUMNS: [table: string, column: string, definition: string][] = [
+  ['sessions', 'mode', "text not null default 'chat'"],
+  ['sessions', 'command', 'text'],
+  ['sessions', 'cwd', 'text'],
+  ['sessions', 'worktree', 'text'],
+  ['sessions', 'estimated', 'integer not null default 0'],
+  ['sessions', 'agent_ref', 'text']
+]
+
+function migrate(db: DatabaseSync): void {
+  for (const [table, column, definition] of COLUMNS) {
+    const columns = db.prepare(`pragma table_info(${table})`).all() as { name: string }[]
+    if (!columns.some((c) => c.name === column)) db.exec(`alter table ${table} add column ${column} ${definition}`)
+  }
+}
 
 export type Db = DatabaseSync
 
@@ -66,6 +107,7 @@ export function openDb(path: string): Db {
   const db = new DatabaseSync(path)
   db.exec('pragma journal_mode = wal; pragma synchronous = normal; pragma foreign_keys = on;')
   db.exec(SCHEMA)
+  migrate(db)
   return db
 }
 
@@ -100,6 +142,26 @@ export interface SessionRow {
   last_read_seq: number
   queue: string
   context: string | null
+  mode: string
+  command: string | null
+  /** Cartella di lavoro; null per le sessioni nate prima della fase 2 (= cartella del progetto). */
+  cwd: string | null
+  /** JSON di WorktreeInfo. */
+  worktree: string | null
+  estimated: number
+  /** Riferimento dell'agente per le sessioni terminale: id della conversazione di Claude Code. */
+  agent_ref: string | null
+}
+
+export interface CheckpointRow {
+  id: string
+  session_id: string
+  turn_id: string | null
+  kind: 'start' | 'end' | 'undo'
+  sha: string
+  root: string
+  label: string | null
+  at: number
 }
 
 export interface ProjectRow {

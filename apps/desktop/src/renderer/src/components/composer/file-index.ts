@@ -37,6 +37,11 @@ function toEntry(path: string): FileEntry {
   return { path, lower: path.toLowerCase(), base, baseLower: base.toLowerCase(), dir: slash >= 0 ? path.slice(0, slash + 1) : '', depth }
 }
 
+/** Indice da un elenco qualunque di percorsi (⌘P sulla cartella della sessione). */
+export function indexFromPaths(paths: string[]): FileIndex {
+  return { ...build(paths), loading: false, error: null, at: Date.now() }
+}
+
 function build(paths: string[]): Pick<FileIndex, 'entries' | 'shallow'> {
   const entries = paths.map(toEntry)
   const shallow = entries

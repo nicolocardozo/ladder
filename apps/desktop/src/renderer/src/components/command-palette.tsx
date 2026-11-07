@@ -2,7 +2,7 @@
 // prima le sessioni che aspettano l'utente, poi le più recenti.
 import { useMemo, useState } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
-import { CircleAlert, Folder, FolderPlus, Palette, PanelLeft, Search, SquarePen } from 'lucide-react'
+import { CircleAlert, FileDiff, FileSearch, Folder, FolderPlus, FolderTree, History, Palette, PanelLeft, Search, SquarePen, SquareTerminal } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { addProjectFromDialog } from '@/components/app-sidebar'
 import { SessionGlyph } from '@/components/status'
@@ -11,7 +11,22 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { themeById } from '@shared/themes.generated'
 import { useSettings } from '@/hooks/use-theme'
 import { relativeAge, sessionState } from '@/lib/session-state'
+import { newShell } from '@/components/terminal/terminal-panel'
+import { focusNextTerminal } from '@/lib/terminal-registry'
 import { isLiveSession, useApp } from '@/store/app-store'
+
+function inspectorActions(run: (perform: () => void) => void): Action[] {
+  const open = (tab: 'changes' | 'files' | 'history') => () =>
+    run(() => {
+      const { selection, openInspector } = useApp.getState()
+      if (selection.projectId) openInspector(selection.projectId, tab)
+    })
+  return [
+    { id: 'changes', label: 'Mostra le modifiche', icon: FileDiff, keywords: 'modifiche diff turno sessione ripristina commenti', shortcut: '⌘⌥1', perform: open('changes') },
+    { id: 'files', label: 'Mostra i file', icon: FolderTree, keywords: 'file explorer albero cartella viewer', shortcut: '⌘⌥2', perform: open('files') },
+    { id: 'history', label: 'Cronologia e checkpoint', icon: History, keywords: 'cronologia checkpoint commit ripristina', shortcut: '⌘⌥3', perform: open('history') }
+  ]
+}
 
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen)
@@ -110,6 +125,44 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         if (useApp.getState().goToNextWaiting()) onClose()
         else setNotice('Nessuna sessione ti aspetta in questo momento.')
       }
+    },
+    {
+      id: 'open-file',
+      label: 'Apri file…',
+      icon: FileSearch,
+      keywords: 'apri file cerca nome percorso viewer',
+      shortcut: '⌘P',
+      perform: () => run(() => useApp.getState().setQuickOpen(true))
+    },
+    ...inspectorActions(run),
+    {
+      id: 'terminal',
+      label: 'Mostra o nascondi il terminale',
+      icon: SquareTerminal,
+      keywords: 'terminale pannello shell console',
+      shortcut: '⌃`',
+      perform: () =>
+        run(() => {
+          const state = useApp.getState()
+          const projectId = state.selection.projectId
+          if (!projectId) return
+          const open = Boolean(state.ui[projectId]?.terminal?.open)
+          if (!open) focusNextTerminal()
+          state.setTerminalPanel(projectId, { open: !open })
+        })
+    },
+    {
+      id: 'new-terminal',
+      label: 'Nuovo terminale',
+      icon: SquareTerminal,
+      keywords: 'nuovo terminale shell zsh',
+      perform: () =>
+        run(() => {
+          const { selection, sessions } = useApp.getState()
+          if (!selection.projectId) return
+          const sessionId = selection.kind === 'session' ? selection.sessionId : null
+          void newShell(selection.projectId, sessionId, sessionId ? sessions[sessionId]?.cwd : undefined)
+        })
     },
     {
       id: 'add-project',
