@@ -47,7 +47,7 @@ Fase 1 completata. Funziona:
 - menu delle sessioni (rinomina, segna come da leggere, archivia, apri in Cursor o nel Finder), ⌘K per cercare sessioni, progetti e azioni, ⌘B per la sidebar, ⌘[ e ⌘] per tornare indietro e avanti, ⌘⇧A per la prossima sessione che ti aspetta;
 - tab per progetto (⌘1…⌘9, ⌘W), bozze, posizione di lettura e ripresa delle sessioni dopo il riavvio.
 
-Prossime fasi: “In attesa” e notifiche (3), Explorer, diff e terminale (2), Codex e agenti ACP (4).
+Prossime fasi: identità Circuit e dodici temi (1.5, serve prima aggiungere gli asset del brand in `brand/` e `app-icon/`), “In attesa” e notifiche (3), Explorer, diff e terminale (2), Codex e agenti ACP (4).
 
 ## Build da installare
 
