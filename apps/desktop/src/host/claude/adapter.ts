@@ -39,6 +39,35 @@ export interface UserRequest {
   reason: string | null
   options: RequestOption[]
   questions: Question[] | null
+  preview?: { text: string; lines: number; truncated: boolean } | null
+}
+
+const PREVIEW_MAX_LINES = 400
+
+/** Modifica proposta da Edit, MultiEdit e Write come righe "- " e "+ ": serve alla card e a "In attesa". */
+export function editPreview(toolName: string, input: Record<string, unknown>): UserRequest['preview'] {
+  const lines: string[] = []
+  const add = (prefix: string, text: unknown) => {
+    if (typeof text !== 'string' || text === '') return
+    for (const line of text.replace(/\n$/, '').split('\n')) lines.push(`${prefix}${line}`)
+  }
+  if (toolName === 'Edit') {
+    add('-', input.old_string)
+    add('+', input.new_string)
+  } else if (toolName === 'MultiEdit' && Array.isArray(input.edits)) {
+    for (const edit of input.edits as Record<string, unknown>[]) {
+      if (lines.length) lines.push('…')
+      add('-', edit.old_string)
+      add('+', edit.new_string)
+    }
+  } else if (toolName === 'Write') {
+    add('+', input.content)
+  } else {
+    return null
+  }
+  if (lines.length === 0) return null
+  const counted = lines.filter((l) => l !== '…').length
+  return { text: lines.slice(0, PREVIEW_MAX_LINES).join('\n'), lines: counted, truncated: lines.length > PREVIEW_MAX_LINES }
 }
 
 export interface TurnResult {
@@ -438,7 +467,8 @@ export class ClaudeSession {
         path: described.tool === 'edit' || described.tool === 'read' ? described.detail : opts.blockedPath ?? null,
         reason: str(input.description) ?? str(opts.decisionReason),
         options,
-        questions: null
+        questions: null,
+        preview: editPreview(toolName, input)
       },
       opts.signal
     )

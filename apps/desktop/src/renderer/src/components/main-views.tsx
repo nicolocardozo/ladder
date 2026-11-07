@@ -13,9 +13,11 @@ import {
   Play,
   RotateCcw,
   SquareTerminal,
-  TriangleAlert
+  TriangleAlert,
+  X
 } from 'lucide-react'
-import type { Attachment, ChatItem, Effort, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { Attachment, ChatItem, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
+import { SOURCE_ICON, SOURCE_LABEL } from '@/components/new-from'
 import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
 import { LadderLockup } from '@/components/brand/logo'
@@ -196,7 +198,7 @@ function TopBar({ children, project, session, root }: { children?: ReactNode; pr
             }}>
             <SquareTerminal className="size-4" strokeWidth={1.75} />
           </BarIcon>
-          <BarIcon label={inspectorOpen ? 'Chiudi l’ispettore' : 'Modifiche, file e cronologia'} shortcut="⌘⌥1–3" active={inspectorOpen} onClick={() => toggleInspector(project.id)}>
+          <BarIcon label={inspectorOpen ? 'Chiudi l’ispettore' : 'Modifiche, file e cronologia'} shortcut="⌘⌥1–4" active={inspectorOpen} onClick={() => toggleInspector(project.id)}>
             <PanelRight className="size-4" strokeWidth={1.75} />
           </BarIcon>
           {root && <EditorButton project={project} root={root} />}
@@ -233,6 +235,24 @@ function useClaudeStatus() {
 
 type Launch = { mode: 'chat' } | { mode: 'terminal'; command: string }
 
+/** Branch del worktree per una sessione nata da issue, PR o branch. */
+function branchFor(item: IssueItem): { name: string; existing: boolean; pr?: number } {
+  const number = Number(item.ref.replace(/^#/, ''))
+  if (item.source === 'github-pr') return { name: item.branch ?? `ladder/pr-${number}`, existing: true, pr: number }
+  if (item.source === 'branch') return { name: item.branch ?? item.ref, existing: true }
+  if (item.source === 'linear') return { name: item.branch ?? `ladder/${item.ref.toLowerCase()}`, existing: false }
+  const words = item.title
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .split('-')
+    .slice(0, 4)
+    .join('-')
+  return { name: `ladder/${number}-${words || 'issue'}`, existing: false }
+}
+
 const TERMINAL_PRESETS = [
   { command: 'claude', label: 'Claude Code nel terminale', hint: 'La TUI originale; lo stato arriva dagli hook' },
   { command: 'codex', label: 'Codex nel terminale', hint: 'Lo stato arriva dalle notifiche della TUI' }
@@ -252,6 +272,31 @@ export function NewChat({ projectId }: { projectId: string | null }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const settings = useProjectSettings(project)
+  // Issue, PR o branch scelti con ⌘⇧N: il prompt diventa la bozza e il worktree si prepara sul branch giusto.
+  const source = useApp((s) => (project && s.newSource?.projectId === project.id ? s.newSource.item : null))
+  const [composerRev, setComposerRev] = useState(0)
+  const sourceKey = source ? `${source.source}:${source.ref}` : null
+  useEffect(() => {
+    if (!project || !source) return
+    setWorktree(project.isGit && !(source.source === 'branch' && source.branch === project.branch))
+    if (source.source === 'branch') return
+    let cancelled = false
+    const vars = { ref: source.ref, title: source.title, url: source.url ?? '', body: source.body ?? '' }
+    request<string>({ type: 'prompt.render', projectId: project.id, name: source.source === 'github-pr' ? 'pull_request' : 'issue', vars })
+      .then((text) => {
+        if (cancelled) return
+        const key = `new:${project.id}`
+        useApp.getState().setDraft(key, text)
+        send({ type: 'draft.set', key, text })
+        setComposerRev((n) => n + 1)
+      })
+      .catch((e: Error) => setError(e.message))
+    return () => {
+      cancelled = true
+    }
+    // Solo quando cambia la scelta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceKey, project?.id])
 
   if (!project) {
     return (
@@ -288,10 +333,14 @@ export function NewChat({ projectId }: { projectId: string | null }) {
         attachments: attachments.length > 0 ? attachments : undefined,
         mode: launch.mode,
         command: launch.mode === 'terminal' ? launch.command : undefined,
-        worktree
+        worktree,
+        branch: source && worktree ? branchFor(source) : null,
+        source: source ? { kind: source.source, ref: source.ref, title: source.title, url: source.url } : null,
+        title: source ? (source.source === 'branch' ? source.ref : source.title) : undefined
       })
       send({ type: 'draft.set', key: `new:${project.id}`, text: '' })
       useApp.getState().setDraft(`new:${project.id}`, '')
+      useApp.getState().setNewSource(null)
       select({ kind: 'session', projectId: project.id, sessionId: session.id })
     } catch (e) {
       setError((e as Error).message)
@@ -360,7 +409,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
                     <span className="flex flex-col">
                       Nuovo worktree
                       <span className="text-[11.5px] text-muted-foreground">
-                        Branch ladder/… da {project.branch ?? 'HEAD'}
+                        {source ? `Branch ${branchFor(source).name}${branchFor(source).existing ? ' (esistente)' : ''}` : `Branch ladder/… da ${project.branch ?? 'HEAD'}`}
                         {settings?.worktree.setup ? `, poi “${settings.worktree.setup}”` : ''}
                         {settings?.worktree.copy.length ? `, copia ${settings.worktree.copy.join(', ')}` : ''}
                       </span>
@@ -412,9 +461,10 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          {source && <SourceChip item={source} onClear={() => useApp.getState().setNewSource(null)} />}
           {launch.mode === 'chat' ? (
             <Composer
-              key={`new:${project.id}`}
+              key={`new:${project.id}:${composerRev}`}
               draftKey={`new:${project.id}`}
               projectId={project.id}
               agentName="Claude Code"
@@ -435,13 +485,34 @@ export function NewChat({ projectId }: { projectId: string | null }) {
           {error && <p className="mt-2 pl-1 text-[12.5px] text-destructive">{error}</p>}
           <p className="mt-3 pl-1 text-[11.5px] text-faint">
             <kbd className="font-mono">⌘N</kbd> nuova chat · <kbd className="font-mono">⌘P</kbd> apri file · <kbd className="font-mono">⌃`</kbd> terminale ·{' '}
-            <kbd className="font-mono">⌘⌥2</kbd> file
+            <kbd className="font-mono">⌘⇧N</kbd> da issue o PR · <kbd className="font-mono">⌘⌥2</kbd> file
             {claude?.account && <> · Claude Code con {claude.account}</>}
             {claude?.version && <> · CLI {claude.version}</>}
           </p>
         </div>
       </div>
     </Workspace>
+  )
+}
+
+/** Da dove nasce la sessione: issue, PR o branch, con il link. */
+function SourceChip({ item, onClear }: { item: IssueItem; onClear: () => void }) {
+  const Icon = SOURCE_ICON[item.source]
+  return (
+    <div className="mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-input bg-card px-2.5 py-1.5 text-[12.5px]">
+      <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="shrink-0 text-muted-foreground">Da {SOURCE_LABEL[item.source]}</span>
+      {item.source !== 'branch' && <span className="shrink-0 font-mono text-[12px]">{item.ref}</span>}
+      <span className="min-w-0 flex-1 truncate">{item.source === 'branch' ? item.ref : item.title}</span>
+      {item.url && (
+        <button type="button" onClick={() => void window.ladder?.openExternal(item.url!)} className="shrink-0 text-[11.5px] text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:underline">
+          Apri
+        </button>
+      )}
+      <button type="button" aria-label="Togli" onClick={onClear} className="grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+        <X className="size-3" />
+      </button>
+    </div>
   )
 }
 
@@ -514,10 +585,17 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const ui = useApp((s) => (project ? s.ui[project.id] : undefined))
   const setUi = useApp((s) => s.setUi)
   const openInspector = useApp((s) => s.openInspector)
+  const focusTarget = useApp((s) => (s.focusTarget?.sessionId === sessionId ? s.focusTarget : null))
+  const consumeFocus = useApp((s) => s.consumeFocus)
   const claude = useClaudeStatus()
   const [error, setError] = useState<string | null>(null)
   const uiTimer = useRef<number | null>(null)
   const isTerminal = session?.mode === 'terminal'
+
+  // Nelle sessioni terminale il focus va al terminale stesso: la richiesta è nella TUI.
+  useEffect(() => {
+    if (isTerminal && focusTarget) consumeFocus(focusTarget.nonce)
+  }, [isTerminal, focusTarget, consumeFocus])
 
   useEffect(() => {
     if (!loaded) send({ type: 'session.open', sessionId })
@@ -578,7 +656,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   )
 
   if (!session || !project) return <main className="flex-1 bg-background" />
-  const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting'
+  const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting' || session.run === 'queued'
   const branch = session.worktree?.branch ?? project.branch
 
   return (
@@ -614,6 +692,8 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               onRespond={onRespond}
               onOpenFile={onOpenFile}
               onOpenDiff={onOpenDiff}
+              focusRequest={focusTarget ? { itemId: focusTarget.itemId, nonce: focusTarget.nonce } : null}
+              onFocusDone={consumeFocus}
             />
           </div>
           <div className="flex flex-col items-center px-6 pb-4">
@@ -640,7 +720,8 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               onQueueChange={(queue) => send({ type: 'session.queue.set', sessionId, queue })}
               context={session.context}
               disabledReason={claude && !claude.available ? claude.error : null}
-              autoFocus
+              autoFocus={!focusTarget}
+              status={session.queuedReason}
               className="max-w-[680px]"
             />
           </div>

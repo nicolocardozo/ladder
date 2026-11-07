@@ -1,4 +1,4 @@
-// Ispettore a destra: Modifiche (⌘⌥1), File (⌘⌥2), Cronologia (⌘⌥3) sulla cartella della sessione.
+// Ispettore a destra: Modifiche (⌘⌥1), File (⌘⌥2), Cronologia (⌘⌥3), Merge (⌘⌥4) sulla cartella della sessione.
 import { useEffect, useState, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import type { ChatItem, InspectorTab, SessionSummary } from '@shared/protocol'
@@ -8,6 +8,7 @@ import { useApp } from '@/store/app-store'
 import { ChangesPanel } from './changes-panel'
 import { FilesPanel } from './files-panel'
 import { HistoryPanel } from './history-panel'
+import { MergePanel } from './merge-panel'
 
 const WIDTH_KEY = 'ladder.inspector-width'
 const NO_ITEMS: ChatItem[] = []
@@ -15,7 +16,8 @@ const NO_ITEMS: ChatItem[] = []
 const TABS: { id: InspectorTab; label: string; key: string }[] = [
   { id: 'changes', label: 'Modifiche', key: '⌘⌥1' },
   { id: 'files', label: 'File', key: '⌘⌥2' },
-  { id: 'history', label: 'Cronologia', key: '⌘⌥3' }
+  { id: 'history', label: 'Cronologia', key: '⌘⌥3' },
+  { id: 'merge', label: 'Merge', key: '⌘⌥4' }
 ]
 
 function readWidth(): number {
@@ -73,7 +75,8 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
   let body: ReactNode
   if (tab === 'changes') body = <ChangesPanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} items={items} request={openRequest} />
   else if (tab === 'files') body = <FilesPanel key={root} projectId={projectId} root={root} items={items} composerKey={composerKey} request={openRequest} />
-  else body = <HistoryPanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} />
+  else if (tab === 'history') body = <HistoryPanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} />
+  else body = <MergePanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} />
 
   return (
     <aside aria-label="Ispettore" className="relative flex shrink-0 flex-col border-l border-border bg-background" style={{ width }}>

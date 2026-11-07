@@ -16,8 +16,8 @@ export interface Project {
   addedAt: number
 }
 
-/** Stato dell'esecuzione: deriva dall'agente, non dalla UI. */
-export type RunState = 'idle' | 'starting' | 'running' | 'waiting' | 'error'
+/** Stato dell'esecuzione: deriva dall'agente, non dalla UI. `queued`: il turno aspetta un posto libero (limite di sessioni attive). */
+export type RunState = 'idle' | 'starting' | 'running' | 'waiting' | 'error' | 'queued'
 
 /** Allegato inviato all'agente. Per ora solo immagini, in base64. */
 export interface Attachment {
@@ -62,6 +62,43 @@ export interface SessionSummary {
   terminalId: string | null
   /** Lo stato viene da euristiche (output, campanello), non da segnali dell'agente. */
   estimated: boolean
+  /** Da quando la sessione aspetta l'utente: ordina "In attesa" e ⌘⇧A per anzianità. */
+  waitingSince: number | null
+  /** Richiesta aperta più vecchia, per rispondere da "In attesa" senza aprire la sessione. */
+  request: RequestItemData | null
+  /** Richieste aperte (di solito una; più di una con strumenti in parallelo). */
+  openRequests: number
+  /** Ultima attività dell'agente (fine turno, errore): decide "Concluse" e "Mentre eri via". */
+  activityAt: number
+  /** Motivo dell'attesa in coda: "In coda: 3 sessioni Claude Code attive". */
+  queuedReason: string | null
+  /** Branch su cui lavora la sessione: quello del worktree o del checkout principale. */
+  branch: string | null
+  /** Stato della PR del branch, se c'è (da gh). */
+  pr: PrStatus | null
+  /** Da dove è nata la sessione: issue, PR o branch. */
+  source: SessionSource | null
+}
+
+export interface SessionSource {
+  kind: 'github-issue' | 'github-pr' | 'linear' | 'branch'
+  /** "#12", "LIN-42", nome del branch. */
+  ref: string
+  title: string
+  url: string | null
+}
+
+export interface PrStatus {
+  number: number
+  title: string
+  url: string
+  state: 'open' | 'draft' | 'merged' | 'closed'
+  checks: 'none' | 'pending' | 'passing' | 'failing'
+  /** conflicts: il branch non si unisce senza conflitti alla base. */
+  mergeable: 'clean' | 'conflicts' | 'unknown'
+  review: 'approved' | 'changes' | 'pending' | null
+  base: string
+  updatedAt: number
 }
 
 export interface WorktreeInfo {
@@ -134,6 +171,10 @@ export type ChatItem =
       state: 'open' | 'resolved' | 'expired'
       /** Testo che descrive la risposta data: "Approvato", "Rifiutato: usa pnpm". */
       resolution: string | null
+      /** Modifica proposta per Edit e Write, come righe con - e +. */
+      preview?: { text: string; lines: number; truncated: boolean } | null
+      /** Dove hai risposto: nella chat, da "In attesa" o dalla notifica. */
+      via?: ResponseVia
     })
   | (ItemBase & {
       kind: 'turn-end'
@@ -149,6 +190,8 @@ export type ChatItem =
   | (ItemBase & { kind: 'notice'; tone: 'info' | 'error'; text: string })
 
 export type RequestResponse = { optionId: string; message?: string } | { answers: Record<string, string> }
+export type ResponseVia = 'chat' | 'inbox' | 'notification'
+export type RequestItemData = Extract<ChatItem, { kind: 'request' }>
 
 export interface AgentStatus {
   agent: AgentId
@@ -160,7 +203,7 @@ export interface AgentStatus {
   error: string | null
 }
 
-export type InspectorTab = 'changes' | 'files' | 'history'
+export type InspectorTab = 'changes' | 'files' | 'history' | 'merge'
 export type EditorId = 'cursor' | 'vscode'
 
 export interface ProjectUiState {
@@ -173,6 +216,10 @@ export interface ProjectUiState {
   terminal?: { open: boolean; height: number; active: string | null }
   /** Editor esterno preferito per il progetto. */
   editor?: EditorId
+  /** Ultima volta che hai guardato il progetto con la finestra attiva: serve a "Mentre eri via". */
+  seenAt?: number
+  /** Gruppo "Concluse" aperto nella sidebar. */
+  concludedOpen?: boolean
 }
 
 // ── File, diff e cronologia ──────────────────────────────────────────────
@@ -276,6 +323,75 @@ export interface ProjectSettings {
   errors: string[]
 }
 
+// ── Ricerca, issue e merge ───────────────────────────────────────────────
+
+export interface SearchHit {
+  sessionId: string
+  itemId: string
+  /** Testo intorno alla corrispondenza. */
+  snippet: string
+  kind: 'message' | 'reply' | 'command' | 'file'
+  at: number
+}
+
+/** Elemento da cui creare una sessione: issue o PR di GitHub, issue di Linear, branch. */
+export interface IssueItem {
+  source: SessionSource['kind']
+  /** Numero della issue o PR, identificativo Linear o nome del branch. */
+  ref: string
+  title: string
+  body: string | null
+  url: string | null
+  /** Branch da usare: quello della PR, quello suggerito da Linear, il branch scelto. */
+  branch: string | null
+  state: string | null
+  updatedAt: number | null
+}
+
+export interface IssueList {
+  items: IssueItem[]
+  /** Perché la lista è vuota o parziale: gh mancante, nessun remote GitHub, chiave Linear assente. */
+  problem: string | null
+}
+
+export interface MergeCheck {
+  name: string
+  state: 'pending' | 'passing' | 'failing' | 'skipped'
+  url: string | null
+}
+
+export interface ReviewComment {
+  author: string
+  path: string | null
+  line: number | null
+  body: string
+  url: string | null
+  at: number
+}
+
+export interface MergeInfo {
+  root: string
+  branch: string | null
+  /** Branch di destinazione: quello della PR o il predefinito del repository. */
+  base: string | null
+  isDefaultBranch: boolean
+  /** File modificati e non committati. */
+  dirty: number
+  /** Commit del branch che la base non ha. */
+  ahead: number
+  behind: number
+  /** Commit non ancora pubblicati sul remote; null se il branch non ha upstream. */
+  unpushed: number | null
+  hasUpstream: boolean
+  /** File in conflitto se unisci la base, calcolato senza toccare la cartella. */
+  conflicts: string[]
+  gh: 'ok' | 'missing' | 'unauthenticated' | 'no-remote' | 'error'
+  ghError: string | null
+  pr: PrStatus | null
+  checks: MergeCheck[]
+  comments: ReviewComment[]
+}
+
 /** Chiave delle bozze: id della sessione oppure `new:<projectId>` per la nuova chat. */
 export type DraftKey = string
 
@@ -297,6 +413,10 @@ export type HostCommand =
       command?: string
       /** Lavora in un nuovo worktree invece che nel checkout principale. */
       worktree?: boolean
+      /** Branch del worktree: nuovo (da HEAD) o esistente da estrarre (PR, branch scelto). */
+      branch?: { name: string; existing: boolean; pr?: number } | null
+      source?: SessionSource | null
+      title?: string
     }
   /** Sessione terminale ferma (dopo un riavvio o un'uscita): riavvia la CLI, riprendendo la conversazione se può. */
   | { type: 'session.resume'; sessionId: string }
@@ -307,7 +427,7 @@ export type HostCommand =
   | { type: 'project.files'; projectId: string }
   | { type: 'session.queue.set'; sessionId: string; queue: QueuedMessage[] }
   | { type: 'session.interrupt'; sessionId: string }
-  | { type: 'session.respond'; sessionId: string; requestId: string; response: RequestResponse }
+  | { type: 'session.respond'; sessionId: string; requestId: string; response: RequestResponse; via?: ResponseVia }
   | { type: 'session.permission.set'; sessionId: string; permission: PermissionLevel }
   | { type: 'session.model.set'; sessionId: string; model: string }
   | { type: 'session.open'; sessionId: string }
@@ -336,6 +456,12 @@ export type HostCommand =
   // Configurazione del progetto (.ladder/settings.toml) e azioni di avvio.
   | { type: 'project.settings'; projectId: string }
   | { type: 'run.start'; projectId: string; sessionId?: string | null; name: string }
+  // Ricerca nelle conversazioni (⌘K), issue e PR per nuove sessioni, pannello merge e prompt dei pulsanti.
+  | { type: 'search'; query: string }
+  | { type: 'issues.list'; projectId: string; source: 'github-issue' | 'github-pr' | 'branch' }
+  | { type: 'merge.info'; root: string; fetch?: boolean }
+  /** Testo del prompt dietro un pulsante (create_pr, fix, conflicts, review, issue), con le variabili già sostituite. */
+  | { type: 'prompt.render'; projectId: string; name: string; vars: Record<string, string> }
 
 export type HostEvent =
   | {
@@ -364,3 +490,37 @@ export type FromHost =
   | { kind: 'event'; event: HostEvent }
   | { kind: 'result'; rid: string; ok: true; data?: unknown }
   | { kind: 'result'; rid: string; ok: false; error: string }
+
+// ── Host ↔ processo main: notifiche, badge del Dock e preferenze ─────────────
+
+/** Eventi che possono diventare una notifica di macOS. Decide il main, che sa cosa stai guardando. */
+export type AttentionEvent =
+  | { kind: 'request'; sessionId: string; projectId: string; itemId: string | null; title: string; body: string }
+  | { kind: 'resolved'; sessionId: string; itemId: string | null }
+  | { kind: 'turn'; sessionId: string; projectId: string; projectName: string; itemId: string | null; durationMs: number; title: string }
+  | { kind: 'error'; sessionId: string; projectId: string; itemId: string | null; title: string; body: string }
+
+export type HostToMain = { type: 'attention'; event: AttentionEvent } | { type: 'badge'; count: number }
+
+export interface HostPrefs {
+  /** Turni attivi insieme per agente; gli altri aspettano "In coda". */
+  maxActive: Record<AgentId, number>
+}
+
+export type MainToHost = { type: 'connect' } | { type: 'prefs'; prefs: HostPrefs }
+
+/** Preferenze dell'app salvate dal main in settings.json, insieme al tema. */
+export interface AppPrefs {
+  notifications: boolean
+  /** Suono solo per approvazioni e domande. */
+  sound: boolean
+  /** "Non disturbare" fino a questo istante: niente notifiche; "In attesa" e badge restano. */
+  dndUntil: number | null
+  maxActive: number
+}
+
+/** Cosa sta guardando la finestra: il main non notifica una richiesta della sessione che hai davanti. */
+export interface WindowView {
+  projectId: string | null
+  sessionId: string | null
+}

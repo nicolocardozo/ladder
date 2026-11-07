@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Project, WorktreeInfo } from '@shared/protocol'
 import type { Db } from './db'
-import { addWorktree, resolveCommit } from './git'
+import { addWorktree, addWorktreeForBranch, fetchRef, resolveCommit } from './git'
 import { insideRoot } from './files'
 
 /** ~/Developer/.ladder/worktrees se esiste ~/Developer (come nel piano), altrimenti ~/.ladder/worktrees. LADDER_WORKTREES per le prove. */
@@ -29,14 +29,45 @@ export function slugify(text: string): string {
   return `${base || 'sessione'}-${randomBytes(2).toString('hex')}`
 }
 
-/** Crea `ladder/<slug>` in un worktree dal commit attuale del progetto e copia i file non tracciati indicati. */
-export async function createWorktree(project: Project, title: string, copy: string[]): Promise<{ info: WorktreeInfo; copied: string[]; missing: string[] }> {
-  const base = await resolveCommit(project.path, 'HEAD')
-  if (!base) throw new Error('Il progetto non ha ancora commit: un worktree parte da un commit.')
-  const slug = slugify(title)
+export interface WorktreeBranch {
+  name: string
+  /** Vero: il branch esiste già (in locale, su origin o come PR) e si estrae. Falso: nuovo branch da HEAD. */
+  existing: boolean
+  pr?: number
+}
+
+/**
+ * Crea un worktree e copia i file non tracciati indicati. Senza `wanted` il branch è `ladder/<slug>` dal commit attuale;
+ * con un branch esistente (una PR, un branch scelto) il worktree lo estrae, dopo averlo letto da origin.
+ */
+export async function createWorktree(
+  project: Project,
+  title: string,
+  copy: string[],
+  wanted?: WorktreeBranch | null
+): Promise<{ info: WorktreeInfo; copied: string[]; missing: string[] }> {
+  const head = await resolveCommit(project.path, 'HEAD')
+  if (!head) throw new Error('Il progetto non ha ancora commit: un worktree parte da un commit.')
+  const slug = slugify(wanted?.name.replace(/^ladder\//, '') ?? title)
   const path = join(worktreesRoot(), project.name, slug)
-  const branch = `ladder/${slug}`
-  await addWorktree(project.path, path, branch, base)
+  let branch = wanted?.name ?? `ladder/${slug}`
+  // Un branch "nuovo" che esiste già (una seconda sessione sulla stessa issue) si estrae invece di ricrearlo.
+  const existing = wanted?.existing || (wanted ? Boolean(await resolveCommit(project.path, `refs/heads/${wanted.name}`)) : false)
+  if (wanted && existing) {
+    // Il branch aggiornato da origin; se la PR viene da un fork, il suo ref pull/N/head in un branch locale.
+    await fetchRef(project.path, wanted.name).catch(() => undefined)
+    try {
+      await addWorktreeForBranch(project.path, path, wanted.name)
+    } catch (error) {
+      if (!wanted.pr) throw error
+      branch = `ladder/pr-${wanted.pr}`
+      await fetchRef(project.path, `pull/${wanted.pr}/head:${branch}`)
+      await addWorktreeForBranch(project.path, path, branch)
+    }
+  } else {
+    await addWorktree(project.path, path, branch, head)
+  }
+  const base = (await resolveCommit(path, 'HEAD')) ?? head
   const copied: string[] = []
   const missing: string[] = []
   for (const rel of copy) {

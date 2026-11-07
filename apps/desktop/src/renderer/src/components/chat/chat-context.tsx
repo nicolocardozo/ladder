@@ -44,6 +44,9 @@ export interface ChatActions {
   /** Vero quando il focus è nella chat o da nessuna parte: le card possono prenderlo. */
   canTakeFocus: () => boolean
   toggles: ToggleStore
+  /** "In attesa" mostra le card fuori dalla chat: le modifiche lunghe hanno solo "Apri". */
+  surface?: 'chat' | 'inbox'
+  openSession?: () => void
 }
 
 const noop = () => {}

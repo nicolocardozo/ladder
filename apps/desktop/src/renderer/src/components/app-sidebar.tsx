@@ -1,9 +1,11 @@
-import { ChevronLeft, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, GitFork, Inbox, PanelLeft, Search, Settings, SquarePen, SquareTerminal, type LucideIcon } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, GitFork, GitPullRequest, Inbox, PanelLeft, Search, Settings, SquarePen, SquareTerminal, X, type LucideIcon } from 'lucide-react'
+import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import type { Project, SessionSummary } from '@shared/protocol'
 import { IconButton } from '@/components/icon-button'
 import { ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
+import { InboxPanel } from '@/components/inbox'
 import { ProjectBadges, RunningRing, SessionGlyph } from '@/components/status'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -11,9 +13,27 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { LadderMark } from '@/components/brand/logo'
 import { useSettings } from '@/hooks/use-theme'
 import { request, send } from '@/lib/host-client'
-import { projectAttention, sessionNote, sessionState } from '@/lib/session-state'
+import { isConcluded, prNote, projectAttention, sessionNote, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
-import { canNavigate, useApp } from '@/store/app-store'
+import { canNavigate, useApp, type AwaySummary } from '@/store/app-store'
+
+/** Elemento che aveva il focus prima di aprire "In attesa": ci torna alla chiusura (il composer, con la bozza). */
+let focusBeforeInbox: HTMLElement | null = null
+let pointerAt = 0
+
+/** Al clic il focus passa al pulsante prima che il popover si apra: si ricorda dov'era un attimo prima. */
+function rememberFocus(): void {
+  const active = document.activeElement
+  focusBeforeInbox = active instanceof HTMLElement && active !== document.body ? active : null
+  pointerAt = Date.now()
+}
+
+export function openInbox(): void {
+  const state = useApp.getState()
+  rememberFocus()
+  if (!state.sidebarOpen) state.toggleSidebar()
+  state.setInboxOpen(true)
+}
 
 
 
@@ -45,7 +65,13 @@ export function AppSidebar() {
   const navigate = useApp((s) => s.navigate)
   const canBack = useApp((s) => canNavigate(s, -1))
   const canForward = useApp((s) => canNavigate(s, 1))
+  const inboxOpen = useApp((s) => s.inboxOpen)
+  const setInboxOpen = useApp((s) => s.setInboxOpen)
+  const away = useApp((s) => s.away)
+  const ui = useApp((s) => s.ui)
+  const setUi = useApp((s) => s.setUi)
   const [removing, setRemoving] = useState<Project | null>(null)
+  const now = Date.now()
 
   const byProject = useMemo(() => {
     const known = new Set(projects.map((p) => p.id))
@@ -62,7 +88,18 @@ export function AppSidebar() {
   }, [sessions, projects])
 
   let waitingTotal = 0
-  for (const list of byProject.values()) waitingTotal += list.filter((s) => s.run === 'waiting').length
+  let unreadTotal = 0
+  for (const list of byProject.values()) {
+    waitingTotal += list.reduce((n, s) => n + (s.run === 'waiting' ? Math.max(1, s.openRequests) : 0), 0)
+    unreadTotal += list.filter((s) => sessionState(s) === 'unread' || (s.run === 'error' && s.unread)).length
+  }
+
+  const toggleConcluded = (projectId: string) => {
+    const current = useApp.getState().ui[projectId] ?? { tabs: [], activeTab: null, scroll: {} }
+    const next = { ...current, concludedOpen: !current.concludedOpen }
+    setUi(projectId, next)
+    send({ type: 'ui.set', projectId, state: next })
+  }
 
   return (
     <aside className="flex h-full w-[262px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none">
@@ -83,18 +120,50 @@ export function AppSidebar() {
           active={selection.kind === 'new'}
           onClick={() => select({ kind: 'new', projectId: selection.projectId ?? projects[0]?.id ?? null })}
         />
-        <SidebarAction
-          icon={Inbox}
-          label="In attesa"
-          onClick={() => useApp.getState().goToNextWaiting()}
-          trailing={
-            waitingTotal > 0 ? (
-              <span className="h-[17px] min-w-[17px] rounded-[4px] bg-attention px-1 text-center text-[10px] leading-[17px] font-semibold text-attention-foreground">
-                {waitingTotal}
-              </span>
-            ) : null
-          }
-        />
+        <Popover
+          open={inboxOpen}
+          onOpenChange={(open) => {
+            // Da tastiera (Invio sul pulsante) non c'è stato un clic: il focus torna al pulsante.
+            if (open && Date.now() - pointerAt > 1000) focusBeforeInbox = null
+            setInboxOpen(open)
+          }}
+        >
+          <PopoverTrigger
+            render={
+              <SidebarAction
+                icon={Inbox}
+                label="In attesa"
+                active={inboxOpen}
+                onPointerDown={() => !inboxOpen && rememberFocus()}
+                trailing={
+                  waitingTotal > 0 ? (
+                    <span
+                      aria-label={`${waitingTotal} richieste`}
+                      className="h-[17px] min-w-[17px] rounded-[4px] bg-attention px-1 text-center text-[10px] leading-[17px] font-semibold text-attention-foreground"
+                    >
+                      !{waitingTotal}
+                    </span>
+                  ) : unreadTotal > 0 ? (
+                    <span aria-label={`${unreadTotal} da leggere`} className="h-4 min-w-4 rounded-full bg-unread px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground">
+                      {unreadTotal}
+                    </span>
+                  ) : null
+                }
+              />
+            }
+          />
+          <PopoverContent
+            side="right"
+            align="start"
+            sideOffset={10}
+            className="w-[460px] gap-0 overflow-hidden p-0"
+            // Chiuso il pannello, il focus torna dov'era: di solito il composer, con il cursore al suo posto.
+            // Se intanto hai aperto un'altra sessione (Apri, ⌘⇧A), il focus resta dove l'ha messo lei.
+            finalFocus={() => (focusBeforeInbox?.isConnected ? focusBeforeInbox : false)}
+          >
+            <InboxPanel />
+          </PopoverContent>
+        </Popover>
       </nav>
 
       <div className="flex items-center justify-between pt-5 pr-3 pb-1 pl-4 text-xs text-muted-foreground">
@@ -115,16 +184,28 @@ export function AppSidebar() {
           )}
           {projects.map((project) => {
             const open = expanded.includes(project.id)
-            const list = byProject.get(project.id) ?? []
-            const attention = projectAttention(list)
+            const all = byProject.get(project.id) ?? []
+            const attention = projectAttention(all)
             const FolderIcon = open ? FolderOpen : Folder
+            // "Concluse": 3 giorni senza attività e niente da leggere. La sessione aperta resta sempre nella lista.
+            const isSelected = (id: string) => selection.kind === 'session' && selection.sessionId === id
+            const concluded = all.filter((s) => !isSelected(s.id) && isConcluded(s, Boolean(drafts[s.id]?.trim()), now))
+            const list = all.filter((s) => !concluded.includes(s))
+            const concludedOpen = Boolean(ui[project.id]?.concludedOpen)
             return (
               <div key={project.id} className="flex flex-col gap-px">
                 <ContextMenu>
                   <ContextMenuTrigger
                     render={<button type="button" />}
                     aria-expanded={open}
-                    onClick={() => toggleProject(project.id)}
+                    onClick={(event) => {
+                      // Un clic sul simbolo di stato di un progetto chiuso apre la sessione che lo ha generato.
+                      if (!open && attention.target && (event.target as HTMLElement).closest('[data-attention]')) {
+                        useApp.getState().openSessionAt(attention.target.id, attention.target.request?.id ?? null)
+                        return
+                      }
+                      toggleProject(project.id)
+                    }}
                     title={project.path}
                     className={cn(
                       'flex min-h-[30px] items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none',
@@ -147,18 +228,38 @@ export function AppSidebar() {
                   <ProjectMenuContent project={project} onRemove={() => setRemoving(project)} />
                 </ContextMenu>
 
+                {open && away[project.id] && <AwayRow projectId={project.id} summary={away[project.id]} />}
+
                 {open &&
                   list.map((session) => (
                     <SessionRow
                       key={session.id}
                       session={session}
                       project={project}
-                      selected={selection.kind === 'session' && selection.sessionId === session.id}
+                      selected={isSelected(session.id)}
                       hasDraft={Boolean(drafts[session.id]?.trim())}
                     />
                   ))}
 
-                {open && list.length === 0 && <p className="ml-5 py-1 pl-2.5 text-[12px] text-faint">Nessuna sessione. ⌘N per iniziare.</p>}
+                {open && all.length === 0 && <p className="ml-5 py-1 pl-2.5 text-[12px] text-faint">Nessuna sessione. ⌘N per iniziare.</p>}
+
+                {open && concluded.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      aria-expanded={concludedOpen}
+                      onClick={() => toggleConcluded(project.id)}
+                      className="ml-5 flex min-h-6 items-center gap-1.5 rounded-md pl-2.5 text-left text-[12px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                    >
+                      <ChevronDown className={cn('size-3 transition-transform', !concludedOpen && '-rotate-90')} />
+                      Concluse · {concluded.length}
+                    </button>
+                    {concludedOpen &&
+                      concluded.map((session) => (
+                        <SessionRow key={session.id} session={session} project={project} selected={false} hasDraft={false} />
+                      ))}
+                  </>
+                )}
               </div>
             )
           })}
@@ -219,7 +320,15 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
               aria-current={selected ? 'page' : undefined}
               onClick={() => select({ kind: 'session', projectId: project.id, sessionId: session.id })}
               onDoubleClick={() => startRename(session.id)}
-              title={[session.title, session.activity, session.estimated ? 'stato stimato' : null, session.worktree?.branch].filter(Boolean).join(' · ')}
+              title={[
+                session.title,
+                session.queuedReason ?? session.activity,
+                session.estimated ? 'stato stimato' : null,
+                session.worktree?.branch,
+                session.pr ? `PR #${session.pr.number}${prNote(session) ? ` · ${prNote(session)}` : ''}` : null
+              ]
+                .filter(Boolean)
+                .join(' · ')}
               className={cn(
                 'relative grid min-h-7 w-full grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md py-1 pr-2 pl-2.5 text-left text-[12.5px] outline-none',
                 'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
@@ -237,6 +346,7 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
                 <span className={cn('truncate', state === 'unread' && 'font-semibold text-sidebar-accent-foreground')}>{session.title}</span>
                 {session.mode === 'terminal' && <SquareTerminal aria-label="Sessione terminale" className="size-3 shrink-0 text-faint" />}
                 {session.worktree && <GitFork aria-label={`Worktree ${session.worktree.branch}`} className="size-3 shrink-0 text-faint" />}
+                {session.pr && <GitPullRequest aria-label={`PR #${session.pr.number}`} className="size-3 shrink-0 text-faint" />}
               </span>
               {/* Lascia il posto al pulsante "…" quando la riga è sotto il puntatore o ha il focus. */}
               <span
@@ -244,7 +354,10 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
                   'text-[11px] whitespace-nowrap text-faint',
                   'group-hover/row:invisible group-has-[:focus-visible]/row:invisible group-has-[[data-popup-open]]/row:invisible',
                   waiting && 'font-semibold text-attention',
-                  state === 'error' && 'font-semibold text-destructive'
+                  state === 'error' && 'font-semibold text-destructive',
+                  !waiting && state !== 'error' && (note === 'CI fallita' || note === 'PR chiusa') && 'font-semibold text-destructive',
+                  !waiting && state !== 'error' && note === 'conflitti' && 'font-semibold text-attention',
+                  !waiting && state !== 'error' && note === 'unita' && 'font-medium text-success'
                 )}
               >
                 {note === 'bozza' ? <i>bozza</i> : note}
@@ -356,28 +469,65 @@ function HistoryButton({ icon: Icon, label, shortcut, disabled, onClick }: Histo
   )
 }
 
-interface SidebarActionProps {
+interface SidebarActionProps extends Omit<ComponentPropsWithoutRef<'button'>, 'children'> {
   icon: LucideIcon
   label: string
   trailing?: ReactNode
   active?: boolean
-  onClick?: () => void
 }
 
-function SidebarAction({ icon: Icon, label, trailing, active, onClick }: SidebarActionProps) {
+/** Voce in cima alla sidebar. Inoltra ref e proprietà: "In attesa" la usa come trigger del popover. */
+const SidebarAction = forwardRef<HTMLButtonElement, SidebarActionProps>(function SidebarAction({ icon: Icon, label, trailing, active, className, ...props }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
-      onClick={onClick}
+      {...props}
       className={cn(
         'flex h-[30px] items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none',
         'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
-        active && 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent'
+        active && 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent',
+        className
       )}
     >
       <Icon className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
       <span className="flex-1 truncate">{label}</span>
       {trailing}
     </button>
+  )
+})
+
+/** "Mentre eri via: 2 risposte, 1 sessione conclusa". Un clic apre la prima risposta da leggere. */
+function AwayRow({ projectId, summary }: { projectId: string; summary: AwaySummary }) {
+  const dismiss = useApp((s) => s.dismissAway)
+  const parts = [
+    summary.requests && `${summary.requests} ${summary.requests === 1 ? 'richiesta' : 'richieste'}`,
+    summary.replies && `${summary.replies} ${summary.replies === 1 ? 'risposta' : 'risposte'}`,
+    summary.errors && `${summary.errors} ${summary.errors === 1 ? 'errore' : 'errori'}`,
+    summary.concluded && `${summary.concluded} ${summary.concluded === 1 ? 'sessione conclusa' : 'sessioni concluse'}`
+  ].filter(Boolean)
+  const openFirst = () => {
+    const state = useApp.getState()
+    const list = Object.values(state.sessions).filter((s) => s.projectId === projectId && !s.archived)
+    const target =
+      list.filter((s) => s.run === 'waiting').sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))[0] ??
+      list.filter((s) => s.unread).sort((a, b) => b.activityAt - a.activityAt)[0]
+    if (target) state.openSessionAt(target.id, target.request?.id ?? null)
+    dismiss(projectId)
+  }
+  return (
+    <div role="status" className="group/away relative ml-5 flex min-h-7 items-center rounded-md bg-sidebar-accent/45 pr-1 pl-2.5 text-[12px] text-muted-foreground">
+      <button type="button" onClick={openFirst} className="min-w-0 flex-1 truncate py-1 text-left outline-none hover:text-foreground focus-visible:underline">
+        <span className="font-medium text-sidebar-foreground">Mentre eri via:</span> {parts.join(', ')}
+      </button>
+      <button
+        type="button"
+        aria-label="Nascondi il riepilogo"
+        onClick={() => dismiss(projectId)}
+        className="grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <X className="size-3" />
+      </button>
+    </div>
   )
 }

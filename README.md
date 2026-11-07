@@ -82,7 +82,43 @@ default = true
 
 I worktree nascono in `~/Developer/.ladder/worktrees/<progetto>/<slug>` su un branch `ladder/<slug>`.
 
-Prossime fasi: “In attesa” con azioni, notifiche e merge (3), Codex e agenti ACP (4).
+Fase 3 completata: più progetti insieme e merge.
+
+- **In attesa** (sidebar): le richieste di tutti i progetti con le loro azioni, poi gli errori e le risposte da leggere.
+  - Approvi o rispondi senza lasciare la sessione che hai davanti: la bozza e il cursore restano dove erano.
+  - Le modifiche oltre 40 righe si approvano dalla sessione, dopo averle lette.
+  - ⌘⇧A porta alla richiesta più vecchia con il focus su Approva; ⌘[ ti riporta indietro con il cursore al suo posto.
+- **Notifiche di macOS**:
+  - approvazioni e domande arrivano subito, tranne se stai guardando quella sessione; se sei nel suo progetto compare un avviso nella barra delle tab, con “Vai”;
+  - un errore, una notifica per sessione;
+  - le risposte pronte solo per turni oltre un minuto, se non sei nel progetto, raccolte per progetto (“acme-vet: 2 risposte pronte”).
+
+  Il clic apre la sessione sull’elemento, e aprire una sessione ritira le sue notifiche. Il badge del Dock conta le richieste e gli errori non ancora visti. “Non disturbare per 1 ora” si attiva dal menu Ladder, da ⌘K o dalle Impostazioni.
+- **Mentre eri via**: tornando su un progetto dopo più di 30 minuti, una riga riassume risposte, richieste ed errori arrivati nel frattempo.
+- **Concluse**: le sessioni ferme da 3 giorni, senza niente da leggere e senza bozza, scendono in un gruppo chiuso.
+- **⌘K**: cerca anche nel testo delle conversazioni, nei comandi e nei file toccati, in tutti i progetti e senza badare agli accenti.
+- **Limite di sessioni attive** (Impostazioni → Agenti, 3 per Claude Code): oltre il limite la sessione aspetta “In coda” e parte da sola appena c’è posto.
+- **⌘⇧N**: nuova sessione da una issue o una PR di GitHub, da una issue di Linear o da un branch. Il prompt è già scritto e il worktree è sul branch giusto.
+- **Merge** (⌘⌥4):
+  - stato del branch, PR, CI e commenti di review;
+  - i conflitti con la base sono calcolati senza toccare la cartella;
+  - “Crea PR”, “Correggi la CI”, “Risolvi i conflitti” e “Invia i commenti” mandano all’agente un prompt che puoi modificare prima.
+
+  Sulla riga della sessione compare lo stato della PR: unita, CI fallita, conflitti. Quando la PR viene unita, la sessione nel worktree si archivia e il worktree, se è pulito, si toglie; il branch resta.
+
+GitHub passa dalla CLI `gh` con il suo login: Ladder non conserva token. Linear usa una chiave API personale, salvata cifrata nel portachiavi di macOS (Impostazioni → Integrazioni).
+
+I prompt dei pulsanti si cambiano in `.ladder/settings.toml`, con un percorso o con il testo stesso:
+
+```toml
+[prompts]
+create_pr = ".ladder/prompts/pr.md"
+fix       = ".ladder/prompts/fix.md"
+```
+
+I nomi sono `create_pr`, `fix`, `conflicts`, `comments`, `issue`, `pull_request` e `review`. Le variabili si scrivono come `{{branch}}`, `{{base}}`, `{{pr}}`, `{{checks}}`, `{{conflicts}}`, `{{comments}}`, `{{ref}}`, `{{title}}`, `{{url}}` e `{{body}}`.
+
+Prossime fasi: Codex e agenti ACP (4), poi il passaggio tra agenti (5).
 
 ## Brand e temi
 
@@ -101,8 +137,8 @@ Crea `apps/desktop/dist/mac-arm64/Ladder.app` con l’icona Circuit (`app-icon/m
 
 ## Architettura in breve
 
-- `src/main`: finestre, menu, dialoghi; avvia l’host e gli passa una MessagePort per finestra.
-- `src/host`: host delle sessioni in un `utilityProcess`, con SQLite (`node:sqlite`), adapter Claude Code (Agent SDK), checkpoint e diff git (`git.ts`, `workspace.ts`), file (`files.ts`), terminali con node-pty e xterm headless (`terminals.ts`), worktree e porte (`worktrees.ts`), configurazione del progetto (`project-settings.ts`).
+- `src/main`: finestre, menu, dialoghi; avvia l’host e gli passa una MessagePort per finestra. Notifiche e badge del Dock (`attention.ts`), link `ladder://`, Linear (`linear.ts`).
+- `src/host`: host delle sessioni in un `utilityProcess`, con SQLite (`node:sqlite`), adapter Claude Code (Agent SDK), checkpoint e diff git (`git.ts`, `workspace.ts`), file (`files.ts`), terminali con node-pty e xterm headless (`terminals.ts`), worktree e porte (`worktrees.ts`), configurazione del progetto (`project-settings.ts`), GitHub con gh (`github.ts`), ricerca (`search.ts`) e prompt dei pulsanti (`prompts.ts`).
 - `src/shared/protocol.ts`: tipi e messaggi tra host e interfaccia.
 - `src/renderer`: React; lo stato arriva dall’host (`store/app-store.ts`), la chat è in `components/chat`, l’ispettore in `components/inspector`, i terminali in `components/terminal` e `lib/terminal-registry.ts`.
 
@@ -110,6 +146,8 @@ Per il debug:
 - la pagina espone `window.__ladder` (`request`, `send`, `store`, `settings`);
 - `LADDER_USER_DATA=<cartella>` usa un archivio separato;
 - `LADDER_WORKTREES=<cartella>` sposta i worktree;
-- `LADDER_EDITOR_TRACE=<file>` registra le aperture nell’editor invece di eseguirle, per le prove automatiche.
+- `LADDER_EDITOR_TRACE=<file>` registra le aperture nell’editor invece di eseguirle, per le prove automatiche;
+- `LADDER_NOTIFY_TRACE=<file>` registra notifiche e badge invece di mostrarli;
+- `LADDER_GH=<eseguibile>` sostituisce gh, `LADDER_LINEAR_API=<url>` l’API di Linear e `LADDER_PR_POLL_MS` l’intervallo di lettura delle PR (90 s).
 
 node-pty è l’unico modulo nativo: usa il prebuild N-API incluso (niente node-gyp), il `postinstall` rende eseguibile lo `spawn-helper` e nella build resta fuori dall’asar.

@@ -5,8 +5,17 @@ import { existsSync, statSync } from 'node:fs'
 import { basename } from 'node:path'
 import { promisify } from 'node:util'
 import type {
+  AgentId,
   AgentStatus,
+  AttentionEvent,
   ChatItem,
+  HostPrefs,
+  HostToMain,
+  IssueList,
+  MergeInfo,
+  PrStatus,
+  RequestItemData,
+  SessionSource,
   DraftKey,
   Effort,
   HostCommand,
@@ -26,15 +35,22 @@ import { tx, type Db, type ProjectRow, type SessionRow } from './db'
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
 import { claudeVersion, findClaudeCli } from './claude/environment'
 import { listTree, readText, RootWatcher } from './files'
-import { changedFiles, createCheckpoint, ensureExcluded, listFiles, repoInfo } from './git'
+import { aheadBehind, changedFiles, createCheckpoint, dirtyCount, ensureExcluded, fetchRef, git, listBranches, listFiles, mergeConflicts, removeWorktree, repoInfo, resolveCommit, unpushedCount } from './git'
+import { defaultBranch, ghState, listGithubIssues, listGithubPrs, prForBranch, type PrDetails } from './github'
+import { renderPrompt } from './prompts'
+import { searchItems } from './search'
 import { loadProjectSettings, PERSONAL_PATTERNS } from './project-settings'
 import { TerminalManager, type AgentKind, type AgentSignal, type SpawnOptions } from './terminals'
 import { diffFile, diffFiles, historyList, recordCheckpoint, restore } from './workspace'
-import { createWorktree, Ports } from './worktrees'
+import { createWorktree, Ports, type WorktreeBranch } from './worktrees'
 
 const run = promisify(execFile)
 
 type Broadcast = (event: HostEvent) => void
+type Notify = (message: HostToMain) => void
+
+/** Ogni quanto si rilegge lo stato delle PR dei branch con sessioni aperte. */
+const PR_POLL_MS = Number(process.env.LADDER_PR_POLL_MS) || 90_000
 type ItemInput = ChatItem extends infer T ? (T extends ChatItem ? Omit<T, 'seq'> : never) : never
 
 interface PendingRequest {
@@ -55,7 +71,8 @@ interface Runtime {
 interface TerminalStatus {
   label: string | null
   activity: string | null
-  turn: { id: string; start: Promise<string | null> } | null
+  turn: { id: string; start: Promise<string | null>; at: number } | null
+  waitingSince: number | null
 }
 
 const FLUSH_MS = 33
@@ -76,10 +93,21 @@ export class Host {
   private termStatus = new Map<string, TerminalStatus>()
   /** Sessioni che aspettano lo script di setup del worktree prima di partire. */
   private preparing = new Set<string>()
+  private prefs: HostPrefs = { maxActive: { 'claude-code': 3, codex: 3 } }
+  /** Sessioni "In coda" per il limite di turni attivi, con l'istante in cui ci sono entrate. */
+  private queuedAt = new Map<string, number>()
+  private badge = -1
+  /** PR per cartella e branch (`root\0branch`); null: il branch non ha PR. */
+  private prs = new Map<string, PrDetails | null>()
+  private prTimer: NodeJS.Timeout | null = null
+  private defaultBranches = new Map<string, Promise<string>>()
+  /** Sessioni archiviate perché la loro PR è stata unita: non si riprovano. */
+  private mergedHandled = new Set<string>()
 
   constructor(
     private readonly db: Db,
-    private readonly broadcast: Broadcast
+    private readonly broadcast: Broadcast,
+    private readonly notify: Notify = () => undefined
   ) {
     this.terminals = new TerminalManager(db, {
       upsert: (terminal) => this.broadcast({ type: 'terminal.upsert', terminal }),
@@ -115,11 +143,26 @@ export class Host {
       version,
       error: this.claudeCli ? null : 'CLI di Claude Code non trovata. Installala e riapri Ladder.'
     }
+    this.drainQueued()
+    this.updateBadge()
+    this.prTimer = setTimeout(() => void this.pollPrs(), 4000)
+  }
+
+  /** Preferenze dal processo main: per ora il limite di turni attivi per agente. */
+  setPrefs(prefs: HostPrefs): void {
+    this.prefs = { maxActive: { ...this.prefs.maxActive, ...prefs.maxActive } }
+    for (const id of this.queuedAt.keys()) this.emitSummary(id)
+    this.drainQueued()
   }
 
   /** Sessioni che lavoravano quando Ladder è stato chiuso: tornano ferme, con una nota e le richieste scadute. */
   private recoverInterrupted(): void {
     for (const row of this.rows.values()) {
+      if (row.run_state === 'queued' && !row.archived) {
+        // Il turno non era ancora partito: resta in coda, nello stesso ordine.
+        this.queuedAt.set(row.id, row.updated_at)
+        continue
+      }
       if (row.run_state === 'idle' || row.run_state === 'error') continue
       if (row.mode === 'terminal') {
         // Il processo non c'è più: la vista della sessione offre "Riprendi".
@@ -230,7 +273,7 @@ export class Host {
         await this.interrupt(command.sessionId)
         return null
       case 'session.respond':
-        this.respond(command.sessionId, command.requestId, command.response)
+        this.respond(command.sessionId, command.requestId, command.response, command.via ?? 'chat')
         return null
       case 'session.permission.set':
         await this.setPermission(command.sessionId, command.permission)
@@ -333,6 +376,16 @@ export class Host {
         return loadProjectSettings(this.mustProject(command.projectId).path)
       case 'run.start':
         return this.startRun(command.projectId, command.sessionId ?? null, command.name)
+
+      // Ricerca, issue, merge e prompt.
+      case 'search':
+        return searchItems(this.db, this.rows, command.query)
+      case 'issues.list':
+        return this.listIssues(command.projectId, command.source)
+      case 'merge.info':
+        return this.mergeInfo(this.knownRoot(command.root), command.fetch === true)
+      case 'prompt.render':
+        return renderPrompt(this.mustProject(command.projectId).path, command.name, command.vars)
     }
   }
 
@@ -384,15 +437,19 @@ export class Host {
     const mode = command.mode ?? 'chat'
     const now = Date.now()
     const shellCommand = mode === 'terminal' ? (command.command?.trim() || 'claude') : null
-    const title = mode === 'terminal' && !command.text.trim() ? shellCommand! : titleFrom(command.text)
+    const title = command.title?.trim() || (mode === 'terminal' && !command.text.trim() ? shellCommand! : titleFrom(command.text))
 
     // Worktree: cartella e branch nuovi, file da copiare, poi lo script di setup prima di partire.
     let worktree: WorktreeInfo | null = null
     const settings = await loadProjectSettings(project.path)
     const notices: string[] = []
-    if (command.worktree) {
+    // Un branch esistente già estratto nel checkout principale non può avere un worktree: si lavora lì.
+    const wanted: WorktreeBranch | null = command.branch ?? null
+    const useWorktree = Boolean(command.worktree) && !(wanted?.existing && wanted.name === project.branch)
+    if (command.worktree && !useWorktree) notices.push(`Il branch ${wanted!.name} è già estratto nel checkout principale: la sessione lavora lì.`)
+    if (useWorktree) {
       if (!project.isGit) throw new Error('Il worktree richiede un repository git.')
-      const created = await createWorktree(project, title, settings.worktree.copy)
+      const created = await createWorktree(project, title, settings.worktree.copy, wanted)
       worktree = created.info
       void ensureExcluded(project.path, PERSONAL_PATTERNS).catch(() => undefined)
       if (created.missing.length) notices.push(`File da copiare che non ho trovato nel progetto: ${created.missing.join(', ')}.`)
@@ -421,14 +478,16 @@ export class Host {
       cwd: worktree?.path ?? project.path,
       worktree: worktree ? JSON.stringify(worktree) : null,
       estimated: 0,
-      agent_ref: null
+      agent_ref: null,
+      activity_at: now,
+      source: command.source ? JSON.stringify(command.source) : null
     }
     this.db
       .prepare(
-        `insert into sessions (id, project_id, title, agent, model, effort, permission, created_at, updated_at, mode, command, cwd, worktree)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `insert into sessions (id, project_id, title, agent, model, effort, permission, created_at, updated_at, mode, command, cwd, worktree, activity_at, source)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(row.id, row.project_id, row.title, row.agent, row.model, row.effort, row.permission, now, now, mode, shellCommand, row.cwd, row.worktree)
+      .run(row.id, row.project_id, row.title, row.agent, row.model, row.effort, row.permission, now, now, mode, shellCommand, row.cwd, row.worktree, now, row.source)
     this.rows.set(row.id, row)
     for (const text of notices) this.upsertItem(row.id, { kind: 'notice', id: randomUUID(), turnId: 'system', at: now, tone: 'info', text })
 
@@ -445,7 +504,7 @@ export class Host {
         this.updateRow(row.id, { queue: JSON.stringify([queued]) })
       }
       this.updateRow(row.id, { run_state: 'running' })
-      this.termStatus.set(row.id, { label: null, activity: 'Prepara il worktree…', turn: null })
+      this.termStatus.set(row.id, { label: null, activity: 'Prepara il worktree…', turn: null, waitingSince: null })
       this.emitSummary(row.id)
       void this.runSetup(row.id, project, worktree.path, settings.worktree.setup).then(async (code) => {
         this.preparing.delete(row.id)
@@ -467,7 +526,7 @@ export class Host {
           const next = queue.shift()
           this.updateRow(row.id, { queue: JSON.stringify(queue) })
           this.emitSummary(row.id)
-          if (next) await this.startTurn(row.id, next.text, next.attachments ?? []).catch((e: Error) => this.noticeError(row.id, e.message))
+          if (next) await this.startOrQueue(row.id, next.text, next.attachments ?? []).catch((e: Error) => this.noticeError(row.id, e.message))
         } else {
           this.emitSummary(row.id)
           await begin()
@@ -499,8 +558,11 @@ export class Host {
     this.runtimes.delete(sessionId)
     for (const terminal of this.terminals.bySession(sessionId)) this.terminals.close(terminal.id)
     this.termStatus.delete(sessionId)
+    this.queuedAt.delete(sessionId)
     this.updateRow(sessionId, { archived: 1, run_state: 'idle' })
     this.emitSummary(sessionId)
+    this.attention({ kind: 'resolved', sessionId, itemId: null })
+    this.drainQueued()
     // Comando di chiusura del worktree (per esempio docker compose down). Il worktree resta: si unisce o si toglie in F3.
     if (row.worktree) {
       const project = this.projects.get(row.project_id)
@@ -568,7 +630,7 @@ export class Host {
       if (existing) this.terminals.restart(existing.id, options)
       else this.terminals.spawn(options)
       this.updateRow(sessionId, { run_state: kind === 'generic' ? 'running' : 'starting', estimated: kind === 'generic' ? 1 : 0 })
-      this.termStatus.set(sessionId, { label: null, activity: null, turn: null })
+      this.termStatus.set(sessionId, { label: null, activity: null, turn: null, waitingSince: null })
       this.emitSummary(sessionId)
       // Checkpoint di inizio sessione: è il "prima" del diff della sessione.
       if (!resume) void this.terminalCheckpoint(sessionId, 'session', 'start', 'Avvio della sessione')
@@ -598,8 +660,10 @@ export class Host {
     const sessionId = terminal.sessionId
     const row = sessionId ? this.rows.get(sessionId) : undefined
     if (!sessionId || !row || row.mode !== 'terminal' || terminal.kind !== 'agent') return
-    const status = this.termStatus.get(sessionId) ?? { label: null, activity: null, turn: null }
+    const status = this.termStatus.get(sessionId) ?? { label: null, activity: null, turn: null, waitingSince: null }
     this.termStatus.set(sessionId, status)
+    const wasWaiting = row.run_state === 'waiting'
+    const project = this.projects.get(row.project_id)
     switch (signal.type) {
       case 'ready':
         status.label = null
@@ -609,7 +673,7 @@ export class Host {
       case 'turn-start': {
         const turnId = randomUUID()
         const label = signal.prompt ? titleFrom(signal.prompt) : 'Messaggio nel terminale'
-        status.turn = { id: turnId, start: this.terminalCheckpoint(sessionId, turnId, 'start', label) }
+        status.turn = { id: turnId, start: this.terminalCheckpoint(sessionId, turnId, 'start', label), at: Date.now() }
         break
       }
       case 'running':
@@ -620,23 +684,40 @@ export class Host {
       case 'waiting':
         status.label = signal.label
         status.activity = signal.activity
+        if (!wasWaiting) status.waitingSince = Date.now()
         this.updateRow(sessionId, { run_state: 'waiting', estimated: signal.estimated ? 1 : 0 })
+        if (!wasWaiting && project) {
+          const cli = basename(splitCommand(row.command ?? 'claude')[0] ?? 'claude')
+          this.attention({
+            kind: 'request',
+            sessionId,
+            projectId: project.id,
+            itemId: null,
+            title: `${project.name} · ${row.title}`,
+            body: `${cli} nel terminale aspetta te: ${(signal.label ?? 'richiesta').toLowerCase()}${signal.activity ? ` · ${signal.activity}` : ''}`
+          })
+        }
         break
       case 'done': {
         status.label = null
         status.activity = null
         // Fine turno: la sessione diventa "da leggere" e il turno ha il suo checkpoint di fine.
         const seq = row.last_seq + 1
-        this.updateRow(sessionId, { run_state: 'idle', estimated: signal.estimated ? 1 : 0, last_seq: seq, last_activity_seq: seq })
+        const now = Date.now()
+        this.updateRow(sessionId, { run_state: 'idle', estimated: signal.estimated ? 1 : 0, last_seq: seq, last_activity_seq: seq, activity_at: now })
         const turn = status.turn
         status.turn = null
         if (turn) void turn.start.then((start) => (start ? this.terminalCheckpoint(sessionId, turn.id, 'end', null) : null))
+        if (turn && project) {
+          this.attention({ kind: 'turn', sessionId, projectId: project.id, projectName: project.name, itemId: null, durationMs: now - turn.at, title: row.title })
+        }
         break
       }
       case 'error':
         status.label = null
         status.activity = signal.message
-        this.updateRow(sessionId, { run_state: 'error', estimated: 0 })
+        this.updateRow(sessionId, { run_state: 'error', estimated: 0, activity_at: Date.now(), last_seq: row.last_seq + 1, last_activity_seq: row.last_seq + 1 })
+        if (project) this.attention({ kind: 'error', sessionId, projectId: project.id, itemId: null, title: `${project.name} · ${row.title}`, body: signal.message })
         break
       case 'exit':
         status.label = null
@@ -644,6 +725,10 @@ export class Host {
         status.turn = null
         this.updateRow(sessionId, { run_state: 'idle', estimated: 0 })
         break
+    }
+    if (wasWaiting && row.run_state !== 'waiting') {
+      status.waitingSince = null
+      this.attention({ kind: 'resolved', sessionId, itemId: null })
     }
     this.emitSummary(sessionId)
   }
@@ -654,14 +739,67 @@ export class Host {
     const row = this.mustRow(sessionId)
     if (row.mode === 'terminal') throw new Error('Una sessione terminale si usa dal suo terminale.')
     const runtime = this.runtimes.get(sessionId)
-    if (runtime?.adapter.isRunning || row.run_state === 'waiting' || this.preparing.has(sessionId)) {
+    if (runtime?.adapter.isRunning || row.run_state === 'waiting' || row.run_state === 'queued' || this.preparing.has(sessionId)) {
       const queue = JSON.parse(row.queue) as QueuedMessage[]
       queue.push({ id: randomUUID(), text, ...(attachments.length ? { attachments } : {}) })
       this.updateRow(sessionId, { queue: JSON.stringify(queue) })
       this.emitSummary(sessionId)
       return
     }
+    await this.startOrQueue(sessionId, text, attachments)
+  }
+
+  // ── Limite di turni attivi per agente ──────────────────────────────────────
+
+  /** Turni in corso (anche in attesa di una tua risposta) delle sessioni chat di un agente. */
+  private activeTurns(agent: string): number {
+    let count = 0
+    for (const [id, runtime] of this.runtimes) if (runtime.turnId && this.rows.get(id)?.agent === agent) count++
+    return count
+  }
+
+  private limitFor(agent: string): number {
+    return Math.max(1, Math.round(this.prefs.maxActive[agent as AgentId] ?? 3))
+  }
+
+  /** Parte subito se c'è posto; altrimenti il messaggio va in testa alla coda e la sessione aspetta "In coda". */
+  private async startOrQueue(sessionId: string, text: string, attachments: Attachment[]): Promise<void> {
+    const row = this.mustRow(sessionId)
+    if (this.activeTurns(row.agent) >= this.limitFor(row.agent)) {
+      const queue = JSON.parse(row.queue) as QueuedMessage[]
+      queue.unshift({ id: randomUUID(), text, ...(attachments.length ? { attachments } : {}) })
+      this.updateRow(sessionId, { queue: JSON.stringify(queue), run_state: 'queued' })
+      this.queuedAt.set(sessionId, Date.now())
+      this.emitSummary(sessionId)
+      return
+    }
     await this.startTurn(sessionId, text, attachments)
+  }
+
+  /** Fa partire le sessioni in coda, dalla più vecchia, finché c'è posto. */
+  private drainQueued(): void {
+    if (!this.claudeCli) return
+    for (const [sessionId] of [...this.queuedAt.entries()].sort((a, b) => a[1] - b[1])) {
+      const row = this.rows.get(sessionId)
+      if (!row || row.archived || row.run_state !== 'queued') {
+        this.queuedAt.delete(sessionId)
+        continue
+      }
+      if (this.activeTurns(row.agent) >= this.limitFor(row.agent)) continue
+      const queue = JSON.parse(row.queue) as QueuedMessage[]
+      const next = queue.shift()
+      this.queuedAt.delete(sessionId)
+      this.updateRow(sessionId, { queue: JSON.stringify(queue), run_state: 'idle' })
+      if (!next) {
+        this.emitSummary(sessionId)
+        continue
+      }
+      void this.startTurn(sessionId, next.text, next.attachments ?? []).catch((e: Error) => {
+        this.updateRow(sessionId, { run_state: 'idle' })
+        this.noticeError(sessionId, e.message)
+        this.emitSummary(sessionId)
+      })
+    }
   }
 
   private async startTurn(sessionId: string, text: string, attachments: Attachment[] = []): Promise<void> {
@@ -700,7 +838,8 @@ export class Host {
       text,
       ...(attachments.length ? { attachments: attachments.map((a) => ({ name: a.name, mediaType: a.mediaType })) } : {})
     })
-    this.updateRow(sessionId, { run_state: 'running', title: row.last_seq <= 1 ? titleFrom(text) : row.title })
+    // Il titolo nasce dal primo messaggio, tranne per le sessioni da issue, PR o branch: lì resta il loro titolo.
+    this.updateRow(sessionId, { run_state: 'running', title: row.last_seq <= 1 && !row.source ? titleFrom(text) : row.title })
     this.emitSummary(sessionId)
     this.flush()
     runtime.turnStart = project.isGit
@@ -753,12 +892,14 @@ export class Host {
         for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
         this.runtimes.delete(sessionId)
         if (error) {
-          this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime.turnId ?? 'system', at: Date.now(), tone: 'error', text: `Claude Code si è chiuso: ${error}` })
-          this.updateRow(sessionId, { run_state: 'error' })
+          const notice = this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime.turnId ?? 'system', at: Date.now(), tone: 'error', text: `Claude Code si è chiuso: ${error}` })
+          this.updateRow(sessionId, { run_state: 'error', activity_at: Date.now(), last_activity_seq: notice.seq })
+          this.errorAttention(sessionId, notice.id, `Claude Code si è chiuso: ${error}`)
         } else if (this.rows.get(sessionId)?.run_state !== 'idle') {
           this.updateRow(sessionId, { run_state: 'idle' })
         }
         this.emitSummary(sessionId)
+        this.drainQueued()
       }
     }
   }
@@ -792,6 +933,11 @@ export class Host {
     const runtime = this.runtimes.get(sessionId)
     if (!runtime?.turnId) return Promise.resolve({ optionId: 'deny', message: 'Sessione non attiva.' })
     const requestId = randomUUID()
+    // La richiesta è "in sospeso" prima di comparire: il riepilogo della sessione la include già (per "In attesa").
+    let resolve!: (response: RequestResponse) => void
+    const answer = new Promise<RequestResponse>((r) => (resolve = r))
+    runtime.pending.set(requestId, { itemId: requestId, resolve })
+    signal.addEventListener('abort', () => this.expireRequest(sessionId, requestId), { once: true })
     this.upsertItem(sessionId, {
       kind: 'request',
       id: requestId,
@@ -805,13 +951,15 @@ export class Host {
     this.updateRow(sessionId, { run_state: 'waiting' })
     this.emitSummary(sessionId)
     this.flush()
-    return new Promise<RequestResponse>((resolve) => {
-      runtime.pending.set(requestId, { itemId: requestId, resolve })
-      signal.addEventListener('abort', () => this.expireRequest(sessionId, requestId), { once: true })
-    })
+    const row = this.mustRow(sessionId)
+    const project = this.projects.get(row.project_id)
+    if (project) {
+      this.attention({ kind: 'request', sessionId, projectId: project.id, itemId: requestId, title: `${project.name} · ${row.title}`, body: requestBody(request) })
+    }
+    return answer
   }
 
-  private respond(sessionId: string, requestId: string, response: RequestResponse): void {
+  private respond(sessionId: string, requestId: string, response: RequestResponse, via: RequestItemData['via'] = 'chat'): void {
     const runtime = this.runtimes.get(sessionId)
     const pending = runtime?.pending.get(requestId)
     const item = this.liveItems.get(sessionId)?.get(requestId) ?? this.loadItems(sessionId).find((i) => i.id === requestId)
@@ -819,9 +967,10 @@ export class Host {
       throw new Error('Questa richiesta non è più attiva.')
     }
     runtime.pending.delete(requestId)
-    this.upsertItem(sessionId, { ...item, state: 'resolved', resolution: describeResponse(item, response) })
+    this.upsertItem(sessionId, { ...item, state: 'resolved', resolution: describeResponse(item, response), via })
     if (runtime.pending.size === 0) this.updateRow(sessionId, { run_state: 'running' })
     this.emitSummary(sessionId)
+    this.attention({ kind: 'resolved', sessionId, itemId: requestId })
     pending.resolve(response)
   }
 
@@ -830,7 +979,10 @@ export class Host {
     const pending = runtime?.pending.get(requestId)
     runtime?.pending.delete(requestId)
     const item = this.liveItems.get(sessionId)?.get(requestId)
-    if (item?.kind === 'request' && item.state === 'open') this.upsertItem(sessionId, { ...item, state: 'expired', resolution: 'Scaduta' })
+    if (item?.kind === 'request' && item.state === 'open') {
+      this.upsertItem(sessionId, { ...item, state: 'expired', resolution: 'Scaduta' })
+      this.attention({ kind: 'resolved', sessionId, itemId: requestId })
+    }
     pending?.resolve({ optionId: 'deny', message: 'La richiesta è scaduta.' })
     if (runtime && runtime.pending.size === 0 && this.rows.get(sessionId)?.run_state === 'waiting') {
       this.updateRow(sessionId, { run_state: runtime.adapter.isRunning ? 'running' : 'idle' })
@@ -880,21 +1032,36 @@ export class Host {
     this.updateRow(sessionId, {
       run_state: result.status === 'error' ? 'error' : 'idle',
       last_activity_seq: end.seq,
+      activity_at: Date.now(),
       context: result.context ? JSON.stringify(result.context) : row.context
     })
     this.flush()
     this.emitSummary(sessionId)
     if (files.length > 0) this.broadcast({ type: 'fs.changed', root: cwd })
+    if (result.status === 'error') this.errorAttention(sessionId, end.id, result.error ?? 'Il turno si è fermato per un errore.')
+    else if (result.status === 'completed' && project) {
+      this.attention({ kind: 'turn', sessionId, projectId: project.id, projectName: project.name, itemId: end.id, durationMs: result.durationMs, title: row.title })
+    }
 
     const queue = JSON.parse(this.mustRow(sessionId).queue) as QueuedMessage[]
     const next = queue.shift()
     if (next && result.status !== 'error') {
+      // La sessione tiene il suo posto per i messaggi che le hai già messo in coda.
       this.updateRow(sessionId, { queue: JSON.stringify(queue) })
       await this.startTurn(sessionId, next.text, next.attachments ?? [])
     }
+    this.drainQueued()
   }
 
   private async interrupt(sessionId: string): Promise<void> {
+    const row = this.rows.get(sessionId)
+    if (row?.run_state === 'queued') {
+      // Esce dalla coda; i messaggi restano sopra il composer, da modificare o inviare.
+      this.queuedAt.delete(sessionId)
+      this.updateRow(sessionId, { run_state: 'idle' })
+      this.emitSummary(sessionId)
+      return
+    }
     const runtime = this.runtimes.get(sessionId)
     if (!runtime) return
     for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
@@ -975,19 +1142,38 @@ export class Host {
     return row
   }
 
+  /** Richieste aperte di una sessione chat, la più vecchia prima. */
+  private openRequestItems(sessionId: string): RequestItemData[] {
+    if (!this.runtimes.get(sessionId)?.pending.size) return []
+    const items = this.liveItems.get(sessionId)
+    return [...(items?.values() ?? [])]
+      .filter((i): i is RequestItemData => i.kind === 'request' && i.state === 'open')
+      .sort((a, b) => a.at - b.at)
+  }
+
+  private branchOf(row: SessionRow): string | null {
+    if (row.worktree) return (JSON.parse(row.worktree) as WorktreeInfo).branch
+    return this.projects.get(row.project_id)?.branch ?? null
+  }
+
+  private prOf(row: SessionRow): PrStatus | null {
+    const branch = this.branchOf(row)
+    return branch ? (this.prs.get(`${this.cwdOf(row)}\0${branch}`)?.status ?? null) : null
+  }
+
   private summary(sessionId: string): SessionSummary {
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
     const term = this.termStatus.get(sessionId)
     const run = row.run_state as RunState
+    const open = run === 'waiting' ? this.openRequestItems(sessionId) : []
     let waitingLabel: string | null = null
     if (run === 'waiting' && runtime) {
-      const items = this.liveItems.get(sessionId)
-      const open = [...(items?.values() ?? [])].find((i) => i.kind === 'request' && i.state === 'open')
-      waitingLabel = open?.kind === 'request' && open.requestType === 'question' ? 'Domanda' : 'Approvazione'
+      waitingLabel = open[0]?.requestType === 'question' ? 'Domanda' : 'Approvazione'
     } else if (run === 'waiting') {
       waitingLabel = term?.label ?? 'Richiede te'
     }
+    const limit = this.limitFor(row.agent)
     return {
       id: row.id,
       projectId: row.project_id,
@@ -1014,15 +1200,197 @@ export class Host {
       worktree: row.worktree ? (JSON.parse(row.worktree) as WorktreeInfo) : null,
       command: row.command,
       terminalId: this.terminals.bySession(row.id, 'agent')[0]?.id ?? null,
-      estimated: row.estimated === 1
+      estimated: row.estimated === 1,
+      waitingSince: run === 'waiting' ? (open[0]?.at ?? term?.waitingSince ?? row.updated_at) : null,
+      request: open[0] ?? null,
+      openRequests: run === 'waiting' ? Math.max(1, open.length) : 0,
+      activityAt: row.activity_at || row.updated_at,
+      queuedReason: run === 'queued' ? `In coda: ${limit} ${limit === 1 ? 'sessione' : 'sessioni'} Claude Code ${limit === 1 ? 'attiva' : 'attive'}` : null,
+      branch: this.branchOf(row),
+      pr: this.prOf(row),
+      source: row.source ? (JSON.parse(row.source) as SessionSource) : null
     }
   }
 
   private emitSummary(sessionId: string): void {
-    if (this.rows.has(sessionId)) this.broadcast({ type: 'session.upsert', session: this.summary(sessionId) })
+    if (!this.rows.has(sessionId)) return
+    this.broadcast({ type: 'session.upsert', session: this.summary(sessionId) })
+    this.updateBadge()
+  }
+
+  // ── Notifiche e badge del Dock (li mostra il processo main) ──────────────────
+
+  private attention(event: AttentionEvent): void {
+    this.notify({ type: 'attention', event })
+  }
+
+  private errorAttention(sessionId: string, itemId: string, text: string): void {
+    const row = this.rows.get(sessionId)
+    const project = row ? this.projects.get(row.project_id) : undefined
+    if (row && project) this.attention({ kind: 'error', sessionId, projectId: project.id, itemId, title: `${project.name} · ${row.title}`, body: text })
+  }
+
+  /** Badge: una per richiesta aperta, più le sessioni ferme per errore che non hai ancora visto. */
+  private updateBadge(): void {
+    let count = 0
+    for (const row of this.rows.values()) {
+      if (row.archived || !this.projects.has(row.project_id)) continue
+      if (row.run_state === 'waiting') count += Math.max(1, this.runtimes.get(row.id)?.pending.size ?? 0)
+      else if (row.run_state === 'error' && row.last_activity_seq > row.last_read_seq) count++
+    }
+    if (count === this.badge) return
+    this.badge = count
+    this.notify({ type: 'badge', count })
+  }
+
+  // ── Issue, PR e merge ────────────────────────────────────────────────────────
+
+  private defaultBranchOf(project: Project): Promise<string> {
+    let cached = this.defaultBranches.get(project.path)
+    if (!cached) {
+      cached = defaultBranch(project.path)
+      this.defaultBranches.set(project.path, cached)
+    }
+    return cached
+  }
+
+  private async listIssues(projectId: string, source: 'github-issue' | 'github-pr' | 'branch'): Promise<IssueList> {
+    const project = this.mustProject(projectId)
+    if (!project.isGit) return { items: [], problem: 'Il progetto non è un repository git.' }
+    if (source === 'branch') {
+      const branches = await listBranches(project.path)
+      return {
+        items: branches.map((b) => ({
+          source: 'branch',
+          ref: b.name,
+          title: b.subject || b.name,
+          body: null,
+          url: null,
+          branch: b.name,
+          state: b.name === project.branch ? 'estratto qui' : b.remote ? 'su origin' : 'locale',
+          updatedAt: b.at
+        })),
+        problem: null
+      }
+    }
+    const state = await ghState(project.path)
+    if (state !== 'ok') return { items: [], problem: ghProblem(state) }
+    try {
+      return { items: source === 'github-issue' ? await listGithubIssues(project.path) : await listGithubPrs(project.path), problem: null }
+    } catch (error) {
+      return { items: [], problem: `gh: ${(error as Error).message}` }
+    }
+  }
+
+  /** Stato per il pannello "Pronto per il merge": git locale, PR, CI e commenti. `fetch` aggiorna prima i branch da origin. */
+  private async mergeInfo(root: string, fetch: boolean): Promise<MergeInfo> {
+    const project = [...this.projects.values()].find((p) => p.path === root) ?? this.projects.get([...this.rows.values()].find((r) => this.cwdOf(r) === root)?.project_id ?? '')
+    if (!project) throw new Error('Cartella sconosciuta a Ladder.')
+    const info = await repoInfo(root)
+    if (!info.isGit) throw new Error('La cartella non è un repository git.')
+    const gh = await ghState(root)
+    const fallbackBase = await this.defaultBranchOf(project)
+    const branch = info.branch
+    let ghError: string | null = null
+    let details: PrDetails | null = null
+    if (gh === 'ok' && branch && branch !== fallbackBase) {
+      try {
+        details = await prForBranch(root, branch)
+        this.storePr(root, branch, details)
+      } catch (error) {
+        ghError = (error as Error).message
+      }
+    }
+    const base = details?.status.base ?? fallbackBase
+    if (fetch) await fetchRef(root, base).catch(() => undefined)
+    const baseRef = (await resolveCommit(root, `refs/remotes/origin/${base}`)) ? `origin/${base}` : base
+    const counts = branch && branch !== base ? await aheadBehind(root, 'HEAD', baseRef) : null
+    const unpushed = await unpushedCount(root)
+    return {
+      root,
+      branch,
+      base,
+      isDefaultBranch: branch === base,
+      dirty: await dirtyCount(root),
+      ahead: counts?.ahead ?? 0,
+      behind: counts?.behind ?? 0,
+      unpushed,
+      hasUpstream: unpushed !== null,
+      conflicts: counts && counts.behind > 0 ? await mergeConflicts(root, 'HEAD', baseRef) : [],
+      gh: ghError ? 'error' : gh,
+      ghError,
+      pr: details?.status ?? null,
+      checks: details?.checks ?? [],
+      comments: details?.comments ?? []
+    }
+  }
+
+  private storePr(root: string, branch: string, details: PrDetails | null): void {
+    const key = `${root}\0${branch}`
+    const before = JSON.stringify(this.prs.get(key)?.status ?? null)
+    this.prs.set(key, details)
+    if (JSON.stringify(details?.status ?? null) === before) return
+    for (const row of this.rows.values()) {
+      if (!row.archived && this.cwdOf(row) === root && this.branchOf(row) === branch) this.emitSummary(row.id)
+    }
+  }
+
+  /** Rilegge le PR dei branch con sessioni aperte. Le sessioni in un worktree si archiviano quando la loro PR è unita. */
+  private async pollPrs(): Promise<void> {
+    this.prTimer = null
+    try {
+      await this.refreshPrs()
+    } finally {
+      this.prTimer ??= setTimeout(() => void this.pollPrs(), PR_POLL_MS)
+    }
+  }
+
+  private async refreshPrs(): Promise<void> {
+    const targets = new Map<string, { root: string; branch: string; project: Project }>()
+    for (const row of this.rows.values()) {
+      const project = this.projects.get(row.project_id)
+      const branch = this.branchOf(row)
+      if (row.archived || !project?.isGit || !branch) continue
+      targets.set(`${this.cwdOf(row)}\0${branch}`, { root: this.cwdOf(row), branch, project })
+    }
+    for (const { root, branch, project } of targets.values()) {
+      try {
+        if (!existsSync(root) || branch === (await this.defaultBranchOf(project)) || (await ghState(root)) !== 'ok') continue
+        this.storePr(root, branch, await prForBranch(root, branch))
+      } catch {
+        // gh non raggiungibile: si riprova al giro dopo.
+      }
+    }
+    for (const row of [...this.rows.values()]) {
+      const pr = this.prOf(row)
+      if (row.archived || !row.worktree || pr?.state !== 'merged' || this.mergedHandled.has(row.id)) continue
+      if (pr.updatedAt < row.created_at || this.busySession(this.cwdOf(row))?.id === row.id) continue
+      this.mergedHandled.add(row.id)
+      await this.archiveMerged(row, pr).catch(() => undefined)
+    }
+  }
+
+  private async archiveMerged(row: SessionRow, pr: PrStatus): Promise<void> {
+    const project = this.projects.get(row.project_id)
+    await this.archive(row.id)
+    if (!project) return
+    const cwd = this.cwdOf(row)
+    // Il worktree si toglie solo se è pulito: git rifiuta da solo se ci sono modifiche o file non tracciati. Il branch resta.
+    let removed = false
+    if (existsSync(cwd)) removed = await removeWorktree(project.path, cwd).then(() => true, () => false)
+    this.upsertItem(row.id, {
+      kind: 'notice',
+      id: randomUUID(),
+      turnId: 'system',
+      at: Date.now(),
+      tone: 'info',
+      text: `La PR #${pr.number} è stata unita: sessione archiviata${removed ? ' e worktree tolto (il branch resta)' : '; il worktree resta perché contiene file non committati'}.`
+    })
+    this.flush()
   }
 
   shutdown(): void {
+    if (this.prTimer) clearTimeout(this.prTimer)
     this.flush()
     for (const runtime of this.runtimes.values()) runtime.adapter.close()
     this.terminals.shutdown()
@@ -1074,6 +1442,20 @@ async function whichCommand(name: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+function ghProblem(state: Exclude<Awaited<ReturnType<typeof ghState>>, 'ok'>): string {
+  if (state === 'missing') return 'Serve la CLI gh di GitHub: installala con brew install gh.'
+  if (state === 'unauthenticated') return 'gh non ha un login: esegui gh auth login nel terminale.'
+  return 'Il repository non ha un remote su GitHub.'
+}
+
+/** Testo della notifica di una richiesta. */
+function requestBody(request: UserRequest): string {
+  if (request.requestType === 'question') return `Claude Code ti fa una domanda: ${request.title}`
+  if (request.command) return `Claude Code chiede di eseguire: ${request.command}`
+  if (request.path) return `Claude Code chiede di modificare ${request.path}`
+  return `Claude Code chiede di usare ${request.toolName}`
 }
 
 function describeResponse(item: Extract<ChatItem, { kind: 'request' }>, response: RequestResponse): string {

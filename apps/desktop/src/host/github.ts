@@ -1,0 +1,258 @@
+// GitHub tramite la CLI gh dell'utente: Ladder non legge né conserva token, gh usa il proprio login.
+// LADDER_GH punta a un gh finto per le prove automatiche.
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import type { IssueItem, MergeCheck, PrStatus, ReviewComment } from '@shared/protocol'
+import { git } from './git'
+
+const run = promisify(execFile)
+
+let ghPath: Promise<string | null> | null = null
+
+/** Percorso di gh: le app GUI non vedono il PATH della shell, quindi lo chiede alla shell di login. */
+export function findGh(): Promise<string | null> {
+  ghPath ??= (async () => {
+    if (process.env.LADDER_GH) return process.env.LADDER_GH
+    try {
+      const { stdout } = await run(process.env.SHELL || '/bin/zsh', ['-lc', 'command -v gh'], { timeout: 5000 })
+      const path = stdout.trim().split('\n').pop() ?? ''
+      return path.startsWith('/') ? path : null
+    } catch {
+      return null
+    }
+  })()
+  return ghPath
+}
+
+export class GhError extends Error {
+  constructor(
+    message: string,
+    readonly stderr: string
+  ) {
+    super(message)
+  }
+}
+
+export async function gh(cwd: string, args: string[], timeout = 20000): Promise<string> {
+  const path = await findGh()
+  if (!path) throw new GhError('gh non è installato', '')
+  try {
+    const { stdout } = await run(path, args, {
+      cwd,
+      timeout,
+      maxBuffer: 16 * 1024 * 1024,
+      // Niente prompt interattivi né colori: l'output deve restare JSON.
+      env: { ...process.env, GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1' }
+    })
+    return stdout
+  } catch (error) {
+    const stderr = String((error as { stderr?: string }).stderr ?? '').trim()
+    throw new GhError(stderr.split('\n')[0] || (error as Error).message, stderr)
+  }
+}
+
+/** Il repository ha un remote su GitHub? Senza, gh non ha niente da leggere. */
+export async function hasGithubRemote(cwd: string): Promise<boolean> {
+  try {
+    return /github\.com[:/]/.test(await git(cwd, ['remote', '-v']))
+  } catch {
+    return false
+  }
+}
+
+const authCache = new Map<string, { at: number; ok: boolean }>()
+
+export type GhState = 'ok' | 'missing' | 'unauthenticated' | 'no-remote'
+
+export async function ghState(cwd: string): Promise<GhState> {
+  if (!(await findGh())) return 'missing'
+  if (!(await hasGithubRemote(cwd))) return 'no-remote'
+  const path = (await findGh())!
+  const cached = authCache.get(path)
+  if (cached && Date.now() - cached.at < 5 * 60_000) return cached.ok ? 'ok' : 'unauthenticated'
+  let ok = true
+  try {
+    await gh(cwd, ['auth', 'status', '--hostname', 'github.com'], 10000)
+  } catch {
+    ok = false
+  }
+  authCache.set(path, { at: Date.now(), ok })
+  return ok ? 'ok' : 'unauthenticated'
+}
+
+/** Branch predefinito: origin/HEAD se c'è, altrimenti quello di GitHub, altrimenti main o master. */
+export async function defaultBranch(cwd: string): Promise<string> {
+  try {
+    const ref = await git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+    if (ref) return ref.replace(/^origin\//, '')
+  } catch {
+    // origin/HEAD non impostato: si prova con gh.
+  }
+  if ((await ghState(cwd)) === 'ok') {
+    try {
+      const data = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'defaultBranchRef'], 10000)) as { defaultBranchRef?: { name?: string } }
+      if (data.defaultBranchRef?.name) return data.defaultBranchRef.name
+    } catch {
+      // Si ripiega sui nomi più comuni.
+    }
+  }
+  for (const name of ['main', 'master']) {
+    try {
+      await git(cwd, ['rev-parse', '--verify', '-q', `refs/heads/${name}`])
+      return name
+    } catch {
+      // Prossimo nome.
+    }
+  }
+  return 'main'
+}
+
+interface RawCheck {
+  __typename?: string
+  name?: string
+  context?: string
+  status?: string
+  conclusion?: string
+  state?: string
+  detailsUrl?: string
+  targetUrl?: string
+}
+
+interface RawPr {
+  number: number
+  title: string
+  url: string
+  state: string
+  isDraft?: boolean
+  mergeable?: string
+  reviewDecision?: string
+  baseRefName?: string
+  updatedAt?: string
+  statusCheckRollup?: RawCheck[] | null
+  comments?: { author?: { login?: string }; body?: string; createdAt?: string; url?: string }[]
+}
+
+function checkState(check: RawCheck): MergeCheck['state'] {
+  if (check.__typename === 'StatusContext' || (check.state && !check.status)) {
+    const state = (check.state ?? '').toUpperCase()
+    if (state === 'SUCCESS') return 'passing'
+    if (state === 'FAILURE' || state === 'ERROR') return 'failing'
+    return 'pending'
+  }
+  if ((check.status ?? '').toUpperCase() !== 'COMPLETED') return 'pending'
+  const conclusion = (check.conclusion ?? '').toUpperCase()
+  if (conclusion === 'SUCCESS' || conclusion === 'NEUTRAL') return 'passing'
+  if (conclusion === 'SKIPPED') return 'skipped'
+  return 'failing'
+}
+
+function rollup(checks: MergeCheck[]): PrStatus['checks'] {
+  const relevant = checks.filter((c) => c.state !== 'skipped')
+  if (relevant.length === 0) return 'none'
+  if (relevant.some((c) => c.state === 'failing')) return 'failing'
+  if (relevant.some((c) => c.state === 'pending')) return 'pending'
+  return 'passing'
+}
+
+export interface PrDetails {
+  status: PrStatus
+  checks: MergeCheck[]
+  comments: ReviewComment[]
+}
+
+const PR_FIELDS = 'number,title,url,state,isDraft,mergeable,reviewDecision,baseRefName,updatedAt,statusCheckRollup,comments'
+
+/** PR aperta (o l'ultima) del branch. null se il branch non ha PR. */
+export async function prForBranch(cwd: string, branch: string): Promise<PrDetails | null> {
+  let raw: RawPr
+  try {
+    raw = JSON.parse(await gh(cwd, ['pr', 'view', branch, '--json', PR_FIELDS])) as RawPr
+  } catch (error) {
+    if (error instanceof GhError && /no (open )?pull requests? found|could not find/i.test(error.stderr || error.message)) return null
+    throw error
+  }
+  const checks: MergeCheck[] = (raw.statusCheckRollup ?? []).map((c) => ({
+    name: c.name ?? c.context ?? 'controllo',
+    state: checkState(c),
+    url: c.detailsUrl ?? c.targetUrl ?? null
+  }))
+  const state: PrStatus['state'] = raw.state === 'MERGED' ? 'merged' : raw.state === 'CLOSED' ? 'closed' : raw.isDraft ? 'draft' : 'open'
+  const review = raw.reviewDecision === 'APPROVED' ? 'approved' : raw.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : raw.reviewDecision === 'REVIEW_REQUIRED' ? 'pending' : null
+  const status: PrStatus = {
+    number: raw.number,
+    title: raw.title,
+    url: raw.url,
+    state,
+    checks: rollup(checks),
+    mergeable: raw.mergeable === 'CONFLICTING' ? 'conflicts' : raw.mergeable === 'MERGEABLE' ? 'clean' : 'unknown',
+    review,
+    base: raw.baseRefName ?? 'main',
+    updatedAt: raw.updatedAt ? Date.parse(raw.updatedAt) : Date.now()
+  }
+  const comments: ReviewComment[] = (raw.comments ?? []).map((c) => ({
+    author: c.author?.login ?? 'utente',
+    path: null,
+    line: null,
+    body: c.body ?? '',
+    url: c.url ?? null,
+    at: c.createdAt ? Date.parse(c.createdAt) : 0
+  }))
+  // Commenti sulle righe del diff: un'altra API, letta con gh api (i segnaposto {owner}/{repo} li risolve gh).
+  try {
+    const inline = JSON.parse(await gh(cwd, ['api', `repos/{owner}/{repo}/pulls/${raw.number}/comments?per_page=100`])) as {
+      user?: { login?: string }
+      path?: string
+      line?: number | null
+      original_line?: number | null
+      body?: string
+      html_url?: string
+      created_at?: string
+    }[]
+    for (const c of inline) {
+      comments.push({
+        author: c.user?.login ?? 'utente',
+        path: c.path ?? null,
+        line: c.line ?? c.original_line ?? null,
+        body: c.body ?? '',
+        url: c.html_url ?? null,
+        at: c.created_at ? Date.parse(c.created_at) : 0
+      })
+    }
+  } catch {
+    // Senza i commenti sulle righe il pannello mostra comunque PR e CI.
+  }
+  comments.sort((a, b) => a.at - b.at)
+  return { status, checks, comments }
+}
+
+export async function listGithubIssues(cwd: string): Promise<IssueItem[]> {
+  const raw = JSON.parse(
+    await gh(cwd, ['issue', 'list', '--state', 'open', '--limit', '50', '--json', 'number,title,body,url,updatedAt,state'])
+  ) as { number: number; title: string; body?: string; url: string; updatedAt?: string; state?: string }[]
+  return raw.map((i) => ({
+    source: 'github-issue',
+    ref: `#${i.number}`,
+    title: i.title,
+    body: i.body?.trim() || null,
+    url: i.url,
+    branch: null,
+    state: i.state === 'OPEN' ? 'aperta' : i.state === 'CLOSED' ? 'chiusa' : (i.state ?? null),
+    updatedAt: i.updatedAt ? Date.parse(i.updatedAt) : null
+  }))
+}
+
+export async function listGithubPrs(cwd: string): Promise<IssueItem[]> {
+  const raw = JSON.parse(
+    await gh(cwd, ['pr', 'list', '--state', 'open', '--limit', '50', '--json', 'number,title,body,url,updatedAt,headRefName,isDraft'])
+  ) as { number: number; title: string; body?: string; url: string; updatedAt?: string; headRefName?: string; isDraft?: boolean }[]
+  return raw.map((p) => ({
+    source: 'github-pr',
+    ref: `#${p.number}`,
+    title: p.title,
+    body: p.body?.trim() || null,
+    url: p.url,
+    branch: p.headRefName ?? null,
+    state: p.isDraft ? 'bozza' : 'aperta',
+    updatedAt: p.updatedAt ? Date.parse(p.updatedAt) : null
+  }))
+}

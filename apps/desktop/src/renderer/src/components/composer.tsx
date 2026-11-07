@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, AtSign, ChevronDown, ImagePlus, Plus, ShieldCheck, Square } from 'lucide-react'
+import { ArrowUp, AtSign, ChevronDown, Clock, ImagePlus, Plus, ShieldCheck, Square } from 'lucide-react'
 import type { Attachment, Effort, PermissionLevel, QueuedMessage } from '@shared/protocol'
 import { IconButton } from '@/components/icon-button'
 import {
@@ -53,9 +53,15 @@ interface ComposerProps {
   onQueueChange?: (queue: QueuedMessage[]) => void
   context?: { used: number; window: number } | null
   disabledReason?: string | null
+  /** Vale solo all'apertura: il composer prende il focus e rimette il cursore dove l'avevi lasciato. */
   autoFocus?: boolean
+  /** Riga sopra il composer: "In coda: 3 sessioni Claude Code attive". */
+  status?: string | null
   className?: string
 }
+
+/** Cursore per bozza: tornando su una sessione (⌘[) riprendi a scrivere nel punto in cui eri. */
+const carets = new Map<string, [number, number]>()
 
 const NO_OPTIONS: MentionOption[] = []
 
@@ -68,7 +74,7 @@ const chip =
 
 export function Composer(props: ComposerProps) {
   const { draftKey, projectId, agentName, models, model, onModelChange, effort, onEffortChange, permission, onPermissionChange } = props
-  const { running, onSubmit, onStop, queue = [], onQueueChange, context, disabledReason, autoFocus, className } = props
+  const { running, onSubmit, onStop, queue = [], onQueueChange, context, disabledReason, autoFocus, status, className } = props
   const initial = useApp.getState().drafts[draftKey] ?? ''
   const setDraft = useApp((s) => s.setDraft)
   const [text, setText] = useState(initial)
@@ -121,8 +127,29 @@ export function Composer(props: ComposerProps) {
   const dragDepth = useRef(0)
 
   useEffect(() => {
-    if (autoFocus) textarea.current?.focus()
-  }, [autoFocus])
+    const el = textarea.current
+    if (autoFocus && el) {
+      // Prima si legge il cursore salvato: il focus fa scattare onFocus, che lo riscriverebbe.
+      const saved = carets.get(draftKey)
+      el.focus()
+      if (saved) el.setSelectionRange(Math.min(saved[0], el.value.length), Math.min(saved[1], el.value.length))
+      else el.setSelectionRange(el.value.length, el.value.length)
+    }
+    // Solo all'apertura: dopo, il focus lo decide l'utente (o la card di una richiesta).
+  }, [])
+
+  // Uscendo dalla sessione la bozza si salva subito, senza aspettare i 500 ms.
+  const latestText = useRef(text)
+  latestText.current = text
+  useEffect(
+    () => () => {
+      if (saveTimer.current) {
+        window.clearTimeout(saveTimer.current)
+        send({ type: 'draft.set', key: draftKey, text: latestText.current })
+      }
+    },
+    [draftKey]
+  )
 
   useEffect(() => {
     if (pickerOpen && projectId) refreshProjectFiles(projectId)
@@ -176,6 +203,7 @@ export function Composer(props: ComposerProps) {
   const syncCaret = () => {
     const el = textarea.current
     if (!el) return
+    carets.set(draftKey, [el.selectionStart, el.selectionEnd])
     setCaret(el.selectionStart === el.selectionEnd ? el.selectionStart : null)
   }
 
@@ -348,6 +376,12 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className={cn('flex w-full flex-col gap-2', className)}>
+      {status ? (
+        <p role="status" className="flex items-center gap-1.5 px-1 text-[12px] text-muted-foreground">
+          <Clock aria-hidden className="size-3.5" strokeWidth={2} />
+          {status}
+        </p>
+      ) : null}
       {queue.length > 0 && <QueueList queue={queue} onQueueChange={onQueueChange} onEditEnd={() => textarea.current?.focus()} />}
 
       <div

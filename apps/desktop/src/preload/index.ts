@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { DEFAULT_THEME, THEMES } from '@shared/themes.generated'
+import type { AppPrefs, AttentionEvent, IssueList, WindowView } from '@shared/protocol'
 
 // La porta verso l'host arriva dal processo main e va girata al mondo della pagina:
 // con contextIsolation il renderer non vede ipcRenderer, ma riceve la porta con window.postMessage.
@@ -53,6 +54,35 @@ const api = {
     const handler = () => listener()
     ipcRenderer.on('ladder:open-settings', handler)
     return () => ipcRenderer.off('ladder:open-settings', handler)
+  },
+  /** Progetto e sessione che hai davanti: il main non notifica ciò che stai già guardando. */
+  setView: (view: WindowView): void => ipcRenderer.send('ladder:view', view),
+  /** Clic su una notifica o un link ladder://: apri la sessione e scorri all'elemento. */
+  onOpenSession: (listener: (target: { sessionId: string; itemId: string | null }) => void): (() => void) => {
+    const handler = (_event: unknown, target: { sessionId: string; itemId: string | null }) => listener(target)
+    ipcRenderer.on('ladder:open-session', handler)
+    return () => ipcRenderer.off('ladder:open-session', handler)
+  },
+  prefs: {
+    get: (): Promise<AppPrefs> => ipcRenderer.invoke('ladder:prefs'),
+    set: (patch: Partial<AppPrefs>): Promise<AppPrefs> => ipcRenderer.invoke('ladder:set-prefs', patch),
+    onChange: (listener: (prefs: AppPrefs) => void): (() => void) => {
+      const handler = (_event: unknown, prefs: AppPrefs) => listener(prefs)
+      ipcRenderer.on('ladder:prefs', handler)
+      return () => ipcRenderer.off('ladder:prefs', handler)
+    }
+  },
+  linear: {
+    status: (): Promise<{ connected: boolean; name: string | null; error: string | null }> => ipcRenderer.invoke('ladder:linear-status'),
+    setKey: (key: string | null): Promise<{ connected: boolean; name: string | null; error: string | null }> => ipcRenderer.invoke('ladder:linear-set-key', key),
+    issues: (search: string): Promise<IssueList> => ipcRenderer.invoke('ladder:linear-issues', search)
+  },
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('ladder:open-external', url),
+  debug: {
+    clickNotification: (): Promise<boolean> => ipcRenderer.invoke('ladder:debug-click-notification'),
+    badge: (): Promise<number> => ipcRenderer.invoke('ladder:debug-badge'),
+    attention: (event: AttentionEvent): Promise<void> => ipcRenderer.invoke('ladder:debug-attention', event),
+    focus: (focused: boolean | null): Promise<void> => ipcRenderer.invoke('ladder:debug-focus', focused)
   }
 }
 

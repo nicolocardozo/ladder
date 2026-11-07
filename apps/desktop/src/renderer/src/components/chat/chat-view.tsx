@@ -35,6 +35,9 @@ export interface ChatViewProps {
   onRespond: (requestId: string, response: RequestResponse) => void
   onOpenFile: (path: string, line?: number, external?: boolean) => void
   onOpenDiff?: (turnId: string, path?: string) => void
+  /** Elemento da raggiungere (⌘⇧A, notifica, ricerca): la vista ci scorre e mette il focus sulla sua prima azione. */
+  focusRequest?: { itemId: string | null; nonce: number } | null
+  onFocusDone?: (nonce: number) => void
 }
 
 const PADDING_START = 20
@@ -63,7 +66,9 @@ function ChatViewInner({
   onAnchorChange,
   onRespond,
   onOpenFile,
-  onOpenDiff
+  onOpenDiff,
+  focusRequest,
+  onFocusDone
 }: ChatViewProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -72,10 +77,12 @@ function ChatViewInner({
   const turnsRef = useRef(turns)
   turnsRef.current = turns
 
-  const callbacks = useRef({ onAnchorChange, onRespond, onOpenFile, onOpenDiff })
+  const callbacks = useRef({ onAnchorChange, onRespond, onOpenFile, onOpenDiff, onFocusDone })
   useLayoutEffect(() => {
-    callbacks.current = { onAnchorChange, onRespond, onOpenFile, onOpenDiff }
+    callbacks.current = { onAnchorChange, onRespond, onOpenFile, onOpenDiff, onFocusDone }
   })
+  const itemsRef = useRef(items)
+  itemsRef.current = items
 
   const actions = useMemo<ChatActions>(
     () => ({
@@ -240,6 +247,39 @@ function ChatViewInner({
     observer.observe(el)
     return () => observer.disconnect()
   }, [virtualizer])
+
+  // Elemento richiesto da fuori: si scorre al suo turno, poi all'elemento, e il focus va sulla prima azione.
+  const hasTurns = turns.length > 0
+  useEffect(() => {
+    const target = focusRequest
+    if (!target || !hasTurns) return
+    const list = turnsRef.current
+    const lastOpen = list[list.length - 1]?.open.at(-1)?.id ?? null
+    const itemId = target.itemId ?? lastOpen
+    const index = itemId ? turnIndexOfItem(list, itemsRef.current, itemId) : -1
+    // Ferma il ripristino della posizione di lettura: adesso conta l'elemento.
+    userMovedRef.current = true
+    atEndRef.current = index < 0 || index === list.length - 1
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: 'center' })
+    else virtualizer.scrollToEnd()
+    let frame = 0
+    let raf = 0
+    const tick = () => {
+      const root = scrollRef.current
+      const el = itemId && root ? root.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(itemId)}"]`) : null
+      if (el) {
+        el.scrollIntoView({ block: 'center' })
+        const action = el.querySelector<HTMLElement>('[data-primary]:not(:disabled)') ?? el.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled)')
+        ;(action ?? el).focus({ preventScroll: true })
+        callbacks.current.onFocusDone?.(target.nonce)
+        return
+      }
+      if (++frame < 60) raf = requestAnimationFrame(tick)
+      else callbacks.current.onFocusDone?.(target.nonce)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [focusRequest?.nonce, hasTurns, virtualizer])
 
   const jumpToEnd = () => {
     atEndRef.current = true

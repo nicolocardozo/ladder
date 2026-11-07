@@ -1,4 +1,4 @@
-import { CircleAlert, CircleX } from 'lucide-react'
+import { CircleAlert, CircleX, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ProjectAttention, SessionState } from '@/lib/session-state'
 
@@ -32,6 +32,8 @@ export function SessionGlyph({ state }: { state: SessionState }) {
       return <CircleAlert aria-label="Richiede te" className="size-3 text-attention" strokeWidth={2.2} />
     case 'error':
       return <CircleX aria-label="Errore" className="size-3 text-destructive" strokeWidth={2.2} />
+    case 'queued':
+      return <Clock aria-label="In coda" className="size-3 text-muted-foreground" strokeWidth={2.2} />
     default:
       return null
   }
@@ -40,7 +42,7 @@ export function SessionGlyph({ state }: { state: SessionState }) {
 /** Stato aggregato accanto al nome di un progetto chiuso. */
 export function ProjectBadges({ attention }: { attention: ProjectAttention }) {
   return (
-    <span className="ml-auto flex items-center gap-1.5">
+    <span data-attention className="ml-auto flex items-center gap-1.5">
       {attention.waiting > 0 && (
         <span
           aria-label={`${attention.waiting} richieste bloccanti`}

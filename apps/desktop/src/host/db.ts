@@ -90,7 +90,9 @@ const COLUMNS: [table: string, column: string, definition: string][] = [
   ['sessions', 'cwd', 'text'],
   ['sessions', 'worktree', 'text'],
   ['sessions', 'estimated', 'integer not null default 0'],
-  ['sessions', 'agent_ref', 'text']
+  ['sessions', 'agent_ref', 'text'],
+  ['sessions', 'activity_at', 'integer not null default 0'],
+  ['sessions', 'source', 'text']
 ]
 
 function migrate(db: DatabaseSync): void {
@@ -151,6 +153,10 @@ export interface SessionRow {
   estimated: number
   /** Riferimento dell'agente per le sessioni terminale: id della conversazione di Claude Code. */
   agent_ref: string | null
+  /** Ultima attività dell'agente; 0 per le sessioni nate prima della fase 3 (vale updated_at). */
+  activity_at: number
+  /** JSON di SessionSource: issue, PR o branch da cui è nata. */
+  source: string | null
 }
 
 export interface CheckpointRow {

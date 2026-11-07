@@ -1,5 +1,5 @@
 // Richieste dell'agente: card di approvazione e di domanda quando sono aperte, riga compatta quando sono chiuse.
-import { Check, CircleAlert, CircleQuestionMark, Clock, File, X } from 'lucide-react'
+import { ArrowUpRight, Check, CircleAlert, CircleQuestionMark, Clock, File, X } from 'lucide-react'
 import { memo, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import type { RequestOption } from '@shared/protocol'
 import { cn } from '@/lib/utils'
@@ -49,6 +49,49 @@ function CardFrame({ item, label, icon, frameRef, onKeyDown, children }: FramePr
   )
 }
 
+/** Oltre queste righe una modifica si legge nel diff: da "In attesa" resta solo "Apri". */
+export const INLINE_PREVIEW_LINES = 40
+
+/** Modifica proposta, righe con - e +. Nella chat oltre 40 righe si apre su richiesta. */
+function EditPreview({ preview }: { preview: NonNullable<RequestItem['preview']> }) {
+  const [all, setAll] = useState(false)
+  const rows = preview.text.split('\n')
+  const shown = all ? rows : rows.slice(0, INLINE_PREVIEW_LINES)
+  const hidden = preview.lines - shown.filter((r) => r !== '…').length
+  return (
+    <div className="min-w-0 overflow-hidden rounded-[7px] border border-border bg-[var(--chat-code-bg)] dark:border-input/60">
+      <pre className="m-0 max-h-[360px] overflow-auto py-1.5 font-mono text-[12px] leading-[1.55]">
+        {shown.map((row, i) => (
+          <div
+            key={i}
+            className={cn(
+              'px-2.5 whitespace-pre',
+              row.startsWith('+') && 'bg-[color-mix(in_oklab,var(--ladder-success)_13%,transparent)] text-foreground',
+              row.startsWith('-') && 'bg-[color-mix(in_oklab,var(--ladder-error)_13%,transparent)] text-foreground',
+              row === '…' && 'text-muted-foreground'
+            )}
+          >
+            <span aria-hidden className={cn('mr-2 inline-block w-2 select-none', row[0] === '+' ? 'text-success' : row[0] === '-' ? 'text-destructive' : 'text-muted-foreground')}>
+              {row[0] === '+' ? '+' : row[0] === '-' ? '−' : ' '}
+            </span>
+            {row === '…' ? '…' : row.slice(1)}
+          </div>
+        ))}
+      </pre>
+      {hidden > 0 || preview.truncated ? (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          className="w-full border-t border-border px-2.5 py-1 text-left text-[11.5px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 dark:border-input/60"
+        >
+          {all ? 'Mostra meno' : `Mostra altre ${hidden} righe`}
+          {preview.truncated && all ? ' · anteprima troncata' : ''}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function pickShortcuts(options: RequestOption[]) {
   const allow = options.find((o) => o.kind === 'allow') ?? null
   const always = options.find((o) => o.kind === 'allow-always') ?? null
@@ -57,7 +100,7 @@ function pickShortcuts(options: RequestOption[]) {
 }
 
 const PermissionCard = memo(function PermissionCard({ item }: { item: RequestItem }) {
-  const { respond, canTakeFocus, openFile } = useChatActions()
+  const { respond, canTakeFocus, openFile, surface, openSession } = useChatActions()
   const frameRef = useRef<HTMLDivElement>(null)
   const primaryRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -121,6 +164,8 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
 
   const shortcutFor = (option: RequestOption) =>
     option === primary ? '↵' : option === always ? '⌥↵' : option === deny ? '⌘⌫' : null
+  // Da "In attesa" una modifica lunga si approva solo dopo averla letta nel diff della sessione.
+  const tooLong = surface === 'inbox' && (item.preview?.lines ?? 0) > INLINE_PREVIEW_LINES
 
   return (
     <CardFrame
@@ -147,8 +192,21 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
           <span className="min-w-0 truncate">{item.path}</span>
         </button>
       ) : null}
+      {item.preview && !tooLong ? <EditPreview preview={item.preview} /> : null}
       {item.reason ? <p className="text-[12.5px] leading-[1.5] text-secondary-foreground">“{item.reason}”</p> : null}
-      <p className="text-[11.5px] text-muted-foreground">Strumento: {item.toolName}</p>
+      <p className="text-[11.5px] text-muted-foreground">
+        Strumento: {item.toolName}
+        {item.preview ? ` · ${item.preview.lines} ${item.preview.lines === 1 ? 'riga' : 'righe'}` : ''}
+      </p>
+      {tooLong ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" data-primary onClick={() => openSession?.()} className={btnPrimary}>
+            Apri e leggi la modifica
+            <ArrowUpRight aria-hidden className="size-3.5" />
+          </button>
+          <span className="text-[11.5px] text-muted-foreground">Più di {INLINE_PREVIEW_LINES} righe: si approva dalla sessione.</span>
+        </div>
+      ) : (
       <div className="flex flex-wrap items-center gap-2">
         {item.options.map((option) => {
           const shortcut = shortcutFor(option)
@@ -158,6 +216,7 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
             <button
               key={option.id}
               ref={isPrimary ? primaryRef : undefined}
+              data-primary={isPrimary ? '' : undefined}
               type="button"
               disabled={sent !== null}
               aria-pressed={option.kind === 'deny' ? rejecting : undefined}
@@ -173,6 +232,7 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
           )
         })}
       </div>
+      )}
       {rejecting && deny ? (
         <form onSubmit={onRejectSubmit} className="flex min-w-0 flex-wrap items-center gap-2">
           <label className="sr-only" htmlFor={`reject-${item.id}`}>
@@ -302,6 +362,7 @@ const QuestionCard = memo(function QuestionCard({ item }: { item: RequestItem })
                   >
                     <input
                       ref={qi === 0 && oi === 0 ? firstRef : undefined}
+                      data-primary={qi === 0 && oi === 0 ? '' : undefined}
                       type={multi ? 'checkbox' : 'radio'}
                       name={name}
                       checked={checked}

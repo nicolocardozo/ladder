@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { AppSidebar } from '@/components/app-sidebar'
 import { CommandPalette } from '@/components/command-palette'
 import { NewChat, SessionView } from '@/components/main-views'
+import { NewFromDialog } from '@/components/new-from'
 import { QuickOpen } from '@/components/quick-open'
 import { focusNextTerminal } from '@/lib/terminal-registry'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -26,6 +27,78 @@ export function App() {
     }
   }, [])
 
+  // Preferenze (notifiche, limite di sessioni) e clic sulle notifiche o sui link ladder://.
+  useEffect(() => {
+    void window.ladder?.prefs.get().then((prefs) => useApp.getState().setPrefs(prefs))
+    const offPrefs = window.ladder?.prefs.onChange((prefs) => useApp.getState().setPrefs(prefs))
+    let waitingOpen: { sessionId: string; itemId: string | null } | null = null
+    const tryOpen = () => {
+      const target = waitingOpen
+      if (!target) return
+      // Si svuota prima di aprire: l'apertura aggiorna lo store, che altrimenti richiamerebbe tryOpen.
+      waitingOpen = null
+      if (!useApp.getState().openSessionAt(target.sessionId, target.itemId)) waitingOpen = target
+    }
+    const offOpen = window.ladder?.onOpenSession((target) => {
+      // Con la finestra appena aperta la sessione arriva con lo snapshot: si riprova quando c'è.
+      waitingOpen = target
+      tryOpen()
+    })
+    const offStore = useApp.subscribe((state) => {
+      if (waitingOpen && state.connected) tryOpen()
+    })
+    return () => {
+      offPrefs?.()
+      offOpen?.()
+      offStore()
+    }
+  }, [])
+
+  // Cosa stai guardando: il main non notifica la sessione che hai davanti. Entrare e uscire da un progetto
+  // aggiorna "Mentre eri via": se torni dopo più di 30 minuti compare il riepilogo.
+  useEffect(() => {
+    const report = () => {
+      const { selection } = useApp.getState()
+      window.ladder?.setView({ projectId: selection.projectId, sessionId: selection.kind === 'session' ? selection.sessionId : null })
+    }
+    report()
+    const offStore = useApp.subscribe((state, prev) => {
+      if (state.selection === prev.selection) return
+      report()
+      const now = state.selection.projectId
+      const before = prev.selection.projectId
+      if (now === before) return
+      if (before) {
+        state.markSeen(before)
+        state.dismissAway(before)
+      }
+      if (now && document.hasFocus()) state.checkAway(now)
+    })
+    const current = () => useApp.getState().selection.projectId
+    const onFocus = () => {
+      const projectId = current()
+      if (projectId) useApp.getState().checkAway(projectId)
+      report()
+    }
+    const onBlur = () => {
+      const projectId = current()
+      if (projectId) useApp.getState().markSeen(projectId)
+    }
+    // Mentre guardi il progetto con la finestra attiva, l'ultima visita avanza.
+    const timer = window.setInterval(() => {
+      const projectId = current()
+      if (projectId && document.hasFocus()) useApp.getState().markSeen(projectId)
+    }, 60_000)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      offStore()
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [])
+
   // Collegamento con l'host: eventi in arrivo e istantanea completa a ogni (ri)connessione.
   useEffect(() => {
     const { applyEvent } = useApp.getState()
@@ -45,8 +118,8 @@ export function App() {
     }
   }, [])
 
-  // Scorciatoie globali: ⌘K comandi, ⌘P file, ⌘B sidebar, ⌘[ ⌘] indietro e avanti, ⌘N nuova chat,
-  // ⌘1…9 progetti, ⌘⌥1…3 ispettore, ⌃` terminale, ⌘W chiude la tab, ⌘. ferma la sessione aperta.
+  // Scorciatoie globali: ⌘K comandi, ⌘P file, ⌘B sidebar, ⌘[ ⌘] indietro e avanti, ⌘N nuova chat, ⌘⇧N da issue,
+  // ⌘1…9 progetti, ⌘⌥1…4 ispettore, ⌃` terminale, ⌘W chiude la tab, ⌘. ferma la sessione aperta.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const state = useApp.getState()
@@ -80,10 +153,10 @@ export function App() {
       // Con la palette aperta le altre scorciatoie aspettano: agirebbero sotto la finestra di dialogo.
       if (state.paletteOpen || state.quickOpen) return
 
-      // ⌘⌥1…3: Modifiche, File, Cronologia. Con ⌥ event.key cambia carattere: conta il tasto fisico.
-      if (event.altKey && !event.shiftKey && projectId && /^Digit[123]$/.test(event.code)) {
+      // ⌘⌥1…4: Modifiche, File, Cronologia, Merge. Con ⌥ event.key cambia carattere: conta il tasto fisico.
+      if (event.altKey && !event.shiftKey && projectId && /^Digit[1234]$/.test(event.code)) {
         event.preventDefault()
-        const tab = (['changes', 'files', 'history'] as const)[Number(event.code.slice(5)) - 1]
+        const tab = (['changes', 'files', 'history', 'merge'] as const)[Number(event.code.slice(5)) - 1]
         state.toggleInspector(projectId, tab)
         return
       }
@@ -117,6 +190,12 @@ export function App() {
       if (!event.shiftKey && key === 'w' && current.kind === 'session') {
         event.preventDefault()
         state.closeTab(current.projectId, current.sessionId)
+        return
+      }
+      // ⌘⇧N: nuova sessione da una issue, una PR o un branch.
+      if (event.shiftKey && !event.altKey && key === 'n') {
+        event.preventDefault()
+        if (current.projectId) state.setNewFromOpen(true)
         return
       }
       if (!event.shiftKey && key === 'n') {
@@ -153,6 +232,7 @@ export function App() {
       </div>
       <CommandPalette />
       <QuickOpen />
+      <NewFromDialog />
       <SettingsDialog />
     </TooltipProvider>
   )

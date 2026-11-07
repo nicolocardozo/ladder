@@ -1,4 +1,4 @@
-import { Plus, X } from 'lucide-react'
+import { CircleAlert, Plus, X } from 'lucide-react'
 import { SessionMenuContent } from '@/components/session-menu'
 import { SessionGlyph } from '@/components/status'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -17,6 +17,10 @@ export function TabBar({ projectId, activeSessionId }: { projectId: string; acti
   const select = useApp((s) => s.select)
   const closeTab = useApp((s) => s.closeTab)
   const visible = tabs.filter((id) => sessions[id] && !sessions[id].archived)
+  // Una richiesta in un'altra sessione dello stesso progetto: niente notifica, un avviso qui con "Vai".
+  const waitingHere = Object.values(sessions)
+    .filter((s) => s.projectId === projectId && !s.archived && s.run === 'waiting' && s.id !== activeSessionId)
+    .sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
 
   return (
     <div className="no-drag flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]" role="tablist" aria-label="Sessioni aperte">
@@ -64,6 +68,20 @@ export function TabBar({ projectId, activeSessionId }: { projectId: string; acti
         <div role="tab" aria-selected className="flex h-7 shrink-0 items-center rounded-md bg-accent px-2.5 text-[12px] font-medium text-foreground">
           Nuova chat
         </div>
+      )}
+      {waitingHere.length > 0 && (
+        <button
+          type="button"
+          onClick={() => useApp.getState().openSessionAt(waitingHere[0].id, waitingHere[0].request?.id ?? null)}
+          title={waitingHere.map((s) => `${s.title}: ${s.waitingLabel ?? 'richiesta'}`).join('\n')}
+          className="order-last ml-1 flex h-7 max-w-[260px] min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-attention/50 px-2 text-[12px] text-foreground outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <CircleAlert aria-hidden className="size-3 shrink-0 text-attention" strokeWidth={2.2} />
+          <span className="truncate">
+            {waitingHere.length === 1 ? `${waitingHere[0].title} · ${waitingHere[0].waitingLabel ?? 'Richiede te'}` : `${waitingHere.length} richieste nel progetto`}
+          </span>
+          <span className="shrink-0 font-semibold text-attention">Vai</span>
+        </button>
       )}
       {visible.length > 0 && (
         <button

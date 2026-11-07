@@ -340,3 +340,88 @@ export async function exists(path: string): Promise<boolean> {
     () => false
   )
 }
+
+/** Worktree su un branch che esiste già, locale o su origin (git crea il branch locale che lo segue). */
+export async function addWorktreeForBranch(repo: string, path: string, branch: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  await git(repo, ['worktree', 'add', path, branch])
+}
+
+/** Toglie un worktree solo se è pulito: con modifiche o file non tracciati git si rifiuta, e va bene così. */
+export async function removeWorktree(repo: string, path: string): Promise<void> {
+  await git(repo, ['worktree', 'remove', path])
+}
+
+export async function fetchRef(repo: string, refspec: string): Promise<void> {
+  await git(repo, ['fetch', '--quiet', 'origin', refspec])
+}
+
+/** Commit di `a` che `b` non ha (a sinistra) e viceversa. */
+export async function aheadBehind(repo: string, head: string, base: string): Promise<{ ahead: number; behind: number } | null> {
+  try {
+    const [ahead, behind] = (await git(repo, ['rev-list', '--left-right', '--count', `${head}...${base}`])).split(/\s+/).map(Number)
+    return { ahead: ahead || 0, behind: behind || 0 }
+  } catch {
+    return null
+  }
+}
+
+/** File modificati o non tracciati, come li conta git status. */
+export async function dirtyCount(repo: string): Promise<number> {
+  const entries = (await git(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=normal'])).split('\0')
+  let count = 0
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+    if (entry.length < 4) continue
+    count++
+    // Rinomine e copie hanno il percorso di origine nella voce successiva.
+    if (entry[0] === 'R' || entry[0] === 'C') i++
+  }
+  return count
+}
+
+/** Commit non pubblicati sull'upstream; null se il branch non ne ha uno. */
+export async function unpushedCount(repo: string): Promise<number | null> {
+  try {
+    return Number(await git(repo, ['rev-list', '--count', '@{upstream}..HEAD'])) || 0
+  } catch {
+    return null
+  }
+}
+
+/** File in conflitto unendo `base` in `head`, calcolati con merge-tree: la cartella di lavoro non cambia. */
+export async function mergeConflicts(repo: string, head: string, base: string): Promise<string[]> {
+  try {
+    await run('git', ['-C', repo, ...BASE_ARGS, 'merge-tree', '--write-tree', '--name-only', '--no-messages', head, base], { maxBuffer: 16 * 1024 * 1024 })
+    return []
+  } catch (error) {
+    // Codice 1: unione con conflitti. La prima riga è l'albero, poi i file in conflitto.
+    const e = error as { code?: number; stdout?: string }
+    if (e.code !== 1 || typeof e.stdout !== 'string') return []
+    return [...new Set(e.stdout.trim().split('\n').slice(1).map((l) => l.trim()).filter(Boolean))]
+  }
+}
+
+export interface BranchInfo {
+  name: string
+  remote: boolean
+  at: number
+  subject: string
+}
+
+/** Branch locali e di origin, i più recenti prima. */
+export async function listBranches(repo: string): Promise<BranchInfo[]> {
+  const out = await git(repo, ['for-each-ref', '--sort=-committerdate', '--count=200', '--format=%(refname)%1f%(committerdate:unix)%1f%(contents:subject)', 'refs/heads', 'refs/remotes/origin'])
+  const seen = new Set<string>()
+  const branches: BranchInfo[] = []
+  for (const line of out.split('\n')) {
+    const [ref, at, subject] = line.split('\x1f')
+    if (!ref) continue
+    const remote = ref.startsWith('refs/remotes/')
+    const name = ref.replace(/^refs\/heads\//, '').replace(/^refs\/remotes\/origin\//, '')
+    if (name === 'HEAD' || seen.has(name)) continue
+    seen.add(name)
+    branches.push({ name, remote, at: Number(at) * 1000, subject: subject ?? '' })
+  }
+  return branches
+}

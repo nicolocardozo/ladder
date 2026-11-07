@@ -1,7 +1,8 @@
 // Stato del renderer: copia di ciò che l'host pubblica più lo stato dell'interfaccia (selezione, cartelle aperte).
 import { create } from 'zustand'
 import { request, send } from '@/lib/host-client'
-import type { AgentStatus, ChatItem, DiffScope, HostEvent, InspectorTab, Project, ProjectUiState, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentStatus, AppPrefs, ChatItem, DiffScope, HostEvent, InspectorTab, IssueItem, Project, ProjectUiState, SessionSummary, TerminalInfo } from '@shared/protocol'
+import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalData } from '@/lib/terminal-registry'
 
 export type Selection = { kind: 'new'; projectId: string | null } | { kind: 'session'; projectId: string; sessionId: string }
@@ -36,6 +37,17 @@ interface AppState {
   /** Testo da inserire nel composer con la chiave indicata (Aggiungi alla chat, @terminal). */
   composerInsert: { key: string; text: string; nonce: number } | null
   quickOpen: boolean
+  /** Elemento da raggiungere all'apertura della sessione (⌘⇧A, notifica, ricerca): la vista scorre lì e mette il focus. */
+  focusTarget: { sessionId: string; itemId: string | null; nonce: number } | null
+  /** Popover "In attesa" della sidebar. */
+  inboxOpen: boolean
+  /** Finestra "Nuova sessione da…" (⌘⇧N). */
+  newFromOpen: boolean
+  /** Issue, PR o branch scelto per la nuova chat del progetto. */
+  newSource: { projectId: string; item: IssueItem } | null
+  /** Riepilogo "Mentre eri via" per progetto, calcolato quando torni dopo più di 30 minuti. */
+  away: Record<string, AwaySummary>
+  prefs: AppPrefs | null
   applyEvent: (event: HostEvent) => void
   select: (selection: Selection) => void
   toggleProject: (projectId: string) => void
@@ -66,7 +78,30 @@ interface AppState {
   setTerminalPanel: (projectId: string, patch: Partial<NonNullable<ProjectUiState['terminal']>>) => void
   insertIntoComposer: (key: string, text: string) => void
   setQuickOpen: (open: boolean) => void
+  /** Apre la sessione (nel suo progetto e nella sua tab) e chiede alla vista di raggiungere l'elemento. */
+  openSessionAt: (sessionId: string, itemId: string | null) => boolean
+  consumeFocus: (nonce: number) => void
+  setInboxOpen: (open: boolean) => void
+  setNewFromOpen: (open: boolean) => void
+  setNewSource: (source: { projectId: string; item: IssueItem } | null) => void
+  /** Hai lasciato il progetto (o la finestra): da qui parte il conto di "Mentre eri via". */
+  markSeen: (projectId: string) => void
+  /** Sei tornato sul progetto: se eri via da più di 30 minuti, prepara il riepilogo. */
+  checkAway: (projectId: string) => void
+  dismissAway: (projectId: string) => void
+  setPrefs: (prefs: AppPrefs) => void
 }
+
+export interface AwaySummary {
+  since: number
+  replies: number
+  requests: number
+  errors: number
+  concluded: number
+}
+
+/** Oltre questa assenza, tornando sul progetto compare "Mentre eri via". */
+export const AWAY_MS = 30 * 60_000
 
 export interface InspectorRequest {
   projectId: string
@@ -226,6 +261,12 @@ export const useApp = create<AppState>((set, get) => ({
   inspectorRequest: null,
   composerInsert: null,
   quickOpen: false,
+  focusTarget: null,
+  inboxOpen: false,
+  newFromOpen: false,
+  newSource: null,
+  away: {},
+  prefs: null,
 
   applyEvent: (event) =>
     set((state) => {
@@ -264,8 +305,12 @@ export const useApp = create<AppState>((set, get) => ({
           const selection: Selection = { kind: 'new', projectId: projects[0]?.id ?? null }
           return { projects, expanded, selection, ...pushHistory(state, selection) }
         }
-        case 'session.upsert':
+        case 'session.upsert': {
+          const before = state.sessions[event.session.id]
+          // Archiviata dall'host (per esempio a PR unita): la tab si chiude come per un archivio dalla UI.
+          if (event.session.archived && before && !before.archived) queueMicrotask(() => useApp.getState().closeTab(event.session.projectId, event.session.id))
           return { sessions: { ...state.sessions, [event.session.id]: event.session } }
+        }
         case 'session.items':
           return {
             items: {
@@ -377,13 +422,15 @@ export const useApp = create<AppState>((set, get) => ({
 
   goToNextWaiting: () => {
     const state = get()
-    const waiting = sidebarOrder(state).filter((s) => s.run === 'waiting')
+    // In ordine di arrivo: la richiesta più vecchia per prima, in qualunque progetto.
+    const waiting = sidebarOrder(state)
+      .filter((s) => s.run === 'waiting')
+      .sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
     if (waiting.length === 0) return false
     const { selection } = state
     const current = selection.kind === 'session' ? waiting.findIndex((s) => s.id === selection.sessionId) : -1
     const next = waiting[(current + 1) % waiting.length]
-    state.select({ kind: 'session', projectId: next.projectId, sessionId: next.id })
-    return true
+    return state.openSessionAt(next.id, next.request?.id ?? null)
   },
 
   markUnread: (sessionId) => {
@@ -425,5 +472,55 @@ export const useApp = create<AppState>((set, get) => ({
     }),
 
   insertIntoComposer: (key, text) => set({ composerInsert: { key, text, nonce: ++nonce } }),
-  setQuickOpen: (open) => set({ quickOpen: open })
+  setQuickOpen: (open) => set({ quickOpen: open }),
+
+  openSessionAt: (sessionId, itemId) => {
+    const state = get()
+    const session = state.sessions[sessionId]
+    if (!isLiveSession(state, session)) return false
+    set({ focusTarget: { sessionId, itemId, nonce: ++nonce }, inboxOpen: false })
+    state.select({ kind: 'session', projectId: session.projectId, sessionId })
+    return true
+  },
+  consumeFocus: (value) => set((state) => (state.focusTarget?.nonce === value ? { focusTarget: null } : {})),
+  setInboxOpen: (open) => set({ inboxOpen: open }),
+  setNewFromOpen: (open) => set({ newFromOpen: open }),
+  setNewSource: (source) => set({ newSource: source }),
+
+  markSeen: (projectId) =>
+    set((state) => {
+      if (!state.projects.some((p) => p.id === projectId)) return {}
+      const ui = state.ui[projectId] ?? emptyUi()
+      const nextUi = { ...ui, seenAt: Date.now() }
+      persistUi(projectId, nextUi)
+      return { ui: { ...state.ui, [projectId]: nextUi } }
+    }),
+
+  checkAway: (projectId) =>
+    set((state) => {
+      const seen = state.ui[projectId]?.seenAt
+      const now = Date.now()
+      if (!seen || now - seen < AWAY_MS) return {}
+      const list = Object.values(state.sessions).filter((s) => s.projectId === projectId && isLiveSession(state, s))
+      const summary: AwaySummary = {
+        since: seen,
+        replies: list.filter((s) => s.unread && s.run !== 'error' && s.activityAt > seen).length,
+        requests: list.filter((s) => s.run === 'waiting').length,
+        errors: list.filter((s) => s.run === 'error' && s.activityAt > seen).length,
+        // Scese in "Concluse" mentre non c'eri: l'ultima attività ha superato i 3 giorni dopo la tua ultima visita.
+        concluded: list.filter((s) => isConcluded(s, Boolean(state.drafts[s.id]?.trim()), now) && Math.max(s.activityAt, s.createdAt) + CONCLUDED_AFTER_MS > seen).length
+      }
+      if (summary.replies + summary.requests + summary.errors + summary.concluded === 0) return {}
+      return { away: { ...state.away, [projectId]: summary } }
+    }),
+
+  dismissAway: (projectId) =>
+    set((state) => {
+      if (!(projectId in state.away)) return {}
+      const away = { ...state.away }
+      delete away[projectId]
+      return { away }
+    }),
+
+  setPrefs: (prefs) => set({ prefs })
 }))

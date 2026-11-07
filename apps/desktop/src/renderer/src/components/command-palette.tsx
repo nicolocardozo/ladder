@@ -1,8 +1,11 @@
 // ⌘K: cerca sessioni (in tutti i progetti), progetti e azioni. Il filtro è nostro, così l'ordine resta quello voluto:
 // prima le sessioni che aspettano l'utente, poi le più recenti.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
-import { CircleAlert, FileDiff, FileSearch, Folder, FolderPlus, FolderTree, History, Palette, PanelLeft, Search, SquarePen, SquareTerminal } from 'lucide-react'
+import { BellOff, CircleAlert, FileDiff, FileSearch, Folder, FolderPlus, FolderTree, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, Search, SquarePen, SquareTerminal } from 'lucide-react'
+import type { SearchHit } from '@shared/protocol'
+import { openInbox } from '@/components/app-sidebar'
+import { request } from '@/lib/host-client'
 import type { LucideIcon } from 'lucide-react'
 import { addProjectFromDialog } from '@/components/app-sidebar'
 import { SessionGlyph } from '@/components/status'
@@ -16,7 +19,7 @@ import { focusNextTerminal } from '@/lib/terminal-registry'
 import { isLiveSession, useApp } from '@/store/app-store'
 
 function inspectorActions(run: (perform: () => void) => void): Action[] {
-  const open = (tab: 'changes' | 'files' | 'history') => () =>
+  const open = (tab: 'changes' | 'files' | 'history' | 'merge') => () =>
     run(() => {
       const { selection, openInspector } = useApp.getState()
       if (selection.projectId) openInspector(selection.projectId, tab)
@@ -24,7 +27,8 @@ function inspectorActions(run: (perform: () => void) => void): Action[] {
   return [
     { id: 'changes', label: 'Mostra le modifiche', icon: FileDiff, keywords: 'modifiche diff turno sessione ripristina commenti', shortcut: '⌘⌥1', perform: open('changes') },
     { id: 'files', label: 'Mostra i file', icon: FolderTree, keywords: 'file explorer albero cartella viewer', shortcut: '⌘⌥2', perform: open('files') },
-    { id: 'history', label: 'Cronologia e checkpoint', icon: History, keywords: 'cronologia checkpoint commit ripristina', shortcut: '⌘⌥3', perform: open('history') }
+    { id: 'history', label: 'Cronologia e checkpoint', icon: History, keywords: 'cronologia checkpoint commit ripristina', shortcut: '⌘⌥3', perform: open('history') },
+    { id: 'merge', label: 'Pronto per il merge', icon: GitMerge, keywords: 'merge pr pull request ci review commenti conflitti crea pr', shortcut: '⌘⌥4', perform: open('merge') }
   ]
 }
 
@@ -72,6 +76,8 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const projects = useApp((s) => s.projects)
   const sessions = useApp((s) => s.sessions)
   const sidebarOpen = useApp((s) => s.sidebarOpen)
+  const prefs = useApp((s) => s.prefs)
+  const dndOn = Boolean(prefs?.dndUntil && prefs.dndUntil > Date.now())
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const tokens = useMemo(() => normalize(query).split(/\s+/).filter(Boolean), [query])
@@ -91,6 +97,27 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     if (!searching) return live.slice(0, 8)
     return live.filter((s) => matches(tokens, normalize(`${s.title} ${projectNames.get(s.projectId) ?? ''}`))).slice(0, 50)
   }, [live, tokens, searching, projectNames])
+
+  // Testo delle conversazioni e file toccati, in tutti i progetti: lo cerca l'host.
+  const [hits, setHits] = useState<SearchHit[]>([])
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setHits([])
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      request<SearchHit[]>({ type: 'search', query })
+        .then((result) => !cancelled && setHits(result))
+        .catch(() => undefined)
+    }, 140)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [query])
+  const titleMatches = new Set(sessionResults.map((s) => s.id))
+  const contentHits = hits.filter((hit) => sessions[hit.sessionId] && !titleMatches.has(hit.sessionId)).slice(0, 12)
 
   const projectResults = useMemo(
     () => (searching ? projects.filter((p) => matches(tokens, normalize(`${p.name} ${p.path}`))) : projects),
@@ -125,6 +152,30 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         if (useApp.getState().goToNextWaiting()) onClose()
         else setNotice('Nessuna sessione ti aspetta in questo momento.')
       }
+    },
+    {
+      id: 'inbox',
+      label: 'Apri “In attesa”',
+      icon: Inbox,
+      keywords: 'in attesa inbox richieste approvazioni domande da leggere errori',
+      hint: waitingCount ? `${waitingCount} richieste` : undefined,
+      perform: () => run(() => openInbox())
+    },
+    {
+      id: 'new-from',
+      label: 'Nuova sessione da issue, PR o branch…',
+      icon: GitPullRequestCreate,
+      keywords: 'nuova sessione issue pr pull request branch github linear',
+      shortcut: '⌘⇧N',
+      perform: () => run(() => useApp.getState().setNewFromOpen(true))
+    },
+    {
+      id: 'dnd',
+      label: dndOn ? 'Riattiva le notifiche' : 'Non disturbare per 1 ora',
+      icon: BellOff,
+      keywords: 'non disturbare notifiche silenzio pausa',
+      hint: dndOn && prefs?.dndUntil ? `fino alle ${new Date(prefs.dndUntil).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : undefined,
+      perform: () => run(() => void window.ladder?.prefs.set({ dndUntil: dndOn ? null : Date.now() + 60 * 60_000 }))
     },
     {
       id: 'open-file',
@@ -200,7 +251,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             setQuery(value)
             setNotice(null)
           }}
-          placeholder="Cerca sessioni, progetti e azioni…"
+          placeholder="Cerca sessioni, conversazioni, file toccati, progetti e azioni…"
           className="h-full min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
         />
       </div>
@@ -231,6 +282,26 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                     ) : (
                       <span className="shrink-0 text-faint">{relativeAge(session.updatedAt)}</span>
                     )}
+                    <span className="truncate">{projectNames.get(session.projectId)}</span>
+                  </CommandShortcut>
+                </CommandItem>
+              )
+            })}
+          </CommandGroup>
+        )}
+
+        {contentHits.length > 0 && (
+          <CommandGroup heading="Nelle conversazioni">
+            {contentHits.map((hit) => {
+              const session = sessions[hit.sessionId]
+              return (
+                <CommandItem key={`hit:${hit.sessionId}`} value={`hit:${hit.sessionId}`} className={itemClass} onSelect={() => run(() => useApp.getState().openSessionAt(hit.sessionId, hit.itemId))}>
+                  <MessageSquareText className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate">{session.title}</span>
+                    <span className={hit.kind === 'file' || hit.kind === 'command' ? 'truncate font-mono text-[11.5px] text-muted-foreground' : 'truncate text-[12px] text-muted-foreground'}>{hit.snippet}</span>
+                  </span>
+                  <CommandShortcut className={sideClass}>
                     <span className="truncate">{projectNames.get(session.projectId)}</span>
                   </CommandShortcut>
                 </CommandItem>
