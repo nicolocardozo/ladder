@@ -1,6 +1,6 @@
 // Stato del renderer: copia di ciò che l'host pubblica più lo stato dell'interfaccia (selezione, cartelle aperte).
 import { create } from 'zustand'
-import { send } from '@/lib/host-client'
+import { request, send } from '@/lib/host-client'
 import type { AgentStatus, ChatItem, HostEvent, Project, ProjectUiState, SessionSummary } from '@shared/protocol'
 
 export type Selection = { kind: 'new'; projectId: string | null } | { kind: 'session'; projectId: string; sessionId: string }
@@ -17,6 +17,16 @@ interface AppState {
   expanded: string[]
   /** Primo elemento non letto quando la sessione è stata aperta, per il divisore "Nuovo". */
   firstUnread: Record<string, number | null>
+  /** Sidebar visibile. Si ricorda tra un avvio e l'altro. */
+  sidebarOpen: boolean
+  paletteOpen: boolean
+  /** Sessione con il titolo in modifica nella sidebar. */
+  renaming: string | null
+  /** Sessione aperta che l'utente ha segnato come da leggere: la vista non deve rileggerla finché non cambia la selezione. */
+  heldUnread: string | null
+  /** Cronologia delle selezioni per Indietro/Avanti; `historyIndex` punta alla selezione corrente. */
+  history: Selection[]
+  historyIndex: number
   applyEvent: (event: HostEvent) => void
   select: (selection: Selection) => void
   toggleProject: (projectId: string) => void
@@ -25,15 +35,49 @@ interface AppState {
   closeTab: (projectId: string, sessionId: string) => void
   /** Torna su un progetto: riapre la tab attiva che aveva, oppure la nuova chat. */
   selectProject: (projectId: string) => void
+  toggleSidebar: () => void
+  setPaletteOpen: (open: boolean) => void
+  /** Avvia la modifica del titolo: apre la sidebar e il progetto se servono. */
+  startRename: (sessionId: string) => void
+  stopRename: () => void
+  /** Indietro (-1) o avanti (+1) nella cronologia, saltando le sessioni archiviate. */
+  navigate: (delta: -1 | 1) => void
+  /** Archivia: la riga sparisce, la tab si chiude e, se era aperta, si passa alla tab vicina o alla nuova chat. */
+  archiveSession: (sessionId: string) => void
+  /** Toglie il progetto da Ladder (i file restano). Le sue sessioni vengono archiviate, così si fermano. */
+  removeProject: (projectId: string) => Promise<void>
+  /** Apre la prossima sessione in attesa dopo quella corrente. Restituisce false se non ce ne sono. */
+  goToNextWaiting: () => boolean
+  markUnread: (sessionId: string) => void
+  markRead: (sessionId: string) => void
 }
 
 const MAX_TABS = 8
+const MAX_HISTORY = 50
+const SIDEBAR_KEY = 'ladder.sidebar'
+
 let uiTimer: number | null = null
 function persistUi(projectId: string, state: ProjectUiState): void {
   if (uiTimer) window.clearTimeout(uiTimer)
   uiTimer = window.setTimeout(() => send({ type: 'ui.set', projectId, state }), 300)
 }
 const emptyUi = (): ProjectUiState => ({ tabs: [], activeTab: null, scroll: {} })
+
+function readSidebarOpen(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) !== 'closed'
+  } catch {
+    return true
+  }
+}
+
+function writeSidebarOpen(open: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed')
+  } catch {
+    // Solo una comodità: senza storage la sidebar torna visibile al prossimo avvio.
+  }
+}
 
 function mergeItems(current: ChatItem[] | undefined, incoming: ChatItem[]): ChatItem[] {
   if (!current || current.length === 0) return [...incoming].sort((a, b) => a.seq - b.seq)
@@ -47,7 +91,84 @@ function mergeItems(current: ChatItem[] | undefined, incoming: ChatItem[]): Chat
   return appended ? merged.sort((a, b) => a.seq - b.seq) : merged
 }
 
-export const useApp = create<AppState>((set) => ({
+export function sameSelection(a: Selection, b: Selection): boolean {
+  if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
+  return a.kind === b.kind && a.projectId === b.projectId
+}
+
+/** Sessione visibile: non archiviata e con il progetto ancora presente. */
+export function isLiveSession(state: Pick<AppState, 'projects'>, session: SessionSummary | undefined): session is SessionSummary {
+  return Boolean(session && !session.archived && state.projects.some((p) => p.id === session.projectId))
+}
+
+function isValidEntry(state: Pick<AppState, 'projects' | 'sessions'>, entry: Selection): boolean {
+  if (entry.kind === 'session') return isLiveSession(state, state.sessions[entry.sessionId])
+  return entry.projectId === null ? state.projects.length === 0 : state.projects.some((p) => p.id === entry.projectId)
+}
+
+/** Aggiunge `next` dopo la voce corrente, scartando quelle in avanti. Niente doppioni consecutivi. */
+function pushHistory(state: AppState, next: Selection): Pick<AppState, 'history' | 'historyIndex'> {
+  let entries = state.history.slice(0, state.historyIndex + 1)
+  const last = entries[entries.length - 1]
+  if (!last || !sameSelection(last, state.selection)) entries.push(state.selection)
+  if (!sameSelection(entries[entries.length - 1], next)) entries.push(next)
+  if (entries.length > MAX_HISTORY) entries = entries.slice(entries.length - MAX_HISTORY)
+  return { history: entries, historyIndex: entries.length - 1 }
+}
+
+/** Cronologia senza le voci non più raggiungibili (sessioni archiviate, progetti rimossi). */
+function cleanHistory(state: AppState): { history: Selection[]; index: number } {
+  let entries = state.history
+  let index = state.historyIndex
+  const current = entries[index]
+  if (!current || !sameSelection(current, state.selection)) {
+    entries = [...entries.slice(0, index + 1), state.selection]
+    index = entries.length - 1
+  }
+  const kept: Selection[] = []
+  let keptIndex = 0
+  entries.forEach((entry, i) => {
+    const isCurrent = i === index
+    if (!isCurrent && !isValidEntry(state, entry)) return
+    const last = kept[kept.length - 1]
+    if (!last || !sameSelection(last, entry)) kept.push(entry)
+    if (isCurrent) keptIndex = kept.length - 1
+  })
+  return { history: kept, index: keptIndex }
+}
+
+export function canNavigate(state: AppState, delta: -1 | 1): boolean {
+  const { history, index } = cleanHistory(state)
+  const target = index + delta
+  return target >= 0 && target < history.length
+}
+
+/** Effetti di una selezione su tab, cartelle aperte e divisore "Nuovo". Non tocca la cronologia. */
+function selectionPatch(state: AppState, selection: Selection): Partial<AppState> {
+  if (selection.kind !== 'session') return { selection, heldUnread: null }
+  const session = state.sessions[selection.sessionId]
+  const firstUnread = { ...state.firstUnread }
+  // Il divisore "Nuovo" si calcola all'apertura e resta fermo finché la sessione è aperta.
+  if (session && !(selection.sessionId in firstUnread)) firstUnread[selection.sessionId] = session.unread ? session.lastReadSeq + 1 : null
+  const expanded = state.expanded.includes(selection.projectId) ? state.expanded : [...state.expanded, selection.projectId]
+  // La sessione aperta diventa una tab del suo progetto; oltre 8 tab si chiude la meno recente.
+  const ui = state.ui[selection.projectId] ?? emptyUi()
+  let tabs = ui.tabs.includes(selection.sessionId) ? ui.tabs : [...ui.tabs, selection.sessionId]
+  if (tabs.length > MAX_TABS) tabs = tabs.slice(tabs.length - MAX_TABS)
+  const nextUi = { ...ui, tabs, activeTab: selection.sessionId }
+  persistUi(selection.projectId, nextUi)
+  return { selection, firstUnread, expanded, ui: { ...state.ui, [selection.projectId]: nextUi }, heldUnread: null }
+}
+
+/** Sessioni nell'ordine della sidebar: progetti in ordine, poi la più recente in alto. */
+function sidebarOrder(state: AppState): SessionSummary[] {
+  const rank = new Map(state.projects.map((p, i) => [p.id, i]))
+  return Object.values(state.sessions)
+    .filter((s) => isLiveSession(state, s))
+    .sort((a, b) => rank.get(a.projectId)! - rank.get(b.projectId)! || b.createdAt - a.createdAt)
+}
+
+export const useApp = create<AppState>((set, get) => ({
   connected: false,
   projects: [],
   sessions: {},
@@ -58,6 +179,12 @@ export const useApp = create<AppState>((set) => ({
   selection: { kind: 'new', projectId: null },
   expanded: [],
   firstUnread: {},
+  sidebarOpen: readSidebarOpen(),
+  paletteOpen: false,
+  renaming: null,
+  heldUnread: null,
+  history: [],
+  historyIndex: -1,
 
   applyEvent: (event) =>
     set((state) => {
@@ -85,8 +212,14 @@ export const useApp = create<AppState>((set) => ({
             projects: exists ? state.projects.map((p) => (p.id === event.project.id ? event.project : p)) : [...state.projects, event.project]
           }
         }
-        case 'project.removed':
-          return { projects: state.projects.filter((p) => p.id !== event.projectId) }
+        case 'project.removed': {
+          const projects = state.projects.filter((p) => p.id !== event.projectId)
+          const expanded = state.expanded.filter((id) => id !== event.projectId)
+          if (state.selection.projectId !== event.projectId) return { projects, expanded }
+          // La selezione era nel progetto rimosso: si passa alla nuova chat del primo progetto rimasto.
+          const selection: Selection = { kind: 'new', projectId: projects[0]?.id ?? null }
+          return { projects, expanded, selection, ...pushHistory(state, selection) }
+        }
         case 'session.upsert':
           return { sessions: { ...state.sessions, [event.session.id]: event.session } }
         case 'session.items':
@@ -103,19 +236,8 @@ export const useApp = create<AppState>((set) => ({
 
   select: (selection) =>
     set((state) => {
-      if (selection.kind !== 'session') return { selection }
-      const session = state.sessions[selection.sessionId]
-      const firstUnread = { ...state.firstUnread }
-      // Il divisore "Nuovo" si calcola all'apertura e resta fermo finché la sessione è aperta.
-      if (session && !(selection.sessionId in firstUnread)) firstUnread[selection.sessionId] = session.unread ? session.lastReadSeq + 1 : null
-      const expanded = state.expanded.includes(selection.projectId) ? state.expanded : [...state.expanded, selection.projectId]
-      // La sessione aperta diventa una tab del suo progetto; oltre 8 tab si chiude la meno recente.
-      const ui = state.ui[selection.projectId] ?? emptyUi()
-      let tabs = ui.tabs.includes(selection.sessionId) ? ui.tabs : [...ui.tabs, selection.sessionId]
-      if (tabs.length > MAX_TABS) tabs = tabs.slice(tabs.length - MAX_TABS)
-      const nextUi = { ...ui, tabs, activeTab: selection.sessionId }
-      persistUi(selection.projectId, nextUi)
-      return { selection, firstUnread, expanded, ui: { ...state.ui, [selection.projectId]: nextUi } }
+      const patch = selectionPatch(state, selection)
+      return sameSelection(state.selection, selection) ? patch : { ...patch, ...pushHistory(state, selection) }
     }),
 
   toggleProject: (projectId) =>
@@ -130,23 +252,90 @@ export const useApp = create<AppState>((set) => ({
     set((state) => {
       const ui = state.ui[projectId] ?? emptyUi()
       const index = ui.tabs.indexOf(sessionId)
-      const tabs = ui.tabs.filter((id) => id !== sessionId)
+      // Le tab di sessioni archiviate o sparite si tolgono insieme a questa.
+      const tabs = ui.tabs.filter((id) => id !== sessionId && isLiveSession(state, state.sessions[id]))
       const wasActive = state.selection.kind === 'session' && state.selection.sessionId === sessionId
-      const nextActive = wasActive ? (tabs[Math.min(index, tabs.length - 1)] ?? null) : ui.activeTab
+      const nextActive = wasActive ? (tabs[Math.min(Math.max(index, 0), tabs.length - 1)] ?? null) : ui.activeTab === sessionId ? null : ui.activeTab
       const nextUi = { ...ui, tabs, activeTab: nextActive }
       persistUi(projectId, nextUi)
-      const selection: Selection = wasActive
-        ? nextActive
-          ? { kind: 'session', projectId, sessionId: nextActive }
-          : { kind: 'new', projectId }
-        : state.selection
-      return { ui: { ...state.ui, [projectId]: nextUi }, selection }
+      const next = { ...state, ui: { ...state.ui, [projectId]: nextUi } }
+      if (!wasActive) return { ui: next.ui }
+      const selection: Selection = nextActive ? { kind: 'session', projectId, sessionId: nextActive } : { kind: 'new', projectId }
+      return { ui: next.ui, ...selectionPatch(next, selection), ...pushHistory(state, selection) }
     }),
 
   selectProject: (projectId) => {
-    const state = useApp.getState()
+    const state = get()
     const active = state.ui[projectId]?.activeTab
-    if (active && state.sessions[active] && !state.sessions[active].archived) state.select({ kind: 'session', projectId, sessionId: active })
+    if (active && isLiveSession(state, state.sessions[active])) state.select({ kind: 'session', projectId, sessionId: active })
     else state.select({ kind: 'new', projectId })
+  },
+
+  toggleSidebar: () =>
+    set((state) => {
+      writeSidebarOpen(!state.sidebarOpen)
+      return { sidebarOpen: !state.sidebarOpen }
+    }),
+
+  setPaletteOpen: (open) => set({ paletteOpen: open }),
+
+  startRename: (sessionId) =>
+    set((state) => {
+      const session = state.sessions[sessionId]
+      if (!session) return {}
+      if (!state.sidebarOpen) writeSidebarOpen(true)
+      const expanded = state.expanded.includes(session.projectId) ? state.expanded : [...state.expanded, session.projectId]
+      return { renaming: sessionId, sidebarOpen: true, expanded }
+    }),
+
+  stopRename: () => set({ renaming: null }),
+
+  navigate: (delta) =>
+    set((state) => {
+      const { history, index } = cleanHistory(state)
+      const target = index + delta
+      if (target < 0 || target >= history.length) return { history, historyIndex: index }
+      return { ...selectionPatch(state, history[target]), history, historyIndex: target }
+    }),
+
+  archiveSession: (sessionId) => {
+    const session = get().sessions[sessionId]
+    if (!session) return
+    // Ottimista: la riga sparisce subito, l'host conferma con session.upsert.
+    set((state) => ({ sessions: { ...state.sessions, [sessionId]: { ...session, archived: true } } }))
+    get().closeTab(session.projectId, sessionId)
+    request({ type: 'session.archive', sessionId }).catch(() => {
+      set((state) => ({ sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], archived: false } } }))
+    })
+  },
+
+  removeProject: async (projectId) => {
+    // Senza progetto le sessioni non sono più raggiungibili: si archiviano, così l'host chiude i processi.
+    for (const session of Object.values(get().sessions)) {
+      if (session.projectId === projectId && !session.archived) send({ type: 'session.archive', sessionId: session.id })
+    }
+    await request({ type: 'project.remove', projectId })
+  },
+
+  goToNextWaiting: () => {
+    const state = get()
+    const waiting = sidebarOrder(state).filter((s) => s.run === 'waiting')
+    if (waiting.length === 0) return false
+    const { selection } = state
+    const current = selection.kind === 'session' ? waiting.findIndex((s) => s.id === selection.sessionId) : -1
+    const next = waiting[(current + 1) % waiting.length]
+    state.select({ kind: 'session', projectId: next.projectId, sessionId: next.id })
+    return true
+  },
+
+  markUnread: (sessionId) => {
+    const { selection } = get()
+    if (selection.kind === 'session' && selection.sessionId === sessionId) set({ heldUnread: sessionId })
+    send({ type: 'session.unread', sessionId })
+  },
+
+  markRead: (sessionId) => {
+    if (get().heldUnread === sessionId) set({ heldUnread: null })
+    send({ type: 'session.read', sessionId })
   }
 }))

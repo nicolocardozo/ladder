@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Check, ChevronDown, Ellipsis, ExternalLink, FolderGit2, FolderPlus, GitBranch, HardDrive, PanelRight } from 'lucide-react'
-import type { ChatItem, Effort, PermissionLevel, Project, RequestResponse, SessionSummary } from '@shared/protocol'
-import { addProjectFromDialog } from '@/components/app-sidebar'
+import { Check, ChevronDown, ExternalLink, FolderGit2, FolderPlus, GitBranch, HardDrive } from 'lucide-react'
+import type { Attachment, ChatItem, Effort, PermissionLevel, Project, RequestResponse, SessionSummary } from '@shared/protocol'
+import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
 import { Composer } from '@/components/composer'
-import { IconButton } from '@/components/icon-button'
 import { TabBar } from '@/components/tab-bar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { request, send } from '@/lib/host-client'
@@ -13,8 +12,11 @@ import { useApp } from '@/store/app-store'
 const EMPTY_ITEMS: ChatItem[] = []
 
 function TopBar({ children, project }: { children?: ReactNode; project: Project | null }) {
+  const sidebarOpen = useApp((s) => s.sidebarOpen)
   return (
-    <div className="drag flex h-11 shrink-0 items-center gap-2 px-3">
+    // Con la sidebar nascosta i semafori di macOS stanno sopra questa barra: 82px di margine, come nella sidebar.
+    <div className={`drag flex h-11 shrink-0 items-center gap-2 pr-3 ${sidebarOpen ? 'pl-3' : 'pl-[82px]'}`}>
+      {!sidebarOpen && <ShowSidebarButton />}
       <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
       {project && (
         <button
@@ -26,8 +28,6 @@ function TopBar({ children, project }: { children?: ReactNode; project: Project 
           <ExternalLink className="size-3.5" />
         </button>
       )}
-      <IconButton icon={Ellipsis} label="Altre azioni" />
-      <IconButton icon={PanelRight} label="Ispettore" shortcut="⌘⌥I" />
     </div>
   )
 }
@@ -71,7 +71,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
     )
   }
 
-  const create = async (text: string) => {
+  const create = async (text: string, attachments: Attachment[]) => {
     setError(null)
     try {
       const session = await request<SessionSummary>({
@@ -81,7 +81,8 @@ export function NewChat({ projectId }: { projectId: string | null }) {
         text,
         model,
         effort,
-        permission
+        permission,
+        attachments: attachments.length > 0 ? attachments : undefined
       })
       send({ type: 'draft.set', key: `new:${project.id}`, text: '' })
       select({ kind: 'session', projectId: project.id, sessionId: session.id })
@@ -134,6 +135,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
           <Composer
             key={`new:${project.id}`}
             draftKey={`new:${project.id}`}
+            projectId={project.id}
             agentName="Claude Code"
             models={claude?.models ?? []}
             model={model}
@@ -142,7 +144,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
             onEffortChange={setEffort}
             permission={permission}
             onPermissionChange={setPermission}
-            onSubmit={(text) => void create(text)}
+            onSubmit={(text, attachments) => void create(text, attachments)}
             disabledReason={claude && !claude.available ? claude.error : null}
             autoFocus
           />
@@ -177,7 +179,8 @@ export function SessionView({ sessionId }: { sessionId: string }) {
 
   // Segna come letta quando la sessione è visibile, la finestra è attiva e il turno è finito.
   useEffect(() => {
-    if (!session?.unread) return
+    // "Segna come da leggere" sulla sessione aperta non deve essere annullato subito.
+    if (!session?.unread || useApp.getState().heldUnread === sessionId) return
     const mark = () => {
       if (document.hasFocus()) send({ type: 'session.read', sessionId })
     }
@@ -251,6 +254,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         <Composer
           key={sessionId}
           draftKey={sessionId}
+          projectId={session.projectId}
           agentName="Claude Code"
           models={claude?.models ?? []}
           model={session.model}
@@ -259,7 +263,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           permission={session.permission}
           onPermissionChange={(permission) => send({ type: 'session.permission.set', sessionId, permission })}
           running={running}
-          onSubmit={(text) => request({ type: 'session.send', sessionId, text }).catch((e: Error) => setError(e.message))}
+          onSubmit={(text, attachments) =>
+            request({ type: 'session.send', sessionId, text, attachments: attachments.length > 0 ? attachments : undefined }).catch((e: Error) =>
+              setError(e.message)
+            )
+          }
           onStop={() => send({ type: 'session.interrupt', sessionId })}
           queue={session.queue}
           onQueueChange={(queue) => send({ type: 'session.queue.set', sessionId, queue })}

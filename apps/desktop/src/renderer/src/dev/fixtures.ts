@@ -43,8 +43,8 @@ export class ConversationBuilder {
     return this
   }
 
-  user(text: string, gapMs = 90_000) {
-    return this.push('user', { text }, gapMs)
+  user(text: string, gapMs = 90_000, attachments?: { name: string; mediaType: string }[]) {
+    return this.push('user', attachments ? { text, attachments } : { text }, gapMs)
   }
 
   assistant(text: string, streaming = false, afterMs = 4_000) {
@@ -355,7 +355,10 @@ function whyUrl(b: ConversationBuilder) {
 
 function dateRange(b: ConversationBuilder) {
   b.turn()
-  b.user('Aggiungi il filtro per intervallo di date con il DateRangePicker che usiamo in Movimenti.')
+  b.user('Aggiungi il filtro per intervallo di date con il DateRangePicker che usiamo in Movimenti.', 90_000, [
+    { name: 'movimenti-filtri.png', mediaType: 'image/png' },
+    { name: 'figma-intervallo-date-versione-finale-approvata.jpg', mediaType: 'image/jpeg' }
+  ])
   b.tool('search', 'Glob', 'Cerca DateRangePicker', '**/DateRangePicker*.tsx', {
     output: 'src/components/DateRangePicker/DateRangePicker.tsx\nsrc/components/DateRangePicker/DateRangePicker.stories.tsx',
     ms: 200
@@ -673,4 +676,43 @@ export function largeFixture(turnCount = 120): Fixture {
   }
   b.shiftToNow(60_000)
   return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: b.items[b.items.length - 6].seq }
+}
+
+/** File di un progetto finto per le citazioni con @: percorsi realistici più ~20k file generati. */
+export function previewProjectFiles(synthetic = 20_000): string[] {
+  const real = [
+    'package.json',
+    'pnpm-workspace.yaml',
+    'README.md',
+    '.github/workflows/ci.yml',
+    'apps/web/package.json',
+    'apps/web/vite.config.ts',
+    'src/main.tsx',
+    'src/App.tsx',
+    'src/lib/http.ts',
+    'src/lib/http.test.ts',
+    'src/components/Pagination/Pagination.tsx',
+    'src/components/Pagination/usePageRange.ts',
+    'src/components/Pagination/usePageRange.test.ts',
+    'src/components/DateRangePicker/DateRangePicker.tsx',
+    'src/components/DateRangePicker/DateRangePicker.stories.tsx',
+    'src/features/payments/PaymentsTable.tsx',
+    'src/features/payments/PaymentsFilters.tsx',
+    'src/features/payments/useTableFilters.ts',
+    'src/features/payments/useTableFilters.test.ts',
+    'src/features/movements/MovementsList.tsx',
+    'src/features/movements/MovementsFilters.tsx',
+    'docs/Guida per i nuovi arrivati.md',
+    'e2e/payments.spec.ts'
+  ]
+  const rand = rng(7)
+  const out = [...real]
+  for (let i = 0; i < synthetic; i++) {
+    const area = AREAS[Math.floor(rand() * AREAS.length)]
+    const comp = COMPONENTS[Math.floor(rand() * COMPONENTS.length)]
+    const pkg = `packages/pkg-${Math.floor(i / 400)}`
+    const ext = rand() < 0.2 ? 'test.ts' : 'tsx'
+    out.push(`${pkg}/src/features/${area}/components/${area}-${comp}-${i}.${ext}`)
+  }
+  return out
 }

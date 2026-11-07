@@ -2,12 +2,15 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/globals.css'
-import type { ChatItem, RequestResponse } from '@shared/protocol'
+import type { Attachment, ChatItem, PermissionLevel, QueuedMessage, RequestResponse } from '@shared/protocol'
 import { ChatView, type ChatAnchor } from './components/chat/chat-view'
+import { Composer } from './components/composer'
+import { seedProjectFiles } from './components/composer/file-index'
 import { TooltipProvider } from './components/ui/tooltip'
 import {
   largeFixture,
   normalFixture,
+  previewProjectFiles,
   questionFixture,
   requestFixture,
   STREAM_TEXT,
@@ -17,6 +20,27 @@ import {
 import { cn } from './lib/utils'
 
 type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question'
+
+// Il composer cita i file di questo progetto finto: niente host nell'anteprima.
+const PREVIEW_PROJECT = 'preview'
+seedProjectFiles(PREVIEW_PROJECT, previewProjectFiles())
+
+const PREVIEW_MODELS = [
+  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5' }
+]
+
+const INITIAL_QUEUE: QueuedMessage[] = [
+  { id: 'q1', text: 'Poi aggiorna anche le storie di Storybook della paginazione.' },
+  {
+    id: 'q2',
+    text: 'Controlla che il layout regga a 320 px come negli screenshot.',
+    attachments: [
+      { name: 'mobile-320.png', mediaType: 'image/png', data: '' },
+      { name: 'mobile-375.png', mediaType: 'image/png', data: '' }
+    ]
+  }
+]
 
 const MODES: { id: Mode; label: string }[] = [
   { id: 'normal', label: 'Normale' },
@@ -160,6 +184,9 @@ function Preview() {
   const [restoreAnchor, setRestoreAnchor] = useState<ChatAnchor | null>(null)
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
   const [last, setLast] = useState('')
+  const [queue, setQueue] = useState<QueuedMessage[]>(INITIAL_QUEUE)
+  const [model, setModel] = useState<string | null>(PREVIEW_MODELS[0].id)
+  const [permission, setPermission] = useState<PermissionLevel>('edit')
   const counter = useRef(0)
 
   const setFixture = useCallback((update: (f: Fixture) => Fixture) => setFixtureState(update), [])
@@ -228,6 +255,33 @@ function Preview() {
     setLast(`onOpenFile ${path}${line ? `:${line}` : ''}`)
   }
 
+  const running = fixture.run === 'running' || fixture.run === 'starting' || fixture.run === 'waiting'
+
+  // In corso il messaggio va in coda, altrimenti diventa un turno nuovo con i nomi degli allegati.
+  const onSubmit = (text: string, attachments: Attachment[]) => {
+    const summary = attachments.map((a) => `${a.name} (${a.mediaType}, ${Math.round((a.data.length * 3) / 4 / 1024)} KB)`)
+    console.log('[composer] onSubmit', text, summary)
+    setLast(`onSubmit ${JSON.stringify(text)}${summary.length ? ` + ${summary.join(', ')}` : ''}`)
+    const id = `sent-${++counter.current}`
+    if (running) {
+      setQueue((q) => [...q, { id, text, attachments: attachments.length ? attachments : undefined }])
+      return
+    }
+    setFixtureState((f) => {
+      const seq = (f.items[f.items.length - 1]?.seq ?? 0) + 1
+      const item: ChatItem = {
+        id,
+        turnId: `turn-${id}`,
+        seq,
+        at: Date.now(),
+        kind: 'user',
+        text,
+        ...(attachments.length ? { attachments: attachments.map(({ name, mediaType }) => ({ name, mediaType })) } : {})
+      }
+      return { ...f, items: [...f.items, item] }
+    })
+  }
+
   const remount = () => {
     setRestoreAnchor(anchor)
     setMountId((n) => n + 1)
@@ -277,15 +331,30 @@ function Preview() {
           onRespond={onRespond}
           onOpenFile={onOpenFile}
         />
+        {/* Composer vero: @ per i file finti, immagini incollate o trascinate, coda modificabile. */}
         <div className="flex shrink-0 justify-center px-6 pb-4">
-          <label className="block w-full max-w-[680px]">
-            <span className="sr-only">Composer di prova</span>
-            <textarea
-              rows={1}
-              placeholder="Composer di prova: scrivendo qui le card non rubano il focus"
-              className="block min-h-[48px] w-full resize-none rounded-2xl border border-input bg-composer px-4 py-3.5 text-[14px] outline-none placeholder:text-faint focus:border-ring/50"
-            />
-          </label>
+          <Composer
+            draftKey="preview"
+            projectId={PREVIEW_PROJECT}
+            agentName="Claude Code"
+            models={PREVIEW_MODELS}
+            model={model}
+            onModelChange={setModel}
+            effort="high"
+            permission={permission}
+            onPermissionChange={setPermission}
+            running={running}
+            onSubmit={onSubmit}
+            onStop={() => setFixtureState((f) => ({ ...f, run: 'idle', activity: null }))}
+            queue={queue}
+            onQueueChange={(next) => {
+              console.log('[composer] onQueueChange', next)
+              setLast(`onQueueChange ${next.map((m) => JSON.stringify(m.text)).join(' · ') || '[]'}`)
+              setQueue(next)
+            }}
+            context={{ used: 64_000, window: 200_000 }}
+            className="max-w-[680px]"
+          />
         </div>
       </div>
       <p className="w-[900px] font-mono text-[11px] text-muted-foreground">

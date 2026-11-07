@@ -10,7 +10,7 @@ import {
   type SDKMessage,
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
-import type { Effort, PermissionLevel, Question, RequestOption, RequestResponse, ToolKind } from '@shared/protocol'
+import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, ToolKind } from '@shared/protocol'
 import { claudeEnv } from './environment'
 
 export const PERMISSION_MODE: Record<PermissionLevel, PermissionMode> = {
@@ -75,8 +75,14 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   private items: SDKUserMessage[] = []
   private wake: (() => void) | null = null
   private closed = false
-  push(text: string): void {
-    this.items.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null })
+  push(text: string, attachments: Attachment[] = []): void {
+    const content = attachments.length
+      ? [
+          ...attachments.map((a) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: a.mediaType as 'image/png', data: a.data } })),
+          { type: 'text' as const, text }
+        ]
+      : text
+    this.items.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null })
     this.wake?.()
   }
   close(): void {
@@ -212,12 +218,12 @@ export class ClaudeSession {
     void this.loadAccount()
   }
 
-  send(text: string): void {
+  send(text: string, attachments: Attachment[] = []): void {
     this.running = true
     this.interrupted = false
     this.turnStartedAt = Date.now()
     this.events.activity('Pensa…')
-    this.input.push(text)
+    this.input.push(text, attachments)
   }
 
   async interrupt(): Promise<void> {

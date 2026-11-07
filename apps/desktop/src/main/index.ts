@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process'
+import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   app,
@@ -88,9 +90,28 @@ ipcMain.handle('ladder:pick-folder', async (event) => {
   return result.canceled ? null : (result.filePaths[0] ?? null)
 })
 
+/** CLI dell'editore: Cursor se c'è, altrimenti VS Code. Le app GUI non vedono il PATH della shell. */
+function editorCli(): string | null {
+  const candidates = [
+    '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
+    join(app.getPath('home'), 'Applications/Cursor.app/Contents/Resources/app/bin/cursor'),
+    '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
+    join(app.getPath('home'), 'Applications/Visual Studio Code.app/Contents/Resources/app/bin/code')
+  ]
+  return candidates.find((path) => existsSync(path)) ?? null
+}
+
 ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: number) => {
-  // Cursor registra lo schema cursor://; per VS Code basterebbe vscode://.
-  await shell.openExternal(`cursor://file${encodeURI(path)}${line ? `:${line}` : ''}`)
+  const cli = editorCli()
+  const isFile = existsSync(path) && statSync(path).isFile()
+  if (cli) {
+    const args = isFile ? ['-g', `${path}${line ? `:${line}` : ''}`] : [path]
+    await new Promise<void>((resolve) => execFile(cli, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } }, () => resolve()))
+    return
+  }
+  // Senza CLI: lo schema cursor:// apre il file alla riga; in ultima istanza l'app predefinita.
+  const opened = await shell.openExternal(`cursor://file${encodeURI(path)}${line ? `:${line}` : ''}`).then(() => true, () => false)
+  if (!opened) await shell.openPath(path)
 })
 
 ipcMain.handle('ladder:reveal', (_event, path: string) => shell.showItemInFolder(path))

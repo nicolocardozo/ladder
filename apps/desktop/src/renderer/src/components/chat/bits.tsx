@@ -1,5 +1,5 @@
 // Pezzi piccoli condivisi dalla chat.
-import { File } from 'lucide-react'
+import { File, Image as ImageIcon } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { cn } from '@/lib/utils'
 import { useChatActions } from './chat-context'
@@ -40,6 +40,24 @@ export function FileChip({ path, line, label }: { path: string; line?: number; l
       <span className="truncate">{label ?? basename(path)}</span>
       {line && !label ? <span className="text-faint">:{line}</span> : null}
     </button>
+  )
+}
+
+/** Allegati di un messaggio dell'utente: solo nome e tipo, l'immagine non viene conservata. */
+export function AttachmentChips({ attachments }: { attachments: { name: string; mediaType: string }[] }) {
+  return (
+    <ul aria-label={attachments.length === 1 ? '1 allegato' : `${attachments.length} allegati`} className="flex flex-wrap gap-1">
+      {attachments.map((attachment, index) => (
+        <li
+          key={`${index}:${attachment.name}`}
+          title={attachment.name}
+          className="inline-flex h-[22px] max-w-[240px] min-w-0 items-center gap-1 rounded-[6px] border border-border bg-background/70 px-1.5 text-[12px] text-secondary-foreground dark:border-input/70 dark:bg-background/40"
+        >
+          <ImageIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" strokeWidth={1.8} />
+          <span className="truncate">{attachment.name}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
 

@@ -52,6 +52,13 @@ export async function repoInfo(path: string): Promise<RepoInfo> {
   return { isGit: true, branch, hasHead }
 }
 
+/** File del progetto: tracciati più non tracciati non ignorati, al massimo `limit`. */
+export async function listFiles(path: string, limit = 20000): Promise<string[]> {
+  const out = await git(path, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])
+  const files = out.split('\0').filter(Boolean)
+  return [...new Set(files)].slice(0, limit)
+}
+
 /** Fotografa working tree e file non tracciati in un commit su `ref`, senza toccare indice e branch. */
 export async function createCheckpoint(repo: string, ref: string, message: string): Promise<string | null> {
   const info = await repoInfo(repo)

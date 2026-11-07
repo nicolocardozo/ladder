@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { AppSidebar } from '@/components/app-sidebar'
+import { CommandPalette } from '@/components/command-palette'
 import { NewChat, SessionView } from '@/components/main-views'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useTheme } from '@/hooks/use-theme'
@@ -11,6 +12,7 @@ export function App() {
   const theme = useTheme()
   const selection = useApp((s) => s.selection)
   const connected = useApp((s) => s.connected)
+  const sidebarOpen = useApp((s) => s.sidebarOpen)
 
   // Collegamento con l'host: eventi in arrivo e istantanea completa a ogni (ri)connessione.
   useEffect(() => {
@@ -31,26 +33,56 @@ export function App() {
     }
   }, [])
 
-  // Scorciatoie globali: ⌘N nuova chat, ⌘1…9 progetti, ⌘W chiude la tab, ⌘. ferma la sessione aperta.
+  // Scorciatoie globali: ⌘K comandi, ⌘B sidebar, ⌘[ ⌘] indietro e avanti, ⌘N nuova chat,
+  // ⌘1…9 progetti, ⌘W chiude la tab, ⌘. ferma la sessione aperta.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!event.metaKey) return
-      const { selection: current, select } = useApp.getState()
+      if (!event.metaKey || event.ctrlKey) return
+      const state = useApp.getState()
+      const { selection: current, select } = state
+      const key = event.key.toLowerCase()
+      const plain = !event.shiftKey && !event.altKey
+
+      if (plain && key === 'k') {
+        event.preventDefault()
+        state.setPaletteOpen(!state.paletteOpen)
+        return
+      }
+      // Con la palette aperta le altre scorciatoie aspettano: agirebbero sotto la finestra di dialogo.
+      if (state.paletteOpen) return
+
+      if (plain && key === 'b') {
+        event.preventDefault()
+        state.toggleSidebar()
+        return
+      }
+      // Su tastiere dove [ e ] richiedono ⌥ (per esempio quella italiana) event.key resta la parentesi.
+      if (!event.shiftKey && (event.key === '[' || event.key === ']')) {
+        event.preventDefault()
+        state.navigate(event.key === '[' ? -1 : 1)
+        return
+      }
       const digit = Number(event.key)
-      if (!event.shiftKey && !event.altKey && digit >= 1 && digit <= 9) {
-        const project = useApp.getState().projects[digit - 1]
+      if (plain && digit >= 1 && digit <= 9) {
+        const project = state.projects[digit - 1]
         if (project) {
           event.preventDefault()
-          useApp.getState().selectProject(project.id)
+          state.selectProject(project.id)
         }
         return
       }
-      if (!event.shiftKey && event.key.toLowerCase() === 'w' && current.kind === 'session') {
+      // ⌘⇧A: prossima sessione che ti aspetta, in qualunque progetto.
+      if (event.shiftKey && key === 'a') {
         event.preventDefault()
-        useApp.getState().closeTab(current.projectId, current.sessionId)
+        state.goToNextWaiting()
         return
       }
-      if (!event.shiftKey && event.key.toLowerCase() === 'n') {
+      if (!event.shiftKey && key === 'w' && current.kind === 'session') {
+        event.preventDefault()
+        state.closeTab(current.projectId, current.sessionId)
+        return
+      }
+      if (!event.shiftKey && key === 'n') {
         event.preventDefault()
         select({ kind: 'new', projectId: current.projectId })
       } else if (event.key === '.' && current.kind === 'session') {
@@ -73,15 +105,16 @@ export function App() {
   return (
     <TooltipProvider delay={400}>
       <div className="flex h-full">
-        <AppSidebar themeMode={theme.mode} onCycleTheme={theme.cycle} />
+        {sidebarOpen && <AppSidebar themeMode={theme.mode} onCycleTheme={theme.cycle} />}
         {!connected ? (
-          <main className="grid flex-1 place-items-center bg-background text-[13px] text-muted-foreground">Avvio di Ladder…</main>
+          <main className="drag grid flex-1 place-items-center bg-background text-[13px] text-muted-foreground">Avvio di Ladder…</main>
         ) : selection.kind === 'session' ? (
           <SessionView sessionId={selection.sessionId} />
         ) : (
           <NewChat projectId={selection.projectId} />
         )}
       </div>
+      <CommandPalette themeMode={theme.mode} onCycleTheme={theme.cycle} />
     </TooltipProvider>
   )
 }

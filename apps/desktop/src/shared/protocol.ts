@@ -17,9 +17,17 @@ export interface Project {
 /** Stato dell'esecuzione: deriva dall'agente, non dalla UI. */
 export type RunState = 'idle' | 'starting' | 'running' | 'waiting' | 'error'
 
+/** Allegato inviato all'agente. Per ora solo immagini, in base64. */
+export interface Attachment {
+  name: string
+  mediaType: string
+  data: string
+}
+
 export interface QueuedMessage {
   id: string
   text: string
+  attachments?: Attachment[]
 }
 
 export interface SessionSummary {
@@ -76,7 +84,7 @@ interface ItemBase {
 }
 
 export type ChatItem =
-  | (ItemBase & { kind: 'user'; text: string })
+  | (ItemBase & { kind: 'user'; text: string; attachments?: { name: string; mediaType: string }[] })
   | (ItemBase & { kind: 'assistant'; text: string; streaming: boolean })
   | (ItemBase & {
       kind: 'tool'
@@ -151,8 +159,13 @@ export type HostCommand =
       model: string | null
       effort: Effort | null
       permission: PermissionLevel
+      attachments?: Attachment[]
     }
-  | { type: 'session.send'; sessionId: string; text: string }
+  | { type: 'session.send'; sessionId: string; text: string; attachments?: Attachment[] }
+  | { type: 'session.rename'; sessionId: string; title: string }
+  | { type: 'session.unread'; sessionId: string }
+  /** File del progetto, percorsi relativi: tracciati e non tracciati non ignorati. */
+  | { type: 'project.files'; projectId: string }
   | { type: 'session.queue.set'; sessionId: string; queue: QueuedMessage[] }
   | { type: 'session.interrupt'; sessionId: string }
   | { type: 'session.respond'; sessionId: string; requestId: string; response: RequestResponse }

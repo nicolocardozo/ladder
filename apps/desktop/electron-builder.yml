@@ -1,0 +1,18 @@
+# Build personale non firmata da sviluppatore Apple: firma ad hoc, solo per questo Mac.
+appId: dev.nicolocardozo.ladder
+productName: Ladder
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+asar: true
+npmRebuild: false
+mac:
+  target: dir
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false

@@ -2,8 +2,9 @@
 import { ChevronRight, CircleStop, CircleX, FileDiff, Info } from 'lucide-react'
 import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ChatItem, FileChange, RunState } from '@shared/protocol'
+import { isImagePlaceholder } from '@/components/composer/attachments'
 import { cn } from '@/lib/utils'
-import { NewDivider, Spinner } from './bits'
+import { AttachmentChips, NewDivider, Spinner } from './bits'
 import { useChatActions, useNow, useToggle } from './chat-context'
 import { formatDuration, turnSummary } from './format'
 import { Markdown } from './markdown'
@@ -18,6 +19,9 @@ const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
   const [expanded, toggle] = useToggle(`user:${item.id}`)
   const textRef = useRef<HTMLDivElement>(null)
   const [overflows, setOverflows] = useState(false)
+  const attachments = item.attachments ?? []
+  // Con sole immagini il testo è un segnaposto: si mostrano solo i chip.
+  const showText = !(attachments.length > 0 && isImagePlaceholder(item.text))
 
   useLayoutEffect(() => {
     const el = textRef.current
@@ -35,13 +39,15 @@ const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
         className="w-fit max-w-[82%] min-w-0 rounded-[12px] bg-muted px-3 py-2 text-[13px] leading-[1.5] text-foreground"
         title={new Date(item.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}
       >
-        <div
-          ref={textRef}
-          className={cn('break-words whitespace-pre-wrap', !expanded && 'line-clamp-6')}
-        >
-          {item.text}
-        </div>
-        {overflows || expanded ? (
+        {showText ? (
+          <div
+            ref={textRef}
+            className={cn('break-words whitespace-pre-wrap', !expanded && 'line-clamp-6')}
+          >
+            {item.text}
+          </div>
+        ) : null}
+        {showText && (overflows || expanded) ? (
           <button
             type="button"
             onClick={toggle}
@@ -50,6 +56,11 @@ const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
           >
             {expanded ? 'Mostra meno' : 'Mostra tutto'}
           </button>
+        ) : null}
+        {attachments.length > 0 ? (
+          <div className={cn(showText && 'mt-1.5')}>
+            <AttachmentChips attachments={attachments} />
+          </div>
         ) : null}
       </div>
     </div>

@@ -38,14 +38,24 @@ node apps/desktop/node_modules/electron/install.js
 
 ## Stato
 
-Fase 1 in corso. Funziona già:
+Fase 1 completata. Funziona:
 
 - progetti reali (si aggiungono scegliendo la cartella) e sessioni Claude Code con il tuo login, nella sidebar con il loro stato;
-- chat con streaming, riepilogo dell’attività, blocchi di codice con copia, riferimenti ai file e file modificati per turno (checkpoint git);
-- approvazioni e domande con scorciatoie, coda dei messaggi, stop, modello, effort e quattro livelli di permesso (⇧Tab);
+- chat con streaming, riepilogo dell’attività, blocchi di codice con copia, riferimenti ai file che si aprono in Cursor alla riga giusta, file modificati per turno (checkpoint git);
+- approvazioni e domande con scorciatoie, coda dei messaggi modificabile, stop, modello, effort e quattro livelli di permesso (⇧Tab);
+- `@` per citare i file del progetto, immagini incollate, trascinate o scelte con `+`;
+- menu delle sessioni (rinomina, segna come da leggere, archivia, apri in Cursor o nel Finder), ⌘K per cercare sessioni, progetti e azioni, ⌘B per la sidebar, ⌘[ e ⌘] per tornare indietro e avanti, ⌘⇧A per la prossima sessione che ti aspetta;
 - tab per progetto (⌘1…⌘9, ⌘W), bozze, posizione di lettura e ripresa delle sessioni dopo il riavvio.
 
-Mancano “In attesa”, notifiche, Explorer, diff e terminale (fasi 2 e 3).
+Prossime fasi: “In attesa” e notifiche (3), Explorer, diff e terminale (2), Codex e agenti ACP (4).
+
+## Build da installare
+
+```bash
+pnpm --filter @ladder/desktop dist
+```
+
+Crea `apps/desktop/dist/mac-arm64/Ladder.app`, firmata solo per questo Mac: trascinala in Applicazioni. L’icona si rigenera con `node apps/desktop/scripts/make-icon.mjs`.
 
 ## Architettura in breve
 

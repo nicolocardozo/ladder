@@ -10,6 +10,8 @@ export default defineConfig({
   main: {
     resolve: { alias: shared },
     build: {
+      // Tutte le dipendenze dentro il bundle: l'app impacchettata non ha bisogno di node_modules.
+      externalizeDeps: false,
       rollupOptions: {
         // index: processo main; host: host delle sessioni, avviato come utilityProcess.
         input: { index: resolve('src/main/index.ts'), host: resolve('src/host/index.ts') }

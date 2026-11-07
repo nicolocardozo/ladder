@@ -13,6 +13,7 @@ import type {
   Project,
   ProjectUiState,
   QueuedMessage,
+  Attachment,
   RequestResponse,
   RunState,
   SessionSummary
@@ -20,7 +21,7 @@ import type {
 import { tx, type Db, type ProjectRow, type SessionRow } from './db'
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
 import { claudeVersion, findClaudeCli } from './claude/environment'
-import { changedFiles, createCheckpoint, repoInfo } from './git'
+import { changedFiles, createCheckpoint, listFiles, repoInfo } from './git'
 
 type Broadcast = (event: HostEvent) => void
 type ItemInput = ChatItem extends infer T ? (T extends ChatItem ? Omit<T, 'seq'> : never) : never
@@ -148,12 +149,38 @@ export class Host {
       case 'session.create':
         return this.createSession(command)
       case 'session.send':
-        await this.send(command.sessionId, command.text)
+        await this.send(command.sessionId, command.text, command.attachments ?? [])
         return null
-      case 'session.queue.set':
-        this.updateRow(command.sessionId, { queue: JSON.stringify(command.queue) })
+      case 'session.rename': {
+        const title = command.title.trim()
+        if (title) {
+          this.updateRow(command.sessionId, { title })
+          this.emitSummary(command.sessionId)
+        }
+        return null
+      }
+      case 'session.unread': {
+        const row = this.mustRow(command.sessionId)
+        this.updateRow(row.id, { last_read_seq: Math.max(0, row.last_activity_seq - 1) })
+        this.emitSummary(row.id)
+        return null
+      }
+      case 'project.files': {
+        const project = this.projects.get(command.projectId)
+        if (!project) throw new Error('Progetto non trovato.')
+        return project.isGit ? listFiles(project.path) : []
+      }
+      case 'session.queue.set': {
+        // La UI riceve la coda senza i dati delle immagini: gli allegati restano quelli salvati qui.
+        const stored = new Map((JSON.parse(this.mustRow(command.sessionId).queue) as QueuedMessage[]).map((q) => [q.id, q]))
+        const queue = command.queue.map((q) => {
+          const attachments = stored.get(q.id)?.attachments
+          return { id: q.id, text: q.text, ...(attachments?.length ? { attachments } : {}) }
+        })
+        this.updateRow(command.sessionId, { queue: JSON.stringify(queue) })
         this.emitSummary(command.sessionId)
         return null
+      }
       case 'session.interrupt':
         await this.interrupt(command.sessionId)
         return null
@@ -245,26 +272,26 @@ export class Host {
       .run(row.id, row.project_id, row.title, row.agent, row.model, row.effort, row.permission, now, now)
     this.rows.set(row.id, row)
     this.emitSummary(row.id)
-    await this.send(row.id, command.text)
+    await this.send(row.id, command.text, command.attachments ?? [])
     return this.summary(row.id)
   }
 
   // ── Turni ────────────────────────────────────────────────────────────────
 
-  private async send(sessionId: string, text: string): Promise<void> {
+  private async send(sessionId: string, text: string, attachments: Attachment[] = []): Promise<void> {
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
     if (runtime?.adapter.isRunning || row.run_state === 'waiting') {
       const queue = JSON.parse(row.queue) as QueuedMessage[]
-      queue.push({ id: randomUUID(), text })
+      queue.push({ id: randomUUID(), text, ...(attachments.length ? { attachments } : {}) })
       this.updateRow(sessionId, { queue: JSON.stringify(queue) })
       this.emitSummary(sessionId)
       return
     }
-    await this.startTurn(sessionId, text)
+    await this.startTurn(sessionId, text, attachments)
   }
 
-  private async startTurn(sessionId: string, text: string): Promise<void> {
+  private async startTurn(sessionId: string, text: string, attachments: Attachment[] = []): Promise<void> {
     const row = this.mustRow(sessionId)
     const project = this.projects.get(row.project_id)
     if (!project) throw new Error('Progetto non trovato.')
@@ -292,14 +319,21 @@ export class Host {
     runtime.turnId = turnId
     runtime.turnCounts = emptyCounts()
     runtime.activity = 'Pensa…'
-    this.upsertItem(sessionId, { kind: 'user', id: randomUUID(), turnId, at: Date.now(), text })
+    this.upsertItem(sessionId, {
+      kind: 'user',
+      id: randomUUID(),
+      turnId,
+      at: Date.now(),
+      text,
+      ...(attachments.length ? { attachments: attachments.map((a) => ({ name: a.name, mediaType: a.mediaType })) } : {})
+    })
     this.updateRow(sessionId, { run_state: 'running', title: row.last_seq <= 1 ? titleFrom(text) : row.title })
     this.emitSummary(sessionId)
     this.flush()
     runtime.turnStart = project.isGit
       ? await createCheckpoint(project.path, `refs/ladder/${sessionId}/${turnId}-start`, 'ladder: inizio turno').catch(() => null)
       : null
-    runtime.adapter.send(text)
+    runtime.adapter.send(text, attachments)
   }
 
   private adapterEvents(sessionId: string): AdapterEvents {
@@ -469,7 +503,7 @@ export class Host {
     const next = queue.shift()
     if (next && result.status !== 'error') {
       this.updateRow(sessionId, { queue: JSON.stringify(queue) })
-      await this.startTurn(sessionId, next.text)
+      await this.startTurn(sessionId, next.text, next.attachments ?? [])
     }
   }
 
@@ -580,7 +614,10 @@ export class Host {
       unread: row.last_activity_seq > row.last_read_seq,
       lastReadSeq: row.last_read_seq,
       archived: row.archived === 1,
-      queue: JSON.parse(row.queue) as QueuedMessage[],
+      // Senza i dati base64 degli allegati: a ogni aggiornamento della sessione viaggerebbero megabyte.
+      queue: (JSON.parse(row.queue) as QueuedMessage[]).map((q) =>
+        q.attachments ? { ...q, attachments: q.attachments.map((a) => ({ name: a.name, mediaType: a.mediaType, data: '' })) } : q
+      ),
       context: row.context ? (JSON.parse(row.context) as SessionSummary['context']) : null
     }
   }
