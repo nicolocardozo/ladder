@@ -1,0 +1,273 @@
+/*
+ * Stili della chat che Tailwind non esprime bene: tipografia del markdown, colori di Shiki, cursore dello streaming.
+ * Usano solo i token di globals.css più pochi colori di sintassi, definiti qui per chiaro e scuro.
+ */
+:root {
+  --chat-code-bg: #f6f7f9;
+  --chat-code-head: #ffffff;
+  --shiki-foreground: #2a303b;
+  --shiki-background: transparent;
+  --shiki-token-keyword: #8a3fb8;
+  --shiki-token-string: var(--success);
+  --shiki-token-string-expression: var(--success);
+  --shiki-token-function: #2456b8;
+  --shiki-token-constant: var(--attention);
+  --shiki-token-parameter: #3a3f48;
+  --shiki-token-comment: #8a909b;
+  --shiki-token-punctuation: #5f6878;
+  --shiki-token-link: var(--primary);
+  --shiki-token-inserted: var(--success);
+  --shiki-token-deleted: var(--destructive);
+  --shiki-token-changed: var(--attention);
+}
+
+.dark {
+  --chat-code-bg: #0b0f16;
+  --chat-code-head: #0f141c;
+  --shiki-foreground: #c3ccdb;
+  --shiki-token-keyword: #c29bf2;
+  --shiki-token-string: #85cda2;
+  --shiki-token-string-expression: #85cda2;
+  --shiki-token-function: #8db4ff;
+  --shiki-token-parameter: #b6c0d1;
+  --shiki-token-comment: #67738a;
+  --shiki-token-punctuation: #8a95a8;
+}
+
+/* Markdown dell'agente. */
+.chat-md {
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+.chat-md > .chat-md-b + .chat-md-b,
+.chat-md-b > * + * {
+  margin-top: 0.72em;
+}
+.chat-md p,
+.chat-md ul,
+.chat-md ol,
+.chat-md blockquote,
+.chat-md pre,
+.chat-md table,
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4 {
+  margin-bottom: 0;
+}
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4,
+.chat-md h5,
+.chat-md h6 {
+  font-weight: 620;
+  line-height: 1.3;
+  letter-spacing: -0.008em;
+  color: var(--foreground);
+  text-wrap: balance;
+}
+.chat-md h1 {
+  font-size: 1.32em;
+}
+.chat-md h2 {
+  font-size: 1.16em;
+}
+.chat-md h3 {
+  font-size: 1.03em;
+}
+.chat-md h4,
+.chat-md h5,
+.chat-md h6 {
+  font-size: 1em;
+  color: var(--muted-foreground);
+}
+.chat-md * + h1,
+.chat-md * + h2,
+.chat-md * + h3,
+.chat-md .chat-md-b + .chat-md-b > h1:first-child,
+.chat-md .chat-md-b + .chat-md-b > h2:first-child,
+.chat-md .chat-md-b + .chat-md-b > h3:first-child {
+  margin-top: 1.15em;
+}
+.chat-md strong {
+  font-weight: 620;
+  color: var(--foreground);
+}
+.chat-md em {
+  font-style: italic;
+}
+.chat-md ul,
+.chat-md ol {
+  padding-left: 1.3em;
+}
+.chat-md ul {
+  list-style: disc;
+}
+.chat-md ul ul {
+  list-style: circle;
+}
+.chat-md ol {
+  list-style: decimal;
+}
+.chat-md li + li,
+.chat-md li > ul,
+.chat-md li > ol {
+  margin-top: 0.28em;
+}
+.chat-md li > p + p {
+  margin-top: 0.4em;
+}
+.chat-md li::marker {
+  color: var(--faint);
+}
+.chat-md ol > li::marker {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.chat-md li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.3em;
+}
+.chat-md li > input[type='checkbox'] {
+  margin-right: 0.45em;
+  vertical-align: -0.1em;
+  accent-color: var(--primary);
+}
+.chat-md a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in oklab, var(--primary) 45%, transparent);
+}
+.chat-md a:hover {
+  text-decoration-color: currentColor;
+}
+.chat-md blockquote {
+  border-left: 2px solid var(--input);
+  padding-left: 0.85em;
+  color: var(--muted-foreground);
+}
+.chat-md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin-block: 1.1em;
+}
+.chat-md :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.05em 0.34em;
+  overflow-wrap: anywhere;
+}
+.chat-md-table {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.chat-md-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9em;
+  line-height: 1.45;
+}
+.chat-md-table th,
+.chat-md-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 11px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-md-table th[align='right'],
+.chat-md-table td[align='right'] {
+  text-align: right;
+}
+.chat-md-table th[align='center'],
+.chat-md-table td[align='center'] {
+  text-align: center;
+}
+.chat-md-table thead th {
+  font-weight: 600;
+  font-size: 0.92em;
+  color: var(--muted-foreground);
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+  white-space: nowrap;
+}
+.chat-md-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Variante compatta per i messaggi intermedi dentro i passaggi. */
+.chat-md-compact {
+  color: color-mix(in oklab, var(--foreground) 78%, var(--muted-foreground));
+}
+
+/* Riferimento a file. */
+.chat-fref {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  max-width: 100%;
+  vertical-align: -0.12em;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  line-height: 1.55;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 0.45em;
+  background: var(--background);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 120ms, background-color 120ms;
+}
+.dark .chat-fref {
+  border-color: var(--input);
+}
+.chat-fref:hover {
+  border-color: var(--ring);
+  background: var(--accent);
+}
+.chat-fref:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* Cursore alla fine del testo in streaming. */
+.chat-md[data-streaming] > .chat-md-b:last-child > :last-child:is(p, h1, h2, h3, h4)::after,
+.chat-md[data-streaming] > .chat-md-b:last-child > :last-child:is(ul, ol) > li:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.17em;
+  background: var(--muted-foreground);
+  opacity: 0.6;
+  animation: chat-caret 1.05s steps(2, start) infinite;
+}
+@keyframes chat-caret {
+  to {
+    visibility: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-md[data-streaming] > .chat-md-b:last-child > :last-child::after,
+  .chat-md[data-streaming] li::after {
+    animation: none;
+  }
+}
+
+/* Barra di scorrimento sottile come nel resto dell'app. */
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent;
+  overflow-anchor: none;
+}
+.chat-code-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
+}

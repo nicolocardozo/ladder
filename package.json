@@ -1,11 +1,11 @@
 {
-  "name": "blue",
+  "name": "ladder",
   "private": true,
   "packageManager": "pnpm@12.3.4",
   "engines": { "node": ">=24" },
   "scripts": {
-    "dev": "pnpm --filter @blue/desktop dev",
-    "build": "pnpm --filter @blue/desktop build",
+    "dev": "pnpm --filter @ladder/desktop dev",
+    "build": "pnpm --filter @ladder/desktop build",
     "typecheck": "pnpm -r typecheck"
   }
 }

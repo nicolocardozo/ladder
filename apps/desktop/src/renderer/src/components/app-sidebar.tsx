@@ -5,7 +5,6 @@ import {
   FolderOpen,
   FolderPlus,
   Inbox,
-  ListFilter,
   Monitor,
   Moon,
   PanelLeft,
@@ -15,31 +14,57 @@ import {
   Sun,
   type LucideIcon
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
+import type { SessionSummary } from '@shared/protocol'
 import { IconButton } from '@/components/icon-button'
 import { ProjectBadges, RunningRing, SessionGlyph } from '@/components/status'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { projectAttention, type ProjectSummary } from '@/data/sample'
 import type { ThemeMode } from '@/hooks/use-theme'
+import { request } from '@/lib/host-client'
+import { projectAttention, sessionNote, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
-
-export type Selection = { kind: 'new'; projectId: string } | { kind: 'session'; projectId: string; sessionId: string }
+import { useApp } from '@/store/app-store'
 
 interface AppSidebarProps {
-  projects: ProjectSummary[]
-  expanded: Set<string>
-  selection: Selection
   themeMode: ThemeMode
-  onToggleProject: (id: string) => void
-  onSelect: (selection: Selection) => void
   onCycleTheme: () => void
 }
 
 const themeIcon: Record<ThemeMode, LucideIcon> = { system: Monitor, light: Sun, dark: Moon }
 const themeLabel: Record<ThemeMode, string> = { system: 'Tema: sistema', light: 'Tema: chiaro', dark: 'Tema: scuro' }
 
-export function AppSidebar({ projects, expanded, selection, themeMode, onToggleProject, onSelect, onCycleTheme }: AppSidebarProps) {
-  const waitingTotal = projects.reduce((n, p) => n + projectAttention(p).waiting, 0)
+export async function addProjectFromDialog(): Promise<void> {
+  const path = await window.ladder?.pickFolder()
+  if (!path) return
+  const project = await request<{ id: string }>({ type: 'project.add', path })
+  const { select, expanded } = useApp.getState()
+  useApp.setState({ expanded: expanded.includes(project.id) ? expanded : [...expanded, project.id] })
+  select({ kind: 'new', projectId: project.id })
+}
+
+export function AppSidebar({ themeMode, onCycleTheme }: AppSidebarProps) {
+  const projects = useApp((s) => s.projects)
+  const sessions = useApp((s) => s.sessions)
+  const drafts = useApp((s) => s.drafts)
+  const expanded = useApp((s) => s.expanded)
+  const selection = useApp((s) => s.selection)
+  const select = useApp((s) => s.select)
+  const toggleProject = useApp((s) => s.toggleProject)
+
+  const byProject = useMemo(() => {
+    const map = new Map<string, SessionSummary[]>()
+    for (const session of Object.values(sessions)) {
+      if (session.archived) continue
+      const list = map.get(session.projectId) ?? []
+      list.push(session)
+      map.set(session.projectId, list)
+    }
+    // Ordine stabile: per data di creazione, la più recente in alto. Lo stato non sposta le righe.
+    for (const list of map.values()) list.sort((a, b) => b.createdAt - a.createdAt)
+    return map
+  }, [sessions])
+
+  const waitingTotal = Object.values(sessions).filter((s) => !s.archived && s.run === 'waiting').length
 
   return (
     <aside className="flex h-full w-[262px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none">
@@ -58,7 +83,7 @@ export function AppSidebar({ projects, expanded, selection, themeMode, onToggleP
           label="Nuova chat"
           trailing={<kbd className="font-mono text-[10.5px] text-faint">⌘N</kbd>}
           active={selection.kind === 'new'}
-          onClick={() => onSelect({ kind: 'new', projectId: selection.projectId })}
+          onClick={() => select({ kind: 'new', projectId: selection.projectId ?? projects[0]?.id ?? null })}
         />
         <SidebarAction
           icon={Inbox}
@@ -76,24 +101,32 @@ export function AppSidebar({ projects, expanded, selection, themeMode, onToggleP
 
       <div className="flex items-center justify-between pt-5 pr-3 pb-1 pl-4 text-xs text-muted-foreground">
         <span>Progetti</span>
-        <span className="flex gap-0.5">
-          <IconButton icon={ListFilter} label="Filtra progetti" className="size-6" />
-          <IconButton icon={FolderPlus} label="Aggiungi progetto" className="size-6" />
-        </span>
+        <IconButton icon={FolderPlus} label="Aggiungi progetto" className="size-6" onClick={() => void addProjectFromDialog()} />
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-px px-2 pb-3">
+          {projects.length === 0 && (
+            <button
+              type="button"
+              onClick={() => void addProjectFromDialog()}
+              className="mx-1 mt-1 rounded-md border border-dashed border-sidebar-border px-3 py-3 text-left text-[12.5px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Aggiungi la cartella di un progetto per iniziare.
+            </button>
+          )}
           {projects.map((project) => {
-            const open = expanded.has(project.id)
-            const attention = projectAttention(project)
+            const open = expanded.includes(project.id)
+            const list = byProject.get(project.id) ?? []
+            const attention = projectAttention(list)
             const FolderIcon = open ? FolderOpen : Folder
             return (
               <div key={project.id} className="flex flex-col gap-px">
                 <button
                   type="button"
                   aria-expanded={open}
-                  onClick={() => onToggleProject(project.id)}
+                  onClick={() => toggleProject(project.id)}
+                  title={project.path}
                   className={cn(
                     'flex min-h-[30px] items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none',
                     'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
@@ -114,15 +147,18 @@ export function AppSidebar({ projects, expanded, selection, themeMode, onToggleP
                 </button>
 
                 {open &&
-                  project.sessions.map((session) => {
+                  list.map((session) => {
                     const selected = selection.kind === 'session' && selection.sessionId === session.id
-                    const waiting = session.state === 'waiting'
+                    const state = sessionState(session)
+                    const waiting = state === 'waiting'
+                    const note = sessionNote(session, Boolean(drafts[session.id]?.trim()))
                     return (
                       <button
                         key={session.id}
                         type="button"
                         aria-current={selected ? 'page' : undefined}
-                        onClick={() => onSelect({ kind: 'session', projectId: project.id, sessionId: session.id })}
+                        onClick={() => select({ kind: 'session', projectId: project.id, sessionId: session.id })}
+                        title={session.activity ?? session.title}
                         className={cn(
                           'relative ml-5 grid min-h-7 grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md py-1 pr-2 pl-2.5 text-left text-[12.5px] outline-none',
                           'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
@@ -131,21 +167,23 @@ export function AppSidebar({ projects, expanded, selection, themeMode, onToggleP
                         )}
                       >
                         <span className="grid place-items-center">
-                          <SessionGlyph state={session.state} />
+                          <SessionGlyph state={state} />
                         </span>
-                        <span className={cn('truncate', session.state === 'unread' && 'font-semibold text-sidebar-accent-foreground')}>
-                          {session.title}
-                        </span>
-                        <span className={cn('text-[11px] whitespace-nowrap text-faint', waiting && 'font-semibold text-attention')}>
-                          {waiting ? session.waitingLabel : session.note === 'bozza' ? <i>bozza</i> : session.note}
+                        <span className={cn('truncate', state === 'unread' && 'font-semibold text-sidebar-accent-foreground')}>{session.title}</span>
+                        <span
+                          className={cn(
+                            'text-[11px] whitespace-nowrap text-faint',
+                            waiting && 'font-semibold text-attention',
+                            state === 'error' && 'font-semibold text-destructive'
+                          )}
+                        >
+                          {note === 'bozza' ? <i>bozza</i> : note}
                         </span>
                       </button>
                     )
                   })}
 
-                {open && project.sessions.length === 0 && (
-                  <p className="ml-5 py-1 pl-2.5 text-[12px] text-faint">Nessuna sessione. ⌘N per iniziare.</p>
-                )}
+                {open && list.length === 0 && <p className="ml-5 py-1 pl-2.5 text-[12px] text-faint">Nessuna sessione. ⌘N per iniziare.</p>}
               </div>
             )
           })}
@@ -153,9 +191,7 @@ export function AppSidebar({ projects, expanded, selection, themeMode, onToggleP
       </ScrollArea>
 
       <footer className="flex items-center gap-2.5 border-t border-sidebar-border px-3 py-2.5 text-[12.5px]">
-        <span className="grid size-6 place-items-center rounded-full bg-sidebar-accent text-[10px] font-semibold text-sidebar-accent-foreground">
-          NC
-        </span>
+        <span className="grid size-6 place-items-center rounded-full bg-sidebar-accent text-[10px] font-semibold text-sidebar-accent-foreground">NC</span>
         <span className="truncate">Nicolò</span>
         <IconButton icon={themeIcon[themeMode]} label={themeLabel[themeMode]} onClick={onCycleTheme} className="ml-auto" />
       </footer>

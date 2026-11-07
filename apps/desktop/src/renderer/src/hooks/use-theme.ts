@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
-const STORAGE_KEY = 'blue.theme'
+const STORAGE_KEY = 'ladder.theme'
 
 function readStoredMode(): ThemeMode {
   try {

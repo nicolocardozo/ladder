@@ -4,11 +4,21 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 // electron-vite gira dalla cartella apps/desktop: i percorsi sono relativi a lei.
+const shared = { '@shared': resolve('src/shared') }
+
 export default defineConfig({
-  main: {},
-  preload: {},
+  main: {
+    resolve: { alias: shared },
+    build: {
+      rollupOptions: {
+        // index: processo main; host: host delle sessioni, avviato come utilityProcess.
+        input: { index: resolve('src/main/index.ts'), host: resolve('src/host/index.ts') }
+      }
+    }
+  },
+  preload: { resolve: { alias: shared } },
   renderer: {
-    resolve: { alias: { '@': resolve('src/renderer/src') } },
+    resolve: { alias: { '@': resolve('src/renderer/src'), ...shared } },
     plugins: [react(), tailwindcss()]
   }
 })

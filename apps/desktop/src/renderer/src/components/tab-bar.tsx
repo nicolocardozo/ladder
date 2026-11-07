@@ -1,0 +1,75 @@
+import { Plus, X } from 'lucide-react'
+import { SessionGlyph } from '@/components/status'
+import { sessionState } from '@/lib/session-state'
+import { cn } from '@/lib/utils'
+import { useApp } from '@/store/app-store'
+
+const NO_TABS: string[] = []
+
+/** Tab delle sessioni aperte nel progetto. Chiudere una tab non ferma la sessione. */
+export function TabBar({ projectId, activeSessionId }: { projectId: string; activeSessionId: string | null }) {
+  // Il ripiego deve essere una costante: zustand 5 confronta i risultati del selettore per riferimento.
+  const tabs = useApp((s) => s.ui[projectId]?.tabs ?? NO_TABS)
+  const sessions = useApp((s) => s.sessions)
+  const select = useApp((s) => s.select)
+  const closeTab = useApp((s) => s.closeTab)
+  const visible = tabs.filter((id) => sessions[id] && !sessions[id].archived)
+
+  return (
+    <div className="no-drag flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]" role="tablist" aria-label="Sessioni aperte">
+      {visible.map((id) => {
+        const session = sessions[id]
+        const active = id === activeSessionId
+        return (
+          <div
+            key={id}
+            role="tab"
+            aria-selected={active}
+            className={cn(
+              'group flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-md pr-1 pl-2.5 text-[12px] text-muted-foreground',
+              active ? 'bg-accent text-foreground' : 'hover:bg-accent/60'
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => select({ kind: 'session', projectId, sessionId: id })}
+              className="flex min-w-0 items-center gap-1.5 outline-none focus-visible:underline"
+              title={session.title}
+            >
+              <span className="grid w-3 shrink-0 place-items-center">
+                <SessionGlyph state={sessionState(session)} />
+              </span>
+              <span className={cn('truncate', active && 'font-medium')}>{session.title}</span>
+            </button>
+            <button
+              type="button"
+              aria-label={`Chiudi ${session.title}`}
+              onClick={() => closeTab(projectId, id)}
+              className={cn(
+                'grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+                !active && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+              )}
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        )
+      })}
+      {activeSessionId === null && visible.length > 0 && (
+        <div role="tab" aria-selected className="flex h-7 shrink-0 items-center rounded-md bg-accent px-2.5 text-[12px] font-medium text-foreground">
+          Nuova chat
+        </div>
+      )}
+      {visible.length > 0 && (
+        <button
+          type="button"
+          aria-label="Nuova chat"
+          onClick={() => select({ kind: 'new', projectId })}
+          className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <Plus className="size-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}

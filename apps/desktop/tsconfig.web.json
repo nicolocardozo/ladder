@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
@@ -11,7 +15,18 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "noUnusedLocals": true,
-    "paths": { "@/*": ["./src/renderer/src/*"] }
+    "paths": {
+      "@/*": [
+        "./src/renderer/src/*"
+      ],
+      "@shared/*": [
+        "./src/shared/*"
+      ]
+    }
   },
-  "include": ["src/renderer/src/**/*", "src/preload/*.d.ts"]
+  "include": [
+    "src/renderer/src/**/*",
+    "src/preload/*.d.ts",
+    "src/shared/**/*"
+  ]
 }

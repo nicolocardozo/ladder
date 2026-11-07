@@ -5,9 +5,9 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Tema di Blue. Neutri con tinta blu, un solo accento blu.
+ * Tema di Ladder. Neutri con tinta blu, un solo accento blu.
  * Ambra solo per ciò che blocca l'utente, rosso solo per gli errori.
- * I nomi seguono i token di shadcn/ui; attention, success e composer sono di Blue.
+ * I nomi seguono i token di shadcn/ui; attention, success e composer sono di Ladder.
  */
 :root {
   --background: #ffffff;

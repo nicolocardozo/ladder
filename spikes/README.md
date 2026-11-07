@@ -1,6 +1,6 @@
 # Spike della fase 0
 
-Prototipi da riga di comando che verificano le ipotesi tecniche del piano (`docs/piano-blue.html`, sezione 4.10).
+Prototipi da riga di comando che verificano le ipotesi tecniche del piano (`docs/piano.html`, sezione 4.10).
 Ogni cartella è un pacchetto npm autonomo, fuori dal workspace pnpm, con versioni fissate e un README con risultati e conclusioni.
 
 | Cartella | Verifica |

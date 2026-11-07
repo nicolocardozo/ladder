@@ -1,6 +1,6 @@
 import { CircleAlert, CircleX } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ProjectAttention, SessionState } from '@/data/sample'
+import type { ProjectAttention, SessionState } from '@/lib/session-state'
 
 /** Anello che gira: sessione in corso. Con movimento ridotto diventa tratteggiato e fermo. */
 export function RunningRing({ className }: { className?: string }) {

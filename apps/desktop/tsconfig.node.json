@@ -1,15 +1,32 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "@shared/*": [
+        "./src/shared/*"
+      ]
+    }
   },
-  "include": ["electron.vite.config.ts", "vite.config.ts", "src/main/**/*", "src/preload/**/*"]
+  "include": [
+    "electron.vite.config.ts",
+    "vite.config.ts",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/host/**/*",
+    "src/shared/**/*"
+  ]
 }
