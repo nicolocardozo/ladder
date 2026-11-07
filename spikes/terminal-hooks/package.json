@@ -1,0 +1,22 @@
+{
+  "name": "spike-terminal-hooks",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "S6: stato delle sessioni terminale (claude, codex) tramite hook iniettati per processo",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper",
+    "hash": "node src/hash-configs.ts",
+    "pty:check": "node src/pty-check.ts",
+    "claude": "node src/claude.ts",
+    "codex": "node src/codex.ts"
+  },
+  "dependencies": {
+    "node-pty": "1.1.0",
+    "@xterm/headless": "6.0.0",
+    "@openai/codex": "0.167.0"
+  }
+}

@@ -1,0 +1,168 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Tema di Blue. Neutri con tinta blu, un solo accento blu.
+ * Ambra solo per ciò che blocca l'utente, rosso solo per gli errori.
+ * I nomi seguono i token di shadcn/ui; attention, success e composer sono di Blue.
+ */
+:root {
+  --background: #ffffff;
+  --foreground: #141821;
+  --card: #ffffff;
+  --card-foreground: #141821;
+  --popover: #ffffff;
+  --popover-foreground: #141821;
+  --primary: #2a62d6;
+  --primary-foreground: #ffffff;
+  --secondary: #eef1f5;
+  --secondary-foreground: #141821;
+  --muted: #eef1f5;
+  --muted-foreground: #5f6878;
+  --accent: #e8edf5;
+  --accent-foreground: #141821;
+  --destructive: #c0392b;
+  --border: #e1e5eb;
+  --input: #d5dbe4;
+  --ring: #2a62d6;
+  --chart-1: #2a62d6;
+  --chart-2: #5f6878;
+  --chart-3: #a05c00;
+  --chart-4: #2a7148;
+  --chart-5: #c0392b;
+  --radius: 0.625rem;
+  --sidebar: #f3f5f8;
+  --sidebar-foreground: #2a303b;
+  --sidebar-primary: #2a62d6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e5e9f0;
+  --sidebar-accent-foreground: #141821;
+  --sidebar-border: #e1e5eb;
+  --sidebar-ring: #2a62d6;
+  --attention: #a05c00;
+  --attention-foreground: #ffffff;
+  --success: #2a7148;
+  --composer: #ffffff;
+  --faint: #98a0ad;
+}
+
+.dark {
+  --background: #0f141c;
+  --foreground: #e3e9f3;
+  --card: #131a25;
+  --card-foreground: #e3e9f3;
+  --popover: #151c28;
+  --popover-foreground: #e3e9f3;
+  --primary: #5b8ef5;
+  --primary-foreground: #0b0f16;
+  --secondary: #1b2230;
+  --secondary-foreground: #e3e9f3;
+  --muted: #1b2230;
+  --muted-foreground: #7d889c;
+  --accent: #1b2230;
+  --accent-foreground: #e3e9f3;
+  --destructive: #f07a6a;
+  --border: #1a2230;
+  --input: #273144;
+  --ring: #5b8ef5;
+  --chart-1: #5b8ef5;
+  --chart-2: #7d889c;
+  --chart-3: #e7a64c;
+  --chart-4: #62bf8c;
+  --chart-5: #f07a6a;
+  --sidebar: #0b0f16;
+  --sidebar-foreground: #b6c0d1;
+  --sidebar-primary: #5b8ef5;
+  --sidebar-primary-foreground: #0b0f16;
+  --sidebar-accent: #1b2230;
+  --sidebar-accent-foreground: #e3e9f3;
+  --sidebar-border: #1a2230;
+  --sidebar-ring: #5b8ef5;
+  --attention: #e7a64c;
+  --attention-foreground: #0b0f16;
+  --success: #62bf8c;
+  --composer: #131a25;
+  --faint: #566175;
+}
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-success: var(--success);
+  --color-composer: var(--composer);
+  --color-faint: var(--faint);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Zone trascinabili della finestra (barra del titolo nascosta di macOS). */
+@utility drag {
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  -webkit-app-region: no-drag;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow: hidden;
+    cursor: default;
+  }
+}

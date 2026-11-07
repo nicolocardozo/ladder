@@ -1,0 +1,30 @@
+{
+  "name": "@blue/spike-codex-app-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.20"
+  },
+  "scripts": {
+    "generate": "rm -rf generated && codex app-server generate-ts --out generated/stable && codex app-server generate-ts --experimental --out generated/experimental",
+    "typecheck": "tsc -p tsconfig.json",
+    "probe": "node src/probe.ts",
+    "run": "node src/run.ts",
+    "resume": "node src/resume.ts",
+    "steer": "node src/steer.ts",
+    "schema": "node src/schema.ts",
+    "reasoning": "node src/reasoning.ts",
+    "bgclean": "node src/bgclean.ts",
+    "features": "node src/features.ts",
+    "events": "node src/events.ts",
+    "all": "npm run probe && npm run run && npm run resume && npm run steer && npm run schema && npm run reasoning && npm run bgclean && npm run events"
+  },
+  "dependencies": {
+    "@openai/codex": "0.167.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

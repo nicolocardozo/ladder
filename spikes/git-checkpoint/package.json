@@ -1,0 +1,9 @@
+{
+  "name": "blue-spike-git-checkpoint",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "run": "node run.ts",
+    "run:real": "node run.ts ~/Developer/acme/acme-monorepo ~/Developer/acme-vet"
+  }
+}

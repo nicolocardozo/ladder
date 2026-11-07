@@ -1,0 +1,29 @@
+{
+  "name": "@blue-spike/acp",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Spike S5: client ACP generico (SDK 2.x) provato con codex-acp",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "probe": "node scripts/probe.ts",
+    "turn": "node scripts/turn.ts",
+    "cancel": "node scripts/cancel.ts",
+    "resume": "node scripts/resume.ts",
+    "ttfc": "node scripts/ttfc.ts",
+    "registry": "node scripts/registry.ts",
+    "all": "npm run probe && npm run turn && npm run cancel && npm run resume && npm run ttfc && npm run registry"
+  },
+  "dependencies": {
+    "@agentclientprotocol/codex-acp": "2.5.0",
+    "@agentclientprotocol/sdk": "2.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "spike-claude-sdk",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node run.ts",
+    "resume": "node resume.ts",
+    "kill": "node kill.ts",
+    "start:quick": "HOLD_MS=3000 TOOL_WAIT_MS=3000 node run.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.319"
+  }
+}
