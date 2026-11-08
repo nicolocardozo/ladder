@@ -1,7 +1,31 @@
 // Tipi condivisi tra host delle sessioni, processo main e renderer.
 // L'host è la fonte di verità: il renderer riceve progetti, sessioni ed elementi della chat già pronti.
 
-export type AgentId = 'claude-code' | 'codex'
+/** Agenti in chat: i due nativi e quelli ACP, con l'id della loro voce (`acp:gemini`). */
+export type AgentId = 'claude-code' | 'codex' | `acp:${string}`
+
+/** Voce di un agente ACP: basta un comando. Dal registro ufficiale o scritta a mano. */
+export interface AcpAgentSpec {
+  id: string
+  name: string
+  command: string
+  args: string[]
+  env?: Record<string, string>
+  source: 'registry' | 'custom'
+  version?: string | null
+  description?: string | null
+}
+
+/** Agente del registro ACP che Ladder sa avviare (npx o uvx). */
+export interface RegistryAgent {
+  id: string
+  name: string
+  version: string
+  description: string
+  command: string
+  args: string[]
+  added: boolean
+}
 /** Chat: l'agente parla con Ladder. Terminale: la CLI originale gira in un PTY. */
 export type SessionMode = 'chat' | 'terminal'
 export type PermissionLevel = 'plan' | 'ask' | 'edit' | 'full'
@@ -195,12 +219,18 @@ export type RequestItemData = Extract<ChatItem, { kind: 'request' }>
 
 export interface AgentStatus {
   agent: AgentId
+  name: string
+  kind: 'native' | 'acp'
   available: boolean
   version: string | null
-  /** Account in uso, per esempio "Claude Ultra" o "API key". */
+  /** Account in uso, per esempio "Claude Ultra" o "ChatGPT Plus". */
   account: string | null
   models: { id: string; label: string }[]
   error: string | null
+  /** Limiti d'uso leggibili, quando l'agente li espone: "14% della finestra di 5 h · 11% settimanale". */
+  limits?: string | null
+  /** Percorso della CLI usata. */
+  path?: string | null
 }
 
 export type InspectorTab = 'changes' | 'files' | 'history' | 'merge'
@@ -220,6 +250,8 @@ export interface ProjectUiState {
   seenAt?: number
   /** Gruppo "Concluse" aperto nella sidebar. */
   concludedOpen?: boolean
+  /** Ultimo agente usato in chat nel progetto: la nuova chat lo propone. */
+  lastAgent?: AgentId
 }
 
 // ── File, diff e cronologia ──────────────────────────────────────────────
@@ -318,9 +350,33 @@ export interface ProjectSettings {
   worktree: { setup: string | null; copy: string[]; ports: number; archive: string | null }
   run: RunAction[]
   prompts: Record<string, string>
+  /** [agents]: agenti ammessi (vuoto = tutti), agente proposto, livello di permesso massimo. */
+  agents: { allowed: string[]; default: string | null; permissionsMax: PermissionLevel | null }
   /** File letti, relativi alla radice del progetto. */
   sources: string[]
   errors: string[]
+}
+
+// ── Review con un altro agente ───────────────────────────────────────────
+
+export interface ReviewNote {
+  path: string
+  line: number
+  body: string
+}
+
+export interface ReviewState {
+  id: string
+  sessionId: string
+  agent: AgentId
+  agentName: string
+  /** Ambito rivisto, per collegare i commenti al diff giusto. */
+  scope: DiffScope
+  state: 'running' | 'done' | 'error' | 'cancelled'
+  summary: string | null
+  comments: ReviewNote[]
+  error: string | null
+  startedAt: number
 }
 
 // ── Ricerca, issue e merge ───────────────────────────────────────────────
@@ -462,6 +518,13 @@ export type HostCommand =
   | { type: 'merge.info'; root: string; fetch?: boolean }
   /** Testo del prompt dietro un pulsante (create_pr, fix, conflicts, review, issue), con le variabili già sostituite. */
   | { type: 'prompt.render'; projectId: string; name: string; vars: Record<string, string> }
+  // Agenti ACP: catalogo del registro, aggiunta e rimozione.
+  | { type: 'agents.registry' }
+  | { type: 'agents.add'; spec: AcpAgentSpec }
+  | { type: 'agents.remove'; id: string }
+  /** Review in sola lettura delle modifiche di una sessione, chiesta a un altro agente. Torna come commenti. */
+  | { type: 'review.start'; sessionId: string; agent: AgentId; scope: DiffScope }
+  | { type: 'review.cancel'; reviewId: string }
 
 export type HostEvent =
   | {
@@ -478,6 +541,8 @@ export type HostEvent =
   | { type: 'session.upsert'; session: SessionSummary }
   | { type: 'session.items'; sessionId: string; items: ChatItem[]; replace: boolean }
   | { type: 'agent.status'; status: AgentStatus }
+  | { type: 'agent.removed'; agent: AgentId }
+  | { type: 'review.update'; review: ReviewState }
   | { type: 'terminal.upsert'; terminal: TerminalInfo }
   | { type: 'terminal.removed'; id: string }
   | { type: 'terminal.data'; id: string; data: string }

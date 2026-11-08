@@ -245,7 +245,10 @@ function CommentNote({ comment, onUpdate, onDelete }: { comment: LineComment; on
     )
   return (
     <div className="group/c flex items-start gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-[12.5px]">
-      <span className="min-w-0 flex-1 whitespace-pre-wrap">{comment.text}</span>
+      <span className="min-w-0 flex-1 whitespace-pre-wrap">
+        {comment.author && <span className="mr-1.5 rounded-[4px] border border-input px-1 text-[10.5px] font-semibold text-muted-foreground">{comment.author}</span>}
+        {comment.text}
+      </span>
       <button type="button" aria-label="Modifica il commento" onClick={() => setEditing(true)} className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-accent">
         <Pencil className="size-3" />
       </button>

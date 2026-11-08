@@ -1,7 +1,7 @@
 // Stato del renderer: copia di ciò che l'host pubblica più lo stato dell'interfaccia (selezione, cartelle aperte).
 import { create } from 'zustand'
 import { request, send } from '@/lib/host-client'
-import type { AgentStatus, AppPrefs, ChatItem, DiffScope, HostEvent, InspectorTab, IssueItem, Project, ProjectUiState, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentStatus, AppPrefs, ChatItem, ReviewState, DiffScope, HostEvent, InspectorTab, IssueItem, Project, ProjectUiState, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalData } from '@/lib/terminal-registry'
 
@@ -48,6 +48,8 @@ interface AppState {
   /** Riepilogo "Mentre eri via" per progetto, calcolato quando torni dopo più di 30 minuti. */
   away: Record<string, AwaySummary>
   prefs: AppPrefs | null
+  /** Review chieste a un altro agente, per id: in corso, finite o fallite. */
+  reviews: Record<string, ReviewState>
   applyEvent: (event: HostEvent) => void
   select: (selection: Selection) => void
   toggleProject: (projectId: string) => void
@@ -267,6 +269,7 @@ export const useApp = create<AppState>((set, get) => ({
   newSource: null,
   away: {},
   prefs: null,
+  reviews: {},
 
   applyEvent: (event) =>
     set((state) => {
@@ -318,8 +321,15 @@ export const useApp = create<AppState>((set, get) => ({
               [event.sessionId]: event.replace ? [...event.items].sort((a, b) => a.seq - b.seq) : mergeItems(state.items[event.sessionId], event.items)
             }
           }
-        case 'agent.status':
-          return { agents: [...state.agents.filter((a) => a.agent !== event.status.agent), event.status] }
+        case 'agent.status': {
+          // Ordine stabile: Claude Code, Codex, poi gli agenti ACP nell'ordine in cui arrivano.
+          const exists = state.agents.some((a) => a.agent === event.status.agent)
+          return { agents: exists ? state.agents.map((a) => (a.agent === event.status.agent ? event.status : a)) : [...state.agents, event.status] }
+        }
+        case 'agent.removed':
+          return { agents: state.agents.filter((a) => a.agent !== event.agent) }
+        case 'review.update':
+          return { reviews: { ...state.reviews, [event.review.id]: event.review } }
         case 'terminal.upsert':
           return { terminals: { ...state.terminals, [event.terminal.id]: event.terminal } }
         case 'terminal.removed': {

@@ -10,6 +10,8 @@ export interface LineComment {
   /** Codice della riga, per dare contesto all'agente. */
   code: string
   text: string
+  /** Chi l'ha scritto, se non sei tu: l'agente della review ("Codex"). */
+  author?: string
 }
 
 interface CommentsState {
@@ -43,7 +45,8 @@ export function commentsMessage(comments: LineComment[]): string {
   const blocks = sorted.map((c, i) => {
     const where = `${c.path}:${c.line}${c.side === 'old' ? ' (riga tolta)' : ''}`
     const code = c.code.trim() ? `\n   > ${c.code.trim()}` : ''
-    return `${i + 1}. \`${where}\`${code}\n   ${c.text.trim().replace(/\n/g, '\n   ')}`
+    const by = c.author ? ` (da ${c.author})` : ''
+    return `${i + 1}. \`${where}\`${by}${code}\n   ${c.text.trim().replace(/\n/g, '\n   ')}`
   })
   return `Ho commentato le modifiche. Rispondi a ogni punto:\n\n${blocks.join('\n\n')}`
 }

@@ -23,9 +23,15 @@ function initialTheme(): ThemeId {
   }
 }
 
+export type SettingsSection = 'appearance' | 'notifications' | 'agents' | 'integrations'
+
 interface SettingsState {
   theme: ThemeId
   settingsOpen: boolean
+  section: SettingsSection
+  /** Apre le impostazioni su una sezione. */
+  openSection: (section: SettingsSection) => void
+  setSection: (section: SettingsSection) => void
   setTheme: (id: ThemeId) => void
   /** Aggiorna lo stato quando il tema cambia da un'altra finestra. */
   receiveTheme: (id: string) => void
@@ -35,6 +41,9 @@ interface SettingsState {
 export const useSettings = create<SettingsState>((set) => ({
   theme: initialTheme(),
   settingsOpen: false,
+  section: 'appearance',
+  openSection: (section) => set({ section, settingsOpen: true }),
+  setSection: (section) => set({ section }),
   setTheme: (id) => {
     const theme = applyTheme(id)
     set({ theme: theme.id })

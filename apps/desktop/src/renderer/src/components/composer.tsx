@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { ArrowUp, AtSign, ChevronDown, Clock, ImagePlus, Plus, ShieldCheck, Square } from 'lucide-react'
-import type { Attachment, Effort, PermissionLevel, QueuedMessage } from '@shared/protocol'
+import type { AgentId, Attachment, Effort, PermissionLevel, QueuedMessage } from '@shared/protocol'
 import { IconButton } from '@/components/icon-button'
 import {
   DropdownMenu,
@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { permissionLevels } from '@/lib/agents'
+import { allowedLevels, nativeKey, permissionLevels } from '@/lib/agents'
 import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
@@ -57,6 +57,12 @@ interface ComposerProps {
   autoFocus?: boolean
   /** Riga sopra il composer: "In coda: 3 sessioni Claude Code attive". */
   status?: string | null
+  /** Agente della sessione: dice a cosa corrispondono i livelli di permesso. */
+  agent?: AgentId
+  /** Falso per gli agenti che scelgono il ragionamento con le loro opzioni (ACP). */
+  showEffort?: boolean
+  /** Livello massimo ammesso dal progetto ([agents] permissions_max). */
+  maxPermission?: PermissionLevel | null
   className?: string
 }
 
@@ -75,6 +81,8 @@ const chip =
 export function Composer(props: ComposerProps) {
   const { draftKey, projectId, agentName, models, model, onModelChange, effort, onEffortChange, permission, onPermissionChange } = props
   const { running, onSubmit, onStop, queue = [], onQueueChange, context, disabledReason, autoFocus, status, className } = props
+  const { agent = 'claude-code', showEffort = true, maxPermission = null } = props
+  const levels = allowedLevels(maxPermission)
   const initial = useApp.getState().drafts[draftKey] ?? ''
   const setDraft = useApp((s) => s.setDraft)
   const [text, setText] = useState(initial)
@@ -357,8 +365,8 @@ export function Composer(props: ComposerProps) {
     // ⇧Tab cicla i livelli di permesso, come nel CLI di Claude Code.
     if (event.key === 'Tab' && event.shiftKey) {
       event.preventDefault()
-      const index = permissionLevels.findIndex((p) => p.id === permission)
-      onPermissionChange(permissionLevels[(index + 1) % permissionLevels.length].id)
+      const index = levels.indexOf(permission)
+      onPermissionChange(levels[(index + 1) % levels.length])
       return
     }
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -476,7 +484,7 @@ export function Composer(props: ComposerProps) {
             <DropdownMenuTrigger className={chip} disabled={disabled}>
               <span className="font-semibold text-foreground">{agentName}</span>
               <span className="text-muted-foreground">· {modelLabel}</span>
-              {effort && <span className="text-muted-foreground">· {EFFORTS.find((e) => e.id === effort)?.label.toLowerCase()}</span>}
+              {effort && showEffort && <span className="text-muted-foreground">· {EFFORTS.find((e) => e.id === effort)?.label.toLowerCase()}</span>}
               <ChevronDown className="size-3 text-faint" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={6} className="max-h-[60vh] w-72">
@@ -491,8 +499,8 @@ export function Composer(props: ComposerProps) {
                   ))}
                 </DropdownMenuRadioGroup>
               </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
+              {showEffort && <DropdownMenuSeparator />}
+              {showEffort && <DropdownMenuGroup>
                 <DropdownMenuLabel>{onEffortChange ? 'Effort' : 'Effort · si sceglie all’apertura della sessione'}</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={effort ?? ''} onValueChange={(value) => onEffortChange?.(value as Effort)}>
                   {EFFORTS.map((e) => (
@@ -501,7 +509,7 @@ export function Composer(props: ComposerProps) {
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
-              </DropdownMenuGroup>
+              </DropdownMenuGroup>}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -516,11 +524,11 @@ export function Composer(props: ComposerProps) {
                 <DropdownMenuLabel>Permessi · ⇧Tab per cambiare</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={permission} onValueChange={(value) => onPermissionChange(value as PermissionLevel)}>
                   {permissionLevels.map((p) => (
-                    <DropdownMenuRadioItem key={p.id} value={p.id} className="items-start py-1.5">
+                    <DropdownMenuRadioItem key={p.id} value={p.id} disabled={!levels.includes(p.id)} className="items-start py-1.5">
                       <span className="flex flex-col">
                         <span className="font-medium">{p.label}</span>
-                        <span className="text-[11.5px] text-muted-foreground">{p.hint}</span>
-                        {p.native['claude-code'] && <span className="font-mono text-[10.5px] text-faint">Claude Code: {p.native['claude-code']}</span>}
+                        <span className="text-[11.5px] text-muted-foreground">{levels.includes(p.id) ? p.hint : 'Non ammesso da .ladder/settings.toml'}</span>
+                        <span className="font-mono text-[10.5px] text-faint">{agentName}: {p.native[nativeKey(agent)]}</span>
                       </span>
                     </DropdownMenuRadioItem>
                   ))}

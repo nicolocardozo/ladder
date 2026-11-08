@@ -86,7 +86,7 @@ export interface AdapterEvents {
   request(request: UserRequest, signal: AbortSignal): Promise<RequestResponse>
   turnEnd(result: TurnResult): void
   notice(tone: 'info' | 'error', text: string): void
-  account(info: { account: string | null; models: { id: string; label: string }[] }): void
+  account(info: { account: string | null; models: { id: string; label: string }[]; limits?: string | null }): void
   exit(error: string | null): void
 }
 

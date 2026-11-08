@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bot, Check, Moon, Palette, Plug, Sun, type LucideIcon } from 'lucide-react'
-import type { AppPrefs } from '@shared/protocol'
+import type { AcpAgentSpec, AgentStatus, AppPrefs, RegistryAgent } from '@shared/protocol'
+import { request } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
 import type { ThemeInfo } from '@shared/themes.generated'
 import { LadderLockup } from '@/components/brand/logo'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
-import { THEMES, useSettings } from '@/hooks/use-theme'
+import { THEMES, useSettings, type SettingsSection } from '@/hooks/use-theme'
 import { cn } from '@/lib/utils'
 
 /** Anteprima del tema con i suoi colori: sidebar, messaggio, risposta, richiesta, stati. */
@@ -42,7 +43,7 @@ function ThemePreview({ theme }: { theme: ThemeInfo }) {
   )
 }
 
-type Section = 'appearance' | 'notifications' | 'agents' | 'integrations'
+type Section = SettingsSection
 
 const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: 'appearance', label: 'Aspetto', icon: Palette },
@@ -54,7 +55,8 @@ const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
 export function SettingsDialog() {
   const open = useSettings((s) => s.settingsOpen)
   const setOpen = useSettings((s) => s.setSettingsOpen)
-  const [section, setSection] = useState<Section>('appearance')
+  const section = useSettings((s) => s.section)
+  const setSection = useSettings((s) => s.setSection)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -185,35 +187,216 @@ function NotificationsSection() {
           checked={dnd}
           onChange={(on) => update({ dndUntil: on ? Date.now() + 60 * 60_000 : null })}
         />
+        <TestNotification />
       </div>
     </>
   )
 }
 
+/** Banner vero di macOS: al primo uso il sistema chiede il permesso; il clic riporta su Ladder. */
+function TestNotification() {
+  const [state, setState] = useState<'idle' | 'sent' | 'unsupported'>('idle')
+  return (
+    <div className="flex items-start gap-3 py-3">
+      <button
+        type="button"
+        onClick={() => void window.ladder?.testNotification().then((ok) => setState(ok ? 'sent' : 'unsupported'))}
+        className="h-8 shrink-0 rounded-md border border-input px-3 text-[13px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        Invia una notifica di prova
+      </button>
+      <p role="status" className="text-[12.5px] text-muted-foreground">
+        {state === 'sent'
+          ? 'Inviata. Se non la vedi, abilita Ladder in Impostazioni di sistema → Notifiche.'
+          : state === 'unsupported'
+            ? 'Questo Mac non accetta notifiche da Ladder.'
+            : 'Arriva anche con “Non disturbare”. La prima volta macOS ti chiede il permesso.'}
+      </p>
+    </div>
+  )
+}
+
 function AgentsSection() {
   const [prefs, update] = usePrefs()
-  if (!prefs) return <p className="text-[13px] text-muted-foreground">Le preferenze sono disponibili nell’app.</p>
+  const agents = useApp((s) => s.agents)
   return (
     <>
       <DialogTitle className="text-[17px] font-semibold">Agenti</DialogTitle>
       <DialogDescription className="mt-1 max-w-[62ch] text-[13px] text-muted-foreground">
-        Un limite di turni attivi insieme evita di consumare in pochi minuti i limiti dell’abbonamento. Le sessioni oltre il limite aspettano “In coda” e partono da sole, dalla più vecchia. Le sessioni nel terminale non contano.
+        Claude Code e Codex hanno un adapter nativo. Gli altri agenti parlano ACP, il protocollo aperto tra editor e agenti: per aggiungerne uno basta il comando che lo avvia.
       </DialogDescription>
-      <label className="mt-5 flex max-w-[62ch] items-center gap-3">
-        <span className="text-[13px] font-medium">Sessioni Claude Code attive insieme</span>
-        <select
-          value={prefs.maxActive}
-          onChange={(e) => update({ maxActive: Number(e.target.value) })}
-          className="ml-auto h-8 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="mt-4 flex max-w-[66ch] flex-col divide-y divide-border rounded-lg border border-border">
+        {agents.map((agent) => (
+          <AgentRow key={agent.agent} agent={agent} />
+        ))}
+      </div>
+      {prefs && (
+        <label className="mt-5 flex max-w-[66ch] items-center gap-3">
+          <span className="flex flex-col">
+            <span className="text-[13px] font-medium">Sessioni attive insieme per agente</span>
+            <span className="text-[12px] text-muted-foreground">Oltre il limite le sessioni aspettano “In coda” e partono da sole. Le sessioni nel terminale non contano.</span>
+          </span>
+          <select
+            value={prefs.maxActive}
+            onChange={(e) => update({ maxActive: Number(e.target.value) })}
+            className="ml-auto h-8 shrink-0 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <AddAcpAgent />
     </>
+  )
+}
+
+function AgentRow({ agent }: { agent: AgentStatus }) {
+  const [busy, setBusy] = useState(false)
+  const remove = async () => {
+    setBusy(true)
+    await request({ type: 'agents.remove', id: agent.agent.replace(/^acp:/, '') }).catch(() => undefined)
+    setBusy(false)
+  }
+  return (
+    <div className="flex items-start gap-3 px-3 py-2.5">
+      <span aria-hidden className={cn('mt-[6px] size-2 shrink-0 rounded-full', agent.available ? 'bg-success' : 'bg-muted-foreground/50')} />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex items-baseline gap-2">
+          <span className="text-[13px] font-medium">{agent.name}</span>
+          <span className="text-[11.5px] text-muted-foreground">{agent.kind === 'acp' ? 'ACP' : 'nativo'}</span>
+          {agent.version && <span className="font-mono text-[11px] text-faint">v{agent.version}</span>}
+        </span>
+        <span className={cn('text-[12px]', agent.available ? 'text-muted-foreground' : 'text-destructive')}>
+          {agent.available ? [agent.account, agent.models.length ? `${agent.models.length} modelli` : null, agent.limits].filter(Boolean).join(' · ') || 'Pronto' : agent.error}
+        </span>
+        {agent.path && <span className="truncate font-mono text-[11px] text-faint">{agent.path}</span>}
+      </span>
+      {agent.kind === 'acp' && (
+        <button type="button" disabled={busy} onClick={() => void remove()} className="h-7 shrink-0 rounded-md border border-input px-2.5 text-[12.5px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
+          Togli
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** "Aggiungi un agente": dal registro ufficiale ACP o con un comando scritto a mano. */
+function AddAcpAgent() {
+  const [tab, setTab] = useState<'registry' | 'custom'>('registry')
+  const [registry, setRegistry] = useState<RegistryAgent[] | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [commandLine, setCommandLine] = useState('')
+
+  useEffect(() => {
+    if (tab !== 'registry' || registry) return
+    request<RegistryAgent[]>({ type: 'agents.registry' })
+      .then(setRegistry)
+      .catch((e: Error) => setProblem(`Registro ACP non raggiungibile: ${e.message}`))
+  }, [tab, registry])
+
+  const add = async (spec: AcpAgentSpec) => {
+    setBusy(spec.id || 'custom')
+    setProblem(null)
+    try {
+      await request({ type: 'agents.add', spec })
+      setRegistry((list) => list?.map((r) => (r.id === spec.id ? { ...r, added: true } : r)) ?? null)
+      if (spec.source === 'custom') {
+        setName('')
+        setCommandLine('')
+      }
+    } catch (e) {
+      setProblem((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const shown = (registry ?? []).filter((r) => tokens.every((t) => `${r.name} ${r.id} ${r.description}`.toLowerCase().includes(t)))
+  const words = commandLine.trim().split(/\s+/).filter(Boolean)
+
+  return (
+    <section className="mt-6 flex max-w-[66ch] flex-col gap-2">
+      <div className="flex items-center gap-1">
+        <h3 className="mr-2 text-[13px] font-semibold">Aggiungi un agente ACP</h3>
+        {(['registry', 'custom'] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={tab === id}
+            onClick={() => setTab(id)}
+            className={cn('h-7 rounded-md px-2.5 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50', tab === id ? 'bg-accent font-medium' : 'text-muted-foreground hover:bg-accent/60')}
+          >
+            {id === 'registry' ? 'Dal registro' : 'Comando'}
+          </button>
+        ))}
+      </div>
+      {tab === 'registry' ? (
+        <>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Cerca: gemini, opencode, goose…"
+            aria-label="Cerca nel registro ACP"
+            className="h-8 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:border-ring"
+          />
+          <div className="max-h-[260px] overflow-y-auto rounded-lg border border-border">
+            {!registry && !problem && <p className="px-3 py-3 text-[12.5px] text-muted-foreground">Leggo il registro…</p>}
+            {shown.map((r) => (
+              <div key={r.id} className="flex items-start gap-3 border-b border-border px-3 py-2 last:border-0">
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-[13px] font-medium">
+                    {r.name} <span className="font-mono text-[11px] font-normal text-faint">v{r.version}</span>
+                  </span>
+                  <span className="line-clamp-2 text-[12px] text-muted-foreground">{r.description}</span>
+                  <span className="truncate font-mono text-[11px] text-faint">
+                    {r.command} {r.args.join(' ')}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  disabled={r.added || busy === r.id}
+                  onClick={() => void add({ id: r.id, name: r.name, command: r.command, args: r.args, source: 'registry' })}
+                  className="h-7 shrink-0 rounded-md border border-input px-2.5 text-[12.5px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
+                >
+                  {r.added ? 'Aggiunto' : busy === r.id ? 'Aggiungo…' : 'Aggiungi'}
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11.5px] text-muted-foreground">Gli agenti si avviano con npx o uvx al primo uso; il login lo fa l’agente stesso. Quelli distribuiti solo come binari arriveranno più avanti.</p>
+        </>
+      ) : (
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (name.trim() && words.length) void add({ id: '', name: name.trim(), command: words[0], args: words.slice(1), source: 'custom' })
+          }}
+        >
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome, per esempio Gemini" aria-label="Nome dell’agente" className="h-8 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:border-ring" />
+          <input
+            value={commandLine}
+            onChange={(e) => setCommandLine(e.target.value)}
+            placeholder="Comando, per esempio gemini --experimental-acp"
+            aria-label="Comando dell’agente"
+            spellCheck={false}
+            className="h-8 rounded-md border border-input bg-background px-2 font-mono text-[12.5px] outline-none focus-visible:border-ring"
+          />
+          <button type="submit" disabled={!name.trim() || words.length === 0 || busy !== null} className="h-8 self-start rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50">
+            {busy ? 'Aggiungo…' : 'Aggiungi'}
+          </button>
+        </form>
+      )}
+      {problem && <p className="text-[12.5px] text-destructive">{problem}</p>}
+    </section>
   )
 }
 

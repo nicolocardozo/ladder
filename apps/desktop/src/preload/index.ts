@@ -63,6 +63,8 @@ const api = {
     ipcRenderer.on('ladder:open-session', handler)
     return () => ipcRenderer.off('ladder:open-session', handler)
   },
+  /** Banner di prova di macOS: false se il sistema non supporta le notifiche. */
+  testNotification: (): Promise<boolean> => ipcRenderer.invoke('ladder:test-notification'),
   prefs: {
     get: (): Promise<AppPrefs> => ipcRenderer.invoke('ladder:prefs'),
     set: (patch: Partial<AppPrefs>): Promise<AppPrefs> => ipcRenderer.invoke('ladder:set-prefs', patch),

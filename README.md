@@ -118,7 +118,31 @@ fix       = ".ladder/prompts/fix.md"
 
 I nomi sono `create_pr`, `fix`, `conflicts`, `comments`, `issue`, `pull_request` e `review`. Le variabili si scrivono come `{{branch}}`, `{{base}}`, `{{pr}}`, `{{checks}}`, `{{conflicts}}`, `{{comments}}`, `{{ref}}`, `{{title}}`, `{{url}}` e `{{body}}`.
 
-Prossime fasi: Codex e agenti ACP (4), poi il passaggio tra agenti (5).
+Fase 4 completata: Codex e altri agenti.
+
+- **Codex** in chat, con l’adapter nativo sull’App Server:
+  - approvazioni con le decisioni di Codex: Approva, Consenti per la sessione, Rifiuta (il motivo del rifiuto arriva al turno in corso);
+  - testo, comandi e modifiche in streaming, modello ed effort a ogni turno, interruzione anche con un comando ancora in corso, ripresa del thread dopo un riavvio;
+  - account, modelli e limiti d’uso in Impostazioni → Agenti.
+
+  Ladder usa il Codex installato: la CLI nel `PATH`, l’app Codex o quello delle estensioni per Cursor e VS Code. Non ne porta una copia, perché il binario pesa circa 350 MB.
+- **Agenti ACP** (Agent Client Protocol): Impostazioni → Agenti → “Aggiungi un agente ACP”, dal registro ufficiale (npx o uvx) o con un comando scritto a mano. Non serve codice per agente:
+  - modello e modalità vengono dalle sue opzioni;
+  - le richieste di permesso mostrano le opzioni con i nomi dell’agente;
+  - il diff del turno lo calcola Ladder da git.
+- **Nuova chat**: un menu sceglie l’agente, con i modelli, l’effort e i permessi di ciascuno. Propone l’ultimo usato nel progetto.
+- **Regole di progetto** in `.ladder/settings.toml`: agenti ammessi, agente proposto e livello di permesso massimo.
+
+  ```toml
+  [agents]
+  allowed = ["claude-code", "codex"]
+  default = "claude-code"
+  permissions_max = "edit"
+  ```
+
+- **Chiedi una review a…** nel pannello Modifiche: un altro agente rilegge le modifiche in sola lettura, con il prompt `review` del progetto. I suoi commenti arrivano nel diff, pronti da inviare all’agente che ha scritto il codice.
+
+Prossime fasi: revisione dell’interfaccia (4.5), poi il passaggio tra agenti (5) e i piani eseguibili (6). L’open source (7) viene dopo un periodo di prova nell’uso quotidiano.
 
 ## Brand e temi
 
@@ -138,7 +162,7 @@ Crea `apps/desktop/dist/mac-arm64/Ladder.app` con l’icona Circuit (`app-icon/m
 ## Architettura in breve
 
 - `src/main`: finestre, menu, dialoghi; avvia l’host e gli passa una MessagePort per finestra. Notifiche e badge del Dock (`attention.ts`), link `ladder://`, Linear (`linear.ts`).
-- `src/host`: host delle sessioni in un `utilityProcess`, con SQLite (`node:sqlite`), adapter Claude Code (Agent SDK), checkpoint e diff git (`git.ts`, `workspace.ts`), file (`files.ts`), terminali con node-pty e xterm headless (`terminals.ts`), worktree e porte (`worktrees.ts`), configurazione del progetto (`project-settings.ts`), GitHub con gh (`github.ts`), ricerca (`search.ts`) e prompt dei pulsanti (`prompts.ts`).
+- `src/host`: host delle sessioni in un `utilityProcess`, con SQLite (`node:sqlite`), adapter Claude Code (Agent SDK), checkpoint e diff git (`git.ts`, `workspace.ts`), file (`files.ts`), terminali con node-pty e xterm headless (`terminals.ts`), worktree e porte (`worktrees.ts`), configurazione del progetto (`project-settings.ts`), GitHub con gh (`github.ts`), ricerca (`search.ts`) e prompt dei pulsanti (`prompts.ts`). Gli agenti: interfaccia comune in `agents/common.ts`, Claude Code in `claude/`, Codex sull’App Server in `codex/`, agenti ACP in `acp/`, review in `review.ts`.
 - `src/shared/protocol.ts`: tipi e messaggi tra host e interfaccia.
 - `src/renderer`: React; lo stato arriva dall’host (`store/app-store.ts`), la chat è in `components/chat`, l’ispettore in `components/inspector`, i terminali in `components/terminal` e `lib/terminal-registry.ts`.
 
@@ -148,6 +172,7 @@ Per il debug:
 - `LADDER_WORKTREES=<cartella>` sposta i worktree;
 - `LADDER_EDITOR_TRACE=<file>` registra le aperture nell’editor invece di eseguirle, per le prove automatiche;
 - `LADDER_NOTIFY_TRACE=<file>` registra notifiche e badge invece di mostrarli;
-- `LADDER_GH=<eseguibile>` sostituisce gh, `LADDER_LINEAR_API=<url>` l’API di Linear e `LADDER_PR_POLL_MS` l’intervallo di lettura delle PR (90 s).
+- `LADDER_GH=<eseguibile>` sostituisce gh, `LADDER_LINEAR_API=<url>` l’API di Linear e `LADDER_PR_POLL_MS` l’intervallo di lettura delle PR (90 s);
+- `LADDER_CODEX=<binario>` indica quale Codex usare e `LADDER_ACP_REGISTRY=<url>` sostituisce il registro ACP.
 
 node-pty è l’unico modulo nativo: usa il prebuild N-API incluso (niente node-gyp), il `postinstall` rende eseguibile lo `spawn-helper` e nella build resta fuori dall’asar.

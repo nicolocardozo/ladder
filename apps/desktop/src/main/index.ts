@@ -222,6 +222,17 @@ ipcMain.handle('ladder:set-prefs', (_event, patch: Partial<AppPrefs>) => {
   return prefsOf(settings)
 })
 
+ipcMain.handle('ladder:test-notification', (event) =>
+  attention.test(() => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window || window.isDestroyed()) return
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+    app.focus({ steal: true })
+  })
+)
+
 ipcMain.handle('ladder:linear-status', () => linearStatus())
 ipcMain.handle('ladder:linear-set-key', (_event, key: string | null) => setLinearKey(key))
 ipcMain.handle('ladder:linear-issues', (_event, search: string) => linearIssues(search ?? ''))

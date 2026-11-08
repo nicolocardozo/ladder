@@ -1,8 +1,8 @@
 // Pannello Modifiche: ambito (turno, sessione, non committate), file con +/−, diff unificato o affiancato,
 // commenti sulle righe inviati all'agente in un solo messaggio, ripristino di un file o di tutto con annullamento.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, ChevronRight, Columns2, ExternalLink, Eye, Rows3, Send, Undo2 } from 'lucide-react'
-import type { ChatItem, DiffResult, DiffScope, FileChange, FilePatch, SessionSummary } from '@shared/protocol'
+import { Check, ChevronDown, ChevronRight, Columns2, ExternalLink, Eye, Rows3, ScanSearch, Send, Undo2, X } from 'lucide-react'
+import type { AgentId, ChatItem, DiffResult, DiffScope, FileChange, FilePatch, ReviewState, SessionSummary } from '@shared/protocol'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
@@ -243,6 +243,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="ml-auto flex items-center gap-0.5">
+          {session && files.length > 0 && <ReviewMenu session={session} scope={scope} />}
           <ToolbarButton label="Vista unificata" active={mode === 'unified'} onClick={() => changeMode('unified')}>
             <Rows3 className="size-3.5" />
           </ToolbarButton>
@@ -251,6 +252,8 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
           </ToolbarButton>
         </div>
       </div>
+
+      {session && <ReviewBar session={session} scope={scope} commentScope={commentScope} />}
 
       <div className="flex shrink-0 items-center gap-2 px-3 py-1.5 text-[12px] text-muted-foreground">
         <span>
@@ -483,4 +486,101 @@ export function ToolbarButton({
 
 export function PanelNote({ children, tone }: { children: React.ReactNode; tone?: 'error' }) {
   return <p className={cn('px-3 py-3 text-[12.5px]', tone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>{children}</p>
+}
+
+// ── Chiedi una review a… ─────────────────────────────────────────────────────
+
+const sameScope = (a: DiffScope, b: DiffScope) => JSON.stringify(a) === JSON.stringify(b)
+/** Review già trasformate in commenti: non si aggiungono due volte. */
+const appliedReviews = new Set<string>()
+
+/** Un altro agente legge le modifiche in sola lettura e risponde con commenti sulle righe. */
+function ReviewMenu({ session, scope }: { session: SessionSummary; scope: DiffScope }) {
+  const agents = useApp((s) => s.agents)
+  const running = useApp((s) => Object.values(s.reviews).some((r) => r.sessionId === session.id && r.state === 'running'))
+  const [error, setError] = useState<string | null>(null)
+  const start = async (agent: AgentId) => {
+    setError(null)
+    try {
+      await request<ReviewState>({ type: 'review.start', sessionId: session.id, agent, scope })
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        disabled={running}
+        title={error ?? 'Un altro agente rilegge queste modifiche in sola lettura'}
+        className="mr-1 inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 data-[popup-open]:bg-accent"
+      >
+        <ScanSearch className="size-3.5" />
+        Chiedi una review a…
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>In sola lettura, con il prompt di review del progetto</DropdownMenuLabel>
+          {agents.map((agent) => (
+            <DropdownMenuItem key={agent.agent} disabled={!agent.available} onClick={() => void start(agent.agent)} className="items-start">
+              <span className="flex flex-col">
+                {agent.name}
+                <span className="text-[11.5px] text-muted-foreground">
+                  {!agent.available ? (agent.error ?? 'Non disponibile') : agent.agent === session.agent ? 'Lo stesso agente della sessione' : agent.kind === 'acp' ? 'ACP' : 'Un secondo parere'}
+                </span>
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+        {error && (
+          <>
+            <DropdownMenuSeparator />
+            <p className="px-2 py-1.5 text-[12px] text-destructive">{error}</p>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** Stato della review per questo ambito; a review finita i commenti entrano nel diff, pronti da inviare. */
+function ReviewBar({ session, scope, commentScope }: { session: SessionSummary; scope: DiffScope; commentScope: string }) {
+  const review = useApp((s) =>
+    Object.values(s.reviews)
+      .filter((r) => r.sessionId === session.id && sameScope(r.scope, scope))
+      .sort((a, b) => b.startedAt - a.startedAt)[0] ?? null
+  )
+  const [hidden, setHidden] = useState<string | null>(null)
+  useEffect(() => {
+    if (!review || review.state !== 'done' || appliedReviews.has(review.id)) return
+    appliedReviews.add(review.id)
+    const { add } = useComments.getState()
+    for (const c of review.comments) add(commentScope, { path: c.path, side: 'new', line: c.line, code: '', text: c.body, author: review.agentName })
+  }, [review, commentScope])
+  if (!review || hidden === review.id) return null
+  const tone = review.state === 'error' ? 'text-destructive' : 'text-muted-foreground'
+  return (
+    <div role="status" className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/40 px-3 py-2 text-[12.5px]">
+      <ScanSearch aria-hidden className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      <span className={cn('min-w-0 flex-1', tone)}>
+        {review.state === 'running' && `${review.agentName} sta rivedendo le modifiche…`}
+        {review.state === 'done' && (
+          <>
+            <span className="font-medium text-foreground">Review di {review.agentName}:</span> {review.summary ?? 'nessun giudizio'} ·{' '}
+            {review.comments.length === 0 ? 'nessun commento' : review.comments.length === 1 ? '1 commento nel diff' : `${review.comments.length} commenti nel diff`}
+          </>
+        )}
+        {review.state === 'error' && `La review di ${review.agentName} non è riuscita: ${review.error}`}
+        {review.state === 'cancelled' && `Review di ${review.agentName} annullata.`}
+      </span>
+      {review.state === 'running' ? (
+        <button type="button" onClick={() => void request({ type: 'review.cancel', reviewId: review.id })} className="h-6 shrink-0 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+          Annulla
+        </button>
+      ) : (
+        <button type="button" aria-label="Nascondi" onClick={() => setHidden(review.id)} className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
+          <X className="size-3" />
+        </button>
+      )}
+    </div>
+  )
 }

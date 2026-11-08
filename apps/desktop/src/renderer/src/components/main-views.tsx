@@ -16,7 +16,8 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import type { Attachment, ChatItem, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentId, AgentStatus, Attachment, ChatItem, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
+import { allowedLevels, FALLBACK_AGENT, supportsEffort } from '@/lib/agents'
 import { SOURCE_ICON, SOURCE_LABEL } from '@/components/new-from'
 import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
@@ -40,6 +41,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
+import { useSettings } from '@/hooks/use-theme'
 import { useApp } from '@/store/app-store'
 
 const EMPTY_ITEMS: ChatItem[] = []
@@ -226,14 +228,21 @@ function Workspace({ project, session, root, composerKey, children }: { project:
 const contextButton =
   'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-50'
 
-function useClaudeStatus() {
+function useAgentStatus(agent: AgentId | undefined): AgentStatus | null {
   const agents = useApp((s) => s.agents)
-  return agents.find((a) => a.agent === 'claude-code') ?? null
+  return agents.find((a) => a.agent === agent) ?? null
+}
+
+/** Sottotitolo di un agente nei menu: account e versione, oppure il motivo per cui non c'è. */
+function agentDetail(status: AgentStatus, allowed: boolean): string {
+  if (!allowed) return 'Non ammesso dal progetto (.ladder/settings.toml)'
+  if (!status.available) return status.error ?? 'Non disponibile'
+  return [status.kind === 'acp' ? 'ACP' : null, status.account, status.version ? `v${status.version}` : null].filter(Boolean).join(' · ') || 'Pronto'
 }
 
 // ── Nuova chat ──────────────────────────────────────────────────────────────
 
-type Launch = { mode: 'chat' } | { mode: 'terminal'; command: string }
+type Launch = { mode: 'chat'; agent: AgentId } | { mode: 'terminal'; command: string }
 
 /** Branch del worktree per una sessione nata da issue, PR o branch. */
 function branchFor(item: IssueItem): { name: string; existing: boolean; pr?: number } {
@@ -262,16 +271,45 @@ const TERMINAL_PRESETS = [
 export function NewChat({ projectId }: { projectId: string | null }) {
   const projects = useApp((s) => s.projects)
   const select = useApp((s) => s.select)
-  const claude = useClaudeStatus()
+  const agents = useApp((s) => s.agents)
   const project = projects.find((p) => p.id === projectId) ?? projects[0] ?? null
+  const lastAgent = useApp((s) => (project ? s.ui[project.id]?.lastAgent : undefined))
   const [model, setModel] = useState<string | null>(null)
   const [effort, setEffort] = useState<Effort | null>(null)
   const [permission, setPermission] = useState<PermissionLevel>('edit')
-  const [launch, setLaunch] = useState<Launch>({ mode: 'chat' })
+  const [launch, setLaunch] = useState<Launch>({ mode: 'chat', agent: lastAgent ?? 'claude-code' })
   const [worktree, setWorktree] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const settings = useProjectSettings(project)
+  const allowedAgents = settings?.agents.allowed ?? []
+  const isAllowed = (agent: AgentId) => allowedAgents.length === 0 || allowedAgents.includes(agent)
+  const chatAgent = launch.mode === 'chat' ? launch.agent : 'claude-code'
+  const agentStatus = agents.find((a) => a.agent === chatAgent) ?? FALLBACK_AGENT
+  const maxPermission = settings?.agents.permissionsMax ?? null
+  // Agente proposto: quello di default del progetto se ammesso, poi l'ultimo usato, poi Claude Code. Si cambia dal menu.
+  const chose = useRef(false)
+  useEffect(() => {
+    chose.current = false
+  }, [project?.id])
+  useEffect(() => {
+    if (!settings || chose.current) return
+    const candidates = [settings.agents.default, lastAgent, 'claude-code', ...agents.map((a) => a.agent)] as (AgentId | null | undefined)[]
+    const pick = candidates.find((a): a is AgentId => Boolean(a && isAllowed(a) && agents.some((s) => s.agent === a && s.available)))
+    if (pick && launch.mode === 'chat' && pick !== launch.agent) setLaunch({ mode: 'chat', agent: pick })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, lastAgent, agents.length])
+  // Il livello di permesso non supera quello ammesso dal progetto.
+  useEffect(() => {
+    const levels = allowedLevels(maxPermission)
+    if (!levels.includes(permission)) setPermission(levels[levels.length - 1])
+  }, [maxPermission, permission])
+  const chooseAgent = (agent: AgentId) => {
+    chose.current = true
+    setLaunch({ mode: 'chat', agent })
+    setModel(null)
+    setEffort(null)
+  }
   // Issue, PR o branch scelti con ⌘⇧N: il prompt diventa la bozza e il worktree si prepara sul branch giusto.
   const source = useApp((s) => (project && s.newSource?.projectId === project.id ? s.newSource.item : null))
   const [composerRev, setComposerRev] = useState(0)
@@ -325,7 +363,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
       const session = await request<SessionSummary>({
         type: 'session.create',
         projectId: project.id,
-        agent: 'claude-code',
+        agent: chatAgent,
         text,
         model,
         effort,
@@ -341,6 +379,12 @@ export function NewChat({ projectId }: { projectId: string | null }) {
       send({ type: 'draft.set', key: `new:${project.id}`, text: '' })
       useApp.getState().setDraft(`new:${project.id}`, '')
       useApp.getState().setNewSource(null)
+      if (launch.mode === 'chat') {
+        const current = useApp.getState().ui[project.id] ?? { tabs: [], activeTab: null, scroll: {} }
+        const state = { ...current, lastAgent: chatAgent }
+        useApp.getState().setUi(project.id, state)
+        send({ type: 'ui.set', projectId: project.id, state })
+      }
       select({ kind: 'session', projectId: project.id, sessionId: session.id })
     } catch (e) {
       setError((e as Error).message)
@@ -349,7 +393,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
     }
   }
 
-  const launchLabel = launch.mode === 'chat' ? 'Chat · Claude Code' : `Terminale · ${launch.command.split(' ')[0] || 'comando'}`
+  const launchLabel = launch.mode === 'chat' ? `Chat · ${agentStatus.name}` : `Terminale · ${launch.command.split(' ')[0] || 'comando'}`
 
   return (
     <Workspace project={project} session={null} root={project.path} composerKey={`new:${project.id}`}>
@@ -426,13 +470,21 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-80">
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>Agente per questa sessione</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => setLaunch({ mode: 'chat' })} className="items-start">
-                    <Check className={cn('mt-0.5 size-3.5', launch.mode !== 'chat' && 'opacity-0')} />
-                    <span className="flex flex-col">
-                      Claude Code in chat
-                      <span className="text-[11.5px] text-muted-foreground">{claude?.account ?? 'Abbonamento'} · approvazioni nella chat</span>
-                    </span>
+                  <DropdownMenuLabel>In chat, con le approvazioni di Ladder</DropdownMenuLabel>
+                  {agents.map((status) => {
+                    const allowed = isAllowed(status.agent)
+                    return (
+                      <DropdownMenuItem key={status.agent} disabled={!allowed || !status.available} onClick={() => chooseAgent(status.agent)} className="items-start">
+                        <Check className={cn('mt-0.5 size-3.5', !(launch.mode === 'chat' && launch.agent === status.agent) && 'opacity-0')} />
+                        <span className="flex min-w-0 flex-col">
+                          {status.name}
+                          <span className="truncate text-[11.5px] text-muted-foreground">{agentDetail(status, allowed)}</span>
+                        </span>
+                      </DropdownMenuItem>
+                    )
+                  })}
+                  <DropdownMenuItem onClick={() => useSettings.getState().openSection('agents')}>
+                    <span className="pl-[22px] text-[12px] text-muted-foreground">Aggiungi un agente ACP…</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
@@ -467,16 +519,19 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               key={`new:${project.id}:${composerRev}`}
               draftKey={`new:${project.id}`}
               projectId={project.id}
-              agentName="Claude Code"
-              models={claude?.models ?? []}
+              agentName={agentStatus.name}
+              agent={chatAgent}
+              models={agentStatus.models}
               model={model}
               onModelChange={setModel}
               effort={effort}
-              onEffortChange={setEffort}
+              onEffortChange={supportsEffort(chatAgent) ? setEffort : undefined}
+              showEffort={supportsEffort(chatAgent)}
               permission={permission}
               onPermissionChange={setPermission}
+              maxPermission={maxPermission}
               onSubmit={(text, attachments) => void create(text, attachments)}
-              disabledReason={pending ? 'Preparo la sessione…' : claude && !claude.available ? claude.error : null}
+              disabledReason={pending ? 'Preparo la sessione…' : !agentStatus.available ? (agentStatus.error ?? `${agentStatus.name} non è disponibile.`) : null}
               autoFocus
             />
           ) : (
@@ -486,8 +541,9 @@ export function NewChat({ projectId }: { projectId: string | null }) {
           <p className="mt-3 pl-1 text-[11.5px] text-faint">
             <kbd className="font-mono">⌘N</kbd> nuova chat · <kbd className="font-mono">⌘P</kbd> apri file · <kbd className="font-mono">⌃`</kbd> terminale ·{' '}
             <kbd className="font-mono">⌘⇧N</kbd> da issue o PR · <kbd className="font-mono">⌘⌥2</kbd> file
-            {claude?.account && <> · Claude Code con {claude.account}</>}
-            {claude?.version && <> · CLI {claude.version}</>}
+            {launch.mode === 'chat' && agentStatus.account && <> · {agentStatus.name} con {agentStatus.account}</>}
+            {launch.mode === 'chat' && agentStatus.version && <> · CLI {agentStatus.version}</>}
+            {launch.mode === 'chat' && agentStatus.limits && <> · {agentStatus.limits}</>}
           </p>
         </div>
       </div>
@@ -587,7 +643,8 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const openInspector = useApp((s) => s.openInspector)
   const focusTarget = useApp((s) => (s.focusTarget?.sessionId === sessionId ? s.focusTarget : null))
   const consumeFocus = useApp((s) => s.consumeFocus)
-  const claude = useClaudeStatus()
+  const agentStatus = useAgentStatus(session?.agent) ?? FALLBACK_AGENT
+  const sessionSettings = useProjectSettings(project)
   const [error, setError] = useState<string | null>(null)
   const uiTimer = useRef<number | null>(null)
   const isTerminal = session?.mode === 'terminal'
@@ -669,7 +726,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         <span className="truncate text-[12px] text-muted-foreground">
           {project.name}
           {branch ? ` · ${branch}` : ''}
-          {session.worktree ? ' · worktree' : ''} · {isTerminal ? `Terminale · ${session.command ?? 'claude'}` : 'Claude Code'}
+          {session.worktree ? ' · worktree' : ''} · {isTerminal ? `Terminale · ${session.command ?? 'claude'}` : agentStatus.name}
           {session.run === 'waiting' && <span className="font-semibold text-attention"> · {session.waitingLabel}</span>}
           {session.run !== 'waiting' && session.activity && isTerminal && <span> · {session.activity}</span>}
           {session.estimated && <span title="Lo stato viene da output e campanello, non da segnali dell’agente"> · stato stimato</span>}
@@ -702,8 +759,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               key={sessionId}
               draftKey={sessionId}
               projectId={session.projectId}
-              agentName="Claude Code"
-              models={claude?.models ?? []}
+              agentName={agentStatus.name}
+              agent={session.agent}
+              showEffort={supportsEffort(session.agent)}
+              maxPermission={sessionSettings?.agents.permissionsMax ?? null}
+              models={agentStatus.models}
               model={session.model}
               onModelChange={(model) => send({ type: 'session.model.set', sessionId, model })}
               effort={session.effort}
@@ -719,7 +779,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               queue={session.queue}
               onQueueChange={(queue) => send({ type: 'session.queue.set', sessionId, queue })}
               context={session.context}
-              disabledReason={claude && !claude.available ? claude.error : null}
+              disabledReason={!agentStatus.available ? (agentStatus.error ?? `${agentStatus.name} non è disponibile.`) : null}
               autoFocus={!focusTarget}
               status={session.queuedReason}
               className="max-w-[680px]"

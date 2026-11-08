@@ -3,14 +3,14 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parse } from 'smol-toml'
-import type { ProjectSettings, RunAction } from '@shared/protocol'
+import type { PermissionLevel, ProjectSettings, RunAction } from '@shared/protocol'
 
 export const SETTINGS_FILES = ['.ladder/settings.toml', '.ladder/settings.local.toml']
 /** Esclusi da git tramite .git/info/exclude. */
 export const PERSONAL_PATTERNS = ['.ladder/settings.local.toml', '.ladder/context/']
 
 export function emptySettings(): ProjectSettings {
-  return { worktree: { setup: null, copy: [], ports: 10, archive: null }, run: [], prompts: {}, sources: [], errors: [] }
+  return { worktree: { setup: null, copy: [], ports: 10, archive: null }, run: [], prompts: {}, agents: { allowed: [], default: null, permissionsMax: null }, sources: [], errors: [] }
 }
 
 type Table = Record<string, unknown>
@@ -85,7 +85,37 @@ function apply(settings: ProjectSettings, data: Table, file: string): void {
     else for (const [key, value] of Object.entries(data.prompts)) if (typeof value === 'string') settings.prompts[key] = value
   }
 
+  if (data.agents !== undefined) {
+    if (!isTable(data.agents)) problem('[agents] deve essere una tabella')
+    else {
+      const a = data.agents
+      if (a.allowed !== undefined) {
+        if (Array.isArray(a.allowed) && a.allowed.every((x) => typeof x === 'string')) settings.agents.allowed = (a.allowed as string[]).map(agentKey)
+        else problem('agents.allowed deve essere un elenco di agenti, per esempio ["claude-code", "codex"]')
+      }
+      if (a.default !== undefined) typeof a.default === 'string' ? (settings.agents.default = agentKey(a.default)) : problem('agents.default deve essere un testo')
+      if (a.permissions_max !== undefined) {
+        if (typeof a.permissions_max === 'string' && LEVELS.includes(a.permissions_max as PermissionLevel)) settings.agents.permissionsMax = a.permissions_max as PermissionLevel
+        else problem('agents.permissions_max deve essere plan, ask, edit o full')
+      }
+    }
+  }
+
   // Una sola azione predefinita: vince l'ultima dichiarata.
   const defaults = settings.run.filter((r) => r.default)
   if (defaults.length > 1) for (const r of defaults.slice(0, -1)) r.default = false
+}
+
+export const LEVELS: PermissionLevel[] = ['plan', 'ask', 'edit', 'full']
+
+/** "gemini" e "acp:gemini" indicano lo stesso agente ACP; i nativi restano come sono. */
+export function agentKey(name: string): string {
+  const id = name.trim()
+  return id === 'claude-code' || id === 'codex' || id.startsWith('acp:') ? id : `acp:${id}`
+}
+
+/** Il livello più alto ammesso dal progetto. */
+export function clampPermission(level: PermissionLevel, max: PermissionLevel | null): PermissionLevel {
+  if (!max) return level
+  return LEVELS.indexOf(level) > LEVELS.indexOf(max) ? max : level
 }

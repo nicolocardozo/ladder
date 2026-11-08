@@ -53,6 +53,8 @@
   },
   "productName": "Ladder",
   "dependencies": {
-    "node-pty": "1.1.0"
+    "@agentclientprotocol/sdk": "2.4.0",
+    "node-pty": "1.1.0",
+    "zod": "4.6.7"
   }
 }

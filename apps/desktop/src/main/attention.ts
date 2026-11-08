@@ -132,6 +132,28 @@ export class Attention {
     return shown
   }
 
+  /**
+   * "Invia una notifica di prova" (Impostazioni → Notifiche): un banner vero anche con "Non disturbare",
+   * perché l'hai chiesto tu. Al primo uso macOS chiede il permesso; il clic riporta in primo piano Ladder.
+   */
+  test(onClick: () => void): boolean {
+    if (this.trace) {
+      this.write({ action: 'test' })
+      return true
+    }
+    if (!Notification.isSupported()) return false
+    const notification = new Notification({ title: 'Ladder', body: 'Notifica di prova: con un clic torni qui.', silent: !this.prefs().sound })
+    const shown: Shown = { kind: 'request', sessionId: '', projectId: '', itemId: null, notification, at: Date.now() }
+    notification.on('click', () => {
+      this.forgetShown(shown)
+      onClick()
+    })
+    notification.on('close', () => this.forgetShown(shown))
+    this.shown.push(shown)
+    notification.show()
+    return true
+  }
+
   /** Per le prove: simula il clic sull'ultima notifica mostrata. */
   clickLatest(): boolean {
     const latest = this.shown[this.shown.length - 1]

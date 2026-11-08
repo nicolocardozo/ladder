@@ -5,8 +5,11 @@ import { existsSync, statSync } from 'node:fs'
 import { basename } from 'node:path'
 import { promisify } from 'node:util'
 import type {
+  AcpAgentSpec,
   AgentId,
   AgentStatus,
+  DiffScope,
+  ReviewState,
   AttentionEvent,
   ChatItem,
   HostPrefs,
@@ -33,13 +36,19 @@ import type {
 } from '@shared/protocol'
 import { tx, type Db, type ProjectRow, type SessionRow } from './db'
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
+import { AcpSession } from './acp/adapter'
+import { registryAgents, registrySpec } from './acp/registry'
+import { whichInShell, type AgentSession, type SessionOptions } from './agents/common'
+import { CodexSession } from './codex/adapter'
+import { codexVersion, findCodexCli, probeCodex } from './codex/environment'
+import { patchText, reviewPrompt, ReviewRun } from './review'
 import { claudeVersion, findClaudeCli } from './claude/environment'
 import { listTree, readText, RootWatcher } from './files'
 import { aheadBehind, changedFiles, createCheckpoint, dirtyCount, ensureExcluded, fetchRef, git, listBranches, listFiles, mergeConflicts, removeWorktree, repoInfo, resolveCommit, unpushedCount } from './git'
 import { defaultBranch, ghState, listGithubIssues, listGithubPrs, prForBranch, type PrDetails } from './github'
 import { renderPrompt } from './prompts'
 import { searchItems } from './search'
-import { loadProjectSettings, PERSONAL_PATTERNS } from './project-settings'
+import { clampPermission, loadProjectSettings, PERSONAL_PATTERNS } from './project-settings'
 import { TerminalManager, type AgentKind, type AgentSignal, type SpawnOptions } from './terminals'
 import { diffFile, diffFiles, historyList, recordCheckpoint, restore } from './workspace'
 import { createWorktree, Ports, type WorktreeBranch } from './worktrees'
@@ -59,7 +68,7 @@ interface PendingRequest {
 }
 
 interface Runtime {
-  adapter: ClaudeSession
+  adapter: AgentSession
   turnId: string | null
   turnStart: string | null
   turnCounts: { commands: number; edits: number; reads: number; searches: number }
@@ -86,7 +95,12 @@ export class Host {
   private dirty = new Map<string, Map<string, ChatItem>>()
   private flushTimer: NodeJS.Timeout | null = null
   private claudeCli: string | null = null
-  private agent: AgentStatus = { agent: 'claude-code', available: false, version: null, account: null, models: [], error: null }
+  private codexCli: string | null = null
+  private codexVer: string | null = null
+  /** Stato di ogni agente: Claude Code, Codex e le voci ACP aggiunte. */
+  private agents = new Map<string, AgentStatus>()
+  private acpSpecs = new Map<string, AcpAgentSpec>()
+  private reviews = new Map<string, ReviewRun>()
   private readonly terminals: TerminalManager
   private readonly watcher: RootWatcher
   private readonly ports: Ports
@@ -130,22 +144,167 @@ export class Host {
     for (const project of this.projects.values()) this.ports.allocate(project.path)
     this.recoverInterrupted()
     await this.terminals.init()
-    this.claudeCli = await findClaudeCli()
-    const version = this.claudeCli ? await claudeVersion(this.claudeCli) : null
-    // Account e modelli dell'ultima sessione: servono al composer prima che parta una nuova sessione.
-    const cached = this.db.prepare(`select value from kv where key = 'agent:claude-code'`).get() as { value: string } | undefined
-    const saved = cached ? (JSON.parse(cached.value) as Pick<AgentStatus, 'account' | 'models'>) : null
-    this.agent = {
-      ...this.agent,
-      account: saved?.account ?? null,
-      models: saved?.models ?? [],
-      available: Boolean(this.claudeCli),
-      version,
-      error: this.claudeCli ? null : 'CLI di Claude Code non trovata. Installala e riapri Ladder.'
-    }
+    await this.initAgents()
     this.drainQueued()
     this.updateBadge()
     this.prTimer = setTimeout(() => void this.pollPrs(), 4000)
+  }
+
+  // ── Agenti ─────────────────────────────────────────────────────────────────
+
+  /** Account e modelli dell'ultima sessione: servono al composer prima che parta una nuova sessione. */
+  private cachedAgent(agent: string): Partial<AgentStatus> {
+    const row = this.db.prepare(`select value from kv where key = ?`).get(`agent:${agent}`) as { value: string } | undefined
+    return row ? (JSON.parse(row.value) as Partial<AgentStatus>) : {}
+  }
+
+  private async initAgents(): Promise<void> {
+    const [claudeCli, codexCli] = await Promise.all([findClaudeCli(), findCodexCli()])
+    this.claudeCli = claudeCli
+    this.codexCli = codexCli
+    const [claudeVer, codexVer] = await Promise.all([claudeCli ? claudeVersion(claudeCli) : null, codexCli ? codexVersion(codexCli) : null])
+    this.codexVer = codexVer
+    const claude = this.cachedAgent('claude-code')
+    this.agents.set('claude-code', {
+      agent: 'claude-code',
+      name: 'Claude Code',
+      kind: 'native',
+      account: claude.account ?? null,
+      models: claude.models ?? [],
+      available: Boolean(claudeCli),
+      version: claudeVer,
+      path: claudeCli,
+      error: claudeCli ? null : 'CLI di Claude Code non trovata. Installala e riapri Ladder.'
+    })
+    const codex = this.cachedAgent('codex')
+    this.agents.set('codex', {
+      agent: 'codex',
+      name: 'Codex',
+      kind: 'native',
+      account: codex.account ?? null,
+      models: codex.models ?? [],
+      limits: codex.limits ?? null,
+      available: Boolean(codexCli),
+      version: codexVer,
+      path: codexCli,
+      error: codexCli ? null : 'Codex non trovato. Installa la CLI (npm i -g @openai/codex, oppure l’app Codex) e riapri Ladder.'
+    })
+    // Account, modelli e limiti di Codex senza aspettare la prima sessione (nessun turno, nessuna quota).
+    if (codexCli) {
+      void probeCodex(codexCli, '0.0.0')
+        .then((info) => this.updateAgent('codex', info))
+        .catch((error: Error) => this.updateAgent('codex', { error: `Codex non risponde: ${error.message}` }))
+    }
+    const stored = this.db.prepare(`select value from kv where key = 'acp-agents'`).get() as { value: string } | undefined
+    for (const spec of stored ? (JSON.parse(stored.value) as AcpAgentSpec[]) : []) await this.registerAcp(spec)
+  }
+
+  private async registerAcp(spec: AcpAgentSpec): Promise<AgentStatus> {
+    this.acpSpecs.set(spec.id, spec)
+    const agent = `acp:${spec.id}` as AgentId
+    const cached = this.cachedAgent(agent)
+    const command = await whichInShell(spec.command)
+    const status: AgentStatus = {
+      agent,
+      name: spec.name,
+      kind: 'acp',
+      account: cached.account ?? null,
+      models: cached.models ?? [],
+      available: Boolean(command),
+      version: spec.version ?? null,
+      path: command,
+      error: command ? null : `Comando “${spec.command}” non trovato nel PATH della shell.`
+    }
+    this.agents.set(agent, status)
+    this.broadcast({ type: 'agent.status', status })
+    return status
+  }
+
+  private saveAcpSpecs(): void {
+    this.db
+      .prepare(`insert into kv (key, value) values ('acp-agents', ?) on conflict(key) do update set value = excluded.value`)
+      .run(JSON.stringify([...this.acpSpecs.values()]))
+  }
+
+  private async addAcpAgent(input: AcpAgentSpec): Promise<AgentStatus> {
+    let spec = input
+    if (input.source === 'registry') {
+      const fromRegistry = await registrySpec(input.id)
+      if (!fromRegistry) throw new Error('Agente non trovato nel registro ACP, o distribuito solo come binario.')
+      spec = fromRegistry
+    } else {
+      const id = (input.id || input.name).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      if (!id || !input.command.trim()) throw new Error('Servono un nome e un comando.')
+      if (id === 'claude-code' || id === 'codex') throw new Error('Questo nome è riservato agli agenti nativi.')
+      spec = { ...input, id, name: input.name.trim() || id, command: input.command.trim(), args: input.args.filter(Boolean) }
+    }
+    const status = await this.registerAcp(spec)
+    this.saveAcpSpecs()
+    return status
+  }
+
+  private removeAcpAgent(id: string): void {
+    if (!this.acpSpecs.delete(id)) return
+    this.agents.delete(`acp:${id}`)
+    this.saveAcpSpecs()
+    this.broadcast({ type: 'agent.removed', agent: `acp:${id}` })
+  }
+
+  private updateAgent(agent: string, patch: Partial<AgentStatus>): void {
+    const current = this.agents.get(agent)
+    if (!current) return
+    const next: AgentStatus = {
+      ...current,
+      ...patch,
+      account: patch.account ?? current.account,
+      models: patch.models?.length ? patch.models : current.models,
+      limits: patch.limits ?? current.limits ?? null
+    }
+    this.agents.set(agent, next)
+    this.db
+      .prepare(`insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value`)
+      .run(`agent:${agent}`, JSON.stringify({ account: next.account, models: next.models, limits: next.limits ?? null }))
+    this.broadcast({ type: 'agent.status', status: next })
+  }
+
+  private agentName(agent: string): string {
+    return this.agents.get(agent)?.name ?? agent
+  }
+
+  /** L'adapter giusto per l'agente: le sessioni e le review lo usano allo stesso modo. */
+  private createAdapter(agent: string, options: SessionOptions & { outputSchema?: unknown }, events: AdapterEvents): AgentSession {
+    const status = this.agents.get(agent)
+    if (!status) throw new Error('Agente sconosciuto: aggiungilo in Impostazioni → Agenti.')
+    if (!status.available) throw new Error(status.error ?? `${status.name} non è disponibile.`)
+    if (agent === 'claude-code') return new ClaudeSession({ ...options, cli: this.claudeCli }, events)
+    if (agent === 'codex') return new CodexSession({ ...options, cli: this.codexCli!, version: '0.0.0' }, events)
+    const spec = this.acpSpecs.get(agent.replace(/^acp:/, ''))
+    if (!spec) throw new Error('Agente ACP sconosciuto.')
+    return new AcpSession({ ...options, spec }, events)
+  }
+
+  // ── Review con un altro agente ────────────────────────────────────────────
+
+  private async startReview(sessionId: string, agent: AgentId, scope: DiffScope): Promise<ReviewState> {
+    const row = this.mustRow(sessionId)
+    const project = this.mustProject(row.project_id)
+    const root = this.cwdOf(row)
+    const settings = await loadProjectSettings(project.path)
+    if (settings.agents.allowed.length && !settings.agents.allowed.includes(agent)) throw new Error(`${this.agentName(agent)} non è ammesso da .ladder/settings.toml.`)
+    const diff = await diffFiles(this.db, root, scope)
+    if (diff.files.length === 0) throw new Error('Nessuna modifica da rivedere in questo ambito.')
+    const patch = await patchText(root, diff.from, diff.to)
+    const base = await renderPrompt(project.path, 'review', {})
+    const run = new ReviewRun(
+      {
+        create: (id, options, events) => this.createAdapter(id, options, events),
+        publish: (review) => this.broadcast({ type: 'review.update', review: { ...review } })
+      },
+      { sessionId, agent, agentName: this.agentName(agent), scope }
+    )
+    this.reviews.set(run.state.id, run)
+    run.start(root, reviewPrompt(base, patch))
+    return { ...run.state }
   }
 
   /** Preferenze dal processo main: per ora il limite di turni attivi per agente. */
@@ -213,7 +372,7 @@ export class Host {
       sessions: [...this.rows.values()].filter((r) => !r.archived).map((r) => this.summary(r.id)),
       drafts,
       ui,
-      agents: [this.agent],
+      agents: [...this.agents.values()],
       terminals: this.terminals.list()
     }
   }
@@ -386,6 +545,20 @@ export class Host {
         return this.mergeInfo(this.knownRoot(command.root), command.fetch === true)
       case 'prompt.render':
         return renderPrompt(this.mustProject(command.projectId).path, command.name, command.vars)
+
+      // Agenti ACP e review.
+      case 'agents.registry':
+        return registryAgents(new Set(this.acpSpecs.keys()))
+      case 'agents.add':
+        return this.addAcpAgent(command.spec)
+      case 'agents.remove':
+        this.removeAcpAgent(command.id)
+        return null
+      case 'review.start':
+        return this.startReview(command.sessionId, command.agent, command.scope)
+      case 'review.cancel':
+        this.reviews.get(command.reviewId)?.cancel()
+        return null
     }
   }
 
@@ -442,6 +615,16 @@ export class Host {
     // Worktree: cartella e branch nuovi, file da copiare, poi lo script di setup prima di partire.
     let worktree: WorktreeInfo | null = null
     const settings = await loadProjectSettings(project.path)
+    // Regole del progetto ([agents] in .ladder/settings.toml): agenti ammessi e livello di permesso massimo.
+    if (mode === 'chat') {
+      if (settings.agents.allowed.length && !settings.agents.allowed.includes(command.agent)) {
+        throw new Error(`${this.agentName(command.agent)} non è ammesso in questo progetto (.ladder/settings.toml, [agents] allowed).`)
+      }
+      const status = this.agents.get(command.agent)
+      if (!status) throw new Error('Agente sconosciuto: aggiungilo in Impostazioni → Agenti.')
+      if (!status.available) throw new Error(status.error ?? `${status.name} non è disponibile.`)
+    }
+    command = { ...command, permission: clampPermission(command.permission, settings.agents.permissionsMax) }
     const notices: string[] = []
     // Un branch esistente già estratto nel checkout principale non può avere un worktree: si lavora lì.
     const wanted: WorktreeBranch | null = command.branch ?? null
@@ -759,7 +942,7 @@ export class Host {
   }
 
   private limitFor(agent: string): number {
-    return Math.max(1, Math.round(this.prefs.maxActive[agent as AgentId] ?? 3))
+    return Math.max(1, Math.round(this.prefs.maxActive[agent as AgentId] ?? this.prefs.maxActive['claude-code'] ?? 3))
   }
 
   /** Parte subito se c'è posto; altrimenti il messaggio va in testa alla coda e la sessione aspetta "In coda". */
@@ -778,7 +961,6 @@ export class Host {
 
   /** Fa partire le sessioni in coda, dalla più vecchia, finché c'è posto. */
   private drainQueued(): void {
-    if (!this.claudeCli) return
     for (const [sessionId] of [...this.queuedAt.entries()].sort((a, b) => a[1] - b[1])) {
       const row = this.rows.get(sessionId)
       if (!row || row.archived || row.run_state !== 'queued') {
@@ -805,20 +987,13 @@ export class Host {
   private async startTurn(sessionId: string, text: string, attachments: Attachment[] = []): Promise<void> {
     const row = this.mustRow(sessionId)
     const project = this.mustProject(row.project_id)
-    if (!this.claudeCli) throw new Error(this.agent.error ?? 'Claude Code non disponibile.')
     const cwd = this.cwdOf(row)
 
     let runtime = this.runtimes.get(sessionId)
     if (!runtime) {
-      const adapter = new ClaudeSession(
-        {
-          cwd,
-          cli: this.claudeCli,
-          model: row.model,
-          effort: row.effort as Effort | null,
-          permission: row.permission as PermissionLevel,
-          resume: row.external_id
-        },
+      const adapter = this.createAdapter(
+        row.agent,
+        { cwd, model: row.model, effort: row.effort as Effort | null, permission: row.permission as PermissionLevel, resume: row.external_id },
         this.adapterEvents(sessionId)
       )
       runtime = { adapter, turnId: null, turnStart: null, turnCounts: emptyCounts(), activity: null, pending: new Map() }
@@ -879,12 +1054,9 @@ export class Host {
         const runtime = this.runtimes.get(sessionId)
         this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime?.turnId ?? 'system', at: Date.now(), tone, text })
       },
-      account: ({ account, models }) => {
-        this.agent = { ...this.agent, account: account ?? this.agent.account, models: models.length ? models : this.agent.models }
-        this.db
-          .prepare(`insert into kv (key, value) values ('agent:claude-code', ?) on conflict(key) do update set value = excluded.value`)
-          .run(JSON.stringify({ account: this.agent.account, models: this.agent.models }))
-        this.broadcast({ type: 'agent.status', status: this.agent })
+      account: ({ account, models, limits }) => {
+        const agent = this.rows.get(sessionId)?.agent
+        if (agent) this.updateAgent(agent, { account, models, limits })
       },
       exit: (error) => {
         const runtime = this.runtimes.get(sessionId)
@@ -1068,7 +1240,11 @@ export class Host {
     await runtime.adapter.interrupt()
   }
 
-  private async setPermission(sessionId: string, permission: PermissionLevel): Promise<void> {
+  private async setPermission(sessionId: string, requested: PermissionLevel): Promise<void> {
+    const row = this.mustRow(sessionId)
+    const project = this.projects.get(row.project_id)
+    const settings = project ? await loadProjectSettings(project.path) : null
+    const permission = clampPermission(requested, settings?.agents.permissionsMax ?? null)
     this.updateRow(sessionId, { permission })
     await this.runtimes.get(sessionId)?.adapter.setPermission(permission)
     this.emitSummary(sessionId)
@@ -1205,7 +1381,7 @@ export class Host {
       request: open[0] ?? null,
       openRequests: run === 'waiting' ? Math.max(1, open.length) : 0,
       activityAt: row.activity_at || row.updated_at,
-      queuedReason: run === 'queued' ? `In coda: ${limit} ${limit === 1 ? 'sessione' : 'sessioni'} Claude Code ${limit === 1 ? 'attiva' : 'attive'}` : null,
+      queuedReason: run === 'queued' ? `In coda: ${limit} ${limit === 1 ? 'sessione' : 'sessioni'} ${this.agentName(row.agent)} ${limit === 1 ? 'attiva' : 'attive'}` : null,
       branch: this.branchOf(row),
       pr: this.prOf(row),
       source: row.source ? (JSON.parse(row.source) as SessionSource) : null
