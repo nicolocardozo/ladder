@@ -35,6 +35,7 @@ import type {
   WorktreeInfo
 } from '@shared/protocol'
 import { tx, type Db, type ProjectRow, type SessionRow } from './db'
+import { plural, setLocale, t } from '@shared/i18n'
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
 import { AcpSession } from './acp/adapter'
 import { registryAgents, registrySpec } from './acp/registry'
@@ -48,6 +49,7 @@ import { aheadBehind, changedFiles, createCheckpoint, dirtyCount, ensureExcluded
 import { defaultBranch, ghState, listGithubIssues, listGithubPrs, prForBranch, type PrDetails } from './github'
 import { renderPrompt } from './prompts'
 import { searchItems } from './search'
+import { SubagentBoard } from './subagents'
 import { clampPermission, loadProjectSettings, PERSONAL_PATTERNS } from './project-settings'
 import { TerminalManager, type AgentKind, type AgentSignal, type SpawnOptions } from './terminals'
 import { diffFile, diffFiles, historyList, recordCheckpoint, restore } from './workspace'
@@ -101,6 +103,9 @@ export class Host {
   private agents = new Map<string, AgentStatus>()
   private acpSpecs = new Map<string, AcpAgentSpec>()
   private reviews = new Map<string, ReviewRun>()
+  /** Sotto-agenti per sessione, per la mappa degli agenti; gli aggiornamenti al renderer si raggruppano. */
+  private subagents = new SubagentBoard()
+  private subagentFlush = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly terminals: TerminalManager
   private readonly watcher: RootWatcher
   private readonly ports: Ports
@@ -174,7 +179,7 @@ export class Host {
       available: Boolean(claudeCli),
       version: claudeVer,
       path: claudeCli,
-      error: claudeCli ? null : 'CLI di Claude Code non trovata. Installala e riapri Ladder.'
+      error: claudeCli ? null : t('Claude Code CLI not found. Install it and reopen Ladder.')
     })
     const codex = this.cachedAgent('codex')
     this.agents.set('codex', {
@@ -187,13 +192,13 @@ export class Host {
       available: Boolean(codexCli),
       version: codexVer,
       path: codexCli,
-      error: codexCli ? null : 'Codex non trovato. Installa la CLI (npm i -g @openai/codex, oppure l’app Codex) e riapri Ladder.'
+      error: codexCli ? null : t('Codex not found. Install the CLI (npm i -g @openai/codex, or the Codex app) and reopen Ladder.')
     })
     // Account, modelli e limiti di Codex senza aspettare la prima sessione (nessun turno, nessuna quota).
     if (codexCli) {
       void probeCodex(codexCli, '0.0.0')
         .then((info) => this.updateAgent('codex', info))
-        .catch((error: Error) => this.updateAgent('codex', { error: `Codex non risponde: ${error.message}` }))
+        .catch((error: Error) => this.updateAgent('codex', { error: t('Codex is not responding: {message}', { message: error.message }) }))
     }
     const stored = this.db.prepare(`select value from kv where key = 'acp-agents'`).get() as { value: string } | undefined
     for (const spec of stored ? (JSON.parse(stored.value) as AcpAgentSpec[]) : []) await this.registerAcp(spec)
@@ -213,7 +218,8 @@ export class Host {
       available: Boolean(command),
       version: spec.version ?? null,
       path: command,
-      error: command ? null : `Comando “${spec.command}” non trovato nel PATH della shell.`
+      icon: spec.icon ?? null,
+      error: command ? null : t('Command “{command}” not found in the shell PATH.', { command: spec.command })
     }
     this.agents.set(agent, status)
     this.broadcast({ type: 'agent.status', status })
@@ -230,12 +236,12 @@ export class Host {
     let spec = input
     if (input.source === 'registry') {
       const fromRegistry = await registrySpec(input.id)
-      if (!fromRegistry) throw new Error('Agente non trovato nel registro ACP, o distribuito solo come binario.')
+      if (!fromRegistry) throw new Error(t('Agent not found in the ACP registry, or distributed only as a binary.'))
       spec = fromRegistry
     } else {
       const id = (input.id || input.name).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-      if (!id || !input.command.trim()) throw new Error('Servono un nome e un comando.')
-      if (id === 'claude-code' || id === 'codex') throw new Error('Questo nome è riservato agli agenti nativi.')
+      if (!id || !input.command.trim()) throw new Error(t('A name and a command are required.'))
+      if (id === 'claude-code' || id === 'codex') throw new Error(t('This name is reserved for native agents.'))
       spec = { ...input, id, name: input.name.trim() || id, command: input.command.trim(), args: input.args.filter(Boolean) }
     }
     const status = await this.registerAcp(spec)
@@ -274,12 +280,12 @@ export class Host {
   /** L'adapter giusto per l'agente: le sessioni e le review lo usano allo stesso modo. */
   private createAdapter(agent: string, options: SessionOptions & { outputSchema?: unknown }, events: AdapterEvents): AgentSession {
     const status = this.agents.get(agent)
-    if (!status) throw new Error('Agente sconosciuto: aggiungilo in Impostazioni → Agenti.')
-    if (!status.available) throw new Error(status.error ?? `${status.name} non è disponibile.`)
+    if (!status) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
+    if (!status.available) throw new Error(status.error ?? t('{agent} is not available.', { agent: status.name }))
     if (agent === 'claude-code') return new ClaudeSession({ ...options, cli: this.claudeCli }, events)
     if (agent === 'codex') return new CodexSession({ ...options, cli: this.codexCli!, version: '0.0.0' }, events)
     const spec = this.acpSpecs.get(agent.replace(/^acp:/, ''))
-    if (!spec) throw new Error('Agente ACP sconosciuto.')
+    if (!spec) throw new Error(t('Unknown ACP agent.'))
     return new AcpSession({ ...options, spec }, events)
   }
 
@@ -290,9 +296,9 @@ export class Host {
     const project = this.mustProject(row.project_id)
     const root = this.cwdOf(row)
     const settings = await loadProjectSettings(project.path)
-    if (settings.agents.allowed.length && !settings.agents.allowed.includes(agent)) throw new Error(`${this.agentName(agent)} non è ammesso da .ladder/settings.toml.`)
+    if (settings.agents.allowed.length && !settings.agents.allowed.includes(agent)) throw new Error(t('{agent} is not allowed by .ladder/settings.toml.', { agent: this.agentName(agent) }))
     const diff = await diffFiles(this.db, root, scope)
-    if (diff.files.length === 0) throw new Error('Nessuna modifica da rivedere in questo ambito.')
+    if (diff.files.length === 0) throw new Error(t('No changes to review in this scope.'))
     const patch = await patchText(root, diff.from, diff.to)
     const base = await renderPrompt(project.path, 'review', {})
     const run = new ReviewRun(
@@ -309,6 +315,7 @@ export class Host {
 
   /** Preferenze dal processo main: per ora il limite di turni attivi per agente. */
   setPrefs(prefs: HostPrefs): void {
+    if (prefs.locale) setLocale(prefs.locale)
     this.prefs = { maxActive: { ...this.prefs.maxActive, ...prefs.maxActive } }
     for (const id of this.queuedAt.keys()) this.emitSummary(id)
     this.drainQueued()
@@ -334,7 +341,7 @@ export class Host {
       tx(this.db, () => {
         for (const { json } of open) {
           const item = JSON.parse(json) as ChatItem
-          if (item.kind === 'request') this.writeItem(row.id, { ...item, state: 'expired', resolution: 'Scaduta' })
+          if (item.kind === 'request') this.writeItem(row.id, { ...item, state: 'expired', resolution: t('Expired') })
         }
         this.writeItem(row.id, this.withSeq(row.id, {
           kind: 'notice',
@@ -342,7 +349,7 @@ export class Host {
           turnId: 'recovery',
           at: Date.now(),
           tone: 'info',
-          text: 'Ladder è stato chiuso mentre la sessione lavorava. Scrivi un messaggio per riprendere.'
+          text: t('Ladder was closed while the session was working. Send a message to continue.')
         }))
         this.updateRow(row.id, { run_state: 'idle' })
       })
@@ -414,7 +421,7 @@ export class Host {
       }
       case 'project.files': {
         const project = this.projects.get(command.projectId)
-        if (!project) throw new Error('Progetto non trovato.')
+        if (!project) throw new Error(t('Project not found.'))
         return project.isGit ? listFiles(project.path) : (await listTree(project.path)).files
       }
       case 'session.queue.set': {
@@ -487,7 +494,7 @@ export class Host {
       case 'git.restore': {
         const root = this.knownRoot(command.root)
         const busy = this.busySession(root)
-        if (busy) throw new Error(`“${busy.title}” sta lavorando in questa cartella: fermala prima di ripristinare.`)
+        if (busy) throw new Error(t('“{title}” is working in this folder: stop it before restoring.', { title: busy.title }))
         const sessionId = [...this.rows.values()].find((r) => this.cwdOf(r) === root && !r.archived)?.id ?? null
         const result = await restore(this.db, root, command.to, command.paths, command.label, sessionId)
         this.broadcast({ type: 'fs.changed', root })
@@ -521,7 +528,7 @@ export class Host {
         return null
       case 'terminal.close': {
         const terminal = this.terminals.get(command.id)
-        if (terminal?.kind === 'agent') throw new Error('Il terminale di una sessione si chiude archiviando la sessione.')
+        if (terminal?.kind === 'agent') throw new Error(t('A session terminal closes when you archive the session.'))
         this.terminals.close(command.id)
         return null
       }
@@ -564,7 +571,7 @@ export class Host {
 
   private mustProject(projectId: string): Project {
     const project = this.projects.get(projectId)
-    if (!project) throw new Error('Progetto non trovato.')
+    if (!project) throw new Error(t('Project not found.'))
     return project
   }
 
@@ -578,7 +585,7 @@ export class Host {
     const normalized = root.replace(/\/+$/, '')
     for (const project of this.projects.values()) if (project.path === normalized) return normalized
     for (const row of this.rows.values()) if (this.cwdOf(row) === normalized) return normalized
-    throw new Error('Cartella sconosciuta a Ladder.')
+    throw new Error(t('Folder unknown to Ladder.'))
   }
 
   /** Una sessione che sta scrivendo in `root`, se c'è. */
@@ -591,7 +598,7 @@ export class Host {
   }
 
   private async addProject(path: string): Promise<Project> {
-    if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error('La cartella non esiste.')
+    if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error(t('The folder does not exist.'))
     const existing = [...this.projects.values()].find((p) => p.path === path)
     if (existing) return existing
     const row: ProjectRow = { id: randomUUID(), name: basename(path), path, added_at: Date.now() }
@@ -618,24 +625,24 @@ export class Host {
     // Regole del progetto ([agents] in .ladder/settings.toml): agenti ammessi e livello di permesso massimo.
     if (mode === 'chat') {
       if (settings.agents.allowed.length && !settings.agents.allowed.includes(command.agent)) {
-        throw new Error(`${this.agentName(command.agent)} non è ammesso in questo progetto (.ladder/settings.toml, [agents] allowed).`)
+        throw new Error(t('{agent} is not allowed in this project (.ladder/settings.toml, [agents] allowed).', { agent: this.agentName(command.agent) }))
       }
       const status = this.agents.get(command.agent)
-      if (!status) throw new Error('Agente sconosciuto: aggiungilo in Impostazioni → Agenti.')
-      if (!status.available) throw new Error(status.error ?? `${status.name} non è disponibile.`)
+      if (!status) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
+      if (!status.available) throw new Error(status.error ?? t('{agent} is not available.', { agent: status.name }))
     }
     command = { ...command, permission: clampPermission(command.permission, settings.agents.permissionsMax) }
     const notices: string[] = []
     // Un branch esistente già estratto nel checkout principale non può avere un worktree: si lavora lì.
     const wanted: WorktreeBranch | null = command.branch ?? null
     const useWorktree = Boolean(command.worktree) && !(wanted?.existing && wanted.name === project.branch)
-    if (command.worktree && !useWorktree) notices.push(`Il branch ${wanted!.name} è già estratto nel checkout principale: la sessione lavora lì.`)
+    if (command.worktree && !useWorktree) notices.push(t('Branch {branch} is already checked out in the main checkout: the session works there.', { branch: wanted!.name }))
     if (useWorktree) {
-      if (!project.isGit) throw new Error('Il worktree richiede un repository git.')
+      if (!project.isGit) throw new Error(t('A worktree requires a git repository.'))
       const created = await createWorktree(project, title, settings.worktree.copy, wanted)
       worktree = created.info
       void ensureExcluded(project.path, PERSONAL_PATTERNS).catch(() => undefined)
-      if (created.missing.length) notices.push(`File da copiare che non ho trovato nel progetto: ${created.missing.join(', ')}.`)
+      if (created.missing.length) notices.push(t('Files to copy that were not found in the project: {files}.', { files: created.missing.join(', ') }))
     }
 
     const row: SessionRow = {
@@ -687,7 +694,7 @@ export class Host {
         this.updateRow(row.id, { queue: JSON.stringify([queued]) })
       }
       this.updateRow(row.id, { run_state: 'running' })
-      this.termStatus.set(row.id, { label: null, activity: 'Prepara il worktree…', turn: null, waitingSince: null })
+      this.termStatus.set(row.id, { label: null, activity: t('Preparing the worktree…'), turn: null, waitingSince: null })
       this.emitSummary(row.id)
       void this.runSetup(row.id, project, worktree.path, settings.worktree.setup).then(async (code) => {
         this.preparing.delete(row.id)
@@ -700,7 +707,10 @@ export class Host {
             turnId: 'system',
             at: Date.now(),
             tone: 'error',
-            text: `Lo script di setup del worktree è uscito ${code === null ? 'senza codice' : `con codice ${code}`}: guarda il terminale “setup”. La sessione parte lo stesso.`
+            text:
+              code === null
+                ? t('The worktree setup script exited without a code: check the “setup” terminal. The session starts anyway.')
+                : t('The worktree setup script exited with code {code}: check the “setup” terminal. The session starts anyway.', { code })
           })
           this.flush()
         }
@@ -739,6 +749,7 @@ export class Host {
     const row = this.mustRow(sessionId)
     this.runtimes.get(sessionId)?.adapter.close()
     this.runtimes.delete(sessionId)
+    this.subagents.forget(sessionId)
     for (const terminal of this.terminals.bySession(sessionId)) this.terminals.close(terminal.id)
     this.termStatus.delete(sessionId)
     this.queuedAt.delete(sessionId)
@@ -752,7 +763,7 @@ export class Host {
       const settings = project ? await loadProjectSettings(project.path) : null
       const cwd = this.cwdOf(row)
       if (project && settings?.worktree.archive && existsSync(cwd)) {
-        this.terminals.spawn({ projectId: project.id, sessionId: null, kind: 'run', title: 'archivio', cwd, command: settings.worktree.archive, port: this.ports.allocate(cwd) })
+        this.terminals.spawn({ projectId: project.id, sessionId: null, kind: 'run', title: t('archive'), cwd, command: settings.worktree.archive, port: this.ports.allocate(cwd) })
       }
     }
   }
@@ -763,7 +774,7 @@ export class Host {
     const project = this.mustProject(projectId)
     const settings = await loadProjectSettings(project.path)
     const action = settings.run.find((r) => r.name === name)
-    if (!action) throw new Error(`Nessuna azione “${name}” in .ladder/settings.toml.`)
+    if (!action) throw new Error(t('No action “{name}” in .ladder/settings.toml.', { name }))
     const row = sessionId ? this.rows.get(sessionId) : undefined
     const cwd = row ? this.cwdOf(row) : project.path
     const same = this.terminals.list().filter((t) => t.kind === 'run' && t.title === action.name && t.cwd === cwd)
@@ -816,13 +827,13 @@ export class Host {
       this.termStatus.set(sessionId, { label: null, activity: null, turn: null, waitingSince: null })
       this.emitSummary(sessionId)
       // Checkpoint di inizio sessione: è il "prima" del diff della sessione.
-      if (!resume) void this.terminalCheckpoint(sessionId, 'session', 'start', 'Avvio della sessione')
+      if (!resume) void this.terminalCheckpoint(sessionId, 'session', 'start', t('Session start'))
     })()
   }
 
   private resumeTerminalSession(sessionId: string): null {
     const row = this.mustRow(sessionId)
-    if (row.mode !== 'terminal') throw new Error('Solo le sessioni terminale si riavviano.')
+    if (row.mode !== 'terminal') throw new Error(t('Only terminal sessions can be restarted.'))
     const terminal = this.terminals.bySession(sessionId, 'agent')[0]
     if (terminal?.state === 'running') return null
     this.startTerminalAgent(sessionId, null, Boolean(row.agent_ref))
@@ -834,7 +845,7 @@ export class Host {
     const project = row ? this.projects.get(row.project_id) : undefined
     if (!row || !project?.isGit) return null
     const root = this.cwdOf(row)
-    const sha = await createCheckpoint(root, `refs/ladder/${sessionId}/${turnId}-${kind}`, `ladder: ${kind === 'start' ? 'inizio' : 'fine'} turno`).catch(() => null)
+    const sha = await createCheckpoint(root, `refs/ladder/${sessionId}/${turnId}-${kind}`, `ladder: turn ${kind}`).catch(() => null)
     if (sha) recordCheckpoint(this.db, { session_id: sessionId, turn_id: turnId, kind, sha, root, label, at: Date.now() })
     return sha
   }
@@ -855,7 +866,7 @@ export class Host {
         break
       case 'turn-start': {
         const turnId = randomUUID()
-        const label = signal.prompt ? titleFrom(signal.prompt) : 'Messaggio nel terminale'
+        const label = signal.prompt ? titleFrom(signal.prompt) : t('Message in the terminal')
         status.turn = { id: turnId, start: this.terminalCheckpoint(sessionId, turnId, 'start', label), at: Date.now() }
         break
       }
@@ -877,7 +888,7 @@ export class Host {
             projectId: project.id,
             itemId: null,
             title: `${project.name} · ${row.title}`,
-            body: `${cli} nel terminale aspetta te: ${(signal.label ?? 'richiesta').toLowerCase()}${signal.activity ? ` · ${signal.activity}` : ''}`
+            body: `${t('{cli} in the terminal is waiting for you: {label}', { cli, label: (signal.label ?? t('request')).toLowerCase() })}${signal.activity ? ` · ${signal.activity}` : ''}`
           })
         }
         break
@@ -920,7 +931,7 @@ export class Host {
 
   private async send(sessionId: string, text: string, attachments: Attachment[] = []): Promise<void> {
     const row = this.mustRow(sessionId)
-    if (row.mode === 'terminal') throw new Error('Una sessione terminale si usa dal suo terminale.')
+    if (row.mode === 'terminal') throw new Error(t('A terminal session is used from its terminal.'))
     const runtime = this.runtimes.get(sessionId)
     if (runtime?.adapter.isRunning || row.run_state === 'waiting' || row.run_state === 'queued' || this.preparing.has(sessionId)) {
       const queue = JSON.parse(row.queue) as QueuedMessage[]
@@ -1004,7 +1015,8 @@ export class Host {
     const turnId = randomUUID()
     runtime.turnId = turnId
     runtime.turnCounts = emptyCounts()
-    runtime.activity = 'Pensa…'
+    this.subagents.turnStarted(sessionId)
+    runtime.activity = t('Thinking…')
     this.upsertItem(sessionId, {
       kind: 'user',
       id: randomUUID(),
@@ -1018,7 +1030,7 @@ export class Host {
     this.emitSummary(sessionId)
     this.flush()
     runtime.turnStart = project.isGit
-      ? await createCheckpoint(cwd, `refs/ladder/${sessionId}/${turnId}-start`, 'ladder: inizio turno').catch(() => null)
+      ? await createCheckpoint(cwd, `refs/ladder/${sessionId}/${turnId}-start`, 'ladder: turn start').catch(() => null)
       : null
     if (runtime.turnStart) recordCheckpoint(this.db, { session_id: sessionId, turn_id: turnId, kind: 'start', sha: runtime.turnStart, root: cwd, label: titleFrom(text), at: Date.now() })
     runtime.adapter.send(text, attachments)
@@ -1058,15 +1070,19 @@ export class Host {
         const agent = this.rows.get(sessionId)?.agent
         if (agent) this.updateAgent(agent, { account, models, limits })
       },
+      subagent: (update) => {
+        if (this.subagents.update(sessionId, update)) this.emitSubagents(sessionId)
+      },
       exit: (error) => {
+        if (this.subagents.stopRunning(sessionId)) this.emitSubagents(sessionId)
         const runtime = this.runtimes.get(sessionId)
         if (!runtime) return
         for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
         this.runtimes.delete(sessionId)
         if (error) {
-          const notice = this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime.turnId ?? 'system', at: Date.now(), tone: 'error', text: `Claude Code si è chiuso: ${error}` })
+          const notice = this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime.turnId ?? 'system', at: Date.now(), tone: 'error', text: t('{agent} exited: {error}', { agent: 'Claude Code', error }) })
           this.updateRow(sessionId, { run_state: 'error', activity_at: Date.now(), last_activity_seq: notice.seq })
-          this.errorAttention(sessionId, notice.id, `Claude Code si è chiuso: ${error}`)
+          this.errorAttention(sessionId, notice.id, t('{agent} exited: {error}', { agent: 'Claude Code', error }))
         } else if (this.rows.get(sessionId)?.run_state !== 'idle') {
           this.updateRow(sessionId, { run_state: 'idle' })
         }
@@ -1103,7 +1119,7 @@ export class Host {
 
   private openRequest(sessionId: string, request: UserRequest, signal: AbortSignal): Promise<RequestResponse> {
     const runtime = this.runtimes.get(sessionId)
-    if (!runtime?.turnId) return Promise.resolve({ optionId: 'deny', message: 'Sessione non attiva.' })
+    if (!runtime?.turnId) return Promise.resolve({ optionId: 'deny', message: t('Session not active.') })
     const requestId = randomUUID()
     // La richiesta è "in sospeso" prima di comparire: il riepilogo della sessione la include già (per "In attesa").
     let resolve!: (response: RequestResponse) => void
@@ -1136,7 +1152,7 @@ export class Host {
     const pending = runtime?.pending.get(requestId)
     const item = this.liveItems.get(sessionId)?.get(requestId) ?? this.loadItems(sessionId).find((i) => i.id === requestId)
     if (!pending || !runtime || !item || item.kind !== 'request') {
-      throw new Error('Questa richiesta non è più attiva.')
+      throw new Error(t('This request is no longer active.'))
     }
     runtime.pending.delete(requestId)
     this.upsertItem(sessionId, { ...item, state: 'resolved', resolution: describeResponse(item, response), via })
@@ -1152,10 +1168,10 @@ export class Host {
     runtime?.pending.delete(requestId)
     const item = this.liveItems.get(sessionId)?.get(requestId)
     if (item?.kind === 'request' && item.state === 'open') {
-      this.upsertItem(sessionId, { ...item, state: 'expired', resolution: 'Scaduta' })
+      this.upsertItem(sessionId, { ...item, state: 'expired', resolution: t('Expired') })
       this.attention({ kind: 'resolved', sessionId, itemId: requestId })
     }
-    pending?.resolve({ optionId: 'deny', message: 'La richiesta è scaduta.' })
+    pending?.resolve({ optionId: 'deny', message: t('The request expired.') })
     if (runtime && runtime.pending.size === 0 && this.rows.get(sessionId)?.run_state === 'waiting') {
       this.updateRow(sessionId, { run_state: runtime.adapter.isRunning ? 'running' : 'idle' })
       this.emitSummary(sessionId)
@@ -1168,12 +1184,14 @@ export class Host {
     if (!runtime || !row) return
     const turnId = runtime.turnId ?? 'system'
     for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
+    // Interruzione o errore: i sotto-agenti in primo piano si fermano con il turno, quelli in background no.
+    if (result.status !== 'completed') this.subagents.stopRunning(sessionId, { foregroundOnly: true })
     const project = this.projects.get(row.project_id)
     const cwd = this.cwdOf(row)
     let files: Extract<ChatItem, { kind: 'turn-end' }>['files'] = []
     let checkpoints: { start: string; end: string } | null = null
     if (project?.isGit && runtime.turnStart) {
-      const end = await createCheckpoint(cwd, `refs/ladder/${sessionId}/${turnId}-end`, 'ladder: fine turno').catch(() => null)
+      const end = await createCheckpoint(cwd, `refs/ladder/${sessionId}/${turnId}-end`, 'ladder: turn end').catch(() => null)
       if (end) {
         recordCheckpoint(this.db, { session_id: sessionId, turn_id: turnId, kind: 'end', sha: end, root: cwd, label: null, at: Date.now() })
         checkpoints = { start: runtime.turnStart, end }
@@ -1210,7 +1228,7 @@ export class Host {
     this.flush()
     this.emitSummary(sessionId)
     if (files.length > 0) this.broadcast({ type: 'fs.changed', root: cwd })
-    if (result.status === 'error') this.errorAttention(sessionId, end.id, result.error ?? 'Il turno si è fermato per un errore.')
+    if (result.status === 'error') this.errorAttention(sessionId, end.id, result.error ?? t('The turn stopped because of an error.'))
     else if (result.status === 'completed' && project) {
       this.attention({ kind: 'turn', sessionId, projectId: project.id, projectName: project.name, itemId: end.id, durationMs: result.durationMs, title: row.title })
     }
@@ -1314,7 +1332,7 @@ export class Host {
 
   private mustRow(sessionId: string): SessionRow {
     const row = this.rows.get(sessionId)
-    if (!row) throw new Error('Sessione non trovata.')
+    if (!row) throw new Error(t('Session not found.'))
     return row
   }
 
@@ -1345,9 +1363,9 @@ export class Host {
     const open = run === 'waiting' ? this.openRequestItems(sessionId) : []
     let waitingLabel: string | null = null
     if (run === 'waiting' && runtime) {
-      waitingLabel = open[0]?.requestType === 'question' ? 'Domanda' : 'Approvazione'
+      waitingLabel = open[0]?.requestType === 'question' ? t('Question') : t('Approval')
     } else if (run === 'waiting') {
-      waitingLabel = term?.label ?? 'Richiede te'
+      waitingLabel = term?.label ?? t('Needs you')
     }
     const limit = this.limitFor(row.agent)
     return {
@@ -1381,11 +1399,24 @@ export class Host {
       request: open[0] ?? null,
       openRequests: run === 'waiting' ? Math.max(1, open.length) : 0,
       activityAt: row.activity_at || row.updated_at,
-      queuedReason: run === 'queued' ? `In coda: ${limit} ${limit === 1 ? 'sessione' : 'sessioni'} ${this.agentName(row.agent)} ${limit === 1 ? 'attiva' : 'attive'}` : null,
+      queuedReason: run === 'queued' ? plural(limit, 'Queued: {n} {agent} session active', 'Queued: {n} {agent} sessions active', { agent: this.agentName(row.agent) }) : null,
       branch: this.branchOf(row),
       pr: this.prOf(row),
-      source: row.source ? (JSON.parse(row.source) as SessionSource) : null
+      source: row.source ? (JSON.parse(row.source) as SessionSource) : null,
+      subagents: this.subagents.list(row.id)
     }
+  }
+
+  /** I sotto-agenti cambiano spesso (uno strumento dopo l'altro, in parallelo): al renderer va un aggiornamento ogni 250 ms. */
+  private emitSubagents(sessionId: string): void {
+    if (this.subagentFlush.has(sessionId)) return
+    this.subagentFlush.set(
+      sessionId,
+      setTimeout(() => {
+        this.subagentFlush.delete(sessionId)
+        this.emitSummary(sessionId)
+      }, 250)
+    )
   }
 
   private emitSummary(sessionId: string): void {
@@ -1432,7 +1463,7 @@ export class Host {
 
   private async listIssues(projectId: string, source: 'github-issue' | 'github-pr' | 'branch'): Promise<IssueList> {
     const project = this.mustProject(projectId)
-    if (!project.isGit) return { items: [], problem: 'Il progetto non è un repository git.' }
+    if (!project.isGit) return { items: [], problem: t('The project is not a git repository.') }
     if (source === 'branch') {
       const branches = await listBranches(project.path)
       return {
@@ -1443,7 +1474,7 @@ export class Host {
           body: null,
           url: null,
           branch: b.name,
-          state: b.name === project.branch ? 'estratto qui' : b.remote ? 'su origin' : 'locale',
+          state: b.name === project.branch ? t('checked out here') : b.remote ? t('on origin') : t('local'),
           updatedAt: b.at
         })),
         problem: null
@@ -1461,9 +1492,9 @@ export class Host {
   /** Stato per il pannello "Pronto per il merge": git locale, PR, CI e commenti. `fetch` aggiorna prima i branch da origin. */
   private async mergeInfo(root: string, fetch: boolean): Promise<MergeInfo> {
     const project = [...this.projects.values()].find((p) => p.path === root) ?? this.projects.get([...this.rows.values()].find((r) => this.cwdOf(r) === root)?.project_id ?? '')
-    if (!project) throw new Error('Cartella sconosciuta a Ladder.')
+    if (!project) throw new Error(t('Folder unknown to Ladder.'))
     const info = await repoInfo(root)
-    if (!info.isGit) throw new Error('La cartella non è un repository git.')
+    if (!info.isGit) throw new Error(t('The folder is not a git repository.'))
     const gh = await ghState(root)
     const fallbackBase = await this.defaultBranchOf(project)
     const branch = info.branch
@@ -1560,7 +1591,9 @@ export class Host {
       turnId: 'system',
       at: Date.now(),
       tone: 'info',
-      text: `La PR #${pr.number} è stata unita: sessione archiviata${removed ? ' e worktree tolto (il branch resta)' : '; il worktree resta perché contiene file non committati'}.`
+      text: removed
+        ? t('PR #{number} was merged: session archived and worktree removed (the branch stays).', { number: pr.number })
+        : t('PR #{number} was merged: session archived; the worktree stays because it has uncommitted files.', { number: pr.number })
     })
     this.flush()
   }
@@ -1580,7 +1613,7 @@ function emptyCounts() {
 
 function titleFrom(text: string): string {
   const line = text.trim().split('\n')[0] ?? ''
-  return line.length > 60 ? `${line.slice(0, 59)}…` : line || 'Nuova sessione'
+  return line.length > 60 ? `${line.slice(0, 59)}…` : line || t('New session')
 }
 
 /** Divide un comando in parole rispettando virgolette semplici e doppie. Niente espansioni della shell. */
@@ -1621,22 +1654,22 @@ async function whichCommand(name: string): Promise<string | null> {
 }
 
 function ghProblem(state: Exclude<Awaited<ReturnType<typeof ghState>>, 'ok'>): string {
-  if (state === 'missing') return 'Serve la CLI gh di GitHub: installala con brew install gh.'
-  if (state === 'unauthenticated') return 'gh non ha un login: esegui gh auth login nel terminale.'
-  return 'Il repository non ha un remote su GitHub.'
+  if (state === 'missing') return t('The GitHub gh CLI is required: install it with brew install gh.')
+  if (state === 'unauthenticated') return t('gh is not logged in: run gh auth login in the terminal.')
+  return t('The repository has no GitHub remote.')
 }
 
 /** Testo della notifica di una richiesta. */
 function requestBody(request: UserRequest): string {
-  if (request.requestType === 'question') return `Claude Code ti fa una domanda: ${request.title}`
-  if (request.command) return `Claude Code chiede di eseguire: ${request.command}`
-  if (request.path) return `Claude Code chiede di modificare ${request.path}`
-  return `Claude Code chiede di usare ${request.toolName}`
+  if (request.requestType === 'question') return t('Claude Code asks you a question: {title}', { title: request.title })
+  if (request.command) return t('Claude Code asks to run: {command}', { command: request.command })
+  if (request.path) return t('Claude Code asks to edit {path}', { path: request.path })
+  return t('Claude Code asks to use {tool}', { tool: request.toolName })
 }
 
 function describeResponse(item: Extract<ChatItem, { kind: 'request' }>, response: RequestResponse): string {
   if ('answers' in response) return Object.values(response.answers).join(', ')
   const option = item.options.find((o) => o.id === response.optionId)
-  if (option?.kind === 'deny') return response.message ? `Rifiutato: ${response.message}` : 'Rifiutato'
-  return option?.kind === 'allow-always' ? 'Consentito sempre' : 'Approvato'
+  if (option?.kind === 'deny') return response.message ? t('Denied: {message}', { message: response.message }) : t('Denied')
+  return option?.kind === 'allow-always' ? t('Always allowed') : t('Approved')
 }

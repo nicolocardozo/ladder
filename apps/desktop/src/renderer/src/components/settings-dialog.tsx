@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bot, Check, Moon, Palette, Plug, Sun, type LucideIcon } from 'lucide-react'
 import type { AcpAgentSpec, AgentStatus, AppPrefs, RegistryAgent } from '@shared/protocol'
 import { request } from '@/lib/host-client'
+import { getLocale, localeTag, LOCALES, plural, t } from '@shared/i18n'
+import { AgentMark } from '@/components/agent-mark'
 import { useApp } from '@/store/app-store'
 import type { ThemeInfo } from '@shared/themes.generated'
 import { LadderLockup } from '@/components/brand/logo'
@@ -46,11 +48,16 @@ function ThemePreview({ theme }: { theme: ThemeInfo }) {
 type Section = SettingsSection
 
 const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
-  { id: 'appearance', label: 'Aspetto', icon: Palette },
-  { id: 'notifications', label: 'Notifiche', icon: Bell },
-  { id: 'agents', label: 'Agenti', icon: Bot },
-  { id: 'integrations', label: 'Integrazioni', icon: Plug }
+  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'integrations', label: 'Integrations', icon: Plug }
 ]
+
+/** Testo tradotto con elementi React al posto dei segnaposto `{nome}`. */
+function withNodes(text: string, nodes: Record<string, ReactNode>): ReactNode[] {
+  return text.split(/\{(\w+)\}/).map((part, i) => (i % 2 === 1 ? <Fragment key={i}>{nodes[part] ?? `{${part}}`}</Fragment> : part))
+}
 
 export function SettingsDialog() {
   const open = useSettings((s) => s.settingsOpen)
@@ -62,21 +69,23 @@ export function SettingsDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="flex max-h-[86vh] w-[min(920px,calc(100vw-48px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
         <div className="flex min-h-0 flex-1">
-          <nav className="flex w-[190px] shrink-0 flex-col gap-1 border-r border-border bg-sidebar p-3" aria-label="Sezioni delle impostazioni">
+          <nav className="flex w-[190px] shrink-0 flex-col gap-1 border-r border-border bg-sidebar p-3" aria-label={t('Settings sections')}>
             <LadderLockup className="mx-1 mt-1 mb-4 h-[18px] w-auto" title="Ladder" />
             {SECTIONS.map((item) => (
               <button
                 key={item.id}
                 type="button"
+                // Il focus all'apertura va sulla sezione aperta, non sulla prima dell'elenco.
+                autoFocus={section === item.id && section !== 'appearance'}
                 aria-current={section === item.id ? 'page' : undefined}
                 onClick={() => setSection(item.id)}
                 className={cn(
-                  'flex h-8 items-center gap-2 rounded-md px-2.5 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                  'flex h-8 items-center gap-2 rounded-md px-2.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                   section === item.id ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
                 )}
               >
                 <item.icon className="size-4" strokeWidth={1.75} />
-                {item.label}
+                {t(item.label)}
               </button>
             ))}
           </nav>
@@ -106,11 +115,12 @@ function AppearanceSection({ open }: { open: boolean }) {
 
   return (
     <>
-            <DialogTitle className="text-[17px] font-semibold">Aspetto</DialogTitle>
-            <DialogDescription className="mt-1 max-w-[60ch] text-[13px] text-muted-foreground">
-              Il tema cambia chat, navigazione, pannelli e dialoghi in tutte le finestre e resta dopo il riavvio. Il marchio e l’icona dell’app restano Circuit.
+            <DialogTitle className="text-xl font-semibold">{t('Appearance')}</DialogTitle>
+            <DialogDescription className="mt-1 max-w-[60ch] text-sm text-muted-foreground">
+              {t('The theme changes chat, navigation, panels and dialogs in every window, and stays after a restart. The logo takes on the theme colors too; the app icon in the Dock stays Circuit.')}
             </DialogDescription>
-            <div ref={grid} className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3" role="radiogroup" aria-label="Tema">
+            <LanguagePicker />
+            <div ref={grid} className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3" role="radiogroup" aria-label={t('Theme')}>
               {THEMES.map((theme) => {
                 const selected = theme.id === current
                 return (
@@ -127,19 +137,44 @@ function AppearanceSection({ open }: { open: boolean }) {
                   >
                     <ThemePreview theme={theme} />
                     <span className="flex items-center gap-2 px-0.5 pb-0.5">
-                      <span className={cn('text-[13px]', selected ? 'font-semibold' : 'font-medium')}>{theme.name}</span>
-                      {theme.id === 'circuit' && <span className="rounded border border-border px-1 text-[10px] text-muted-foreground">predefinito</span>}
-                      <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-muted-foreground">
+                      <span className={cn('text-sm', selected ? 'font-semibold' : 'font-medium')}>{theme.name}</span>
+                      {theme.id === 'circuit' && <span className="rounded border border-border px-1 text-xs text-muted-foreground">{t('default')}</span>}
+                      <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
                         {theme.appearance === 'dark' ? <Moon className="size-3" /> : <Sun className="size-3" />}
-                        {theme.appearance === 'dark' ? 'Scuro' : 'Chiaro'}
+                        {theme.appearance === 'dark' ? t('Dark') : t('Light')}
                       </span>
-                      {selected && <Check className="size-3.5 text-primary" aria-label="Selezionato" />}
+                      {selected && <Check className="size-3.5 text-primary" aria-label={t('Selected')} />}
                     </span>
                   </button>
                 )
               })}
             </div>
     </>
+  )
+}
+
+/** Lingua dell'interfaccia: inglese per default. Cambia subito tutta l'app, senza riavviare. */
+function LanguagePicker() {
+  const [prefs, update] = usePrefs()
+  const current = prefs?.locale ?? getLocale()
+  return (
+    <div className="mt-5 flex items-center gap-3" role="radiogroup" aria-label={t('Language')}>
+      <span className="text-sm font-medium">{t('Language')}</span>
+      <div className="flex gap-1 rounded-md bg-muted p-0.5">
+        {LOCALES.map((locale) => (
+          <button
+            key={locale.id}
+            type="button"
+            role="radio"
+            aria-checked={current === locale.id}
+            onClick={() => update({ locale: locale.id })}
+            className={cn('h-7 rounded-sm px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50', current === locale.id ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+          >
+            {locale.name}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -157,8 +192,8 @@ function Toggle({ label, description, checked, onChange, disabled }: { label: st
     <label className={cn('flex items-start gap-3 py-3', disabled && 'opacity-60')}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-primary [color-scheme:light] dark:[color-scheme:dark]" />
       <span className="flex flex-col gap-0.5">
-        <span className="text-[13px] font-medium">{label}</span>
-        <span className="text-[12.5px] text-muted-foreground">{description}</span>
+        <span className="text-sm font-medium">{label}</span>
+        <span className="text-sm text-muted-foreground">{description}</span>
       </span>
     </label>
   )
@@ -166,23 +201,23 @@ function Toggle({ label, description, checked, onChange, disabled }: { label: st
 
 function NotificationsSection() {
   const [prefs, update] = usePrefs()
-  if (!prefs) return <p className="text-[13px] text-muted-foreground">Le preferenze sono disponibili nell’app.</p>
+  if (!prefs) return <p className="text-sm text-muted-foreground">{t('Preferences are available in the app.')}</p>
   const dnd = Boolean(prefs.dndUntil && prefs.dndUntil > Date.now())
   return (
     <>
-      <DialogTitle className="text-[17px] font-semibold">Notifiche</DialogTitle>
-      <DialogDescription className="mt-1 max-w-[62ch] text-[13px] text-muted-foreground">
-        Approvazioni e domande arrivano subito, tranne se stai guardando quella sessione. Le risposte pronte solo per turni oltre un minuto, se non sei nel progetto, raccolte per progetto. Il clic porta alla sessione e all’elemento.
+      <DialogTitle className="text-xl font-semibold">{t('Notifications')}</DialogTitle>
+      <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
+        {t('Approvals and questions arrive right away, unless you’re looking at that session. Finished replies only for turns over a minute, when you’re not in the project, grouped by project. Clicking takes you to the session and the item.')}
       </DialogDescription>
       <div className="mt-4 flex max-w-[62ch] flex-col divide-y divide-border">
-        <Toggle label="Notifiche di macOS" description="Le richieste restano comunque in “In attesa” e nel badge del Dock." checked={prefs.notifications} onChange={(notifications) => update({ notifications })} />
-        <Toggle label="Suono per approvazioni e domande" description="Solo per ciò che blocca un agente; le risposte pronte restano silenziose." checked={prefs.sound} disabled={!prefs.notifications} onChange={(sound) => update({ sound })} />
+        <Toggle label={t('macOS notifications')} description={t('Requests still stay in “Waiting” and in the Dock badge.')} checked={prefs.notifications} onChange={(notifications) => update({ notifications })} />
+        <Toggle label={t('Sound for approvals and questions')} description={t('Only for what blocks an agent; finished replies stay silent.')} checked={prefs.sound} disabled={!prefs.notifications} onChange={(sound) => update({ sound })} />
         <Toggle
-          label="Non disturbare per 1 ora"
+          label={t('Do Not Disturb for 1 hour')}
           description={
             dnd
-              ? `Attivo fino alle ${new Date(prefs.dndUntil!).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}. “In attesa” e il badge continuano a contare.`
-              : 'Sospende le notifiche; “In attesa” e il badge continuano a contare. Anche dal menu Ladder e da ⌘K.'
+              ? t('On until {time}. “Waiting” and the badge keep counting.', { time: new Date(prefs.dndUntil!).toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' }) })
+              : t('Pauses notifications; “Waiting” and the badge keep counting. Also from the Ladder menu and ⌘K.')
           }
           checked={dnd}
           onChange={(on) => update({ dndUntil: on ? Date.now() + 60 * 60_000 : null })}
@@ -201,16 +236,16 @@ function TestNotification() {
       <button
         type="button"
         onClick={() => void window.ladder?.testNotification().then((ok) => setState(ok ? 'sent' : 'unsupported'))}
-        className="h-8 shrink-0 rounded-md border border-input px-3 text-[13px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="h-8 shrink-0 rounded-md border border-input px-3 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        Invia una notifica di prova
+        {t('Send a test notification')}
       </button>
-      <p role="status" className="text-[12.5px] text-muted-foreground">
+      <p role="status" className="text-sm text-muted-foreground">
         {state === 'sent'
-          ? 'Inviata. Se non la vedi, abilita Ladder in Impostazioni di sistema → Notifiche.'
+          ? t('Sent. If you don’t see it, enable Ladder in System Settings → Notifications.')
           : state === 'unsupported'
-            ? 'Questo Mac non accetta notifiche da Ladder.'
-            : 'Arriva anche con “Non disturbare”. La prima volta macOS ti chiede il permesso.'}
+            ? t('This Mac doesn’t accept notifications from Ladder.')
+            : t('It arrives even with “Do Not Disturb” on. The first time, macOS asks for permission.')}
       </p>
     </div>
   )
@@ -221,9 +256,9 @@ function AgentsSection() {
   const agents = useApp((s) => s.agents)
   return (
     <>
-      <DialogTitle className="text-[17px] font-semibold">Agenti</DialogTitle>
-      <DialogDescription className="mt-1 max-w-[62ch] text-[13px] text-muted-foreground">
-        Claude Code e Codex hanno un adapter nativo. Gli altri agenti parlano ACP, il protocollo aperto tra editor e agenti: per aggiungerne uno basta il comando che lo avvia.
+      <DialogTitle className="text-xl font-semibold">{t('Agents')}</DialogTitle>
+      <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
+        {t('Claude Code and Codex have a native adapter. Other agents speak ACP, the open protocol between editors and agents: to add one, all you need is the command that starts it.')}
       </DialogDescription>
       <div className="mt-4 flex max-w-[66ch] flex-col divide-y divide-border rounded-lg border border-border">
         {agents.map((agent) => (
@@ -233,13 +268,13 @@ function AgentsSection() {
       {prefs && (
         <label className="mt-5 flex max-w-[66ch] items-center gap-3">
           <span className="flex flex-col">
-            <span className="text-[13px] font-medium">Sessioni attive insieme per agente</span>
-            <span className="text-[12px] text-muted-foreground">Oltre il limite le sessioni aspettano “In coda” e partono da sole. Le sessioni nel terminale non contano.</span>
+            <span className="text-sm font-medium">{t('Concurrent sessions per agent')}</span>
+            <span className="text-xs text-muted-foreground">{t('Beyond the limit, sessions wait as “Queued” and start on their own. Terminal sessions don’t count.')}</span>
           </span>
           <select
             value={prefs.maxActive}
             onChange={(e) => update({ maxActive: Number(e.target.value) })}
-            className="ml-auto h-8 shrink-0 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="ml-auto h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
@@ -263,21 +298,22 @@ function AgentRow({ agent }: { agent: AgentStatus }) {
   }
   return (
     <div className="flex items-start gap-3 px-3 py-2.5">
-      <span aria-hidden className={cn('mt-[6px] size-2 shrink-0 rounded-full', agent.available ? 'bg-success' : 'bg-muted-foreground/50')} />
+      <AgentMark agent={agent.agent} size={18} className={cn('mt-0.5', agent.available ? 'text-foreground' : 'text-muted-foreground')} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-baseline gap-2">
-          <span className="text-[13px] font-medium">{agent.name}</span>
-          <span className="text-[11.5px] text-muted-foreground">{agent.kind === 'acp' ? 'ACP' : 'nativo'}</span>
-          {agent.version && <span className="font-mono text-[11px] text-faint">v{agent.version}</span>}
+          <span className="text-sm font-medium">{agent.name}</span>
+          {!agent.available && <span className="text-xs font-medium text-destructive">{t('not available')}</span>}
+          <span className="text-xs text-muted-foreground">{agent.kind === 'acp' ? 'ACP' : t('native')}</span>
+          {agent.version && <span className="font-mono text-xs text-faint">v{agent.version}</span>}
         </span>
-        <span className={cn('text-[12px]', agent.available ? 'text-muted-foreground' : 'text-destructive')}>
-          {agent.available ? [agent.account, agent.models.length ? `${agent.models.length} modelli` : null, agent.limits].filter(Boolean).join(' · ') || 'Pronto' : agent.error}
+        <span className={cn('text-xs', agent.available ? 'text-muted-foreground' : 'text-destructive')}>
+          {agent.available ? [agent.account, agent.models.length ? plural(agent.models.length, '{n} model', '{n} models') : null, agent.limits].filter(Boolean).join(' · ') || t('Ready') : agent.error}
         </span>
-        {agent.path && <span className="truncate font-mono text-[11px] text-faint">{agent.path}</span>}
+        {agent.path && <span className="truncate font-mono text-xs text-faint">{agent.path}</span>}
       </span>
       {agent.kind === 'acp' && (
-        <button type="button" disabled={busy} onClick={() => void remove()} className="h-7 shrink-0 rounded-md border border-input px-2.5 text-[12.5px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
-          Togli
+        <button type="button" disabled={busy} onClick={() => void remove()} className="h-7 shrink-0 rounded-md border border-input px-2.5 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
+          {t('Remove')}
         </button>
       )}
     </div>
@@ -298,7 +334,7 @@ function AddAcpAgent() {
     if (tab !== 'registry' || registry) return
     request<RegistryAgent[]>({ type: 'agents.registry' })
       .then(setRegistry)
-      .catch((e: Error) => setProblem(`Registro ACP non raggiungibile: ${e.message}`))
+      .catch((e: Error) => setProblem(t('ACP registry unreachable: {error}', { error: e.message })))
   }, [tab, registry])
 
   const add = async (spec: AcpAgentSpec) => {
@@ -325,16 +361,16 @@ function AddAcpAgent() {
   return (
     <section className="mt-6 flex max-w-[66ch] flex-col gap-2">
       <div className="flex items-center gap-1">
-        <h3 className="mr-2 text-[13px] font-semibold">Aggiungi un agente ACP</h3>
+        <h3 className="mr-2 text-sm font-semibold">{t('Add an ACP agent')}</h3>
         {(['registry', 'custom'] as const).map((id) => (
           <button
             key={id}
             type="button"
             aria-pressed={tab === id}
             onClick={() => setTab(id)}
-            className={cn('h-7 rounded-md px-2.5 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50', tab === id ? 'bg-accent font-medium' : 'text-muted-foreground hover:bg-accent/60')}
+            className={cn('h-7 rounded-md px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50', tab === id ? 'bg-accent font-medium' : 'text-muted-foreground hover:bg-accent/60')}
           >
-            {id === 'registry' ? 'Dal registro' : 'Comando'}
+            {id === 'registry' ? t('From registry') : t('Command')}
           </button>
         ))}
       </div>
@@ -343,20 +379,20 @@ function AddAcpAgent() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cerca: gemini, opencode, goose…"
-            aria-label="Cerca nel registro ACP"
-            className="h-8 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:border-ring"
+            placeholder={t('Search: gemini, opencode, goose…')}
+            aria-label={t('Search the ACP registry')}
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
           />
           <div className="max-h-[260px] overflow-y-auto rounded-lg border border-border">
-            {!registry && !problem && <p className="px-3 py-3 text-[12.5px] text-muted-foreground">Leggo il registro…</p>}
+            {!registry && !problem && <p className="px-3 py-3 text-sm text-muted-foreground">{t('Reading the registry…')}</p>}
             {shown.map((r) => (
               <div key={r.id} className="flex items-start gap-3 border-b border-border px-3 py-2 last:border-0">
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-[13px] font-medium">
-                    {r.name} <span className="font-mono text-[11px] font-normal text-faint">v{r.version}</span>
+                  <span className="text-sm font-medium">
+                    {r.name} <span className="font-mono text-xs font-normal text-faint">v{r.version}</span>
                   </span>
-                  <span className="line-clamp-2 text-[12px] text-muted-foreground">{r.description}</span>
-                  <span className="truncate font-mono text-[11px] text-faint">
+                  <span className="line-clamp-2 text-xs text-muted-foreground">{r.description}</span>
+                  <span className="truncate font-mono text-xs text-faint">
                     {r.command} {r.args.join(' ')}
                   </span>
                 </span>
@@ -364,14 +400,14 @@ function AddAcpAgent() {
                   type="button"
                   disabled={r.added || busy === r.id}
                   onClick={() => void add({ id: r.id, name: r.name, command: r.command, args: r.args, source: 'registry' })}
-                  className="h-7 shrink-0 rounded-md border border-input px-2.5 text-[12.5px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
+                  className="h-7 shrink-0 rounded-md border border-input px-2.5 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
                 >
-                  {r.added ? 'Aggiunto' : busy === r.id ? 'Aggiungo…' : 'Aggiungi'}
+                  {r.added ? t('Added') : busy === r.id ? t('Adding…') : t('Add')}
                 </button>
               </div>
             ))}
           </div>
-          <p className="text-[11.5px] text-muted-foreground">Gli agenti si avviano con npx o uvx al primo uso; il login lo fa l’agente stesso. Quelli distribuiti solo come binari arriveranno più avanti.</p>
+          <p className="text-xs text-muted-foreground">{t('Agents start with npx or uvx on first use; the agent handles its own login. Those distributed only as binaries will come later.')}</p>
         </>
       ) : (
         <form
@@ -381,21 +417,21 @@ function AddAcpAgent() {
             if (name.trim() && words.length) void add({ id: '', name: name.trim(), command: words[0], args: words.slice(1), source: 'custom' })
           }}
         >
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome, per esempio Gemini" aria-label="Nome dell’agente" className="h-8 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:border-ring" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('Name, e.g. Gemini')} aria-label={t('Agent name')} className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring" />
           <input
             value={commandLine}
             onChange={(e) => setCommandLine(e.target.value)}
-            placeholder="Comando, per esempio gemini --experimental-acp"
-            aria-label="Comando dell’agente"
+            placeholder={t('Command, e.g. gemini --experimental-acp')}
+            aria-label={t('Agent command')}
             spellCheck={false}
-            className="h-8 rounded-md border border-input bg-background px-2 font-mono text-[12.5px] outline-none focus-visible:border-ring"
+            className="h-8 rounded-md border border-input bg-background px-2 font-mono text-sm outline-none focus-visible:border-ring"
           />
-          <button type="submit" disabled={!name.trim() || words.length === 0 || busy !== null} className="h-8 self-start rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50">
-            {busy ? 'Aggiungo…' : 'Aggiungi'}
+          <button type="submit" disabled={!name.trim() || words.length === 0 || busy !== null} className="h-8 self-start rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50">
+            {busy ? t('Adding…') : t('Add')}
           </button>
         </form>
       )}
-      {problem && <p className="text-[12.5px] text-destructive">{problem}</p>}
+      {problem && <p className="text-sm text-destructive">{problem}</p>}
     </section>
   )
 }
@@ -419,28 +455,32 @@ function IntegrationsSection() {
   }
   return (
     <>
-      <DialogTitle className="text-[17px] font-semibold">Integrazioni</DialogTitle>
-      <DialogDescription className="mt-1 max-w-[62ch] text-[13px] text-muted-foreground">
-        Servono a “Nuova sessione da…” (⌘⇧N) e al pannello Merge.
+      <DialogTitle className="text-xl font-semibold">{t('Integrations')}</DialogTitle>
+      <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
+        {t('Used by “New session from…” (⌘⇧N) and the Merge panel.')}
       </DialogDescription>
       <div className="mt-5 flex max-w-[62ch] flex-col gap-5">
         <section className="flex flex-col gap-1">
-          <h3 className="text-[13px] font-semibold">GitHub</h3>
-          <p className="text-[12.5px] text-muted-foreground">
-            Ladder usa la CLI <code className="font-mono">gh</code> con il suo login: issue, PR, CI e commenti si leggono da lì e Ladder non conserva token. Se manca: <code className="font-mono">brew install gh</code>, poi <code className="font-mono">gh auth login</code>.
+          <h3 className="text-sm font-semibold">GitHub</h3>
+          <p className="text-sm text-muted-foreground">
+            {withNodes(t('Ladder uses the {gh} CLI with its login: issues, PRs, CI and comments are read from there, and Ladder keeps no tokens. If it’s missing: {install}, then {login}.'), {
+              gh: <code className="font-mono">gh</code>,
+              install: <code className="font-mono">brew install gh</code>,
+              login: <code className="font-mono">gh auth login</code>
+            })}
           </p>
         </section>
         <section className="flex flex-col gap-2">
-          <h3 className="text-[13px] font-semibold">Linear</h3>
-          <p className="text-[12.5px] text-muted-foreground">
-            Crea una chiave API personale in Linear (Impostazioni → Sicurezza e accesso) e incollala qui. Si salva cifrata nel portachiavi di macOS e si usa solo per leggere le tue issue.
+          <h3 className="text-sm font-semibold">Linear</h3>
+          <p className="text-sm text-muted-foreground">
+            {t('Create a personal API key in Linear (Settings → Security & access) and paste it here. It’s stored encrypted in the macOS Keychain and only used to read your issues.')}
           </p>
           {linear?.connected ? (
-            <div className="flex items-center gap-2 text-[12.5px]">
+            <div className="flex items-center gap-2 text-sm">
               <Check aria-hidden className="size-3.5 text-success" />
-              <span>Collegato come {linear.name}</span>
-              <button type="button" disabled={busy} onClick={() => void save(null)} className="ml-auto h-7 rounded-md border border-input px-2.5 text-[12.5px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
-                Scollega
+              <span>{t('Connected as {name}', { name: linear.name ?? '' })}</span>
+              <button type="button" disabled={busy} onClick={() => void save(null)} className="ml-auto h-7 rounded-md border border-input px-2.5 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
+                {t('Disconnect')}
               </button>
             </div>
           ) : (
@@ -456,17 +496,17 @@ function IntegrationsSection() {
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
                 placeholder="lin_api_…"
-                aria-label="Chiave API di Linear"
+                aria-label={t('Linear API key')}
                 autoComplete="off"
                 spellCheck={false}
-                className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-[12.5px] outline-none focus-visible:border-ring"
+                className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-sm outline-none focus-visible:border-ring"
               />
-              <button type="submit" disabled={busy || !key.trim()} className="h-8 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50">
-                {busy ? 'Provo…' : 'Collega'}
+              <button type="submit" disabled={busy || !key.trim()} className="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50">
+                {busy ? t('Checking…') : t('Connect')}
               </button>
             </form>
           )}
-          {linear?.error && <p className="text-[12.5px] text-destructive">{linear.error}</p>}
+          {linear?.error && <p className="text-sm text-destructive">{linear.error}</p>}
         </section>
       </div>
     </>

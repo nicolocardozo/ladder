@@ -13,6 +13,7 @@ import { promisify } from 'node:util'
 import * as pty from 'node-pty'
 import { Terminal as Headless } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
+import { getLocale, t } from '@shared/i18n'
 import type { TerminalInfo } from '@shared/protocol'
 import type { Db } from './db'
 
@@ -175,7 +176,7 @@ export class TerminalManager {
     live.proc = null
     live.options = { ...live.options, ...patch }
     this.db.prepare('update terminals set command = ?, meta = ? where id = ?').run(live.options.command, JSON.stringify(this.meta(live.options)), id)
-    this.write(live, '\r\n\x1b[2m— nuovo avvio —\x1b[0m\r\n')
+    this.write(live, `\r\n\x1b[2m— ${t('restarted')} —\x1b[0m\r\n`)
     this.start(live)
     return live.info
   }
@@ -184,7 +185,7 @@ export class TerminalManager {
   attach(id: string, cols: number, rows: number): string {
     const live = this.must(id)
     if (live.info.state === 'stopped' && live.info.kind === 'shell') {
-      this.write(live, '\r\n\x1b[2m— Ladder è stato riavviato: nuova shell —\x1b[0m\r\n')
+      this.write(live, `\r\n\x1b[2m— ${t('Ladder was restarted: new shell')} —\x1b[0m\r\n`)
       this.start(live, cols, rows)
     } else this.resize(id, cols, rows)
     this.flush(live)
@@ -271,7 +272,7 @@ export class TerminalManager {
 
   private must(id: string): Live {
     const live = this.terminals.get(id)
-    if (!live) throw new Error('Terminale non trovato.')
+    if (!live) throw new Error(t('Terminal not found.'))
     return live
   }
 
@@ -343,7 +344,7 @@ export class TerminalManager {
       })
     } catch (error) {
       live.info = { ...live.info, state: 'exited', exitCode: null }
-      this.write(live, `\r\n\x1b[31mNon riesco ad avviare ${basename(file)}: ${(error as Error).message}\x1b[0m\r\n`)
+      this.write(live, `\r\n\x1b[31m${t('Can’t start {file}: {message}', { file: basename(file), message: (error as Error).message })}\x1b[0m\r\n`)
       this.events.upsert(live.info)
       live.agent?.onExit(null)
       this.resolveExit(live.info.id, null)
@@ -363,7 +364,8 @@ export class TerminalManager {
       live.proc = null
       live.info = { ...live.info, state: 'exited', exitCode }
       const tone = exitCode === 0 ? '2' : '31'
-      this.write(live, `\r\n\x1b[${tone}m[processo terminato${exitCode === 0 ? '' : ` con codice ${exitCode}`}]\x1b[0m\r\n`)
+      const ended = exitCode === 0 ? t('[process exited]') : t('[process exited with code {code}]', { code: exitCode })
+      this.write(live, `\r\n\x1b[${tone}m${ended}\x1b[0m\r\n`)
       this.events.upsert(live.info)
       live.agent?.onExit(exitCode)
       this.resolveExit(live.info.id, exitCode)
@@ -423,7 +425,7 @@ export class TerminalManager {
     env.TERM = 'xterm-256color'
     env.COLORTERM = 'truecolor'
     env.TERM_PROGRAM = 'Ladder'
-    env.LANG ??= 'it_IT.UTF-8'
+    env.LANG ??= getLocale() === 'it' ? 'it_IT.UTF-8' : 'en_US.UTF-8'
     env.HOME ??= homedir()
     if (live.info.port !== null) env.LADDER_PORT = String(live.info.port)
     if (live.options.agent?.kind === 'claude') {
@@ -505,12 +507,13 @@ function hookActivity(payload: Record<string, unknown>): string | null {
   const input = (payload.tool_input ?? {}) as Record<string, unknown>
   if (!tool) return null
   const first = (value: unknown) => (typeof value === 'string' ? value.split('\n')[0].slice(0, 80) : null)
-  if (tool === 'Bash') return `Esegue ${first(input.command) ?? 'un comando'}`
-  if (tool === 'Read') return `Legge ${first(input.file_path) ? basename(String(input.file_path)) : 'un file'}`
-  if (tool === 'Edit' || tool === 'MultiEdit' || tool === 'Write') return `Modifica ${first(input.file_path) ? basename(String(input.file_path)) : 'un file'}`
-  if (tool === 'Grep' || tool === 'Glob') return `Cerca ${first(input.pattern) ?? ''}`.trim()
-  if (tool === 'WebFetch' || tool === 'WebSearch') return 'Cerca sul web'
-  return `Usa ${tool}`
+  const file = () => (first(input.file_path) ? basename(String(input.file_path)) : t('a file'))
+  if (tool === 'Bash') return t('Runs {command}', { command: first(input.command) ?? t('a command') })
+  if (tool === 'Read') return t('Reads {file}', { file: file() })
+  if (tool === 'Edit' || tool === 'MultiEdit' || tool === 'Write') return t('Edits {file}', { file: file() })
+  if (tool === 'Grep' || tool === 'Glob') return t('Searches {pattern}', { pattern: first(input.pattern) ?? '' }).trim()
+  if (tool === 'WebFetch' || tool === 'WebSearch') return t('Searches the web')
+  return t('Uses {tool}', { tool })
 }
 
 /**
@@ -568,30 +571,30 @@ class AgentTracker {
         return
       case 'UserPromptSubmit':
         this.emit({ type: 'turn-start', prompt: typeof payload.prompt === 'string' ? payload.prompt : null })
-        this.set('running', { type: 'running', activity: 'Pensa…', estimated: false })
+        this.set('running', { type: 'running', activity: t('Thinking…'), estimated: false })
         return
       case 'PreToolUse':
-        if (isQuestion) this.set('waiting', { type: 'waiting', label: 'Domanda', activity: null, estimated: false })
+        if (isQuestion) this.set('waiting', { type: 'waiting', label: t('Question'), activity: null, estimated: false })
         else this.set('running', { type: 'running', activity: hookActivity(payload), estimated: false })
         return
       case 'PostToolUse':
-        this.set('running', { type: 'running', activity: 'Pensa…', estimated: false })
+        this.set('running', { type: 'running', activity: t('Thinking…'), estimated: false })
         return
       case 'PermissionRequest':
-        if (isQuestion) this.set('waiting', { type: 'waiting', label: 'Domanda', activity: null, estimated: false })
-        else this.set('waiting', { type: 'waiting', label: 'Approvazione', activity: hookActivity(payload), estimated: false })
+        if (isQuestion) this.set('waiting', { type: 'waiting', label: t('Question'), activity: null, estimated: false })
+        else this.set('waiting', { type: 'waiting', label: t('Approval'), activity: hookActivity(payload), estimated: false })
         return
       case 'Notification':
         // permission_prompt arriva 6 s dopo PermissionRequest: serve solo se quello è mancato. idle_prompt è un falso "in attesa".
         if (payload.notification_type === 'permission_prompt' && this.state !== 'waiting')
-          this.set('waiting', { type: 'waiting', label: 'Approvazione', activity: null, estimated: false })
+          this.set('waiting', { type: 'waiting', label: t('Approval'), activity: null, estimated: false })
         return
       case 'Stop':
         this.set('idle', { type: 'done', estimated: false })
         return
       case 'StopFailure':
         this.state = 'idle'
-        this.emit({ type: 'error', message: typeof payload.error === 'string' ? payload.error : 'errore dell’agente' })
+        this.emit({ type: 'error', message: typeof payload.error === 'string' ? payload.error : t('agent error') })
         return
     }
   }
@@ -600,7 +603,7 @@ class AgentTracker {
     if (this.kind !== 'codex') return
     if (/^Approval requested/i.test(data)) {
       const what = data.replace(/^Approval requested:\s*/i, '').slice(0, 80)
-      this.set('waiting', { type: 'waiting', label: 'Approvazione', activity: what ? `Chiede di eseguire ${what}` : null, estimated: false })
+      this.set('waiting', { type: 'waiting', label: t('Approval'), activity: what ? t('Asks to run {command}', { command: what }) : null, estimated: false })
     } else if (this.state === 'running' || this.state === 'waiting') {
       this.set('idle', { type: 'done', estimated: false })
     }
@@ -608,7 +611,7 @@ class AgentTracker {
 
   onBell(): void {
     // Codex manda OSC 9; per le altre CLI il campanello è l'unico segnale che chiedono qualcosa.
-    if (this.kind === 'generic' && this.state !== 'waiting') this.set('waiting', { type: 'waiting', label: 'Richiede te', activity: null, estimated: true })
+    if (this.kind === 'generic' && this.state !== 'waiting') this.set('waiting', { type: 'waiting', label: t('Needs you'), activity: null, estimated: true })
   }
 
   onInput(data: string): void {
@@ -629,7 +632,7 @@ class AgentTracker {
     }
     if (enter && (this.state === 'idle' || this.state === 'starting') && this.kind === 'codex') {
       this.emit({ type: 'turn-start', prompt: null })
-      this.set('running', { type: 'running', activity: 'Lavora…', estimated: false })
+      this.set('running', { type: 'running', activity: t('Working…'), estimated: false })
     }
   }
 

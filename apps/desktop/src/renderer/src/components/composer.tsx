@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { ArrowUp, AtSign, ChevronDown, Clock, ImagePlus, Plus, ShieldCheck, Square } from 'lucide-react'
 import type { AgentId, Attachment, Effort, PermissionLevel, QueuedMessage } from '@shared/protocol'
+import { t } from '@shared/i18n'
 import { IconButton } from '@/components/icon-button'
 import {
   DropdownMenu,
@@ -13,7 +14,8 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { allowedLevels, nativeKey, permissionLevels } from '@/lib/agents'
+import { allowedLevels, levelHint, levelLabel, levelNative, permissionLevels } from '@/lib/agents'
+import { AgentMark, modelLabel as prettyModel } from '@/components/agent-mark'
 import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
@@ -23,12 +25,13 @@ import { findMention, mentionToken, rankFiles, refreshProjectFiles, useProjectFi
 import { MentionPicker, optionId, type MentionOption } from '@/components/composer/mention-picker'
 import { QueueList } from '@/components/composer/queue-list'
 
+// Etichette in inglese: si traducono con t() dove si mostrano.
 const EFFORTS: { id: Effort; label: string }[] = [
-  { id: 'low', label: 'Basso' },
-  { id: 'medium', label: 'Medio' },
-  { id: 'high', label: 'Alto' },
-  { id: 'xhigh', label: 'Molto alto' },
-  { id: 'max', label: 'Massimo' }
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'high', label: 'High' },
+  { id: 'xhigh', label: 'Extra high' },
+  { id: 'max', label: 'Max' }
 ]
 
 interface ComposerProps {
@@ -72,10 +75,10 @@ const carets = new Map<string, [number, number]>()
 const NO_OPTIONS: MentionOption[] = []
 
 /** Token di @terminal nel testo: il titolo senza spazi. */
-const terminalToken = (title: string) => `@terminal:${title.trim().replace(/\s+/g, '-') || 'terminale'}`
+const terminalToken = (title: string) => `@terminal:${title.trim().replace(/\s+/g, '-') || t('terminal')}`
 
 const chip =
-  'no-drag inline-flex h-7 items-center gap-1.5 rounded-md border border-input/70 px-2 text-[12px] text-secondary-foreground outline-none ' +
+  'no-drag inline-flex h-7 items-center gap-1.5 rounded-md border border-input/70 px-2 text-xs text-secondary-foreground outline-none ' +
   'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-60'
 
 export function Composer(props: ComposerProps) {
@@ -92,7 +95,7 @@ export function Composer(props: ComposerProps) {
   const saveTimer = useRef<number | null>(null)
   const pendingCaret = useRef<number | null>(null)
   const level = permissionLevels.find((p) => p.id === permission) ?? permissionLevels[2]
-  const modelLabel = models.find((m) => m.id === model)?.label ?? model ?? 'Modello predefinito'
+  const modelName = models.find((m) => m.id === model)?.label ?? prettyModel(null, model) ?? t('Default model')
   const disabled = Boolean(disabledReason)
 
   // Citazioni con @: posizione del cursore (null se c'è una selezione) e citazione chiusa con Esc.
@@ -306,8 +309,8 @@ export function Composer(props: ComposerProps) {
       if (!id) continue
       const output = await request<string>({ type: 'terminal.output', id, lines: 200 }).catch(() => null)
       if (output === null) continue
-      body = body.split(token).join(`il terminale “${title}” (output in fondo)`)
-      blocks.push(`Output del terminale “${title}” (ultime righe):\n\n\`\`\`text\n${output}\n\`\`\``)
+      body = body.split(token).join(t('the terminal “{title}” (output below)', { title }))
+      blocks.push(`${t('Output of the terminal “{title}” (last lines):', { title })}\n\n\`\`\`text\n${output}\n\`\`\``)
     }
     return blocks.length ? `${body}\n\n${blocks.join('\n\n')}` : body
   }
@@ -385,7 +388,7 @@ export function Composer(props: ComposerProps) {
   return (
     <div className={cn('flex w-full flex-col gap-2', className)}>
       {status ? (
-        <p role="status" className="flex items-center gap-1.5 px-1 text-[12px] text-muted-foreground">
+        <p role="status" className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
           <Clock aria-hidden className="size-3.5" strokeWidth={2} />
           {status}
         </p>
@@ -404,19 +407,19 @@ export function Composer(props: ComposerProps) {
         )}
       >
         {dragging && (
-          <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/70 bg-composer/90 text-[12.5px] font-medium text-primary">
+          <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/70 bg-composer/90 text-sm font-medium text-primary">
             <ImagePlus aria-hidden className="size-4" strokeWidth={1.8} />
-            Rilascia per allegare le immagini
+            {t('Drop to attach images')}
           </div>
         )}
         {images.length > 0 && <AttachmentStrip images={images} onRemove={(id) => setImages((current) => current.filter((i) => i.id !== id))} />}
         {notice && (
-          <p role="alert" className="px-4 pt-2 text-[12px] text-destructive">
+          <p role="alert" className="px-4 pt-2 text-xs text-destructive">
             {notice}
           </p>
         )}
         <label htmlFor={`composer-${draftKey}`} className="sr-only">
-          Messaggio per {agentName}
+          {t('Message to {agent}', { agent: agentName })}
         </label>
         <textarea
           ref={textarea}
@@ -439,12 +442,12 @@ export function Composer(props: ComposerProps) {
           aria-activedescendant={pickerOpen && results.length > 0 ? optionId(listId, activeIndex) : undefined}
           rows={1}
           disabled={disabled}
-          placeholder={disabledReason ?? (running ? 'Scrivi: il messaggio va in coda e parte a fine turno' : `Chiedi a ${agentName}. @ per citare un file, / per i comandi`)}
-          className="block max-h-[40vh] min-h-[48px] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[14px] leading-relaxed outline-none [field-sizing:content] placeholder:text-faint disabled:cursor-not-allowed"
+          placeholder={disabledReason ?? (running ? t('Type to queue a message for the end of the turn') : t('Ask {agent}. @ to mention a file, / for commands', { agent: agentName }))}
+          className="block max-h-[40vh] min-h-[48px] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base leading-relaxed outline-none [field-sizing:content] placeholder:text-faint disabled:cursor-not-allowed"
         />
         <div className="flex items-center gap-1 px-2.5 pt-1 pb-2.5">
-          <IconButton icon={Plus} label="Allega immagini" onClick={() => !disabled && fileInput.current?.click()} />
-          <IconButton icon={AtSign} label="Cita un file" shortcut="@" onClick={startMention} />
+          <IconButton icon={Plus} label={t('Attach images')} onClick={() => !disabled && fileInput.current?.click()} />
+          <IconButton icon={AtSign} label={t('Mention a file')} shortcut="@" onClick={startMention} />
           <input
             ref={fileInput}
             type="file"
@@ -463,8 +466,8 @@ export function Composer(props: ComposerProps) {
           {contextRatio !== null && (
             <Tooltip>
               <TooltipTrigger
-                aria-label={`Contesto usato: ${Math.round(contextRatio * 100)}%`}
-                className="no-drag mr-1 inline-flex items-center gap-1.5 rounded px-1 font-mono text-[11px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                aria-label={t('Context used: {percent}%', { percent: Math.round(contextRatio * 100) })}
+                className="no-drag mr-1 inline-flex items-center gap-1.5 rounded px-1 font-mono text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <span
                   className="block size-3 rounded-full"
@@ -475,22 +478,23 @@ export function Composer(props: ComposerProps) {
                 <span className={cn(contextRatio > 0.8 && 'text-attention')}>{Math.round(contextRatio * 100)}%</span>
               </TooltipTrigger>
               <TooltipContent side="top">
-                Contesto usato: {Math.round(context!.used / 1000)}k di {Math.round(context!.window / 1000)}k token
+                {t('Context used: {used}k of {window}k tokens', { used: Math.round(context!.used / 1000), window: Math.round(context!.window / 1000) })}
               </TooltipContent>
             </Tooltip>
           )}
 
           <DropdownMenu>
             <DropdownMenuTrigger className={chip} disabled={disabled}>
+              <AgentMark agent={agent} size={13} className="text-foreground" />
               <span className="font-semibold text-foreground">{agentName}</span>
-              <span className="text-muted-foreground">· {modelLabel}</span>
-              {effort && showEffort && <span className="text-muted-foreground">· {EFFORTS.find((e) => e.id === effort)?.label.toLowerCase()}</span>}
+              <span className="text-muted-foreground">· {modelName}</span>
+              {effort && showEffort && <span className="text-muted-foreground">· {t(EFFORTS.find((e) => e.id === effort)?.label ?? '').toLowerCase()}</span>}
               <ChevronDown className="size-3 text-faint" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={6} className="max-h-[60vh] w-72">
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Modello</DropdownMenuLabel>
-                {models.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted-foreground">L’elenco arriva dopo il primo avvio di {agentName}.</p>}
+                <DropdownMenuLabel>{t('Model')}</DropdownMenuLabel>
+                {models.length === 0 && <p className="px-2 py-1.5 text-xs text-muted-foreground">{t('The list appears after {agent} starts for the first time.', { agent: agentName })}</p>}
                 <DropdownMenuRadioGroup value={model ?? ''} onValueChange={(value) => onModelChange(String(value))}>
                   {models.map((m) => (
                     <DropdownMenuRadioItem key={m.id} value={m.id}>
@@ -501,11 +505,11 @@ export function Composer(props: ComposerProps) {
               </DropdownMenuGroup>
               {showEffort && <DropdownMenuSeparator />}
               {showEffort && <DropdownMenuGroup>
-                <DropdownMenuLabel>{onEffortChange ? 'Effort' : 'Effort · si sceglie all’apertura della sessione'}</DropdownMenuLabel>
+                <DropdownMenuLabel>{onEffortChange ? t('Effort') : t('Effort · chosen when the session starts')}</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={effort ?? ''} onValueChange={(value) => onEffortChange?.(value as Effort)}>
                   {EFFORTS.map((e) => (
                     <DropdownMenuRadioItem key={e.id} value={e.id} disabled={!onEffortChange}>
-                      {e.label}
+                      {t(e.label)}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
@@ -514,21 +518,21 @@ export function Composer(props: ComposerProps) {
           </DropdownMenu>
 
           <DropdownMenu>
-            <DropdownMenuTrigger className={chip} aria-label={`Permessi: ${level.label}`} disabled={disabled}>
+            <DropdownMenuTrigger className={chip} aria-label={t('Permissions: {level}', { level: levelLabel(level.id) })} disabled={disabled}>
               <ShieldCheck className="size-3.5 text-muted-foreground" />
-              {level.label}
+              {levelLabel(level.id)}
               <ChevronDown className="size-3 text-faint" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={6} className="w-80">
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Permessi · ⇧Tab per cambiare</DropdownMenuLabel>
+                <DropdownMenuLabel>{t('Permissions · ⇧Tab to switch')}</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={permission} onValueChange={(value) => onPermissionChange(value as PermissionLevel)}>
                   {permissionLevels.map((p) => (
                     <DropdownMenuRadioItem key={p.id} value={p.id} disabled={!levels.includes(p.id)} className="items-start py-1.5">
                       <span className="flex flex-col">
-                        <span className="font-medium">{p.label}</span>
-                        <span className="text-[11.5px] text-muted-foreground">{levels.includes(p.id) ? p.hint : 'Non ammesso da .ladder/settings.toml'}</span>
-                        <span className="font-mono text-[10.5px] text-faint">{agentName}: {p.native[nativeKey(agent)]}</span>
+                        <span className="font-medium">{levelLabel(p.id)}</span>
+                        <span className="text-xs text-muted-foreground">{levels.includes(p.id) ? levelHint(p.id) : t('Not allowed by .ladder/settings.toml')}</span>
+                        <span className="font-mono text-xs text-faint">{agentName}: {levelNative(p.id, agent)}</span>
                       </span>
                     </DropdownMenuRadioItem>
                   ))}
@@ -540,20 +544,20 @@ export function Composer(props: ComposerProps) {
           {running && idle && onStop ? (
             <Tooltip>
               <TooltipTrigger
-                aria-label="Ferma"
+                aria-label={t('Stop')}
                 onClick={onStop}
                 className="no-drag ml-1 grid size-7 place-items-center rounded-full bg-secondary text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <Square className="size-3 fill-current" />
               </TooltipTrigger>
               <TooltipContent side="top">
-                Ferma <span className="ml-1 font-mono text-[11px] opacity-70">⌘.</span>
+                {t('Stop')} <span className="ml-1 font-mono text-xs opacity-70">⌘.</span>
               </TooltipContent>
             </Tooltip>
           ) : (
             <button
               type="button"
-              aria-label={running ? 'Metti in coda' : 'Invia'}
+              aria-label={running ? t('Queue') : t('Send')}
               disabled={!canSend}
               onClick={submit}
               className="no-drag ml-1 grid size-7 place-items-center rounded-full bg-primary text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:bg-muted disabled:text-faint"

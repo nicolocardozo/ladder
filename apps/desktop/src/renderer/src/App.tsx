@@ -11,6 +11,7 @@ import { useSettings } from '@/hooks/use-theme'
 import { isElectron, onHostConnect, onHostEvent, request, send } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
 import type { HostEvent } from '@shared/protocol'
+import { t } from '@shared/i18n'
 
 export function App() {
   const selection = useApp((s) => s.selection)
@@ -211,9 +212,13 @@ export function App() {
   }, [])
 
   if (!isElectron) {
+    // Il comando sta in un <code> dentro la frase: si divide il testo tradotto attorno a {command}.
+    const [before, after = ''] = t('Ladder runs inside Electron: start it with {command}. For the chat components, use /preview.html.').split('{command}')
     return (
-      <div className="grid h-full place-items-center p-8 text-center text-[13px] text-muted-foreground">
-        Ladder gira dentro Electron: avvialo con <code className="font-mono">pnpm dev</code>. Per i componenti della chat usa /preview.html.
+      <div className="grid h-full place-items-center p-8 text-center text-sm text-muted-foreground">
+        {before}
+        <code className="font-mono">pnpm dev</code>
+        {after}
       </div>
     )
   }
@@ -223,7 +228,7 @@ export function App() {
       <div className="flex h-full">
         {sidebarOpen && <AppSidebar />}
         {!connected ? (
-          <main className="drag grid flex-1 place-items-center bg-background text-[13px] text-muted-foreground">Avvio di Ladder…</main>
+          <main className="drag grid flex-1 place-items-center bg-background text-sm text-muted-foreground">{t('Starting Ladder…')}</main>
         ) : selection.kind === 'session' ? (
           <SessionView sessionId={selection.sessionId} />
         ) : (

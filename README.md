@@ -142,7 +142,17 @@ Fase 4 completata: Codex e altri agenti.
 
 - **Chiedi una review a…** nel pannello Modifiche: un altro agente rilegge le modifiche in sola lettura, con il prompt `review` del progetto. I suoi commenti arrivano nel diff, pronti da inviare all’agente che ha scritto il codice.
 
-Prossime fasi: revisione dell’interfaccia (4.5), poi il passaggio tra agenti (5) e i piani eseguibili (6). L’open source (7) viene dopo un periodo di prova nell’uso quotidiano.
+Fase 4.5, revisione dell’interfaccia: approvata l’8/11 (da riguardare dopo il periodo di prova).
+
+- **Caratteri**: Mona Sans per l’interfaccia, Monaspace Neon per codice, diff e terminale, inclusi nell’app (OFL).
+- **Scala**: sei passi da 12 a 26 px (`text-xs`…`text-2xl` in `globals.css`), al posto delle dimensioni scritte a mano.
+- **Pulizia**: niente maiuscoletti spaziati né barre laterali colorate, meno linee, nessun titolo ripetuto.
+- **Chi lavora**: segno del provider e modello ovunque compaia una sessione (sidebar su due righe, tab, intestazione, “In attesa”, ⌘K, menu, composer).
+- `PRODUCT.md` e `DESIGN.md` nella radice del repository descrivono personalità, principi e sistema visivo: valgono per ogni modifica all’interfaccia.
+- **Lingua**: l’inglese è la lingua predefinita, l’italiano si sceglie in Settings → Appearance → Language. Il testo nel codice è inglese dentro `t()` e `plural()` (`src/shared/i18n.ts`); le traduzioni italiane stanno in `src/shared/locales/it/`, con la frase inglese come chiave. Anche host e menu seguono la lingua scelta, e i prompt predefiniti per gli agenti esistono in tutte e due.
+- **Mappa degli agenti**: quando una sessione avvia sotto-agenti (Agent/Task di Claude Code, `spawnAgent` di Codex) sopra il composer compare il chip “N agents”; apre un albero con stato, durata, modello, token e strumenti di ciascuno. La riga della sessione nella sidebar dice quanti ne stanno lavorando.
+
+Prossime fasi: il passaggio tra agenti (5) e i piani eseguibili (6). L’open source (7) viene dopo un periodo di prova nell’uso quotidiano.
 
 ## Brand e temi
 
@@ -169,6 +179,7 @@ Crea `apps/desktop/dist/mac-arm64/Ladder.app` con l’icona Circuit (`app-icon/m
 Per il debug:
 - la pagina espone `window.__ladder` (`request`, `send`, `store`, `settings`);
 - `LADDER_USER_DATA=<cartella>` usa un archivio separato;
+- `LADDER_LOCALE=en|it` sceglie la lingua iniziale di un profilo nuovo (poi vale quella salvata);
 - `LADDER_WORKTREES=<cartella>` sposta i worktree;
 - `LADDER_EDITOR_TRACE=<file>` registra le aperture nell’editor invece di eseguirle, per le prove automatiche;
 - `LADDER_NOTIFY_TRACE=<file>` registra notifiche e badge invece di mostrarli;

@@ -2,6 +2,7 @@
 import { useRef, useState } from 'react'
 import { Archive, CheckCheck, CircleDot, ExternalLink, FolderSearch, Pencil, SquarePen, Trash2 } from 'lucide-react'
 import type { Project, SessionSummary } from '@shared/protocol'
+import { plural, t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
 import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -16,7 +17,7 @@ const parts = {
 } as const
 
 const contentClass = 'w-auto min-w-52'
-const itemClass = 'gap-2 py-[5px] text-[13px] [&_svg]:size-[15px] [&_svg]:text-muted-foreground'
+const itemClass = 'gap-2 py-[5px] text-sm [&_svg]:size-[15px] [&_svg]:text-muted-foreground'
 
 function openInCursor(path: string): void {
   void window.ladder?.openInEditor(path)
@@ -49,35 +50,35 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
     >
       <Item className={itemClass} onClick={() => startRename(sessionId)}>
         <Pencil />
-        Rinomina
+        {t('Rename')}
       </Item>
       {session.unread ? (
         <Item className={itemClass} onClick={() => markRead(sessionId)}>
           <CheckCheck />
-          Segna come letta
+          {t('Mark as read')}
         </Item>
       ) : (
         <Item className={itemClass} onClick={() => markUnread(sessionId)}>
           <CircleDot />
-          Segna come da leggere
+          {t('Mark as unread')}
         </Item>
       )}
       {project && (
         <>
           <Item className={itemClass} onClick={() => openInCursor(project.path)}>
             <ExternalLink />
-            Apri in Cursor
+            {t('Open in Cursor')}
           </Item>
           <Item className={itemClass} onClick={() => revealInFinder(project.path)}>
             <FolderSearch />
-            Mostra nel Finder
+            {t('Show in Finder')}
           </Item>
         </>
       )}
       <Separator />
       <Item className={itemClass} onClick={() => archiveSession(sessionId)}>
         <Archive />
-        Archivia
+        {t('Archive')}
       </Item>
     </Content>
   )
@@ -104,15 +105,15 @@ export function ProjectMenuContent({ project, onRemove }: ProjectMenuProps) {
     >
       <ContextMenuItem className={itemClass} onClick={() => select({ kind: 'new', projectId: project.id })}>
         <SquarePen />
-        Nuova chat
+        {t('New chat')}
       </ContextMenuItem>
       <ContextMenuItem className={itemClass} onClick={() => openInCursor(project.path)}>
         <ExternalLink />
-        Apri in Cursor
+        {t('Open in Cursor')}
       </ContextMenuItem>
       <ContextMenuItem className={itemClass} onClick={() => revealInFinder(project.path)}>
         <FolderSearch />
-        Mostra nel Finder
+        {t('Show in Finder')}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem
@@ -124,7 +125,7 @@ export function ProjectMenuContent({ project, onRemove }: ProjectMenuProps) {
         }}
       >
         <Trash2 />
-        Rimuovi da Ladder…
+        {t('Remove from Ladder…')}
       </ContextMenuItem>
     </ContextMenuContent>
   )
@@ -145,6 +146,9 @@ export function RemoveProjectDialog({ project, onClose }: { project: Project | n
   const active = target
     ? Object.values(sessions).filter((s) => s.projectId === target.id && !s.archived && s.run !== 'idle' && s.run !== 'error').length
     : 0
+
+  // Il nome del progetto sta in grassetto dentro la frase: si divide il testo tradotto attorno a {name}.
+  const [before, after = ''] = t('{name} leaves the sidebar along with its chats. Its files stay where they are.').split('{name}')
 
   const confirm = async () => {
     if (!target) return
@@ -171,23 +175,24 @@ export function RemoveProjectDialog({ project, onClose }: { project: Project | n
       }}
     >
       <DialogContent showCloseButton={false} initialFocus={cancelRef} className="gap-0 p-5 sm:max-w-[380px]">
-        <DialogTitle className="text-[14px] font-semibold">Rimuovi il progetto da Ladder?</DialogTitle>
-        <DialogDescription className="mt-2 text-[13px] leading-relaxed">
-          {target && <span className="font-medium text-foreground">{target.name}</span>} esce dalla sidebar insieme alle sue chat. I file restano dove
-          sono.
+        <DialogTitle className="text-base font-semibold">{t('Remove project from Ladder?')}</DialogTitle>
+        <DialogDescription className="mt-2 text-sm leading-relaxed">
+          {before}
+          {target && <span className="font-medium text-foreground">{target.name}</span>}
+          {after}
           {active > 0 && (
             <span className="mt-1.5 block text-attention">
-              {active === 1 ? 'Una sessione è al lavoro e verrà fermata.' : `${active} sessioni sono al lavoro e verranno fermate.`}
+              {plural(active, 'One session is running and will be stopped.', '{n} sessions are running and will be stopped.')}
             </span>
           )}
         </DialogDescription>
-        {error && <p className="mt-2 text-[12.5px] text-destructive">{error}</p>}
+        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">
-          <Button ref={cancelRef} variant="outline" size="sm" className="text-[13px]" onClick={onClose}>
-            Annulla
+          <Button ref={cancelRef} variant="outline" size="sm" className="text-sm" onClick={onClose}>
+            {t('Cancel')}
           </Button>
-          <Button variant="destructive" size="sm" className="text-[13px]" disabled={busy} onClick={() => void confirm()}>
-            Rimuovi
+          <Button variant="destructive" size="sm" className="text-sm" disabled={busy} onClick={() => void confirm()}>
+            {t('Remove project')}
           </Button>
         </div>
       </DialogContent>

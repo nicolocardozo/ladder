@@ -3,10 +3,12 @@
 import { ArrowUpRight, Check, CircleX, SquareTerminal } from 'lucide-react'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { RequestResponse, SessionSummary } from '@shared/protocol'
+import { plural, t } from '@shared/i18n'
 import { ChatContext, createToggleStore, useNow, type ChatActions } from '@/components/chat/chat-context'
 import { formatSince } from '@/components/chat/format'
 import { RequestCard } from '@/components/chat/request-card'
 import { SessionGlyph } from '@/components/status'
+import { AgentMark, useAgentLine } from '@/components/agent-mark'
 import { request } from '@/lib/host-client'
 import { sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
@@ -33,7 +35,7 @@ export function useInboxGroups(): InboxGroups {
 }
 
 const linkButton =
-  'inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11.5px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50'
+  'inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50'
 
 export function InboxPanel() {
   const { waiting, errors, unread } = useInboxGroups()
@@ -61,32 +63,40 @@ export function InboxPanel() {
   return (
     <div ref={root} className="flex max-h-[min(78vh,760px)] min-h-0 flex-col">
       <div className="flex items-baseline gap-2 border-b border-border px-3.5 py-2.5">
-        <span className="text-[13px] font-semibold">In attesa</span>
-        <span className="text-[11.5px] text-muted-foreground">
-          {total === 0 ? 'niente da fare' : [waiting.length && `${waiting.length} ti aspettano`, errors.length && `${errors.length} con errori`, unread.length && `${unread.length} da leggere`].filter(Boolean).join(' · ')}
+        <span className="text-sm font-semibold">{t('Waiting')}</span>
+        <span className="text-xs text-muted-foreground">
+          {total === 0
+            ? t('nothing to do')
+            : [
+                waiting.length && t('{n} waiting for you', { n: waiting.length }),
+                errors.length && t('{n} with errors', { n: errors.length }),
+                unread.length && t('{n} unread', { n: unread.length })
+              ]
+                .filter(Boolean)
+                .join(' · ')}
         </span>
-        <kbd className="ml-auto font-mono text-[10.5px] text-faint">⌘⇧A prossima</kbd>
+        <kbd className="ml-auto font-mono text-xs text-faint">{t('⌘⇧A next')}</kbd>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {total === 0 && (
-          <p className="px-4 py-6 text-center text-[12.5px] text-muted-foreground">Nessuna sessione ti aspetta. Le richieste degli agenti di tutti i progetti compaiono qui.</p>
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t('No sessions are waiting for you. Agent requests from all projects show up here.')}</p>
         )}
         {waiting.length > 0 && (
-          <Section label="Richiedono te" count={waiting.length}>
+          <Section label={t('Need you')} count={waiting.length}>
             {waiting.map((session, index) => (
               <WaitingEntry key={session.id} session={session} projectName={names.get(session.projectId) ?? ''} first={index === 0} />
             ))}
           </Section>
         )}
         {errors.length > 0 && (
-          <Section label="Errori" count={errors.length}>
+          <Section label={t('Errors')} count={errors.length}>
             {errors.map((session) => (
               <SimpleEntry key={session.id} session={session} projectName={names.get(session.projectId) ?? ''} />
             ))}
           </Section>
         )}
         {unread.length > 0 && (
-          <Section label="Da leggere" count={unread.length}>
+          <Section label={t('Unread')} count={unread.length}>
             {unread.slice(0, 30).map((session) => (
               <SimpleEntry key={session.id} session={session} projectName={names.get(session.projectId) ?? ''} />
             ))}
@@ -100,7 +110,7 @@ export function InboxPanel() {
 function Section({ label, count, children }: { label: string; count: number; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-1 px-2 pt-2.5 pb-1.5" aria-label={label}>
-      <h3 className="px-1.5 text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
+      <h3 className="px-1.5 text-xs font-semibold text-muted-foreground">
         {label} · {count}
       </h3>
       {children}
@@ -110,20 +120,25 @@ function Section({ label, count, children }: { label: string; count: number; chi
 
 function EntryHeader({ session, projectName, at, trailing }: { session: SessionSummary; projectName: string; at: number; trailing?: ReactNode }) {
   const now = useNow(30_000)
+  const { name, model } = useAgentLine(session.agent, session.model)
   const open = () => useApp.getState().openSessionAt(session.id, session.request?.id ?? null)
   return (
     <div className="flex min-w-0 items-center gap-2 px-1.5">
       <span className="grid w-3 shrink-0 place-items-center">
         <SessionGlyph state={sessionState(session)} />
       </span>
-      <button type="button" onClick={open} className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left outline-none focus-visible:underline" title={`${projectName} · ${session.title}`}>
-        <span className="shrink-0 text-[12px] text-muted-foreground">{projectName}</span>
-        <span className="truncate text-[12.5px] font-medium">{session.title}</span>
+      <button type="button" onClick={open} className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:underline" title={`${projectName} · ${session.title} · ${name}${model ? ` ${model}` : ''}`}>
+        <span className="shrink-0 text-xs text-muted-foreground">{projectName}</span>
+        <span className="truncate text-sm font-medium">{session.title}</span>
+        <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          <AgentMark agent={session.agent} size={12} />
+          {model ?? name}
+        </span>
       </button>
-      <span className="shrink-0 text-[11px] text-faint">{formatSince(at, now)}</span>
+      <span className="shrink-0 text-xs text-faint tabular-nums">{formatSince(at, now)}</span>
       {trailing}
-      <button type="button" onClick={open} className={linkButton} aria-label={`Apri ${session.title}`}>
-        Apri
+      <button type="button" onClick={open} className={linkButton} aria-label={t('Open {title}', { title: session.title })}>
+        {t('Open')}
         <ArrowUpRight aria-hidden className="size-3" />
       </button>
     </div>
@@ -156,23 +171,25 @@ function WaitingEntry({ session, projectName, first }: { session: SessionSummary
         <ChatContext.Provider value={actions}>
           <div className="pl-6">
             <RequestCard key={session.request.id} item={session.request} />
-            {session.openRequests > 1 && <p className="mt-1 text-[11.5px] text-muted-foreground">+{session.openRequests - 1} altre richieste nella sessione</p>}
+            {session.openRequests > 1 && <p className="mt-1 text-xs text-muted-foreground">{plural(session.openRequests - 1, '+{n} more request in this session', '+{n} more requests in this session')}</p>}
           </div>
         </ChatContext.Provider>
       ) : (
-        <div className="ml-6 flex flex-wrap items-center gap-2 rounded-[10px] border border-input bg-card px-3 py-2.5 text-[12.5px]">
+        <div className="ml-6 flex flex-wrap items-center gap-2 rounded-[10px] border border-input bg-card px-3 py-2.5 text-sm">
           {terminal && <SquareTerminal aria-hidden className="size-3.5 text-muted-foreground" />}
           <span className="min-w-0 flex-1 text-secondary-foreground">
-            {terminal ? `${session.command ?? 'claude'} nel terminale: ${session.waitingLabel ?? 'richiesta'}` : session.waitingLabel ?? 'Richiede te'}
-            {session.estimated ? ' · stato stimato' : ''}
+            {terminal
+              ? t('{command} in the terminal: {label}', { command: session.command ?? 'claude', label: session.waitingLabel ?? t('request') })
+              : (session.waitingLabel ?? t('Needs you'))}
+            {session.estimated ? ` · ${t('estimated status')}` : ''}
           </span>
           <button
             type="button"
             data-primary
             onClick={() => useApp.getState().openSessionAt(session.id, null)}
-            className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-foreground bg-foreground px-[11px] text-[12.5px] font-[560] text-background outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-foreground bg-foreground px-[11px] text-sm font-[560] text-background outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            {terminal ? 'Vai al terminale' : 'Apri'}
+            {terminal ? t('Go to terminal') : t('Open')}
           </button>
         </div>
       )}
@@ -190,16 +207,16 @@ function SimpleEntry({ session, projectName }: { session: SessionSummary; projec
         at={session.activityAt}
         trailing={
           !error ? (
-            <button type="button" onClick={() => useApp.getState().markRead(session.id)} className={linkButton} aria-label={`Segna ${session.title} come letta`} title="Segna come letta">
+            <button type="button" onClick={() => useApp.getState().markRead(session.id)} className={linkButton} aria-label={t('Mark {title} as read', { title: session.title })} title={t('Mark as read')}>
               <Check aria-hidden className="size-3" />
             </button>
           ) : null
         }
       />
       {error && (
-        <p className="ml-6 flex min-w-0 items-center gap-1.5 px-1.5 text-[12px] text-destructive">
+        <p className="ml-6 flex min-w-0 items-center gap-1.5 px-1.5 text-xs text-destructive">
           <CircleX aria-hidden className="size-3 shrink-0" />
-          <span className="truncate">{session.activity ?? 'Il turno si è fermato per un errore.'}</span>
+          <span className="truncate">{session.activity ?? t('The turn stopped because of an error.')}</span>
         </p>
       )}
     </div>

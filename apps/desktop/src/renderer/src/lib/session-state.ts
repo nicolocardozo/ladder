@@ -1,5 +1,6 @@
 // Stato visivo di sessioni e progetti, derivato dai riepiloghi dell'host.
 import type { SessionSummary } from '@shared/protocol'
+import { t } from '@shared/i18n'
 
 export type SessionState = 'idle' | 'running' | 'unread' | 'waiting' | 'error' | 'queued'
 
@@ -43,34 +44,60 @@ export function projectAttention(sessions: SessionSummary[]): ProjectAttention {
   }
 }
 
+/** Che cosa dice la nota della riga: il codice serve per il tono, il testo si mostra. */
+export type PrNoteCode = 'merged' | 'pr-closed' | 'conflicts' | 'ci-failed'
+export type SessionNoteCode = 'waiting' | 'error' | 'queued' | 'draft' | 'age' | PrNoteCode
+
+export interface Note<Code extends string> {
+  code: Code
+  text: string
+}
+
 /** Testo breve per la riga della sessione: richiesta, coda, errore, PR, bozza o età. */
-export function sessionNote(session: SessionSummary, hasDraft: boolean, now = Date.now()): string {
-  if (session.run === 'waiting') return session.waitingLabel ?? 'Richiede te'
-  if (session.run === 'error') return 'Errore'
-  if (session.run === 'queued') return 'In coda'
+export function sessionNote(session: SessionSummary, hasDraft: boolean, now = Date.now()): Note<SessionNoteCode> {
+  if (session.run === 'waiting') return { code: 'waiting', text: session.waitingLabel ?? t('Needs you') }
+  if (session.run === 'error') return { code: 'error', text: t('Error') }
+  if (session.run === 'queued') return { code: 'queued', text: t('Queued') }
   const pr = prNote(session)
   if (pr && session.run === 'idle') return pr
-  if (hasDraft && session.run === 'idle') return 'bozza'
-  return relativeAge(session.updatedAt, now)
+  if (hasDraft && session.run === 'idle') return { code: 'draft', text: t('draft') }
+  return { code: 'age', text: relativeAge(session.updatedAt, now) }
 }
 
 /** Stato della PR in poche lettere, solo quando chiede qualcosa o è finita: unita, CI fallita, conflitti. */
-export function prNote(session: SessionSummary): string | null {
+export function prNote(session: SessionSummary): Note<PrNoteCode> | null {
   const pr = session.pr
   if (!pr) return null
-  if (pr.state === 'merged') return 'unita'
-  if (pr.state === 'closed') return 'PR chiusa'
-  if (pr.mergeable === 'conflicts') return 'conflitti'
-  if (pr.checks === 'failing') return 'CI fallita'
+  if (pr.state === 'merged') return { code: 'merged', text: t('merged') }
+  if (pr.state === 'closed') return { code: 'pr-closed', text: t('PR closed') }
+  if (pr.mergeable === 'conflicts') return { code: 'conflicts', text: t('conflicts') }
+  if (pr.checks === 'failing') return { code: 'ci-failed', text: t('CI failed') }
   return null
+}
+
+/** Tono della nota nella riga: ambra per ciò che chiede te, rosso per ciò che è andato storto, verde per la PR unita. */
+export function noteTone(code: SessionNoteCode): 'attention' | 'destructive' | 'success' | null {
+  switch (code) {
+    case 'waiting':
+    case 'conflicts':
+      return 'attention'
+    case 'error':
+    case 'ci-failed':
+    case 'pr-closed':
+      return 'destructive'
+    case 'merged':
+      return 'success'
+    default:
+      return null
+  }
 }
 
 export function relativeAge(at: number, now = Date.now()): string {
   const minutes = Math.round((now - at) / 60000)
-  if (minutes < 1) return 'ora'
-  if (minutes < 60) return `${minutes} min`
+  if (minutes < 1) return t('now')
+  if (minutes < 60) return t('{n} min', { n: minutes })
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours} h`
+  if (hours < 24) return t('{n} h', { n: hours })
   const days = Math.round(hours / 24)
-  return days === 1 ? 'ieri' : `${days} g`
+  return days === 1 ? t('yesterday') : t('{n} d', { n: days })
 }

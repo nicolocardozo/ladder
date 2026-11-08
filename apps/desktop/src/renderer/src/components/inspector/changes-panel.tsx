@@ -7,8 +7,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useApp, type InspectorRequest } from '@/store/app-store'
+import { plural, t } from '@shared/i18n'
 import { commentsMessage, useComments, type LineComment } from './comments'
 import { DiffView } from './diff-view'
+import { AgentMark } from '@/components/agent-mark'
 import { useRestore } from './use-restore'
 import { openInEditor } from './open-file'
 
@@ -47,8 +49,8 @@ function turnOptions(items: ChatItem[]): TurnOption[] {
   for (const item of items) if (item.kind === 'user' && !prompts.has(item.turnId)) prompts.set(item.turnId, item.text.split('\n')[0])
   const ends = items.filter((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end')
   return ends
-    .map((end, index) => ({ turnId: end.turnId, label: prompts.get(end.turnId) ?? 'Turno', files: end.files.length, index: index + 1 }))
-    .filter((t) => t.files > 0)
+    .map((end, index) => ({ turnId: end.turnId, label: prompts.get(end.turnId) ?? t('Turn'), files: end.files.length, index: index + 1 }))
+    .filter((turn) => turn.files > 0)
     .reverse()
 }
 
@@ -166,27 +168,27 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
     }
   }
 
-  if (!isGit) return <PanelNote>Il progetto non è un repository git: le modifiche si vedono quando la cartella usa git.</PanelNote>
+  if (!isGit) return <PanelNote>{t('This project isn’t a git repository. Changes show up here once the folder uses git.')}</PanelNote>
 
   const running = session ? session.run === 'running' || session.run === 'waiting' || session.run === 'starting' : false
   const scopeLabel = (() => {
     if (scope.kind === 'turn') {
-      const t = turns.find((x) => x.turnId === scope.turnId)
-      return t ? `Turno ${t.index} · ${t.label}` : 'Turno'
+      const turn = turns.find((x) => x.turnId === scope.turnId)
+      return turn ? t('Turn {index} · {label}', { index: turn.index, label: turn.label }) : t('Turn')
     }
-    if (scope.kind === 'session') return 'Tutta la sessione'
-    if (scope.kind === 'uncommitted') return 'Non committate'
-    if (scope.kind === 'commit') return `Commit ${scope.sha.slice(0, 7)}`
+    if (scope.kind === 'session') return t('Whole session')
+    if (scope.kind === 'uncommitted') return t('Uncommitted')
+    if (scope.kind === 'commit') return t('Commit {sha}', { sha: scope.sha.slice(0, 7) })
     return scope.label
   })()
   const restoreLabel =
     scope.kind === 'turn'
-      ? 'Riportato a prima del turno'
+      ? t('Restored to before the turn')
       : scope.kind === 'session'
-        ? 'Riportato a prima della sessione'
+        ? t('Restored to before the session')
         : scope.kind === 'uncommitted'
-          ? 'Scartate le modifiche non committate'
-          : 'Riportato allo stato precedente'
+          ? t('Discarded uncommitted changes')
+          : t('Restored to the previous state')
   const files = result?.files ?? []
   const added = files.reduce((n, f) => n + f.added, 0)
   const removed = files.reduce((n, f) => n + f.removed, 0)
@@ -208,21 +210,19 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
         <DropdownMenu>
-          <DropdownMenuTrigger className="inline-flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-[12.5px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent">
+          <DropdownMenuTrigger className="inline-flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent">
             <span className="truncate">{scopeLabel}</span>
             <ChevronDown className="size-3 shrink-0 text-faint" />
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-80" align="start">
             {session && turns.length > 0 && (
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Turni della sessione</DropdownMenuLabel>
-                {turns.slice(0, 20).map((t) => (
-                  <DropdownMenuItem key={t.turnId} onClick={() => setScope({ kind: 'turn', sessionId: session.id, turnId: t.turnId })}>
-                    <Check className={cn('size-3.5', key === `turn:${t.turnId}` ? '' : 'opacity-0')} />
-                    <span className="min-w-0 flex-1 truncate">
-                      Turno {t.index} · {t.label}
-                    </span>
-                    <span className="text-[11px] text-faint">{t.files} file</span>
+                <DropdownMenuLabel>{t('Session turns')}</DropdownMenuLabel>
+                {turns.slice(0, 20).map((turn) => (
+                  <DropdownMenuItem key={turn.turnId} onClick={() => setScope({ kind: 'turn', sessionId: session.id, turnId: turn.turnId })}>
+                    <Check className={cn('size-3.5', key === `turn:${turn.turnId}` ? '' : 'opacity-0')} />
+                    <span className="min-w-0 flex-1 truncate">{t('Turn {index} · {label}', { index: turn.index, label: turn.label })}</span>
+                    <span className="text-xs text-faint">{plural(turn.files, '{n} file', '{n} files')}</span>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuGroup>
@@ -232,22 +232,22 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
               {session && (
                 <DropdownMenuItem onClick={() => setScope({ kind: 'session', sessionId: session.id })}>
                   <Check className={cn('size-3.5', scope.kind === 'session' ? '' : 'opacity-0')} />
-                  Tutta la sessione
+                  {t('Whole session')}
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={() => setScope({ kind: 'uncommitted' })}>
                 <Check className={cn('size-3.5', scope.kind === 'uncommitted' ? '' : 'opacity-0')} />
-                Non committate (rispetto a HEAD)
+                {t('Uncommitted (vs HEAD)')}
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="ml-auto flex items-center gap-0.5">
           {session && files.length > 0 && <ReviewMenu session={session} scope={scope} />}
-          <ToolbarButton label="Vista unificata" active={mode === 'unified'} onClick={() => changeMode('unified')}>
+          <ToolbarButton label={t('Unified view')} active={mode === 'unified'} onClick={() => changeMode('unified')}>
             <Rows3 className="size-3.5" />
           </ToolbarButton>
-          <ToolbarButton label="Vista affiancata" active={mode === 'split'} onClick={() => changeMode('split')}>
+          <ToolbarButton label={t('Split view')} active={mode === 'split'} onClick={() => changeMode('split')}>
             <Columns2 className="size-3.5" />
           </ToolbarButton>
         </div>
@@ -255,33 +255,33 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
 
       {session && <ReviewBar session={session} scope={scope} commentScope={commentScope} />}
 
-      <div className="flex shrink-0 items-center gap-2 px-3 py-1.5 text-[12px] text-muted-foreground">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
         <span>
-          {loading && !result ? 'Calcolo il diff…' : files.length === 1 ? '1 file' : `${files.length} file`}
+          {loading && !result ? t('Computing diff…') : plural(files.length, '{n} file', '{n} files')}
           {files.length > 0 && (
             <span className="ml-2 font-mono">
               <span className="text-success">+{added}</span> <span className="text-destructive">−{removed}</span>
             </span>
           )}
-          {result?.live && <span className="ml-2 text-faint">· fino a ora</span>}
+          {result?.live && <span className="ml-2 text-faint">· {t('so far')}</span>}
         </span>
         {files.length > 0 && result && (
           <button
             type="button"
             disabled={running || busy}
-            title={running ? 'La sessione sta lavorando: fermala prima di ripristinare.' : 'Riporta tutti questi file allo stato di partenza. Puoi annullare.'}
+            title={running ? t('The session is working. Stop it before restoring.') : t('Restore all these files to their starting state. You can undo.')}
             onClick={() => void restore(result.from, files.flatMap((f) => (f.oldPath ? [f.oldPath, f.path] : [f.path])), restoreLabel)}
-            className="ml-auto inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[12px] outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+            className="ml-auto inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           >
             <Undo2 className="size-3.5" />
-            Ripristina tutto
+            {t('Restore all')}
           </button>
         )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error && <PanelNote tone="error">{error}</PanelNote>}
-        {result && files.length === 0 && !error && <PanelNote>Nessuna modifica in questo ambito.</PanelNote>}
+        {result && files.length === 0 && !error && <PanelNote>{t('No changes in this scope.')}</PanelNote>}
         {result &&
           files.map((file) => (
             <FileSection
@@ -323,10 +323,10 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
       </div>
 
       {comments.length > 0 && session && (
-        <div className="flex shrink-0 items-center gap-2 border-t border-border bg-muted/60 px-3 py-2 text-[12.5px]">
-          <span className="min-w-0 flex-1">{comments.length === 1 ? '1 commento' : `${comments.length} commenti`}</span>
+        <div className="flex shrink-0 items-center gap-2 border-t border-border bg-muted/60 px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1">{plural(comments.length, '{n} comment', '{n} comments')}</span>
           <button type="button" onClick={() => clear(commentScope)} className="h-7 rounded-md px-2 text-muted-foreground outline-none hover:bg-accent">
-            Scarta
+            {t('Discard')}
           </button>
           <button
             type="button"
@@ -334,7 +334,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
             className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <Send className="size-3.5" />
-            {session.mode === 'terminal' ? 'Scrivi nel terminale' : 'Invia all’agente'}
+            {session.mode === 'terminal' ? t('Write to terminal') : t('Send to agent')}
           </button>
         </div>
       )}
@@ -351,7 +351,7 @@ function baseName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)
 }
 
-const STATUS: Record<FileChange['status'], string> = { A: 'Aggiunto', M: 'Modificato', D: 'Eliminato', R: 'Rinominato' }
+const STATUS: Record<FileChange['status'], string> = { A: 'Added', M: 'Modified', D: 'Deleted', R: 'Renamed' }
 const patchCache = new Map<string, FilePatch>()
 
 interface FileSectionProps {
@@ -407,30 +407,30 @@ function FileSection(props: FileSectionProps) {
       <div className="sticky top-0 z-[1] flex h-8 items-center gap-1 bg-background/95 pr-1 pl-1.5 backdrop-blur">
         <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
           {open ? <ChevronDown className="size-3.5 shrink-0 text-faint" /> : <ChevronRight className="size-3.5 shrink-0 text-faint" />}
-          <span aria-label={STATUS[file.status]} title={STATUS[file.status]} className="w-3 shrink-0 font-mono text-[11px] text-faint">
+          <span aria-label={t(STATUS[file.status])} title={t(STATUS[file.status])} className="w-3 shrink-0 font-mono text-xs text-faint">
             {file.status}
           </span>
-          <span className="flex min-w-0 font-mono text-[11.5px]" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
+          <span className="flex min-w-0 font-mono text-xs" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
             {dir && <span className="min-w-0 truncate text-muted-foreground">{dir}</span>}
             <span className="shrink-0">{base}</span>
           </span>
-          <span className="ml-auto flex shrink-0 gap-1.5 pl-2 font-mono text-[11px] tabular-nums">
-            {file.binary ? <span className="text-faint">binario</span> : null}
+          <span className="ml-auto flex shrink-0 gap-1.5 pl-2 font-mono text-xs tabular-nums">
+            {file.binary ? <span className="text-faint">{t('binary')}</span> : null}
             {file.added > 0 && <span className="text-success">+{file.added}</span>}
             {file.removed > 0 && <span className="text-destructive">−{file.removed}</span>}
           </span>
         </button>
         {file.status !== 'D' && (
-          <ToolbarButton label="Apri nel viewer" onClick={() => openInspector(projectId, 'files', { path: file.path })}>
+          <ToolbarButton label={t('Open in viewer')} onClick={() => openInspector(projectId, 'files', { path: file.path })}>
             <Eye className="size-3.5" />
           </ToolbarButton>
         )}
         {file.status !== 'D' && (
-          <ToolbarButton label="Apri nell’editor" onClick={() => openInEditor(projectId, `${root}/${file.path}`)}>
+          <ToolbarButton label={t('Open in editor')} onClick={() => openInEditor(projectId, `${root}/${file.path}`)}>
             <ExternalLink className="size-3.5" />
           </ToolbarButton>
         )}
-        <ToolbarButton label={restoreDisabled ? 'La sessione sta lavorando' : 'Ripristina questo file'} disabled={restoreDisabled} onClick={onRestore}>
+        <ToolbarButton label={restoreDisabled ? t('The session is working') : t('Restore this file')} disabled={restoreDisabled} onClick={onRestore}>
           <Undo2 className="size-3.5" />
         </ToolbarButton>
       </div>
@@ -447,7 +447,7 @@ function FileSection(props: FileSectionProps) {
             onDeleteComment={props.onDeleteComment}
           />
         ) : (
-          <p className="px-3 py-2 text-[12px] text-muted-foreground">Carico il diff…</p>
+          <p className="px-3 py-2 text-xs text-muted-foreground">{t('Loading diff…')}</p>
         ))}
     </section>
   )
@@ -485,7 +485,7 @@ export function ToolbarButton({
 }
 
 export function PanelNote({ children, tone }: { children: React.ReactNode; tone?: 'error' }) {
-  return <p className={cn('px-3 py-3 text-[12.5px]', tone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>{children}</p>
+  return <p className={cn('px-3 py-3 text-sm', tone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>{children}</p>
 }
 
 // ── Chiedi una review a… ─────────────────────────────────────────────────────
@@ -511,21 +511,22 @@ function ReviewMenu({ session, scope }: { session: SessionSummary; scope: DiffSc
     <DropdownMenu>
       <DropdownMenuTrigger
         disabled={running}
-        title={error ?? 'Un altro agente rilegge queste modifiche in sola lettura'}
-        className="mr-1 inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 data-[popup-open]:bg-accent"
+        title={error ?? t('Another agent reviews these changes, read-only')}
+        className="mr-1 inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 data-[popup-open]:bg-accent"
       >
         <ScanSearch className="size-3.5" />
-        Chiedi una review a…
+        {t('Ask for a review from…')}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>In sola lettura, con il prompt di review del progetto</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('Read-only, with the project’s review prompt')}</DropdownMenuLabel>
           {agents.map((agent) => (
             <DropdownMenuItem key={agent.agent} disabled={!agent.available} onClick={() => void start(agent.agent)} className="items-start">
+              <AgentMark agent={agent.agent} size={14} className="mt-0.5" />
               <span className="flex flex-col">
                 {agent.name}
-                <span className="text-[11.5px] text-muted-foreground">
-                  {!agent.available ? (agent.error ?? 'Non disponibile') : agent.agent === session.agent ? 'Lo stesso agente della sessione' : agent.kind === 'acp' ? 'ACP' : 'Un secondo parere'}
+                <span className="text-xs text-muted-foreground">
+                  {!agent.available ? (agent.error ?? t('Unavailable')) : agent.agent === session.agent ? t('Same agent as the session') : agent.kind === 'acp' ? 'ACP' : t('A second opinion')}
                 </span>
               </span>
             </DropdownMenuItem>
@@ -534,7 +535,7 @@ function ReviewMenu({ session, scope }: { session: SessionSummary; scope: DiffSc
         {error && (
           <>
             <DropdownMenuSeparator />
-            <p className="px-2 py-1.5 text-[12px] text-destructive">{error}</p>
+            <p className="px-2 py-1.5 text-xs text-destructive">{error}</p>
           </>
         )}
       </DropdownMenuContent>
@@ -559,25 +560,25 @@ function ReviewBar({ session, scope, commentScope }: { session: SessionSummary; 
   if (!review || hidden === review.id) return null
   const tone = review.state === 'error' ? 'text-destructive' : 'text-muted-foreground'
   return (
-    <div role="status" className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/40 px-3 py-2 text-[12.5px]">
+    <div role="status" className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/40 px-3 py-2 text-sm">
       <ScanSearch aria-hidden className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       <span className={cn('min-w-0 flex-1', tone)}>
-        {review.state === 'running' && `${review.agentName} sta rivedendo le modifiche…`}
+        {review.state === 'running' && t('{agent} is reviewing the changes…', { agent: review.agentName })}
         {review.state === 'done' && (
           <>
-            <span className="font-medium text-foreground">Review di {review.agentName}:</span> {review.summary ?? 'nessun giudizio'} ·{' '}
-            {review.comments.length === 0 ? 'nessun commento' : review.comments.length === 1 ? '1 commento nel diff' : `${review.comments.length} commenti nel diff`}
+            <span className="font-medium text-foreground">{t('Review by {agent}:', { agent: review.agentName })}</span> {review.summary ?? t('no verdict')} ·{' '}
+            {review.comments.length === 0 ? t('no comments') : plural(review.comments.length, '{n} comment in the diff', '{n} comments in the diff')}
           </>
         )}
-        {review.state === 'error' && `La review di ${review.agentName} non è riuscita: ${review.error}`}
-        {review.state === 'cancelled' && `Review di ${review.agentName} annullata.`}
+        {review.state === 'error' && t('Review by {agent} failed: {error}', { agent: review.agentName, error: review.error ?? '' })}
+        {review.state === 'cancelled' && t('Review by {agent} cancelled.', { agent: review.agentName })}
       </span>
       {review.state === 'running' ? (
-        <button type="button" onClick={() => void request({ type: 'review.cancel', reviewId: review.id })} className="h-6 shrink-0 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
-          Annulla
+        <button type="button" onClick={() => void request({ type: 'review.cancel', reviewId: review.id })} className="h-6 shrink-0 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+          {t('Cancel')}
         </button>
       ) : (
-        <button type="button" aria-label="Nascondi" onClick={() => setHidden(review.id)} className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
+        <button type="button" aria-label={t('Hide')} onClick={() => setHidden(review.id)} className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
           <X className="size-3" />
         </button>
       )}

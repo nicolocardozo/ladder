@@ -6,6 +6,7 @@ import { appendFile, chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rm, stat,
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
+import { t } from '@shared/i18n'
 import type { FileChange, GitStatusCode } from '@shared/protocol'
 
 const run = promisify(execFile)
@@ -52,7 +53,7 @@ function gitInput(repo: string, args: string[], input: string, env: Record<strin
     child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()))
     child.stderr.on('data', (chunk: Buffer) => (err += chunk.toString()))
     child.on('error', reject)
-    child.on('close', (code) => (code === 0 ? resolve(out.trimEnd()) : reject(new Error(err.trim() || `git ${args[0]} uscito con ${code}`))))
+    child.on('close', (code) => (code === 0 ? resolve(out.trimEnd()) : reject(new Error(err.trim() || t('git {command} exited with {code}', { command: args[0], code: String(code) })))))
     child.stdin.end(input)
   })
 }
@@ -324,7 +325,7 @@ export async function ensureExcluded(repo: string, patterns: string[]): Promise<
   if (missing.length === 0) return
   await mkdir(dirname(file), { recursive: true })
   const prefix = current && !current.endsWith('\n') ? '\n' : ''
-  await appendFile(file, `${prefix}# Ladder: file personali e contesto delle sessioni\n${missing.join('\n')}\n`)
+  await appendFile(file, `${prefix}${t('# Ladder: personal files and session context')}\n${missing.join('\n')}\n`)
 }
 
 /** Nuovo worktree su un nuovo branch, partendo da `base`. */

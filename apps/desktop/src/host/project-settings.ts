@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parse } from 'smol-toml'
+import { t } from '@shared/i18n'
 import type { PermissionLevel, ProjectSettings, RunAction } from '@shared/protocol'
 
 export const SETTINGS_FILES = ['.ladder/settings.toml', '.ladder/settings.local.toml']
@@ -43,28 +44,28 @@ function apply(settings: ProjectSettings, data: Table, file: string): void {
   const problem = (text: string) => settings.errors.push(`${file}: ${text}`)
 
   if (data.worktree !== undefined) {
-    if (!isTable(data.worktree)) problem('[worktree] deve essere una tabella')
+    if (!isTable(data.worktree)) problem(t('[worktree] must be a table'))
     else {
       const w = data.worktree
-      if (w.setup !== undefined) typeof w.setup === 'string' ? (settings.worktree.setup = w.setup) : problem('worktree.setup deve essere un testo')
-      if (w.archive !== undefined) typeof w.archive === 'string' ? (settings.worktree.archive = w.archive) : problem('worktree.archive deve essere un testo')
+      if (w.setup !== undefined) typeof w.setup === 'string' ? (settings.worktree.setup = w.setup) : problem(t('worktree.setup must be a string'))
+      if (w.archive !== undefined) typeof w.archive === 'string' ? (settings.worktree.archive = w.archive) : problem(t('worktree.archive must be a string'))
       if (w.copy !== undefined) {
         if (Array.isArray(w.copy) && w.copy.every((c) => typeof c === 'string')) settings.worktree.copy = w.copy as string[]
-        else problem('worktree.copy deve essere un elenco di percorsi')
+        else problem(t('worktree.copy must be a list of paths'))
       }
       if (w.ports !== undefined) {
         if (Number.isInteger(w.ports) && (w.ports as number) >= 1 && (w.ports as number) <= 100) settings.worktree.ports = w.ports as number
-        else problem('worktree.ports deve essere un numero intero tra 1 e 100')
+        else problem(t('worktree.ports must be an integer between 1 and 100'))
       }
     }
   }
 
   if (data.run !== undefined) {
-    if (!Array.isArray(data.run)) problem('le azioni vanno scritte come [[run]]')
+    if (!Array.isArray(data.run)) problem(t('actions must be written as [[run]]'))
     else {
       for (const [index, entry] of data.run.entries()) {
         if (!isTable(entry) || typeof entry.name !== 'string' || typeof entry.command !== 'string' || !entry.name.trim()) {
-          problem(`[[run]] n. ${index + 1}: servono name e command`)
+          problem(t('[[run]] #{n}: name and command are required', { n: index + 1 }))
           continue
         }
         const action: RunAction = {
@@ -81,22 +82,22 @@ function apply(settings: ProjectSettings, data: Table, file: string): void {
   }
 
   if (data.prompts !== undefined) {
-    if (!isTable(data.prompts)) problem('[prompts] deve essere una tabella')
+    if (!isTable(data.prompts)) problem(t('[prompts] must be a table'))
     else for (const [key, value] of Object.entries(data.prompts)) if (typeof value === 'string') settings.prompts[key] = value
   }
 
   if (data.agents !== undefined) {
-    if (!isTable(data.agents)) problem('[agents] deve essere una tabella')
+    if (!isTable(data.agents)) problem(t('[agents] must be a table'))
     else {
       const a = data.agents
       if (a.allowed !== undefined) {
         if (Array.isArray(a.allowed) && a.allowed.every((x) => typeof x === 'string')) settings.agents.allowed = (a.allowed as string[]).map(agentKey)
-        else problem('agents.allowed deve essere un elenco di agenti, per esempio ["claude-code", "codex"]')
+        else problem(t('agents.allowed must be a list of agents, for example ["claude-code", "codex"]'))
       }
-      if (a.default !== undefined) typeof a.default === 'string' ? (settings.agents.default = agentKey(a.default)) : problem('agents.default deve essere un testo')
+      if (a.default !== undefined) typeof a.default === 'string' ? (settings.agents.default = agentKey(a.default)) : problem(t('agents.default must be a string'))
       if (a.permissions_max !== undefined) {
         if (typeof a.permissions_max === 'string' && LEVELS.includes(a.permissions_max as PermissionLevel)) settings.agents.permissionsMax = a.permissions_max as PermissionLevel
-        else problem('agents.permissions_max deve essere plan, ask, edit o full')
+        else problem(t('agents.permissions_max must be plan, ask, edit or full'))
       }
     }
   }

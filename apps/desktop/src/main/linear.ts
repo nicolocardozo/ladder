@@ -3,6 +3,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, safeStorage } from 'electron'
+import { t } from '@shared/i18n'
 import type { IssueItem, IssueList } from '@shared/protocol'
 
 /** LADDER_LINEAR_API sostituisce l'indirizzo per le prove con un server finto. */
@@ -26,7 +27,7 @@ async function query<T>(key: string, body: string, variables: Record<string, unk
     signal: AbortSignal.timeout(15000)
   })
   const data = (await response.json().catch(() => null)) as { data?: T; errors?: { message: string }[] } | null
-  if (!response.ok || !data?.data) throw new Error(data?.errors?.[0]?.message ?? `Linear ha risposto ${response.status}`)
+  if (!response.ok || !data?.data) throw new Error(data?.errors?.[0]?.message ?? t('Linear responded with {status}', { status: response.status }))
   return data.data
 }
 
@@ -56,7 +57,7 @@ export async function setLinearKey(key: string | null): Promise<LinearStatus> {
   const trimmed = key.trim()
   try {
     const data = await query<{ viewer: { name: string } }>(trimmed, 'query { viewer { name } }')
-    if (!safeStorage.isEncryptionAvailable()) return { connected: false, name: null, error: 'Il portachiavi di macOS non è disponibile.' }
+    if (!safeStorage.isEncryptionAvailable()) return { connected: false, name: null, error: t('The macOS keychain is not available.') }
     writeFileSync(keyFile(), safeStorage.encryptString(trimmed), { mode: 0o600 })
     return { connected: true, name: data.viewer.name, error: null }
   } catch (error) {
@@ -90,7 +91,7 @@ const toItem = (i: RawIssue): IssueItem => ({
 /** Le tue issue aperte; con un identificativo (ABC-123) anche quella issue, se non è tra le tue. */
 export async function linearIssues(search: string): Promise<IssueList> {
   const key = readKey()
-  if (!key) return { items: [], problem: 'Collega Linear in Impostazioni → Integrazioni con una chiave API personale.' }
+  if (!key) return { items: [], problem: t('Connect Linear in Settings → Integrations with a personal API key.') }
   try {
     const data = await query<{ viewer: { assignedIssues: { nodes: RawIssue[] } } }>(
       key,

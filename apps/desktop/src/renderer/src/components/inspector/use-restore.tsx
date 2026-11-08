@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Undo2, X } from 'lucide-react'
 import { request } from '@/lib/host-client'
+import { plural, t } from '@shared/i18n'
 
 interface Done {
   text: string
@@ -27,7 +28,7 @@ export function useRestore(root: string) {
       try {
         const result = await request<{ undo: string; paths: string[] }>({ type: 'git.restore', root, to, paths, label })
         const n = result.paths.length
-        setDone({ text: `${label}: ${n === 1 ? '1 file' : `${n} file`}`, undo: result.undo, paths: result.paths })
+        setDone({ text: `${label}: ${plural(n, '{n} file', '{n} files')}`, undo: result.undo, paths: result.paths })
       } catch (e) {
         setError((e as Error).message)
       } finally {
@@ -41,7 +42,7 @@ export function useRestore(root: string) {
     if (!done) return
     setBusy(true)
     try {
-      await request({ type: 'git.restore', root, to: done.undo, paths: done.paths, label: 'Annullato il ripristino' })
+      await request({ type: 'git.restore', root, to: done.undo, paths: done.paths, label: t('Restore undone') })
       setDone(null)
     } catch (e) {
       setError((e as Error).message)
@@ -52,7 +53,7 @@ export function useRestore(root: string) {
 
   const banner =
     done || error ? (
-      <div role="status" className="flex shrink-0 items-center gap-2 border-t border-border bg-muted/70 px-3 py-2 text-[12.5px]">
+      <div role="status" className="flex shrink-0 items-center gap-2 border-t border-border bg-muted/70 px-3 py-2 text-sm">
         {error ? (
           <span className="min-w-0 flex-1 text-destructive">{error}</span>
         ) : (
@@ -65,13 +66,13 @@ export function useRestore(root: string) {
               className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <Undo2 className="size-3.5" />
-              Annulla
+              {t('Undo')}
             </button>
           </>
         )}
         <button
           type="button"
-          aria-label="Chiudi"
+          aria-label={t('Close')}
           onClick={() => {
             setDone(null)
             setError(null)

@@ -8,6 +8,7 @@ import { resolveLang } from '@/components/chat/highlighter'
 import { request } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useApp, type InspectorRequest } from '@/store/app-store'
+import { plural, t } from '@shared/i18n'
 import { PanelNote, ToolbarButton } from './changes-panel'
 import { CodeText, useFileTokens } from './code-lines'
 import { openInEditor } from './open-file'
@@ -24,7 +25,7 @@ interface Row {
   depth: number
 }
 
-const STATUS_LABEL: Record<GitStatusCode, string> = { M: 'Modificato', A: 'Aggiunto', D: 'Eliminato', '?': 'Non tracciato', U: 'In conflitto' }
+const STATUS_LABEL: Record<GitStatusCode, string> = { M: 'Modified', A: 'Added', D: 'Deleted', '?': 'Untracked', U: 'Conflicted' }
 const expandedByRoot = new Map<string, Set<string>>()
 /** File aperto nel viewer per cartella: resta quando cambi scheda e torni. */
 const openByRoot = new Map<string, { path: string; line: number | null; nonce: number } | null>()
@@ -194,17 +195,17 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
-          placeholder="Filtra i file…  (⌘P apre per nome)"
-          aria-label="Filtra i file"
-          className="h-6 min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-faint"
+          placeholder={t('Filter files…  (⌘P opens by name)')}
+          aria-label={t('Filter files')}
+          className="h-6 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint"
         />
-        {tree?.truncated && <span className="text-[11px] text-faint">primi 20.000</span>}
+        {tree?.truncated && <span className="text-xs text-faint">{t('first 20,000')}</span>}
       </div>
-      <div ref={scroller} className={cn('min-h-0 overflow-y-auto', open ? 'h-[38%] shrink-0 border-b border-border' : 'flex-1')} role="tree" aria-label="File della cartella">
+      <div ref={scroller} className={cn('min-h-0 overflow-y-auto', open ? 'h-[38%] shrink-0 border-b border-border' : 'flex-1')} role="tree" aria-label={t('Folder files')}>
         {!tree ? (
-          <p className="px-3 py-2 text-[12px] text-muted-foreground">Leggo la cartella…</p>
+          <p className="px-3 py-2 text-xs text-muted-foreground">{t('Reading folder…')}</p>
         ) : rows.length === 0 ? (
-          <PanelNote>{filter ? `Nessun file contiene “${filter}”.` : 'La cartella è vuota.'}</PanelNote>
+          <PanelNote>{filter ? t('No files match “{filter}”.', { filter }) : t('The folder is empty.')}</PanelNote>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {virtualizer.getVirtualItems().map((v) => {
@@ -225,10 +226,10 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
                     else if (event.altKey) openInEditor(projectId, `${root}/${node.path}`)
                     else setOpen({ path: node.path, line: null, nonce: Date.now() })
                   }}
-                  title={status ? `${node.path} · ${STATUS_LABEL[status]}` : node.path}
+                  title={status ? `${node.path} · ${t(STATUS_LABEL[status])}` : node.path}
                   style={{ position: 'absolute', top: 0, left: 0, right: 0, height: v.size, transform: `translateY(${v.start}px)`, paddingLeft: 8 + depth * 14 }}
                   className={cn(
-                    'flex items-center gap-1.5 pr-2 text-left text-[12.5px] outline-none hover:bg-accent/60 focus-visible:bg-accent',
+                    'flex items-center gap-1.5 pr-2 text-left text-sm outline-none hover:bg-accent/60 focus-visible:bg-accent',
                     selected && 'bg-accent text-accent-foreground'
                   )}
                 >
@@ -240,15 +241,15 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
                   ) : (
                     <File className={cn('size-3.5 shrink-0 text-muted-foreground', !filter && 'ml-[18px]')} />
                   )}
-                  <span className={cn('min-w-0 flex-1 truncate', status === 'D' && 'text-muted-foreground line-through', filter && 'font-mono text-[11.5px]')}>{node.name}</span>
-                  {node.dir && changedDirs.has(node.path) && <span aria-label="Contiene modifiche" className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />}
+                  <span className={cn('min-w-0 flex-1 truncate', status === 'D' && 'text-muted-foreground line-through', filter && 'font-mono text-xs')}>{node.name}</span>
+                  {node.dir && changedDirs.has(node.path) && <span aria-label={t('Contains changes')} className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />}
                   {turn && (
-                    <span title={`Modificato nel turno ${turn}`} className="shrink-0 rounded border border-border px-1 font-mono text-[10px] text-muted-foreground">
+                    <span title={t('Modified in turn {turn}', { turn })} className="shrink-0 rounded border border-border px-1 font-mono text-xs text-muted-foreground">
                       T{turn}
                     </span>
                   )}
                   {status && (
-                    <span aria-label={STATUS_LABEL[status]} className={cn('w-3 shrink-0 text-center font-mono text-[11px]', status === 'U' ? 'text-destructive' : 'text-muted-foreground')}>
+                    <span aria-label={t(STATUS_LABEL[status])} className={cn('w-3 shrink-0 text-center font-mono text-xs', status === 'U' ? 'text-destructive' : 'text-muted-foreground')}>
                       {status}
                     </span>
                   )}
@@ -349,14 +350,14 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border pr-1 pl-3">
-        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px]" title={path}>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>
           {path}
         </span>
-        {content?.text != null && <span className="shrink-0 text-[11px] text-faint">{lines.length} righe</span>}
-        <ToolbarButton label="Apri nell’editor" onClick={() => openInEditor(projectId, `${root}/${path}`, line ?? undefined)}>
+        {content?.text != null && <span className="shrink-0 text-xs text-faint">{plural(lines.length, '{n} line', '{n} lines')}</span>}
+        <ToolbarButton label={t('Open in editor')} onClick={() => openInEditor(projectId, `${root}/${path}`, line ?? undefined)}>
           <ExternalLink className="size-3.5" />
         </ToolbarButton>
-        <ToolbarButton label="Chiudi il file" onClick={onClose}>
+        <ToolbarButton label={t('Close file')} onClick={onClose}>
           <X className="size-3.5" />
         </ToolbarButton>
       </div>
@@ -366,23 +367,25 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={addToChat}
-            className="absolute top-2 right-3 z-10 inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-popover px-2 text-[12px] text-popover-foreground shadow-sm outline-none hover:bg-accent"
+            className="absolute top-2 right-3 z-10 inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-popover px-2 text-xs text-popover-foreground shadow-sm outline-none hover:bg-accent"
           >
             <MessageSquarePlus className="size-3.5" />
-            Aggiungi alla chat · righe {selection.from === selection.to ? selection.from : `${selection.from}–${selection.to}`}
+            {selection.from === selection.to
+              ? t('Add to chat · line {range}', { range: selection.from })
+              : t('Add to chat · lines {range}', { range: `${selection.from}–${selection.to}` })}
           </button>
         )}
         <div ref={scroller} onMouseUp={onMouseUp} className="absolute inset-0 overflow-auto bg-code-bg">
           {error ? (
             <PanelNote tone="error">{error}</PanelNote>
           ) : !content ? (
-            <p className="px-3 py-2 text-[12px] text-muted-foreground">Apro il file…</p>
+            <p className="px-3 py-2 text-xs text-muted-foreground">{t('Opening file…')}</p>
           ) : content.binary ? (
-            <PanelNote>File binario: aprilo nell’editor o nel Finder.</PanelNote>
+            <PanelNote>{t('Binary file. Open it in the editor or in Finder.')}</PanelNote>
           ) : content.tooLarge ? (
-            <PanelNote>File troppo grande per il viewer ({Math.round(content.size / 1024)} KB): aprilo nell’editor.</PanelNote>
+            <PanelNote>{t('File too large for the viewer ({size} KB). Open it in the editor.', { size: Math.round(content.size / 1024) })}</PanelNote>
           ) : (
-            <div style={{ height: virtualizer.getTotalSize(), position: 'relative', minWidth: 'max-content' }} className="font-mono text-[11.5px] leading-[19px]">
+            <div style={{ height: virtualizer.getTotalSize(), position: 'relative', minWidth: 'max-content' }} className="font-mono text-xs leading-[19px]">
               {virtualizer.getVirtualItems().map((v) => {
                 const n = v.index + 1
                 return (

@@ -1,6 +1,7 @@
 // Blocco di codice: intestazione con percorso o linguaggio, Copia, scorrimento orizzontale, Shiki quando è pronto.
 import { Check, Copy } from 'lucide-react'
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
+import { t } from '@shared/i18n'
 import { cn } from '@/lib/utils'
 import { useChatActions } from './chat-context'
 import { getCachedTokens, highlight, resolveLang, type TokenLines } from './highlighter'
@@ -121,38 +122,38 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, path, live }: Cod
 
   return (
     <div className="overflow-hidden rounded-[9px] border border-border bg-[var(--chat-code-bg)] dark:border-input/70">
-      <div className="flex h-8 items-center gap-2 border-b border-border bg-[var(--chat-code-head)] pr-1.5 pl-3 font-mono text-[11px] font-medium text-muted-foreground dark:border-input/70">
+      <div className="flex h-8 items-center gap-2 border-b border-border bg-[var(--chat-code-head)] pr-1.5 pl-3 font-mono text-xs font-medium text-muted-foreground dark:border-input/70">
         {path ? (
           <button
             type="button"
             onClick={(event) => openFile(path, undefined, event.altKey)}
-            title={`Apri ${path}`}
+            title={t('Open {path}', { path })}
             className="min-w-0 truncate text-left text-foreground/85 outline-none hover:text-foreground hover:underline focus-visible:underline"
           >
             {path}
           </button>
         ) : null}
         {label ? <span className={cn('shrink-0', path && 'text-faint')}>{path ? `· ${label}` : label}</span> : null}
-        {!path && !label ? <span>testo</span> : null}
+        {!path && !label ? <span>{t('text')}</span> : null}
         <span className="flex-1" />
         <button
           type="button"
           onClick={onCopy}
-          aria-label={copied === 'copied' ? 'Copiato' : 'Copia il codice'}
+          aria-label={copied === 'copied' ? t('Copied') : t('Copy code')}
           className={cn(
-            'inline-flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] border border-border px-1.5 font-sans text-[11px] font-medium text-secondary-foreground outline-none transition-colors dark:border-input/70',
+            'inline-flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] border border-border px-1.5 font-sans text-xs font-medium text-secondary-foreground outline-none transition-colors dark:border-input/70',
             'hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
             copied === 'copied' && 'text-success'
           )}
         >
           {copied === 'copied' ? <Check className="size-3" strokeWidth={2.2} /> : <Copy className="size-3" strokeWidth={1.9} />}
-          {copied === 'copied' ? 'Copiato' : copied === 'selected' ? 'Selezionato' : 'Copia'}
+          {copied === 'copied' ? t('Copied') : copied === 'selected' ? t('Selected') : t('Copy')}
         </button>
         <span aria-live="polite" className="sr-only">
-          {copied === 'copied' ? 'Codice copiato' : ''}
+          {copied === 'copied' ? t('Code copied') : ''}
         </span>
       </div>
-      <pre className="chat-code-scroll m-0 overflow-x-auto px-3 py-2.5 font-mono text-[12px] leading-[1.62] text-[var(--shiki-foreground)]">
+      <pre className="chat-code-scroll m-0 overflow-x-auto px-3 py-2.5 font-mono text-xs leading-[1.62] text-[var(--shiki-foreground)]">
         <code ref={codeRef} className="block w-max min-w-full whitespace-pre">
           {tokens ? <Highlighted tokens={tokens} /> : code}
         </code>

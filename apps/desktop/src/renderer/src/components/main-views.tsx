@@ -8,7 +8,6 @@ import {
   GitBranch,
   GitFork,
   HardDrive,
-  MessageSquare,
   PanelRight,
   Play,
   RotateCcw,
@@ -18,7 +17,9 @@ import {
 } from 'lucide-react'
 import type { AgentId, AgentStatus, Attachment, ChatItem, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { allowedLevels, FALLBACK_AGENT, supportsEffort } from '@/lib/agents'
-import { SOURCE_ICON, SOURCE_LABEL } from '@/components/new-from'
+import { SOURCE_ICON } from '@/components/new-from'
+import { AgentMark, modelLabel } from '@/components/agent-mark'
+import { AgentMapChip } from '@/components/agent-map'
 import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
 import { LadderLockup } from '@/components/brand/logo'
@@ -43,6 +44,7 @@ import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useSettings } from '@/hooks/use-theme'
 import { useApp } from '@/store/app-store'
+import { t } from '@shared/i18n'
 
 const EMPTY_ITEMS: ChatItem[] = []
 
@@ -80,7 +82,7 @@ export function useProjectSettings(project: Project | null): ProjectSettings | n
 // ── Barra in alto ───────────────────────────────────────────────────────────
 
 const barButton =
-  'no-drag inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent'
+  'no-drag inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent'
 
 function BarIcon({ label, shortcut, active, onClick, children }: { label: string; shortcut: string; active: boolean; onClick: () => void; children: ReactNode }) {
   return (
@@ -94,7 +96,7 @@ function BarIcon({ label, shortcut, active, onClick, children }: { label: string
         {children}
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        {label} <span className="ml-1 font-mono text-[11px] opacity-70">{shortcut}</span>
+        {label} <span className="ml-1 font-mono text-xs opacity-70">{shortcut}</span>
       </TooltipContent>
     </Tooltip>
   )
@@ -121,7 +123,7 @@ function RunButtons({ project, session }: { project: Project; session: SessionSu
     <>
       {problems.length > 0 && (
         <Tooltip>
-          <TooltipTrigger aria-label="Problemi in .ladder/settings.toml" className="no-drag grid size-7 place-items-center rounded-md text-attention outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+          <TooltipTrigger aria-label={t('Problems in .ladder/settings.toml')} className="no-drag grid size-7 place-items-center rounded-md text-attention outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
             <TriangleAlert className="size-3.5" />
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-sm">
@@ -132,7 +134,7 @@ function RunButtons({ project, session }: { project: Project; session: SessionSu
         </Tooltip>
       )}
       {actions.slice(0, 4).map((action) => (
-        <button key={action.name} type="button" onClick={() => void start(action.name)} title={`${action.command}\nNel terminale della sessione`} className={barButton}>
+        <button key={action.name} type="button" onClick={() => void start(action.name)} title={`${action.command}\n${t('In the session terminal')}`} className={barButton}>
           <Play className="size-3" />
           {action.name}
         </button>
@@ -153,27 +155,30 @@ function EditorButton({ project, root }: { project: Project; root: string }) {
   }
   return (
     <div className="no-drag flex items-center">
-      <button type="button" onClick={() => openInEditor(project.id, root)} className={cn(barButton, 'rounded-r-none pr-1.5')}>
-        Apri in {EDITOR_NAME[editor]}
-        <ExternalLink className="size-3.5" />
-      </button>
+      {/* Compatto: il nome dell'editor sta nel suggerimento, la barra resta alle tab. */}
+      <Tooltip>
+        <TooltipTrigger render={<button type="button" />} onClick={() => openInEditor(project.id, root)} aria-label={t('Open in {editor}', { editor: EDITOR_NAME[editor] })} className={cn(barButton, 'rounded-r-none pr-1')}>
+          <ExternalLink className="size-3.5" />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{t('Open in {editor}', { editor: EDITOR_NAME[editor] })}</TooltipContent>
+      </Tooltip>
       <DropdownMenu onOpenChange={(open) => open && !installed && void window.ladder?.editors().then(setInstalled)}>
-        <DropdownMenuTrigger aria-label="Scegli l’editor" className={cn(barButton, 'rounded-l-none px-1')}>
+        <DropdownMenuTrigger aria-label={t('Choose editor')} className={cn(barButton, 'rounded-l-none px-1')}>
           <ChevronDown className="size-3" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuGroup>
-            <DropdownMenuLabel>Editor per {project.name}</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Editor for {project}', { project: project.name })}</DropdownMenuLabel>
             {(['cursor', 'vscode'] as const).map((id) => (
               <DropdownMenuItem key={id} onClick={() => choose(id)}>
                 <Check className={cn('size-3.5', editor === id ? '' : 'opacity-0')} />
                 {EDITOR_NAME[id]}
-                {installed && !installed[id] && <span className="ml-auto text-[11px] text-faint">non trovato</span>}
+                {installed && !installed[id] && <span className="ml-auto text-xs text-faint">{t('not found')}</span>}
               </DropdownMenuItem>
             ))}
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <p className="px-2 py-1 text-[11.5px] text-muted-foreground">⌥clic su un file nella chat lo apre qui, alla riga giusta.</p>
+          <p className="px-2 py-1 text-xs text-muted-foreground">{t('⌥-click a file in the chat to open it here, at the right line.')}</p>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -194,13 +199,13 @@ function TopBar({ children, project, session, root }: { children?: ReactNode; pr
       {project && (
         <>
           <RunButtons project={project} session={session} />
-          <BarIcon label={terminalOpen ? 'Nascondi il terminale' : 'Terminale'} shortcut="⌃`" active={terminalOpen} onClick={() => {
+          <BarIcon label={terminalOpen ? t('Hide terminal') : t('Terminal')} shortcut="⌃`" active={terminalOpen} onClick={() => {
               if (!terminalOpen) focusNextTerminal()
               setPanel(project.id, { open: !terminalOpen })
             }}>
             <SquareTerminal className="size-4" strokeWidth={1.75} />
           </BarIcon>
-          <BarIcon label={inspectorOpen ? 'Chiudi l’ispettore' : 'Modifiche, file e cronologia'} shortcut="⌘⌥1–4" active={inspectorOpen} onClick={() => toggleInspector(project.id)}>
+          <BarIcon label={inspectorOpen ? t('Close inspector') : t('Changes, files and history')} shortcut="⌘⌥1–4" active={inspectorOpen} onClick={() => toggleInspector(project.id)}>
             <PanelRight className="size-4" strokeWidth={1.75} />
           </BarIcon>
           {root && <EditorButton project={project} root={root} />}
@@ -226,7 +231,7 @@ function Workspace({ project, session, root, composerKey, children }: { project:
 }
 
 const contextButton =
-  'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-50'
+  'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-50'
 
 function useAgentStatus(agent: AgentId | undefined): AgentStatus | null {
   const agents = useApp((s) => s.agents)
@@ -235,9 +240,9 @@ function useAgentStatus(agent: AgentId | undefined): AgentStatus | null {
 
 /** Sottotitolo di un agente nei menu: account e versione, oppure il motivo per cui non c'è. */
 function agentDetail(status: AgentStatus, allowed: boolean): string {
-  if (!allowed) return 'Non ammesso dal progetto (.ladder/settings.toml)'
-  if (!status.available) return status.error ?? 'Non disponibile'
-  return [status.kind === 'acp' ? 'ACP' : null, status.account, status.version ? `v${status.version}` : null].filter(Boolean).join(' · ') || 'Pronto'
+  if (!allowed) return t('Not allowed by the project (.ladder/settings.toml)')
+  if (!status.available) return status.error ?? t('Not available')
+  return [status.kind === 'acp' ? 'ACP' : null, status.account, status.version ? `v${status.version}` : null].filter(Boolean).join(' · ') || t('Ready')
 }
 
 // ── Nuova chat ──────────────────────────────────────────────────────────────
@@ -263,8 +268,8 @@ function branchFor(item: IssueItem): { name: string; existing: boolean; pr?: num
 }
 
 const TERMINAL_PRESETS = [
-  { command: 'claude', label: 'Claude Code nel terminale', hint: 'La TUI originale; lo stato arriva dagli hook' },
-  { command: 'codex', label: 'Codex nel terminale', hint: 'Lo stato arriva dalle notifiche della TUI' }
+  { command: 'claude', label: 'Claude Code in the terminal', hint: 'The original TUI; status comes from hooks' },
+  { command: 'codex', label: 'Codex in the terminal', hint: 'Status comes from TUI notifications' }
 ]
 
 /** Nuova chat: composer al centro con progetto, branch, cartella e modalità sopra, come nella finestra agenti di Cursor. */
@@ -341,15 +346,15 @@ export function NewChat({ projectId }: { projectId: string | null }) {
       <main className="flex min-w-0 flex-1 flex-col bg-background">
         <TopBar project={null} session={null} root={null} />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 pb-[14vh] text-center">
-          <p className="text-[15px] font-semibold">Aggiungi il primo progetto</p>
-          <p className="max-w-sm text-[13px] text-muted-foreground">Scegli la cartella di un repository. Ladder apre le sessioni degli agenti lì dentro.</p>
+          <p className="text-base font-semibold">{t('Add your first project')}</p>
+          <p className="max-w-sm text-sm text-muted-foreground">{t('Choose a repository folder. Ladder opens agent sessions inside it.')}</p>
           <button
             type="button"
             onClick={() => void addProjectFromDialog()}
-            className="mt-2 inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="mt-2 inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <FolderPlus className="size-4" />
-            Aggiungi progetto
+            {t('Add project')}
           </button>
         </div>
       </main>
@@ -393,7 +398,8 @@ export function NewChat({ projectId }: { projectId: string | null }) {
     }
   }
 
-  const launchLabel = launch.mode === 'chat' ? `Chat · ${agentStatus.name}` : `Terminale · ${launch.command.split(' ')[0] || 'comando'}`
+  const launchLabel =
+    launch.mode === 'chat' ? t('Chat · {agent}', { agent: agentStatus.name }) : t('Terminal · {command}', { command: launch.command.split(' ')[0] || t('command') })
 
   return (
     <Workspace project={project} session={null} root={project.path} composerKey={`new:${project.id}`}>
@@ -412,7 +418,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-64">
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>Progetto</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t('Project')}</DropdownMenuLabel>
                   {projects.map((p) => (
                     <DropdownMenuItem key={p.id} onClick={() => select({ kind: 'new', projectId: p.id })}>
                       <Check className={p.id === project.id ? 'size-3.5' : 'size-3.5 opacity-0'} />
@@ -421,7 +427,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
                   ))}
                   <DropdownMenuItem onClick={() => void addProjectFromDialog()}>
                     <FolderPlus className="size-3.5" />
-                    Aggiungi progetto…
+                    {t('Add project…')}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>
@@ -435,27 +441,29 @@ export function NewChat({ projectId }: { projectId: string | null }) {
             <DropdownMenu>
               <DropdownMenuTrigger className={contextButton} disabled={!project.isGit}>
                 {worktree ? <GitFork className="size-3.5" /> : <HardDrive className="size-3.5" />}
-                {worktree ? 'Nuovo worktree' : 'Checkout principale'}
+                {worktree ? t('New worktree') : t('Main checkout')}
                 <ChevronDown className="size-3 text-faint" />
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-80">
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>Dove lavora la sessione</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t('Where the session works')}</DropdownMenuLabel>
                   <DropdownMenuItem onClick={() => setWorktree(false)} className="items-start">
                     <Check className={cn('mt-0.5 size-3.5', worktree && 'opacity-0')} />
                     <span className="flex flex-col">
-                      Checkout principale
-                      <span className="text-[11.5px] text-muted-foreground">Il dev server che hai già aperto vede le modifiche</span>
+                      {t('Main checkout')}
+                      <span className="text-xs text-muted-foreground">{t('The dev server you already have open sees the changes')}</span>
                     </span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setWorktree(true)} className="items-start">
                     <Check className={cn('mt-0.5 size-3.5', !worktree && 'opacity-0')} />
                     <span className="flex flex-col">
-                      Nuovo worktree
-                      <span className="text-[11.5px] text-muted-foreground">
-                        {source ? `Branch ${branchFor(source).name}${branchFor(source).existing ? ' (esistente)' : ''}` : `Branch ladder/… da ${project.branch ?? 'HEAD'}`}
-                        {settings?.worktree.setup ? `, poi “${settings.worktree.setup}”` : ''}
-                        {settings?.worktree.copy.length ? `, copia ${settings.worktree.copy.join(', ')}` : ''}
+                      {t('New worktree')}
+                      <span className="text-xs text-muted-foreground">
+                        {source
+                          ? t(branchFor(source).existing ? 'Branch {branch} (existing)' : 'Branch {branch}', { branch: branchFor(source).name })
+                          : t('Branch ladder/… from {base}', { base: project.branch ?? 'HEAD' })}
+                        {settings?.worktree.setup ? t(', then “{setup}”', { setup: settings.worktree.setup }) : ''}
+                        {settings?.worktree.copy.length ? t(', copies {files}', { files: settings.worktree.copy.join(', ') }) : ''}
                       </span>
                     </span>
                   </DropdownMenuItem>
@@ -464,38 +472,39 @@ export function NewChat({ projectId }: { projectId: string | null }) {
             </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger className={contextButton}>
-                {launch.mode === 'chat' ? <MessageSquare className="size-3.5" /> : <SquareTerminal className="size-3.5" />}
+                {launch.mode === 'chat' ? <AgentMark agent={chatAgent} size={14} /> : <SquareTerminal className="size-3.5" />}
                 {launchLabel}
                 <ChevronDown className="size-3 text-faint" />
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-80">
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>In chat, con le approvazioni di Ladder</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t('In chat, with Ladder approvals')}</DropdownMenuLabel>
                   {agents.map((status) => {
                     const allowed = isAllowed(status.agent)
                     return (
                       <DropdownMenuItem key={status.agent} disabled={!allowed || !status.available} onClick={() => chooseAgent(status.agent)} className="items-start">
                         <Check className={cn('mt-0.5 size-3.5', !(launch.mode === 'chat' && launch.agent === status.agent) && 'opacity-0')} />
+                        <AgentMark agent={status.agent} size={14} className="mt-0.5" />
                         <span className="flex min-w-0 flex-col">
                           {status.name}
-                          <span className="truncate text-[11.5px] text-muted-foreground">{agentDetail(status, allowed)}</span>
+                          <span className="truncate text-xs text-muted-foreground">{agentDetail(status, allowed)}</span>
                         </span>
                       </DropdownMenuItem>
                     )
                   })}
                   <DropdownMenuItem onClick={() => useSettings.getState().openSection('agents')}>
-                    <span className="pl-[22px] text-[12px] text-muted-foreground">Aggiungi un agente ACP…</span>
+                    <span className="pl-[22px] text-xs text-muted-foreground">{t('Add an ACP agent…')}</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>Nel terminale, con la CLI originale</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t('In the terminal, with the original CLI')}</DropdownMenuLabel>
                   {TERMINAL_PRESETS.map((p) => (
                     <DropdownMenuItem key={p.command} onClick={() => setLaunch({ mode: 'terminal', command: p.command })} className="items-start">
                       <Check className={cn('mt-0.5 size-3.5', !(launch.mode === 'terminal' && launch.command === p.command) && 'opacity-0')} />
                       <span className="flex flex-col">
-                        {p.label}
-                        <span className="text-[11.5px] text-muted-foreground">{p.hint}</span>
+                        {t(p.label)}
+                        <span className="text-xs text-muted-foreground">{t(p.hint)}</span>
                       </span>
                     </DropdownMenuItem>
                   ))}
@@ -505,8 +514,8 @@ export function NewChat({ projectId }: { projectId: string | null }) {
                   >
                     <Check className={cn('mt-0.5 size-3.5', !(launch.mode === 'terminal' && !TERMINAL_PRESETS.some((p) => p.command === launch.command)) && 'opacity-0')} />
                     <span className="flex flex-col">
-                      Altro comando…
-                      <span className="text-[11.5px] text-muted-foreground">Qualunque CLI; lo stato è stimato da output e campanello</span>
+                      {t('Other command…')}
+                      <span className="text-xs text-muted-foreground">{t('Any CLI; status is estimated from output and the bell')}</span>
                     </span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -531,17 +540,17 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               onPermissionChange={setPermission}
               maxPermission={maxPermission}
               onSubmit={(text, attachments) => void create(text, attachments)}
-              disabledReason={pending ? 'Preparo la sessione…' : !agentStatus.available ? (agentStatus.error ?? `${agentStatus.name} non è disponibile.`) : null}
+              disabledReason={pending ? t('Preparing the session…') : !agentStatus.available ? (agentStatus.error ?? t('{agent} is not available.', { agent: agentStatus.name })) : null}
               autoFocus
             />
           ) : (
             <TerminalLauncher command={launch.command} onCommandChange={(command) => setLaunch({ mode: 'terminal', command })} pending={pending} onLaunch={(prompt) => void create(prompt, [])} />
           )}
-          {error && <p className="mt-2 pl-1 text-[12.5px] text-destructive">{error}</p>}
-          <p className="mt-3 pl-1 text-[11.5px] text-faint">
-            <kbd className="font-mono">⌘N</kbd> nuova chat · <kbd className="font-mono">⌘P</kbd> apri file · <kbd className="font-mono">⌃`</kbd> terminale ·{' '}
-            <kbd className="font-mono">⌘⇧N</kbd> da issue o PR · <kbd className="font-mono">⌘⌥2</kbd> file
-            {launch.mode === 'chat' && agentStatus.account && <> · {agentStatus.name} con {agentStatus.account}</>}
+          {error && <p className="mt-2 pl-1 text-sm text-destructive">{error}</p>}
+          <p className="mt-3 pl-1 text-xs text-faint">
+            <kbd className="font-mono">⌘N</kbd> {t('new chat')} · <kbd className="font-mono">⌘P</kbd> {t('open file')} · <kbd className="font-mono">⌃`</kbd> {t('terminal')} ·{' '}
+            <kbd className="font-mono">⌘⇧N</kbd> {t('from issue or PR')} · <kbd className="font-mono">⌘⌥2</kbd> {t('files')}
+            {launch.mode === 'chat' && agentStatus.account && <> · {t('{agent} as {account}', { agent: agentStatus.name, account: agentStatus.account })}</>}
             {launch.mode === 'chat' && agentStatus.version && <> · CLI {agentStatus.version}</>}
             {launch.mode === 'chat' && agentStatus.limits && <> · {agentStatus.limits}</>}
           </p>
@@ -551,21 +560,23 @@ export function NewChat({ projectId }: { projectId: string | null }) {
   )
 }
 
+const FROM_LABEL: Record<IssueItem['source'], string> = { 'github-issue': 'From issue', 'github-pr': 'From PR', linear: 'From Linear', branch: 'From branch' }
+
 /** Da dove nasce la sessione: issue, PR o branch, con il link. */
 function SourceChip({ item, onClear }: { item: IssueItem; onClear: () => void }) {
   const Icon = SOURCE_ICON[item.source]
   return (
-    <div className="mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-input bg-card px-2.5 py-1.5 text-[12.5px]">
+    <div className="mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-input bg-card px-2.5 py-1.5 text-sm">
       <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="shrink-0 text-muted-foreground">Da {SOURCE_LABEL[item.source]}</span>
-      {item.source !== 'branch' && <span className="shrink-0 font-mono text-[12px]">{item.ref}</span>}
+      <span className="shrink-0 text-muted-foreground">{t(FROM_LABEL[item.source])}</span>
+      {item.source !== 'branch' && <span className="shrink-0 font-mono text-xs">{item.ref}</span>}
       <span className="min-w-0 flex-1 truncate">{item.source === 'branch' ? item.ref : item.title}</span>
       {item.url && (
-        <button type="button" onClick={() => void window.ladder?.openExternal(item.url!)} className="shrink-0 text-[11.5px] text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:underline">
-          Apri
+        <button type="button" onClick={() => void window.ladder?.openExternal(item.url!)} className="shrink-0 text-xs text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:underline">
+          {t('Open')}
         </button>
       )}
-      <button type="button" aria-label="Togli" onClick={onClear} className="grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+      <button type="button" aria-label={t('Remove')} onClick={onClear} className="grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
         <X className="size-3" />
       </button>
     </div>
@@ -581,17 +592,18 @@ function TerminalLauncher({ command, onCommandChange, pending, onLaunch }: { com
     if (!command) input.current?.focus()
   }, [command])
   const go = () => command.trim() && !pending && onLaunch(agentCli ? prompt.trim() : '')
+  const [portBefore, portAfter] = t('Runs in the session folder, with {port}.').split('{port}')
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-input bg-composer p-3">
-      <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
-        Comando
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        {t('Command')}
         <input
           ref={input}
           value={command}
           onChange={(e) => onCommandChange(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && go()}
-          placeholder="per esempio: aider, gemini, pnpm test --watch"
-          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-[12.5px] text-foreground outline-none focus-visible:border-ring"
+          placeholder={t('e.g. aider, gemini, pnpm test --watch')}
+          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-sm text-foreground outline-none focus-visible:border-ring"
         />
       </label>
       {agentCli && (
@@ -605,24 +617,26 @@ function TerminalLauncher({ command, onCommandChange, pending, onLaunch }: { com
             }
           }}
           rows={2}
-          aria-label="Primo messaggio"
-          placeholder="Primo messaggio (facoltativo): parte con la CLI"
-          className="w-full resize-none rounded-md bg-transparent px-1 py-1 text-[14px] outline-none [field-sizing:content] placeholder:text-faint"
+          aria-label={t('First message')}
+          placeholder={t('First message (optional): sent when the CLI starts')}
+          className="w-full resize-none rounded-md bg-transparent px-1 py-1 text-base outline-none [field-sizing:content] placeholder:text-faint"
         />
       )}
       <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 text-[11.5px] text-muted-foreground">
-          Gira nella cartella della sessione, con <span className="font-mono">LADDER_PORT</span>.{' '}
-          {program === 'claude' ? 'Ladder sa quando chiede un permesso.' : program === 'codex' ? 'Ladder sa quando chiede un’approvazione.' : 'Lo stato è stimato.'}
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+          {portBefore}
+          <span className="font-mono">LADDER_PORT</span>
+          {portAfter}{' '}
+          {program === 'claude' ? t('Ladder knows when it asks for permission.') : program === 'codex' ? t('Ladder knows when it asks for approval.') : t('Status is estimated.')}
         </p>
         <button
           type="button"
           onClick={go}
           disabled={!command.trim() || pending}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
         >
           <SquareTerminal className="size-4" />
-          {pending ? 'Avvio…' : 'Avvia nel terminale'}
+          {pending ? t('Starting…') : t('Start in terminal')}
         </button>
       </div>
     </div>
@@ -712,6 +726,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     [project, sessionId, setUi]
   )
 
+  const sessionModel = modelLabel(agentStatus, session?.model ?? null)
   if (!session || !project) return <main className="flex-1 bg-background" />
   const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting' || session.run === 'queued'
   const branch = session.worktree?.branch ?? project.branch
@@ -721,16 +736,20 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       <TopBar project={project} session={session} root={root}>
         <TabBar projectId={project.id} activeSessionId={sessionId} />
       </TopBar>
-      <div className="flex min-w-0 items-baseline gap-2 border-b border-border px-5 pb-2.5">
-        <span className="truncate text-[13.5px] font-semibold">{session.title}</span>
-        <span className="truncate text-[12px] text-muted-foreground">
+      {/* Chi lavora e dove: il titolo è già nella tab. Allineato alla colonna della conversazione, senza linee. */}
+      <div className={cn('flex w-full min-w-0 items-center gap-1.5 pb-1 text-xs text-muted-foreground', isTerminal ? 'px-5' : 'mx-auto max-w-[728px] px-6')}>
+        {isTerminal ? <SquareTerminal aria-hidden className="size-3.5 shrink-0" /> : <AgentMark agent={session.agent} size={14} />}
+        <span className="shrink-0 font-medium text-foreground">{isTerminal ? t('{command} in the terminal', { command: session.command ?? 'claude' }) : agentStatus.name}</span>
+        {!isTerminal && sessionModel && <span className="shrink-0">{sessionModel}</span>}
+        <span aria-hidden className="text-faint">·</span>
+        <span className="min-w-0 truncate">
           {project.name}
           {branch ? ` · ${branch}` : ''}
-          {session.worktree ? ' · worktree' : ''} · {isTerminal ? `Terminale · ${session.command ?? 'claude'}` : agentStatus.name}
-          {session.run === 'waiting' && <span className="font-semibold text-attention"> · {session.waitingLabel}</span>}
-          {session.run !== 'waiting' && session.activity && isTerminal && <span> · {session.activity}</span>}
-          {session.estimated && <span title="Lo stato viene da output e campanello, non da segnali dell’agente"> · stato stimato</span>}
+          {session.worktree ? ' · worktree' : ''}
+          {session.run !== 'waiting' && session.activity && isTerminal ? ` · ${session.activity}` : ''}
+          {session.estimated ? ` · ${t('estimated status')}` : ''}
         </span>
+        {session.run === 'waiting' && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
       </div>
       {isTerminal ? (
         <TerminalSessionBody session={session} />
@@ -754,7 +773,12 @@ export function SessionView({ sessionId }: { sessionId: string }) {
             />
           </div>
           <div className="flex flex-col items-center px-6 pb-4">
-            {error && <p className="mb-2 w-full max-w-[680px] text-[12.5px] text-destructive">{error}</p>}
+            {error && <p className="mb-2 w-full max-w-[680px] text-sm text-destructive">{error}</p>}
+            {session.subagents?.length ? (
+              <div className="mb-1.5 flex w-full max-w-[680px] justify-end">
+                <AgentMapChip session={session} />
+              </div>
+            ) : null}
             <Composer
               key={sessionId}
               draftKey={sessionId}
@@ -779,7 +803,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               queue={session.queue}
               onQueueChange={(queue) => send({ type: 'session.queue.set', sessionId, queue })}
               context={session.context}
-              disabledReason={!agentStatus.available ? (agentStatus.error ?? `${agentStatus.name} non è disponibile.`) : null}
+              disabledReason={!agentStatus.available ? (agentStatus.error ?? t('{agent} is not available.', { agent: agentStatus.name })) : null}
               autoFocus={!focusTarget}
               status={session.queuedReason}
               className="max-w-[680px]"
@@ -803,13 +827,15 @@ function TerminalSessionBody({ session }: { session: SessionSummary }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {stopped && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/60 px-5 py-2 text-[12.5px]">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/60 px-5 py-2 text-sm">
           <span className="min-w-0 flex-1 text-muted-foreground">
             {terminal?.state === 'exited'
-              ? `Il processo è terminato${terminal.exitCode ? ` con codice ${terminal.exitCode}` : ''}.`
+              ? terminal.exitCode
+                ? t('The process exited with code {code}.', { code: terminal.exitCode })
+                : t('The process exited.')
               : terminal?.state === 'stopped'
-                ? 'Ladder è stato riavviato: il processo non c’è più.'
-                : 'Avvio della CLI…'}
+                ? t('Ladder was restarted: the process is gone.')
+                : t('Starting the CLI…')}
             {error && <span className="ml-2 text-destructive">{error}</span>}
           </span>
           {terminal && (
@@ -819,7 +845,7 @@ function TerminalSessionBody({ session }: { session: SessionSummary }) {
               className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <RotateCcw className="size-3.5" />
-              {session.command?.startsWith('claude') ? 'Riprendi la conversazione' : 'Riavvia'}
+              {session.command?.startsWith('claude') ? t('Resume conversation') : t('Restart')}
             </button>
           )}
         </div>
@@ -827,7 +853,7 @@ function TerminalSessionBody({ session }: { session: SessionSummary }) {
       {terminal ? (
         <TerminalView key={terminal.id} id={terminal.id} composerKey={null} autoFocus className="flex-1 px-3 pt-2" />
       ) : (
-        <div className="grid flex-1 place-items-center text-[12.5px] text-muted-foreground">Apro il terminale…</div>
+        <div className="grid flex-1 place-items-center text-sm text-muted-foreground">{t('Opening the terminal…')}</div>
       )}
     </div>
   )

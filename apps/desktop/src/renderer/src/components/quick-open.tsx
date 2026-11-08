@@ -4,6 +4,7 @@ import { Command as CommandPrimitive } from 'cmdk'
 import { useShallow } from 'zustand/react/shallow'
 import { File, Search } from 'lucide-react'
 import type { FileTree } from '@shared/protocol'
+import { t } from '@shared/i18n'
 import { indexFromPaths, rankFiles, type FileIndex } from '@/components/composer/file-index'
 import { openInEditor } from '@/components/inspector/open-file'
 import { Command, CommandEmpty, CommandItem, CommandList } from '@/components/ui/command'
@@ -32,8 +33,8 @@ export function QuickOpen() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent showCloseButton={false} className="top-[13vh] translate-y-0 gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-[560px]">
-        <DialogTitle className="sr-only">Apri file</DialogTitle>
-        <DialogDescription className="sr-only">File della cartella della sessione, per nome o percorso.</DialogDescription>
+        <DialogTitle className="sr-only">{t('Open file')}</DialogTitle>
+        <DialogDescription className="sr-only">{t('Files in the session folder, by name or path.')}</DialogDescription>
         <QuickOpenBody onClose={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
@@ -73,7 +74,7 @@ function QuickOpenBody({ onClose }: { onClose: () => void }) {
     <Command
       shouldFilter={false}
       loop
-      label="Apri file"
+      label={t('Open file')}
       value={selected}
       onValueChange={setSelected}
       onKeyDown={(e) => {
@@ -89,36 +90,36 @@ function QuickOpenBody({ onClose }: { onClose: () => void }) {
         <CommandPrimitive.Input
           value={query}
           onValueChange={setQuery}
-          placeholder={root ? 'Nome del file, anche percorso:riga…' : 'Aggiungi un progetto per cercare i file'}
-          className="h-full min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
+          placeholder={root ? t('File name, or path:line…') : t('Add a project to search its files')}
+          className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint"
         />
       </div>
       <CommandList className="max-h-[min(420px,56vh)] px-1.5 py-1.5">
-        <CommandEmpty className="py-8 text-[13px] text-muted-foreground">
-          {error ?? (index ? `Nessun file corrisponde a “${pathQuery}”.` : 'Leggo i file…')}
+        <CommandEmpty className="py-8 text-sm text-muted-foreground">
+          {error ?? (index ? t('No files match “{query}”.', { query: pathQuery }) : t('Reading files…'))}
         </CommandEmpty>
         {results.map((entry) => (
           <CommandItem
             key={entry.path}
             value={entry.path}
-            className="gap-2.5 px-2.5 py-[7px] text-[13px] data-selected:bg-accent"
+            className="gap-2.5 px-2.5 py-[7px] text-sm data-selected:bg-accent"
             onSelect={() => choose(entry.path, false)}
           >
             <File className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
             <span className="shrink-0 font-medium">{entry.base}</span>
-            <span className="min-w-0 truncate text-[12px] text-muted-foreground">{entry.dir}</span>
+            <span className="min-w-0 truncate text-xs text-muted-foreground">{entry.dir}</span>
           </CommandItem>
         ))}
       </CommandList>
-      <div className="flex h-9 items-center gap-3 border-t border-border px-4 text-[11.5px] text-faint">
+      <div className="flex h-9 items-center gap-3 border-t border-border px-4 text-xs text-faint">
         <span>
-          <kbd className="font-mono">↵</kbd> apri nel viewer
+          <kbd className="font-mono">↵</kbd> {t('open in viewer')}
         </span>
         <span>
-          <kbd className="font-mono">⌥↵</kbd> apri nell’editor
+          <kbd className="font-mono">⌥↵</kbd> {t('open in editor')}
         </span>
         <span className="ml-auto">
-          <kbd className="font-mono">esc</kbd> per chiudere
+          <kbd className="font-mono">esc</kbd> {t('to close')}
         </span>
       </div>
     </Command>

@@ -4,6 +4,7 @@ import { ImageIcon } from 'lucide-react'
 import { memo, useMemo, type ComponentProps, type ReactNode } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { t } from '@shared/i18n'
 import { cn } from '@/lib/utils'
 import { FileChip } from './bits'
 import { CodeBlock } from './code-block'
@@ -146,7 +147,7 @@ function Img({ src, alt }: ComponentProps<'img'> & ExtraProps) {
   return (
     <a href={src} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
       <ImageIcon aria-hidden className="size-[0.9em]" />
-      {alt || 'Immagine'}
+      {alt || t('Image')}
     </a>
   )
 }
@@ -180,7 +181,7 @@ export const Markdown = memo(function Markdown({ text, streaming, compact, class
     <div
       className={cn(
         'chat-md',
-        compact ? 'chat-md-compact text-[13px] leading-[1.55]' : 'text-[14.5px] leading-[1.6] text-foreground',
+        compact ? 'chat-md-compact text-sm leading-[1.55]' : 'text-base leading-[1.6] text-foreground',
         className
       )}
       data-streaming={streaming ? '' : undefined}

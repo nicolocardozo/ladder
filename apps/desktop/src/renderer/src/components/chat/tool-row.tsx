@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
 import type { ToolKind } from '@shared/protocol'
+import { plural, t } from '@shared/i18n'
 import { cn } from '@/lib/utils'
 import { Spinner } from './bits'
 import { useToggle } from './chat-context'
@@ -55,13 +56,13 @@ export function MonoTitle({ title, detail }: { title: string; detail: string | n
 function StatusGlyph({ status }: { status: ToolItem['status'] }) {
   switch (status) {
     case 'running':
-      return <Spinner label="In corso" />
+      return <Spinner label={t('Running')} />
     case 'done':
-      return <Check role="img" aria-label="Completato" className="size-3.5 shrink-0 text-success" strokeWidth={2.2} />
+      return <Check role="img" aria-label={t('Completed')} className="size-3.5 shrink-0 text-success" strokeWidth={2.2} />
     case 'error':
-      return <X role="img" aria-label="Errore" className="size-3.5 shrink-0 text-destructive" strokeWidth={2.4} />
+      return <X role="img" aria-label={t('Error')} className="size-3.5 shrink-0 text-destructive" strokeWidth={2.4} />
     case 'denied':
-      return <Ban role="img" aria-label="Rifiutato" className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
+      return <Ban role="img" aria-label={t('Denied')} className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
   }
 }
 
@@ -79,23 +80,23 @@ function ToolOutput({ item }: { item: ToolItem }) {
     <button
       type="button"
       onClick={toggleAll}
-      className="w-full border-border px-2.5 py-1 text-left text-[11.5px] text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground dark:border-input/60"
+      className="w-full border-border px-2.5 py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground dark:border-input/60"
     >
-      {all ? 'Mostra meno' : `${hidden} righe nascoste · Mostra tutto`}
+      {all ? t('Show less') : `${plural(hidden, '{n} line hidden', '{n} lines hidden')} · ${t('Show all')}`}
     </button>
   ) : null
 
   return (
     <div className="mt-1 mb-1.5 ml-[21px] overflow-hidden rounded-[7px] border border-border bg-[var(--chat-code-bg)] dark:border-input/60">
       {item.detail && (
-        <div className="border-b border-border px-2.5 py-1.5 font-mono text-[11.5px] leading-[1.5] break-all whitespace-pre-wrap text-foreground/85 last:border-b-0 dark:border-input/60">
+        <div className="border-b border-border px-2.5 py-1.5 font-mono text-xs leading-[1.5] break-all whitespace-pre-wrap text-foreground/85 last:border-b-0 dark:border-input/60">
           {item.tool === 'command' ? <span className="text-faint select-none">$ </span> : null}
           {item.detail}
         </div>
       )}
       {truncated && tail && !all ? <div className="border-b border-inherit">{more}</div> : null}
       {lines.length > 0 && (
-        <pre className="chat-code-scroll m-0 overflow-x-auto px-2.5 py-2 font-mono text-[11.5px] leading-[1.55] text-muted-foreground">
+        <pre className="chat-code-scroll m-0 overflow-x-auto px-2.5 py-2 font-mono text-xs leading-[1.55] text-muted-foreground">
           {shown.map((line, i) => (
             <span
               key={i}
@@ -110,7 +111,7 @@ function ToolOutput({ item }: { item: ToolItem }) {
           ))}
         </pre>
       )}
-      {lines.length === 0 && !item.detail ? <p className="px-2.5 py-1.5 text-[11.5px] text-faint">Nessun output</p> : null}
+      {lines.length === 0 && !item.detail ? <p className="px-2.5 py-1.5 text-xs text-faint">{t('No output')}</p> : null}
       {truncated && (!tail || all) ? <div className="border-t border-border dark:border-input/60">{more}</div> : null}
     </div>
   )
@@ -131,7 +132,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: ToolItem }) {
         onClick={expandable ? toggle : undefined}
         aria-expanded={expandable ? open : undefined}
         className={cn(
-          'group flex h-[22px] w-full min-w-0 items-center gap-2 rounded-[5px] text-left text-[12.5px] text-muted-foreground outline-none',
+          'group flex h-[22px] w-full min-w-0 items-center gap-2 rounded-[5px] text-left text-sm text-muted-foreground outline-none',
           'focus-visible:ring-2 focus-visible:ring-ring/50',
           expandable && 'hover:text-foreground'
         )}
@@ -140,10 +141,10 @@ export const ToolRow = memo(function ToolRow({ item }: { item: ToolItem }) {
         <span className={cn('min-w-0 truncate', item.status === 'running' && 'text-foreground/90')}>
           <MonoTitle title={item.title} detail={item.detail} />
         </span>
-        {item.status === 'error' ? <span className="shrink-0 text-destructive">· errore</span> : null}
-        {item.status === 'denied' ? <span className="shrink-0">· rifiutato</span> : null}
+        {item.status === 'error' ? <span className="shrink-0 text-destructive">· {t('error')}</span> : null}
+        {item.status === 'denied' ? <span className="shrink-0">· {t('denied')}</span> : null}
         <span className="flex-1" />
-        {duration ? <span className="shrink-0 font-mono text-[11px] text-faint tabular-nums">{duration}</span> : null}
+        {duration ? <span className="shrink-0 font-mono text-xs text-faint tabular-nums">{duration}</span> : null}
         <StatusGlyph status={item.status} />
         <ChevronRight
           aria-hidden

@@ -4,6 +4,7 @@ import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type ReactNode
 import { MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
 import type { FilePatch } from '@shared/protocol'
 import { cn } from '@/lib/utils'
+import { t } from '@shared/i18n'
 import { CodeText, useFileTokens } from './code-lines'
 import { lineKey, parsePatch, splitRows, type DiffLine } from './diff-parse'
 import type { LineComment } from './comments'
@@ -39,9 +40,9 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
     return map
   }, [comments])
 
-  if (patch.binary) return <Empty>File binario: il contenuto non si confronta qui.</Empty>
-  if (patch.tooLarge) return <Empty>File troppo grande per il diff: aprilo nell’editor.</Empty>
-  if (hunks.length === 0) return <Empty>Nessuna differenza nel contenuto (cambiano solo nome o permessi).</Empty>
+  if (patch.binary) return <Empty>{t('Binary file. Its contents can’t be compared here.')}</Empty>
+  if (patch.tooLarge) return <Empty>{t('File too large to diff. Open it in the editor.')}</Empty>
+  if (hunks.length === 0) return <Empty>{t('No content differences (only the name or permissions changed).')}</Empty>
 
   const tokensFor = (line: DiffLine) => (line.kind === 'del' ? oldTokens?.[(line.oldNo ?? 1) - 1] : newTokens?.[(line.newNo ?? 1) - 1])
 
@@ -80,7 +81,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
     onAddComment ? (
       <button
         type="button"
-        aria-label={`Commenta la riga ${line.kind === 'del' ? line.oldNo : line.newNo}`}
+        aria-label={t('Comment on line {line}', { line: (line.kind === 'del' ? line.oldNo : line.newNo) ?? '' })}
         onClick={() => setEditing(lineKey(line))}
         className="absolute top-0 -left-0.5 grid size-[19px] place-items-center rounded bg-primary text-primary-foreground opacity-0 outline-none group-hover:opacity-100 focus-visible:opacity-100"
       >
@@ -97,7 +98,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
     if (truncated()) return
     body.push(
       <tr key={`h${h}`}>
-        <td colSpan={mode === 'split' ? 4 : 3} className="bg-muted/70 px-3 py-1 font-mono text-[11px] text-muted-foreground">
+        <td colSpan={mode === 'split' ? 4 : 3} className="bg-muted/70 px-3 py-1 font-mono text-xs text-muted-foreground">
           {hunk.header.replace(/@@(.*)@@.*/, '@@$1@@')}
           {hunk.section && <span className="ml-2 text-faint">{hunk.section}</span>}
         </td>
@@ -119,7 +120,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
                 <span aria-hidden className={cn('mr-2 inline-block w-2 select-none', line.kind === 'add' ? 'text-success' : 'text-destructive')}>
                   {sign(line)}
                 </span>
-                <span className="sr-only">{line.kind === 'add' ? 'aggiunta: ' : line.kind === 'del' ? 'tolta: ' : ''}</span>
+                <span className="sr-only">{line.kind === 'add' ? `${t('added:')} ` : line.kind === 'del' ? `${t('removed:')} ` : ''}</span>
                 <CodeText text={line.text} tokens={tokensFor(line)} />
               </td>
             </tr>
@@ -168,12 +169,12 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse font-mono text-[11.5px] leading-[19px]">
+      <table className="w-full border-collapse font-mono text-xs leading-[19px]">
         <tbody>{body}</tbody>
       </table>
       {!showAll && rows >= ROW_LIMIT && (
-        <button type="button" onClick={() => setShowAll(true)} className="w-full border-t border-border py-2 text-[12px] text-primary hover:bg-accent">
-          Mostra il resto del diff
+        <button type="button" onClick={() => setShowAll(true)} className="w-full border-t border-border py-2 text-xs text-primary hover:bg-accent">
+          {t('Show the rest of the diff')}
         </button>
       )}
     </div>
@@ -181,7 +182,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <p className="px-3 py-3 text-[12.5px] text-muted-foreground">{children}</p>
+  return <p className="px-3 py-3 text-sm text-muted-foreground">{children}</p>
 }
 
 function CommentEditor({ initial, onSave, onCancel }: { initial: string; onSave: (text: string) => void; onCancel: () => void }) {
@@ -208,23 +209,23 @@ function CommentEditor({ initial, onSave, onCancel }: { initial: string; onSave:
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
         rows={2}
-        aria-label="Commento sulla riga"
-        placeholder="Cosa deve cambiare qui?"
-        className="w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-[12.5px] outline-none focus-visible:border-ring"
+        aria-label={t('Line comment')}
+        placeholder={t('What should change here?')}
+        className="w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
       />
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={save}
           disabled={!text.trim()}
-          className="h-6 rounded-md bg-primary px-2 text-[12px] font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          className="h-6 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
         >
-          Aggiungi
+          {t('Add')}
         </button>
-        <button type="button" onClick={onCancel} className="h-6 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-accent">
-          Annulla
+        <button type="button" onClick={onCancel} className="h-6 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent">
+          {t('Cancel')}
         </button>
-        <span className="ml-auto font-mono text-[10.5px] text-faint">⌘↵ aggiunge</span>
+        <span className="ml-auto font-mono text-xs text-faint">{t('⌘↵ to add')}</span>
       </div>
     </div>
   )
@@ -244,15 +245,15 @@ function CommentNote({ comment, onUpdate, onDelete }: { comment: LineComment; on
       />
     )
   return (
-    <div className="group/c flex items-start gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-[12.5px]">
+    <div className="group/c flex items-start gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-sm">
       <span className="min-w-0 flex-1 whitespace-pre-wrap">
-        {comment.author && <span className="mr-1.5 rounded-[4px] border border-input px-1 text-[10.5px] font-semibold text-muted-foreground">{comment.author}</span>}
+        {comment.author && <span className="mr-1.5 rounded-[4px] border border-input px-1 text-xs font-semibold text-muted-foreground">{comment.author}</span>}
         {comment.text}
       </span>
-      <button type="button" aria-label="Modifica il commento" onClick={() => setEditing(true)} className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-accent">
+      <button type="button" aria-label={t('Edit comment')} onClick={() => setEditing(true)} className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-accent">
         <Pencil className="size-3" />
       </button>
-      <button type="button" aria-label="Elimina il commento" onClick={onDelete} className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-accent">
+      <button type="button" aria-label={t('Delete comment')} onClick={onDelete} className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-accent">
         <Trash2 className="size-3" />
       </button>
     </div>

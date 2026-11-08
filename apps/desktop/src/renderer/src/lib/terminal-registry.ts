@@ -84,10 +84,15 @@ export function setTerminalTheme(theme: ThemeInfo): void {
   for (const entry of entries.values()) entry.term.options.theme = terminalTheme(theme)
 }
 
+/** Monaspace Neon come nel codice e nei diff (DESIGN.md); SF Mono finché non è caricata. */
+const TERMINAL_FONT = '"Monaspace Neon", "SF Mono", ui-monospace, Menlo, monospace'
+// Il carattere si scarica solo quando serve: lo si chiede subito, perché xterm misura le celle all'apertura.
+const fontReady = typeof document !== 'undefined' ? document.fonts.load('12px "Monaspace Neon"').catch(() => []) : Promise.resolve([])
+
 function create(id: string): Entry {
   const term = new Terminal({
     allowProposedApi: true,
-    fontFamily: '"SF Mono", ui-monospace, Menlo, monospace',
+    fontFamily: TERMINAL_FONT,
     fontSize: 12,
     lineHeight: 1.2,
     cursorBlink: true,
@@ -98,6 +103,15 @@ function create(id: string): Entry {
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
+  // Arrivato il carattere, xterm rimisura le celle e il terminale si riadatta.
+  void fontReady.then(() => {
+    term.options.fontFamily = TERMINAL_FONT
+    try {
+      fit.fit()
+    } catch {
+      // Terminale non ancora visibile: si adatta all'apertura.
+    }
+  })
   term.loadAddon(new Unicode11Addon())
   term.unicode.activeVersion = '11'
   // I link si aprono nel browser: il processo main gira window.open verso il browser predefinito.

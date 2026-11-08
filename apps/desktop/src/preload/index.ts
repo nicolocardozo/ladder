@@ -8,6 +8,10 @@ ipcRenderer.on('ladder:host-port', (event) => {
   window.postMessage('ladder:host-port', '*', event.ports)
 })
 
+// Lingua scelta, passata dal main come il tema: l'interfaccia nasce già nella lingua giusta.
+const localeArgument = process.argv.find((arg) => arg.startsWith('--ladder-locale='))?.split('=')[1]
+const initialLocale = localeArgument === 'it' ? 'it' : 'en'
+
 // Tema scelto, passato dal main come argomento: si applica a <html> appena esiste, prima del primo paint.
 const argument = process.argv.find((arg) => arg.startsWith('--ladder-theme='))?.split('=')[1]
 const initialTheme = THEMES.some((t) => t.id === argument) ? argument! : DEFAULT_THEME
@@ -16,6 +20,7 @@ function applyTheme(id: string): boolean {
   if (!root) return false
   const theme = THEMES.find((t) => t.id === id) ?? THEMES.find((t) => t.id === DEFAULT_THEME)!
   root.dataset.theme = theme.id
+  root.lang = initialLocale
   root.classList.toggle('dark', theme.appearance === 'dark')
   return true
 }
@@ -33,6 +38,8 @@ const api = {
     chrome: process.versions.chrome,
     node: process.versions.node
   },
+  /** Lingua all'avvio; i cambi arrivano con prefs.onChange. */
+  locale: initialLocale as 'en' | 'it',
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('ladder:pick-folder'),
   /** Apre file e riga nell'editor del progetto; senza `editor` prova Cursor e poi VS Code. */
   openInEditor: (path: string, line?: number, editor?: 'cursor' | 'vscode'): Promise<void> =>

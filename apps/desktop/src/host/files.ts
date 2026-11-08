@@ -2,6 +2,7 @@
 import { watch, type FSWatcher } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { join, relative, resolve, sep } from 'node:path'
+import { t } from '@shared/i18n'
 import type { FileContent, FileTree } from '@shared/protocol'
 import { isBinary, listFiles, MAX_TEXT_BYTES, repoInfo, statusMap } from './git'
 
@@ -13,7 +14,7 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.nex
 export function insideRoot(root: string, rel: string): string {
   const absolute = resolve(root, rel)
   if (absolute !== root && !absolute.startsWith(root.endsWith(sep) ? root : root + sep)) {
-    throw new Error('Percorso fuori dalla cartella della sessione.')
+    throw new Error(t('Path outside the session folder.'))
   }
   return absolute
 }
@@ -45,7 +46,7 @@ export async function listTree(root: string): Promise<FileTree> {
 export async function readText(root: string, rel: string): Promise<FileContent> {
   const absolute = insideRoot(root, rel)
   const info = await stat(absolute)
-  if (!info.isFile()) throw new Error('Non è un file.')
+  if (!info.isFile()) throw new Error(t('Not a file.'))
   if (info.size > MAX_TEXT_BYTES) return { path: rel, size: info.size, binary: false, tooLarge: true, text: null }
   const handle = await open(absolute, 'r')
   try {

@@ -2,6 +2,7 @@
 // del progetto, e risponde con commenti strutturati (file, riga, testo) che tornano nel pannello Modifiche.
 import { randomUUID } from 'node:crypto'
 import { isAbsolute, relative } from 'node:path'
+import { getLocale, t } from '@shared/i18n'
 import type { AgentId, DiffScope, RequestResponse, ReviewNote, ReviewState } from '@shared/protocol'
 import type { AdapterEvents, AgentSession, SessionOptions, UserRequest } from './agents/common'
 import { git } from './git'
@@ -30,11 +31,13 @@ export const REVIEW_SCHEMA = {
 
 export async function patchText(root: string, from: string, to: string): Promise<string> {
   const text = await git(root, ['diff', '--relative', '--no-color', '-U3', from, to])
-  return text.length > MAX_DIFF ? `${text.slice(0, MAX_DIFF)}\n… (diff troncato)` : text
+  return text.length > MAX_DIFF ? `${text.slice(0, MAX_DIFF)}\n${t('… (diff truncated)')}` : text
 }
 
 export function reviewPrompt(base: string, patch: string): string {
-  return `${base}
+  // Istruzioni per l'agente: inglese predefinito, italiano se la lingua dell'app è l'italiano.
+  if (getLocale() === 'it') {
+    return `${base}
 
 Rispondi solo con un oggetto JSON, senza altro testo prima o dopo:
 {"summary": "giudizio in una o due frasi", "comments": [{"path": "percorso/relativo", "line": 12, "body": "problema e proposta"}]}
@@ -44,13 +47,24 @@ Modifiche da rivedere (diff unificato):
 \`\`\`diff
 ${patch}
 \`\`\``
+  }
+  return `${base}
+
+Reply only with a JSON object, with no other text before or after it:
+{"summary": "verdict in one or two sentences", "comments": [{"path": "relative/path", "line": 12, "body": "problem and suggested fix"}]}
+"line" is the line number in the file after the changes. If you find no problems, "comments" is an empty list.
+
+Changes to review (unified diff):
+\`\`\`diff
+${patch}
+\`\`\``
 }
 
 /** Estrae { summary, comments } dal testo finale dell'agente, anche dentro un blocco di codice. */
 export function parseReview(text: string, root: string): { summary: string | null; comments: ReviewNote[] } {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
-  if (start < 0 || end <= start) throw new Error('La review non è un oggetto JSON.')
+  if (start < 0 || end <= start) throw new Error(t('The review is not a JSON object.'))
   const data = JSON.parse(text.slice(start, end + 1)) as { summary?: unknown; comments?: unknown }
   const comments: ReviewNote[] = []
   for (const raw of Array.isArray(data.comments) ? data.comments : []) {
@@ -91,23 +105,24 @@ export class ReviewRun {
       },
       tool: () => undefined,
       activity: () => undefined,
+      subagent: () => undefined,
       // In sola lettura non serve approvare nulla: ogni richiesta si rifiuta.
       request: async (request: UserRequest): Promise<RequestResponse> => {
         const deny = request.options.find((o) => o.kind === 'deny')
-        return deny ? { optionId: deny.id, message: 'Review in sola lettura: niente modifiche né comandi che cambiano file.' } : { answers: {} }
+        return deny ? { optionId: deny.id, message: t('Read-only review: no edits and no commands that change files.') } : { answers: {} }
       },
       turnEnd: (result) => {
         if (this.state.state !== 'running') return
-        if (result.status !== 'completed') return this.finish({ state: result.status === 'interrupted' ? 'cancelled' : 'error', error: result.error ?? 'La review si è fermata.' })
+        if (result.status !== 'completed') return this.finish({ state: result.status === 'interrupted' ? 'cancelled' : 'error', error: result.error ?? t('The review stopped.') })
         try {
           const parsed = parseReview(this.finalText || [...texts.values()].at(-1) || '', cwd)
           this.finish({ state: 'done', summary: parsed.summary, comments: parsed.comments })
         } catch (error) {
-          this.finish({ state: 'error', error: `${(error as Error).message} Risposta: ${this.finalText.slice(0, 200)}` })
+          this.finish({ state: 'error', error: t('{error} Reply: {reply}', { error: (error as Error).message, reply: this.finalText.slice(0, 200) }) })
         }
       },
       notice: (tone, text) => {
-        if (tone === 'error' && this.state.state === 'running' && /non è partito/.test(text)) this.finish({ state: 'error', error: text })
+        if (tone === 'error' && this.state.state === 'running' && /non è partito|failed to start/.test(text)) this.finish({ state: 'error', error: text })
       },
       account: () => undefined,
       exit: (error) => {
@@ -118,7 +133,7 @@ export class ReviewRun {
     this.adapter = this.deps.create(agent, { cwd, model: null, effort: null, permission: 'plan', resume: null, outputSchema }, events)
     this.adapter.start()
     this.adapter.send(prompt)
-    this.timer = setTimeout(() => this.finish({ state: 'error', error: 'La review ha impiegato più di 6 minuti.' }), TIMEOUT_MS)
+    this.timer = setTimeout(() => this.finish({ state: 'error', error: t('The review took more than 6 minutes.') }), TIMEOUT_MS)
     this.deps.publish(this.state)
   }
 

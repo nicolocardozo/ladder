@@ -1,5 +1,6 @@
 // Registro ufficiale degli agenti ACP: il catalogo di "Aggiungi un agente". Dal registro a una voce da avviare,
 // senza codice per agente. Ladder avvia le voci npx e uvx; i binari da scaricare arriveranno dopo.
+import { t } from '@shared/i18n'
 import type { AcpAgentSpec, RegistryAgent } from '@shared/protocol'
 
 const REGISTRY_URL = process.env.LADDER_ACP_REGISTRY || 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json'
@@ -15,6 +16,7 @@ interface RegistryEntry {
   name: string
   version: string
   description: string
+  icon?: string
   distribution: { npx?: PackageDist; uvx?: PackageDist; binary?: Record<string, unknown> }
 }
 
@@ -23,7 +25,7 @@ let cache: { at: number; entries: RegistryEntry[] } | null = null
 export async function loadRegistry(): Promise<RegistryEntry[]> {
   if (cache && Date.now() - cache.at < 60 * 60_000) return cache.entries
   const response = await fetch(REGISTRY_URL, { signal: AbortSignal.timeout(15000) })
-  if (!response.ok) throw new Error(`il registro ACP ha risposto ${response.status}`)
+  if (!response.ok) throw new Error(t('the ACP registry responded with {status}', { status: response.status }))
   const data = (await response.json()) as { agents?: RegistryEntry[] }
   cache = { at: Date.now(), entries: data.agents ?? [] }
   return cache.entries
@@ -32,7 +34,7 @@ export async function loadRegistry(): Promise<RegistryEntry[]> {
 /** Voce avviabile: npx prima, poi uvx. null per gli agenti distribuiti solo come binari. */
 export function specFromEntry(entry: RegistryEntry): AcpAgentSpec | null {
   const d = entry.distribution
-  const base = { id: entry.id, name: entry.name, source: 'registry' as const, version: entry.version, description: entry.description }
+  const base = { id: entry.id, name: entry.name, source: 'registry' as const, version: entry.version, description: entry.description, icon: entry.icon ?? null }
   if (d.npx) return { ...base, command: 'npx', args: ['-y', d.npx.package, ...(d.npx.args ?? [])], env: d.npx.env }
   if (d.uvx) return { ...base, command: 'uvx', args: [d.uvx.package, ...(d.uvx.args ?? [])], env: d.uvx.env }
   return null
@@ -51,5 +53,20 @@ export async function registryAgents(added: Set<string>): Promise<RegistryAgent[
 
 export async function registrySpec(id: string): Promise<AcpAgentSpec | null> {
   const entry = (await loadRegistry()).find((e) => e.id === id)
-  return entry ? specFromEntry(entry) : null
+  const spec = entry ? specFromEntry(entry) : null
+  if (spec) spec.icon = await iconData(spec.icon ?? null)
+  return spec
+}
+
+/** Icona SVG del registro come data URL: si mostra con una maschera, quindi nessuno script può girare. */
+async function iconData(url: string | null): Promise<string | null> {
+  if (!url || !/^https:\/\//.test(url)) return null
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(10000) })
+    const text = await response.text()
+    if (!response.ok || text.length > 64_000 || !/<svg[\s>]/i.test(text)) return null
+    return `data:image/svg+xml;base64,${Buffer.from(text).toString('base64')}`
+  } catch {
+    return null
+  }
 }

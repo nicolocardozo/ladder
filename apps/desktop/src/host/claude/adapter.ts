@@ -10,7 +10,9 @@ import {
   type SDKMessage,
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
+import { localeTag, t } from '@shared/i18n'
 import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, ToolKind } from '@shared/protocol'
+import type { SubagentUpdate } from '../subagents'
 import { claudeEnv } from './environment'
 
 export const PERMISSION_MODE: Record<PermissionLevel, PermissionMode> = {
@@ -87,6 +89,8 @@ export interface AdapterEvents {
   turnEnd(result: TurnResult): void
   notice(tone: 'info' | 'error', text: string): void
   account(info: { account: string | null; models: { id: string; label: string }[]; limits?: string | null }): void
+  /** Sotto-agenti avviati dalla sessione: aggiornamenti parziali, uniti dall'host. */
+  subagent(update: SubagentUpdate): void
   exit(error: string | null): void
 }
 
@@ -134,6 +138,14 @@ function str(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+function num(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function isAgentTool(name: string): boolean {
+  return name === 'Task' || name === 'Agent'
+}
+
 function firstLine(text: string, max = 80): string {
   const line = text.split('\n')[0]
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
@@ -150,37 +162,37 @@ export function describeTool(name: string, input: Block, cwd: string): Pick<Tool
   switch (name) {
     case 'Bash': {
       const command = str(input.command) ?? ''
-      return { tool: 'command', title: `Esegue ${firstLine(command)}`, detail: command }
+      return { tool: 'command', title: t('Runs {command}', { command: firstLine(command) }), detail: command }
     }
     case 'Read':
-      return { tool: 'read', title: `Legge ${rel(input.file_path) ?? 'un file'}`, detail: rel(input.file_path) }
+      return { tool: 'read', title: t('Reads {file}', { file: rel(input.file_path) ?? t('a file') }), detail: rel(input.file_path) }
     case 'Write':
-      return { tool: 'edit', title: `Scrive ${rel(input.file_path) ?? 'un file'}`, detail: rel(input.file_path) }
+      return { tool: 'edit', title: t('Writes {file}', { file: rel(input.file_path) ?? t('a file') }), detail: rel(input.file_path) }
     case 'Edit':
     case 'MultiEdit':
     case 'NotebookEdit':
-      return { tool: 'edit', title: `Modifica ${rel(input.file_path ?? input.notebook_path) ?? 'un file'}`, detail: rel(input.file_path ?? input.notebook_path) }
+      return { tool: 'edit', title: t('Edits {file}', { file: rel(input.file_path ?? input.notebook_path) ?? t('a file') }), detail: rel(input.file_path ?? input.notebook_path) }
     case 'Grep':
-      return { tool: 'search', title: `Cerca “${firstLine(str(input.pattern) ?? '', 50)}”`, detail: str(input.pattern) }
+      return { tool: 'search', title: t('Searches “{pattern}”', { pattern: firstLine(str(input.pattern) ?? '', 50) }), detail: str(input.pattern) }
     case 'Glob':
-      return { tool: 'search', title: `Cerca file ${firstLine(str(input.pattern) ?? '', 50)}`, detail: str(input.pattern) }
+      return { tool: 'search', title: t('Searches files {pattern}', { pattern: firstLine(str(input.pattern) ?? '', 50) }), detail: str(input.pattern) }
     case 'WebSearch':
-      return { tool: 'web', title: `Cerca sul web: ${firstLine(str(input.query) ?? '', 60)}`, detail: str(input.query) }
+      return { tool: 'web', title: t('Searches the web: {query}', { query: firstLine(str(input.query) ?? '', 60) }), detail: str(input.query) }
     case 'WebFetch':
-      return { tool: 'web', title: `Legge ${firstLine(str(input.url) ?? 'una pagina', 60)}`, detail: str(input.url) }
+      return { tool: 'web', title: t('Reads {file}', { file: firstLine(str(input.url) ?? t('a page'), 60) }), detail: str(input.url) }
     case 'Task':
     case 'Agent':
-      return { tool: 'agent', title: `Sotto-agente: ${firstLine(str(input.description) ?? 'attività', 60)}`, detail: str(input.prompt) }
+      return { tool: 'agent', title: t('Subagent: {task}', { task: firstLine(str(input.description) ?? t('task'), 60) }), detail: str(input.prompt) }
     case 'TodoWrite':
-      return { tool: 'plan', title: 'Aggiorna il piano', detail: null }
+      return { tool: 'plan', title: t('Updates the plan'), detail: null }
     case 'ExitPlanMode':
-      return { tool: 'plan', title: 'Propone il piano', detail: str(input.plan) }
+      return { tool: 'plan', title: t('Proposes the plan'), detail: str(input.plan) }
     default:
       if (name.startsWith('mcp__')) {
         const [, server, tool] = name.split('__')
-        return { tool: 'other', title: `Usa ${server} · ${tool}`, detail: null }
+        return { tool: 'other', title: t('Uses {tool}', { tool: `${server} · ${tool}` }), detail: null }
       }
-      return { tool: 'other', title: `Usa ${name}`, detail: null }
+      return { tool: 'other', title: t('Uses {tool}', { tool: name }), detail: null }
   }
 }
 
@@ -207,6 +219,12 @@ export class ClaudeSession {
   private openTextIds: string[] = []
   private textCounter = 0
   private deniedTools = new Set<string>()
+  /** tool_use di Agent/Task a ogni livello: diventano i nodi della mappa degli agenti. */
+  private agentTools = new Set<string>()
+  /** task_id dell'SDK → id del sotto-agente (il suo tool_use, se c'è). */
+  private taskIds = new Map<string, string>()
+  /** Sotto-agenti seguiti dagli eventi task_*: la fine la dice task_notification, non il tool_result. */
+  private trackedTasks = new Set<string>()
   private currentMessageId: string | null = null
   private turnStartedAt = 0
   private running = false
@@ -251,7 +269,7 @@ export class ClaudeSession {
     this.running = true
     this.interrupted = false
     this.turnStartedAt = Date.now()
-    this.events.activity('Pensa…')
+    this.events.activity(t('Thinking…'))
     this.input.push(text, attachments)
   }
 
@@ -260,7 +278,7 @@ export class ClaudeSession {
     try {
       await this.q?.interrupt()
     } catch (error) {
-      this.events.notice('error', `Interruzione non riuscita: ${(error as Error).message}`)
+      this.events.notice('error', t('Interrupt failed: {message}', { message: (error as Error).message }))
     }
   }
 
@@ -284,7 +302,7 @@ export class ClaudeSession {
       const plan = (account as Record<string, unknown>).subscriptionType
       const keySource = (account as Record<string, unknown>).apiKeySource
       this.events.account({
-        account: typeof plan === 'string' ? plan : keySource && keySource !== 'none' ? 'Chiave API' : null,
+        account: typeof plan === 'string' ? plan : keySource && keySource !== 'none' ? t('API key') : null,
         models: models.map((m) => ({ id: m.value, label: m.displayName }))
       })
     } catch {
@@ -309,17 +327,18 @@ export class ClaudeSession {
     switch (m.type) {
       case 'system':
         if (m.subtype === 'init') this.events.init({ externalId: String(m.session_id), model: str(m.model) })
+        else if (typeof m.subtype === 'string' && m.subtype.startsWith('task_')) this.handleTask(m)
         return
       case 'stream_event':
         if (m.parent_tool_use_id) return // testo dei sotto-agenti: per ora non lo mostriamo
         this.handleStream(m.event as Block)
         return
       case 'assistant':
-        if (m.parent_tool_use_id) return
-        this.handleAssistant(m.message as Block)
+        if (m.parent_tool_use_id) this.handleSubagentAssistant(String(m.parent_tool_use_id), m.message as Block)
+        else this.handleAssistant(m.message as Block)
         return
       case 'user':
-        this.handleToolResults(m.message as Block)
+        this.handleToolResults(m.message as Block, m.parent_tool_use_id ? String(m.parent_tool_use_id) : null)
         return
       case 'result':
         this.handleResult(m)
@@ -327,10 +346,10 @@ export class ClaudeSession {
       case 'rate_limit_event': {
         const info = (m.rate_limit_info ?? {}) as Block
         if (info.status === 'rejected') {
-          const reset = typeof info.resetsAt === 'number' ? new Date(info.resetsAt * 1000).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : null
-          this.events.notice('error', `Limite d’uso raggiunto${reset ? `: si azzera alle ${reset}` : ''}.`)
+          const reset = typeof info.resetsAt === 'number' ? new Date(info.resetsAt * 1000).toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' }) : null
+          this.events.notice('error', reset ? t('Usage limit reached: resets at {time}.', { time: reset }) : t('Usage limit reached.'))
         } else if (info.status === 'allowed_warning') {
-          this.events.notice('info', 'Ti stai avvicinando al limite d’uso del piano.')
+          this.events.notice('info', t('You are getting close to your plan usage limit.'))
         }
         return
       }
@@ -352,9 +371,9 @@ export class ClaudeSession {
           this.streamBlocks.set(Number(event.index), id)
           this.openTextIds.push(id)
           this.events.assistant(id, '', true)
-          this.events.activity('Scrive la risposta')
+          this.events.activity(t('Writing the reply'))
         } else if (block?.type === 'thinking') {
-          this.events.activity('Pensa…')
+          this.events.activity(t('Thinking…'))
         }
         return
       }
@@ -391,6 +410,7 @@ export class ClaudeSession {
         const input = (block.input ?? {}) as Block
         this.toolInputs.set(id, { name, input })
         if (name === 'AskUserQuestion') return // diventa una domanda, non una riga di attività
+        if (isAgentTool(name)) this.startSubagent(id, null, input)
         const described = describeTool(name, input, this.options.cwd)
         this.events.tool({ id, name, ...described, status: 'running', output: null })
         this.events.activity(described.title)
@@ -398,11 +418,86 @@ export class ClaudeSession {
     })
   }
 
-  private handleToolResults(message: Block): void {
+  /** Messaggio di un sotto-agente: i suoi strumenti diventano la sua attività, i suoi Agent dei figli. */
+  private handleSubagentAssistant(parent: string, message: Block): void {
+    const content = Array.isArray(message?.content) ? (message.content as Block[]) : []
+    const model = str(message?.model)
+    let activity: string | null = null
+    for (const block of content) {
+      if (block.type !== 'tool_use') continue
+      const name = String(block.name)
+      const input = (block.input ?? {}) as Block
+      if (isAgentTool(name)) this.startSubagent(String(block.id), parent, input)
+      activity = describeTool(name, input, this.options.cwd).title
+    }
+    if (activity || model) this.events.subagent({ id: parent, ...(activity ? { activity } : {}), ...(model ? { model } : {}) })
+  }
+
+  private startSubagent(id: string, parentId: string | null, input: Block): void {
+    this.agentTools.add(id)
+    const title = firstLine(str(input.description) ?? '', 80)
+    this.events.subagent({
+      id,
+      parentId,
+      ...(title ? { title } : {}),
+      kind: str(input.subagent_type),
+      ...(str(input.model) ? { model: str(input.model) } : {}),
+      status: 'running',
+      background: input.run_in_background === true
+    })
+  }
+
+  /** Eventi task_* dell'SDK: inizio, avanzamento con token e strumenti, fine. Solo i sotto-agenti, non i comandi in background. */
+  private handleTask(m: Block): void {
+    const taskId = String(m.task_id ?? '')
+    if (!taskId) return
+    if (m.subtype === 'task_started') {
+      const type = str(m.task_type)
+      const isAgent = type ? type === 'local_agent' || type === 'remote_agent' : Boolean(m.subagent_type)
+      if (!isAgent || m.ambient === true || m.skip_transcript === true) return
+      const toolUse = str(m.tool_use_id)
+      const id = toolUse ?? taskId
+      this.taskIds.set(taskId, id)
+      this.trackedTasks.add(id)
+      const parentTask = str(m.parent_task_id)
+      const title = firstLine(str(m.description) ?? '', 80)
+      this.events.subagent({
+        id,
+        ...(parentTask && this.taskIds.has(parentTask) ? { parentId: this.taskIds.get(parentTask) } : {}),
+        ...(title ? { title } : {}),
+        ...(str(m.subagent_type) ? { kind: str(m.subagent_type) } : {}),
+        status: 'running',
+        background: m.is_backgrounded === true
+      })
+      return
+    }
+    const id = this.taskIds.get(taskId)
+    if (!id) return
+    const usage = (m.usage ?? null) as Block | null
+    const counts = usage ? { tokens: num(usage.total_tokens), toolUses: num(usage.tool_uses) } : {}
+    if (m.subtype === 'task_progress') {
+      const summary = str(m.summary)
+      this.events.subagent({ id, ...counts, ...(summary ? { activity: firstLine(summary, 100) } : {}) })
+    } else if (m.subtype === 'task_updated') {
+      const patch = (m.patch ?? {}) as Block
+      const status = patch.status === 'completed' ? 'done' : patch.status === 'failed' ? 'error' : patch.status === 'killed' ? 'stopped' : undefined
+      this.events.subagent({ id, ...(status ? { status } : {}), ...(typeof patch.is_backgrounded === 'boolean' ? { background: patch.is_backgrounded } : {}) })
+    } else if (m.subtype === 'task_notification') {
+      const status = m.status === 'completed' ? 'done' : m.status === 'failed' ? 'error' : 'stopped'
+      this.events.subagent({ id, status, ...counts })
+    }
+  }
+
+  private handleToolResults(message: Block, parent: string | null = null): void {
     const content = Array.isArray(message?.content) ? (message.content as Block[]) : []
     for (const block of content) {
       if (block.type !== 'tool_result') continue
       const id = String(block.tool_use_id)
+      // Fine di un sotto-agente senza eventi task_* (CLI più vecchie): la dice il risultato del suo Agent.
+      if (this.agentTools.has(id) && !this.trackedTasks.has(id)) {
+        this.events.subagent({ id, status: this.deniedTools.has(id) ? 'stopped' : block.is_error ? 'error' : 'done' })
+      }
+      if (parent) continue // risultati interni a un sotto-agente: nella chat non si mostrano
       const known = this.toolInputs.get(id)
       if (!known || known.name === 'AskUserQuestion') continue
       const text = toolResultText(block.content)
@@ -416,7 +511,7 @@ export class ClaudeSession {
         output: text ? text.slice(0, OUTPUT_LIMIT) : null
       })
     }
-    this.events.activity('Pensa…')
+    if (!parent) this.events.activity(t('Thinking…'))
   }
 
   private handleResult(m: Block): void {
@@ -433,7 +528,7 @@ export class ClaudeSession {
       status,
       durationMs: Number(m.duration_ms ?? Date.now() - this.turnStartedAt),
       costUsd: typeof m.total_cost_usd === 'number' ? m.total_cost_usd : null,
-      error: status === 'error' ? errors || str(m.result) || 'La sessione si è fermata con un errore.' : null,
+      error: status === 'error' ? errors || str(m.result) || t('The session stopped with an error.') : null,
       context
     })
   }
@@ -454,10 +549,10 @@ export class ClaudeSession {
   ): Promise<PermissionResult> {
     if (toolName === 'AskUserQuestion') return this.handleQuestion(input, opts.signal)
     const described = describeTool(toolName, input, this.options.cwd)
-    const options: RequestOption[] = [{ id: 'allow', label: 'Approva', kind: 'allow' }]
-    if (opts.suggestions?.length) options.push({ id: 'always', label: 'Consenti sempre', kind: 'allow-always' })
-    options.push({ id: 'deny', label: 'Rifiuta', kind: 'deny' })
-    this.events.activity('Aspetta la tua approvazione')
+    const options: RequestOption[] = [{ id: 'allow', label: t('Approve'), kind: 'allow' }]
+    if (opts.suggestions?.length) options.push({ id: 'always', label: t('Always allow'), kind: 'allow-always' })
+    options.push({ id: 'deny', label: t('Deny'), kind: 'deny' })
+    this.events.activity(t('Waiting for your approval'))
     const response = await this.events.request(
       {
         requestType: 'permission',
@@ -476,7 +571,7 @@ export class ClaudeSession {
     if ('optionId' in response && response.optionId === 'allow') return { behavior: 'allow', updatedInput: input }
     if ('optionId' in response && response.optionId === 'always')
       return { behavior: 'allow', updatedInput: input, updatedPermissions: opts.suggestions ?? [] }
-    const message = 'optionId' in response && response.message ? response.message : 'L’utente ha rifiutato questa azione.'
+    const message = 'optionId' in response && response.message ? response.message : t('The user denied this action.')
     if (opts.toolUseID) this.deniedTools.add(opts.toolUseID)
     return { behavior: 'deny', message }
   }
@@ -489,13 +584,13 @@ export class ClaudeSession {
       multiSelect: q.multiSelect === true,
       options: (Array.isArray(q.options) ? (q.options as Block[]) : []).map((o) => ({ label: String(o.label ?? ''), description: str(o.description) }))
     }))
-    this.events.activity('Aspetta una tua risposta')
+    this.events.activity(t('Waiting for your answer'))
     const response = await this.events.request(
-      { requestType: 'question', toolName: 'AskUserQuestion', title: questions[0]?.question ?? 'Domanda', command: null, path: null, reason: null, options: [], questions },
+      { requestType: 'question', toolName: 'AskUserQuestion', title: questions[0]?.question ?? t('Question'), command: null, path: null, reason: null, options: [], questions },
       signal
     )
-    this.events.activity('Pensa…')
+    this.events.activity(t('Thinking…'))
     if ('answers' in response) return { behavior: 'allow', updatedInput: { ...input, answers: response.answers } }
-    return { behavior: 'deny', message: 'L’utente non ha risposto alla domanda.' }
+    return { behavior: 'deny', message: t('The user did not answer the question.') }
   }
 }

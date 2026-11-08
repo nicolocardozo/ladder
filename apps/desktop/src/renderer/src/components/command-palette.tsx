@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
 import { BellOff, CircleAlert, FileDiff, FileSearch, Folder, FolderPlus, FolderTree, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, Search, SquarePen, SquareTerminal } from 'lucide-react'
 import type { SearchHit } from '@shared/protocol'
+import { localeTag, plural, t } from '@shared/i18n'
 import { openInbox } from '@/components/app-sidebar'
 import { request } from '@/lib/host-client'
 import type { LucideIcon } from 'lucide-react'
 import { addProjectFromDialog } from '@/components/app-sidebar'
 import { SessionGlyph } from '@/components/status'
+import { AgentMark } from '@/components/agent-mark'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList, CommandShortcut } from '@/components/ui/command'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { themeById } from '@shared/themes.generated'
@@ -25,10 +27,10 @@ function inspectorActions(run: (perform: () => void) => void): Action[] {
       if (selection.projectId) openInspector(selection.projectId, tab)
     })
   return [
-    { id: 'changes', label: 'Mostra le modifiche', icon: FileDiff, keywords: 'modifiche diff turno sessione ripristina commenti', shortcut: '⌘⌥1', perform: open('changes') },
-    { id: 'files', label: 'Mostra i file', icon: FolderTree, keywords: 'file explorer albero cartella viewer', shortcut: '⌘⌥2', perform: open('files') },
-    { id: 'history', label: 'Cronologia e checkpoint', icon: History, keywords: 'cronologia checkpoint commit ripristina', shortcut: '⌘⌥3', perform: open('history') },
-    { id: 'merge', label: 'Pronto per il merge', icon: GitMerge, keywords: 'merge pr pull request ci review commenti conflitti crea pr', shortcut: '⌘⌥4', perform: open('merge') }
+    { id: 'changes', label: t('Show changes'), icon: FileDiff, keywords: 'changes diff turn session restore comments modifiche turno sessione ripristina commenti', shortcut: '⌘⌥1', perform: open('changes') },
+    { id: 'files', label: t('Show files'), icon: FolderTree, keywords: 'files explorer tree folder viewer file albero cartella', shortcut: '⌘⌥2', perform: open('files') },
+    { id: 'history', label: t('History and checkpoints'), icon: History, keywords: 'history checkpoint commit restore cronologia ripristina', shortcut: '⌘⌥3', perform: open('history') },
+    { id: 'merge', label: t('Ready to merge'), icon: GitMerge, keywords: 'merge pr pull request ci review comments conflicts create pr commenti conflitti crea', shortcut: '⌘⌥4', perform: open('merge') }
   ]
 }
 
@@ -39,8 +41,8 @@ export function CommandPalette() {
   return (
     <Dialog open={open} onOpenChange={(next) => setPaletteOpen(next)}>
       <DialogContent showCloseButton={false} className="top-[13vh] translate-y-0 gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-[600px]">
-        <DialogTitle className="sr-only">Cerca in Ladder</DialogTitle>
-        <DialogDescription className="sr-only">Sessioni di tutti i progetti, progetti e azioni.</DialogDescription>
+        <DialogTitle className="sr-only">{t('Search Ladder')}</DialogTitle>
+        <DialogDescription className="sr-only">{t('Sessions from all projects, projects and actions.')}</DialogDescription>
         {/* Il contenuto si monta a ogni apertura: la ricerca riparte vuota. */}
         <PaletteBody onClose={() => setPaletteOpen(false)} />
       </DialogContent>
@@ -58,8 +60,8 @@ const matches = (tokens: string[], haystack: string) => tokens.every((token) => 
 
 const shortPath = (path: string) => path.replace(/^\/Users\/[^/]+/, '~')
 
-const itemClass = 'gap-2.5 px-2.5 py-[7px] text-[13px] data-selected:bg-accent'
-const sideClass = 'flex max-w-[45%] min-w-0 shrink-0 items-center gap-1.5 text-[11.5px] tracking-normal text-muted-foreground'
+const itemClass = 'gap-2.5 px-2.5 py-[7px] text-sm data-selected:bg-accent'
+const sideClass = 'flex max-w-[45%] min-w-0 shrink-0 items-center gap-1.5 text-xs tracking-normal text-muted-foreground'
 
 interface Action {
   id: string
@@ -132,9 +134,9 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const actions: Action[] = [
     {
       id: 'new-chat',
-      label: 'Nuova chat',
+      label: t('New chat'),
       icon: SquarePen,
-      keywords: 'nuova chat sessione crea',
+      keywords: 'new chat session create nuova sessione crea',
       shortcut: '⌘N',
       perform: () =>
         run(() => {
@@ -144,53 +146,53 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     },
     {
       id: 'next-waiting',
-      label: 'Vai alla prossima sessione che ti aspetta',
+      label: t('Go to next session waiting for you'),
       icon: CircleAlert,
-      keywords: 'prossima sessione attesa aspetta richiede approvazione domanda',
-      hint: waitingCount === 0 ? 'nessuna' : waitingCount === 1 ? '1 in attesa' : `${waitingCount} in attesa`,
+      keywords: 'next session waiting needs you approval question prossima sessione attesa aspetta richiede approvazione domanda',
+      hint: waitingCount === 0 ? t('none') : t('{n} waiting', { n: waitingCount }),
       perform: () => {
         if (useApp.getState().goToNextWaiting()) onClose()
-        else setNotice('Nessuna sessione ti aspetta in questo momento.')
+        else setNotice(t('No sessions are waiting for you right now.'))
       }
     },
     {
       id: 'inbox',
-      label: 'Apri “In attesa”',
+      label: t('Open “Waiting”'),
       icon: Inbox,
-      keywords: 'in attesa inbox richieste approvazioni domande da leggere errori',
-      hint: waitingCount ? `${waitingCount} richieste` : undefined,
+      keywords: 'waiting inbox requests approvals questions unread errors in attesa richieste approvazioni domande da leggere errori',
+      hint: waitingCount ? plural(waitingCount, '{n} pending request', '{n} pending requests') : undefined,
       perform: () => run(() => openInbox())
     },
     {
       id: 'new-from',
-      label: 'Nuova sessione da issue, PR o branch…',
+      label: t('New session from issue, PR or branch…'),
       icon: GitPullRequestCreate,
-      keywords: 'nuova sessione issue pr pull request branch github linear',
+      keywords: 'new session issue pr pull request branch github linear nuova sessione',
       shortcut: '⌘⇧N',
       perform: () => run(() => useApp.getState().setNewFromOpen(true))
     },
     {
       id: 'dnd',
-      label: dndOn ? 'Riattiva le notifiche' : 'Non disturbare per 1 ora',
+      label: dndOn ? t('Turn notifications back on') : t('Do Not Disturb for 1 hour'),
       icon: BellOff,
-      keywords: 'non disturbare notifiche silenzio pausa',
-      hint: dndOn && prefs?.dndUntil ? `fino alle ${new Date(prefs.dndUntil).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : undefined,
+      keywords: 'do not disturb notifications silence pause mute non disturbare notifiche silenzio pausa',
+      hint: dndOn && prefs?.dndUntil ? t('until {time}', { time: new Date(prefs.dndUntil).toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' }) }) : undefined,
       perform: () => run(() => void window.ladder?.prefs.set({ dndUntil: dndOn ? null : Date.now() + 60 * 60_000 }))
     },
     {
       id: 'open-file',
-      label: 'Apri file…',
+      label: t('Open file…'),
       icon: FileSearch,
-      keywords: 'apri file cerca nome percorso viewer',
+      keywords: 'open file search name path viewer apri cerca nome percorso',
       shortcut: '⌘P',
       perform: () => run(() => useApp.getState().setQuickOpen(true))
     },
     ...inspectorActions(run),
     {
       id: 'terminal',
-      label: 'Mostra o nascondi il terminale',
+      label: t('Show or hide terminal'),
       icon: SquareTerminal,
-      keywords: 'terminale pannello shell console',
+      keywords: 'terminal panel shell console terminale pannello',
       shortcut: '⌃`',
       perform: () =>
         run(() => {
@@ -204,9 +206,9 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     },
     {
       id: 'new-terminal',
-      label: 'Nuovo terminale',
+      label: t('New terminal'),
       icon: SquareTerminal,
-      keywords: 'nuovo terminale shell zsh',
+      keywords: 'new terminal shell zsh nuovo terminale',
       perform: () =>
         run(() => {
           const { selection, sessions } = useApp.getState()
@@ -217,24 +219,24 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     },
     {
       id: 'add-project',
-      label: 'Aggiungi progetto…',
+      label: t('Add project…'),
       icon: FolderPlus,
-      keywords: 'aggiungi progetto cartella repository',
+      keywords: 'add project folder repository aggiungi progetto cartella',
       perform: () => run(() => void addProjectFromDialog())
     },
     {
       id: 'theme',
-      label: 'Cambia tema…',
+      label: t('Change theme…'),
       icon: Palette,
-      keywords: 'cambia tema chiaro scuro aspetto impostazioni colori circuit',
+      keywords: 'change theme light dark appearance settings colors circuit cambia tema chiaro scuro aspetto impostazioni colori',
       hint: themeById(themeId).name,
       perform: () => run(() => useSettings.getState().setSettingsOpen(true))
     },
     {
       id: 'sidebar',
-      label: sidebarOpen ? 'Nascondi sidebar' : 'Mostra sidebar',
+      label: sidebarOpen ? t('Hide sidebar') : t('Show sidebar'),
       icon: PanelLeft,
-      keywords: 'nascondi mostra sidebar barra laterale',
+      keywords: 'hide show sidebar side bar nascondi mostra barra laterale',
       shortcut: '⌘B',
       perform: () => run(() => useApp.getState().toggleSidebar())
     }
@@ -242,7 +244,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const actionResults = searching ? actions.filter((a) => matches(tokens, normalize(`${a.label} ${a.keywords}`))) : actions
 
   return (
-    <Command shouldFilter={false} loop label="Cerca in Ladder" className="rounded-none! bg-popover p-0">
+    <Command shouldFilter={false} loop label={t('Search Ladder')} className="rounded-none! bg-popover p-0">
       <div className="flex h-12 items-center gap-2.5 border-b border-border px-4">
         <Search className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
         <CommandPrimitive.Input
@@ -251,16 +253,16 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             setQuery(value)
             setNotice(null)
           }}
-          placeholder="Cerca sessioni, conversazioni, file toccati, progetti e azioni…"
-          className="h-full min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
+          placeholder={t('Search sessions, conversations, touched files, projects and actions…')}
+          className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint"
         />
       </div>
 
       <CommandList className="max-h-[min(440px,58vh)] px-1.5 py-1.5">
-        <CommandEmpty className="py-8 text-[13px] text-muted-foreground">Nessun risultato per “{query.trim()}”.</CommandEmpty>
+        <CommandEmpty className="py-8 text-sm text-muted-foreground">{t('No results for “{query}”.', { query: query.trim() })}</CommandEmpty>
 
         {sessionResults.length > 0 && (
-          <CommandGroup heading={searching ? 'Sessioni' : 'Sessioni recenti'}>
+          <CommandGroup heading={searching ? t('Sessions') : t('Recent sessions')}>
             {sessionResults.map((session) => {
               const state = sessionState(session)
               return (
@@ -275,10 +277,11 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                   </span>
                   <span className={state === 'unread' ? 'min-w-0 flex-1 truncate font-semibold' : 'min-w-0 flex-1 truncate'}>{session.title}</span>
                   <CommandShortcut className={sideClass}>
+                    <AgentMark agent={session.agent} size={12} />
                     {state === 'waiting' ? (
-                      <span className="shrink-0 font-semibold text-attention">{session.waitingLabel ?? 'Richiede te'}</span>
+                      <span className="shrink-0 font-semibold text-attention">{session.waitingLabel ?? t('Needs you')}</span>
                     ) : state === 'error' ? (
-                      <span className="shrink-0 font-semibold text-destructive">Errore</span>
+                      <span className="shrink-0 font-semibold text-destructive">{t('Error')}</span>
                     ) : (
                       <span className="shrink-0 text-faint">{relativeAge(session.updatedAt)}</span>
                     )}
@@ -291,7 +294,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         )}
 
         {contentHits.length > 0 && (
-          <CommandGroup heading="Nelle conversazioni">
+          <CommandGroup heading={t('In conversations')}>
             {contentHits.map((hit) => {
               const session = sessions[hit.sessionId]
               return (
@@ -299,7 +302,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                   <MessageSquareText className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate">{session.title}</span>
-                    <span className={hit.kind === 'file' || hit.kind === 'command' ? 'truncate font-mono text-[11.5px] text-muted-foreground' : 'truncate text-[12px] text-muted-foreground'}>{hit.snippet}</span>
+                    <span className={hit.kind === 'file' || hit.kind === 'command' ? 'truncate font-mono text-xs text-muted-foreground' : 'truncate text-xs text-muted-foreground'}>{hit.snippet}</span>
                   </span>
                   <CommandShortcut className={sideClass}>
                     <span className="truncate">{projectNames.get(session.projectId)}</span>
@@ -311,7 +314,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         )}
 
         {actionResults.length > 0 && (
-          <CommandGroup heading="Azioni">
+          <CommandGroup heading={t('Actions')}>
             {actionResults.map((action) => (
               <CommandItem key={action.id} value={`action:${action.id}`} className={itemClass} onSelect={action.perform}>
                 <action.icon className="size-[15px] text-muted-foreground" strokeWidth={1.75} />
@@ -319,7 +322,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                 {(action.shortcut || action.hint) && (
                   <CommandShortcut className={sideClass}>
                     {action.hint && <span className="text-faint">{action.hint}</span>}
-                    {action.shortcut && <kbd className="font-mono text-[11px]">{action.shortcut}</kbd>}
+                    {action.shortcut && <kbd className="font-mono text-xs">{action.shortcut}</kbd>}
                   </CommandShortcut>
                 )}
               </CommandItem>
@@ -328,7 +331,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         )}
 
         {projectResults.length > 0 && (
-          <CommandGroup heading="Progetti">
+          <CommandGroup heading={t('Projects')}>
             {projectResults.map((project, index) => (
               <CommandItem
                 key={project.id}
@@ -346,7 +349,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <CommandShortcut className={sideClass}>
                   <span className="truncate text-faint">{shortPath(project.path)}</span>
-                  {index < 9 && <kbd className="shrink-0 font-mono text-[11px]">⌘{index + 1}</kbd>}
+                  {index < 9 && <kbd className="shrink-0 font-mono text-xs">⌘{index + 1}</kbd>}
                 </CommandShortcut>
               </CommandItem>
             ))}
@@ -354,7 +357,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         )}
       </CommandList>
 
-      <div className="flex h-9 items-center gap-3 border-t border-border px-4 text-[11.5px] text-faint">
+      <div className="flex h-9 items-center gap-3 border-t border-border px-4 text-xs text-faint">
         {/* Regione sempre presente, così il lettore di schermo annuncia il messaggio quando compare. */}
         <span role="status" className={notice ? 'font-medium text-foreground' : 'sr-only'}>
           {notice}
@@ -362,15 +365,15 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         {!notice && (
           <>
             <span>
-              <kbd className="font-mono">↑↓</kbd> per scegliere
+              <kbd className="font-mono">↑↓</kbd> {t('to select')}
             </span>
             <span>
-              <kbd className="font-mono">↵</kbd> per aprire
+              <kbd className="font-mono">↵</kbd> {t('to open')}
             </span>
           </>
         )}
         <span className="ml-auto">
-          <kbd className="font-mono">esc</kbd> per chiudere
+          <kbd className="font-mono">esc</kbd> {t('to close')}
         </span>
       </div>
     </Command>

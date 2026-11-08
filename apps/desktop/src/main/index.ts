@@ -14,6 +14,8 @@ import {
 } from 'electron'
 import { themeById, type ThemeId } from '@shared/themes.generated'
 import type { AppPrefs, AttentionEvent, HostPrefs, HostToMain, MainToHost, WindowView } from '@shared/protocol'
+import { DEFAULT_LOCALE, isLocale, setLocale, t } from '@shared/i18n'
+import '@shared/locales/it'
 import { Attention } from './attention'
 import { linearIssues, linearStatus, setLinearKey } from './linear'
 
@@ -29,7 +31,8 @@ const windows = new Set<BrowserWindow>()
 interface AppSettings extends AppPrefs {
   theme: ThemeId
 }
-const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, maxActive: 3 }
+// LADDER_LOCALE sceglie la lingua iniziale di un profilo nuovo (le prove automatiche usano l'italiano).
+const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, maxActive: 3, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE }
 const settingsPath = () => join(app.getPath('userData'), 'settings.json')
 function cleanPrefs(raw: Partial<AppPrefs>): AppPrefs {
   const maxActive = Number(raw.maxActive)
@@ -37,7 +40,8 @@ function cleanPrefs(raw: Partial<AppPrefs>): AppPrefs {
     notifications: raw.notifications !== false,
     sound: raw.sound === true,
     dndUntil: typeof raw.dndUntil === 'number' && raw.dndUntil > Date.now() ? raw.dndUntil : null,
-    maxActive: Number.isInteger(maxActive) && maxActive >= 1 && maxActive <= 10 ? maxActive : DEFAULT_PREFS.maxActive
+    maxActive: Number.isInteger(maxActive) && maxActive >= 1 && maxActive <= 10 ? maxActive : DEFAULT_PREFS.maxActive,
+    locale: isLocale(raw.locale) ? raw.locale : DEFAULT_PREFS.locale
   }
 }
 function loadSettings(): AppSettings {
@@ -53,8 +57,8 @@ function saveSettings(settings: AppSettings): void {
   writeFileSync(settingsPath(), JSON.stringify(settings, null, 2))
 }
 let settings: AppSettings = { theme: themeById(null).id, ...DEFAULT_PREFS }
-const prefsOf = (s: AppSettings): AppPrefs => ({ notifications: s.notifications, sound: s.sound, dndUntil: s.dndUntil, maxActive: s.maxActive })
-const hostPrefs = (): HostPrefs => ({ maxActive: { 'claude-code': settings.maxActive, codex: settings.maxActive } })
+const prefsOf = (s: AppSettings): AppPrefs => ({ notifications: s.notifications, sound: s.sound, dndUntil: s.dndUntil, maxActive: s.maxActive, locale: s.locale })
+const hostPrefs = (): HostPrefs => ({ maxActive: { 'claude-code': settings.maxActive, codex: settings.maxActive }, locale: settings.locale })
 
 const attention = new Attention(() => prefsOf(settings), (sessionId, itemId) => openSession(sessionId, itemId))
 
@@ -133,7 +137,7 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Il preload legge il tema da qui e lo applica a <html> prima del primo paint.
-      additionalArguments: [`--ladder-theme=${settings.theme}`],
+      additionalArguments: [`--ladder-theme=${settings.theme}`, `--ladder-locale=${settings.locale}`],
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
@@ -167,7 +171,7 @@ function createWindow(): void {
 
 ipcMain.handle('ladder:pick-folder', async (event) => {
   const window = BrowserWindow.fromWebContents(event.sender)
-  const options = { title: 'Aggiungi un progetto', buttonLabel: 'Aggiungi', properties: ['openDirectory' as const] }
+  const options = { title: t('Add a project'), buttonLabel: t('Add'), properties: ['openDirectory' as const] }
   const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
   return result.canceled ? null : (result.filePaths[0] ?? null)
 })
@@ -215,6 +219,7 @@ ipcMain.on('ladder:view', (event, view: WindowView) => attention.setView(event.s
 ipcMain.handle('ladder:prefs', () => prefsOf(settings))
 ipcMain.handle('ladder:set-prefs', (_event, patch: Partial<AppPrefs>) => {
   settings = { ...settings, ...cleanPrefs({ ...prefsOf(settings), ...patch }) }
+  setLocale(settings.locale)
   saveSettings(settings)
   host?.postMessage({ type: 'prefs', prefs: hostPrefs() } satisfies MainToHost)
   for (const window of windows) window.webContents.send('ladder:prefs', prefsOf(settings))
@@ -272,12 +277,12 @@ function buildMenu(): void {
         { role: 'about' },
         { type: 'separator' },
         {
-          label: 'Impostazioni…',
+          label: t('Settings…'),
           accelerator: 'CmdOrCtrl+,',
           click: () => BrowserWindow.getFocusedWindow()?.webContents.send('ladder:open-settings')
         },
         {
-          label: 'Non disturbare per 1 ora',
+          label: t('Do Not Disturb for 1 Hour'),
           type: 'checkbox',
           checked: Boolean(settings.dndUntil && settings.dndUntil > Date.now()),
           click: () => {
@@ -300,12 +305,12 @@ function buildMenu(): void {
     },
     { role: 'editMenu' },
     {
-      label: 'Vista',
+      label: t('View'),
       submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }]
     },
     {
       role: 'windowMenu',
-      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { label: 'Chiudi finestra', accelerator: 'Shift+CmdOrCtrl+W', role: 'close' }]
+      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { label: t('Close Window'), accelerator: 'Shift+CmdOrCtrl+W', role: 'close' }]
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -320,6 +325,7 @@ app.on('open-url', (event, url) => {
 
 app.whenReady().then(() => {
   settings = loadSettings()
+  setLocale(settings.locale)
   // Il protocollo si registra solo nell'app installata: in sviluppo punterebbe al binario di Electron,
   // e un profilo di prova (LADDER_USER_DATA) non deve cambiare l'app che apre i link ladder://.
   if (app.isPackaged && !process.env.LADDER_USER_DATA) app.setAsDefaultProtocolClient('ladder')

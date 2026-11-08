@@ -1,6 +1,7 @@
 // Parti comuni agli adapter degli agenti: interfaccia della sessione, ambiente filtrato, PATH della shell di login.
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { t } from '@shared/i18n'
 import type { Attachment, Effort, PermissionLevel } from '@shared/protocol'
 export type { AdapterEvents, ToolUpdate, TurnResult, UserRequest } from '../claude/adapter'
 
@@ -73,7 +74,7 @@ export const OUTPUT_LIMIT = 8000
 
 export function clip(text: string | null | undefined): string | null {
   if (!text) return null
-  return text.length > OUTPUT_LIMIT ? `${text.slice(0, OUTPUT_LIMIT)}\n… (${text.length - OUTPUT_LIMIT} caratteri in più)` : text
+  return text.length > OUTPUT_LIMIT ? `${text.slice(0, OUTPUT_LIMIT)}\n${t('… ({n} more characters)', { n: text.length - OUTPUT_LIMIT })}` : text
 }
 
 /**

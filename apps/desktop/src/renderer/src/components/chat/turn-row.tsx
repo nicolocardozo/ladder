@@ -2,6 +2,7 @@
 import { ChevronRight, CircleStop, CircleX, FileDiff, Info } from 'lucide-react'
 import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ChatItem, FileChange, RunState } from '@shared/protocol'
+import { localeTag, plural, t } from '@shared/i18n'
 import { isImagePlaceholder } from '@/components/composer/attachments'
 import { cn } from '@/lib/utils'
 import { AttachmentChips, NewDivider, Spinner } from './bits'
@@ -36,8 +37,8 @@ const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
   return (
     <div data-item-id={item.id} className="flex justify-end">
       <div
-        className="w-fit max-w-[82%] min-w-0 rounded-[12px] bg-muted px-3 py-2 text-[13px] leading-[1.5] text-foreground"
-        title={new Date(item.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}
+        className="w-fit max-w-[82%] min-w-0 rounded-[12px] bg-muted px-3 py-2 text-sm leading-[1.5] text-foreground"
+        title={new Date(item.at).toLocaleString(localeTag(), { dateStyle: 'short', timeStyle: 'short' })}
       >
         {showText ? (
           <div
@@ -52,9 +53,9 @@ const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
             type="button"
             onClick={toggle}
             aria-expanded={expanded}
-            className="mt-1 rounded-[4px] text-[12px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="mt-1 rounded-[4px] text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            {expanded ? 'Mostra meno' : 'Mostra tutto'}
+            {expanded ? t('Show less') : t('Show all')}
           </button>
         ) : null}
         {attachments.length > 0 ? (
@@ -79,16 +80,16 @@ const AssistantMessage = memo(function AssistantMessage({ item, compact }: { ite
 const NoticeLine = memo(function NoticeLine({ item }: { item: NoticeItem }) {
   if (item.tone === 'error') {
     return (
-      <div data-item-id={item.id} className="flex min-w-0 items-start gap-2 text-[12.5px] leading-[1.5] text-destructive">
+      <div data-item-id={item.id} className="flex min-w-0 items-start gap-2 text-sm leading-[1.5] text-destructive">
         <CircleX aria-hidden className="mt-[2px] size-[14px] shrink-0" strokeWidth={2} />
         <p className="min-w-0 break-words">
-          <span className="font-semibold">Errore</span> · {item.text}
+          <span className="font-semibold">{t('Error')}</span> · {item.text}
         </p>
       </div>
     )
   }
   return (
-    <div data-item-id={item.id} className="flex min-w-0 items-start gap-2 text-[12.5px] leading-[1.5] text-muted-foreground">
+    <div data-item-id={item.id} className="flex min-w-0 items-start gap-2 text-sm leading-[1.5] text-muted-foreground">
       <Info aria-hidden className="mt-[2px] size-[14px] shrink-0" strokeWidth={1.9} />
       <p className="min-w-0 break-words">{item.text}</p>
     </div>
@@ -118,9 +119,9 @@ function StepsList({
         <button
           type="button"
           onClick={toggleAll}
-          className="h-[22px] w-fit rounded-[5px] text-left text-[12px] text-faint outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="h-[22px] w-fit rounded-[5px] text-left text-xs text-faint outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          {hidden === 1 ? '1 passaggio precedente' : `${hidden} passaggi precedenti`}
+          {plural(hidden, '{n} earlier step', '{n} earlier steps')}
         </button>
       ) : null}
       {shown.map((item) => {
@@ -169,25 +170,26 @@ function segment(steps: ChatItem[]): Segment[] {
 
 function LiveLine({ activity, detail, startedAt, run }: { activity: string | null; detail: string | null; startedAt: number; run: RunState }) {
   const now = useNow(1000)
-  const text = activity ?? (run === 'starting' ? 'Avvio della sessione' : 'Sta lavorando')
+  const text = activity ?? (run === 'starting' ? t('Starting session') : t('Working'))
   return (
-    <div className="flex min-w-0 items-center gap-2 text-[12.5px] text-secondary-foreground">
+    <div className="flex min-w-0 items-center gap-2 text-sm text-secondary-foreground">
       <Spinner />
       <span className="min-w-0 truncate">
         <MonoTitle title={text} detail={detail} />
       </span>
-      <span className="ml-auto shrink-0 pl-3 font-mono text-[11px] text-muted-foreground tabular-nums">
+      <span className="ml-auto shrink-0 pl-3 font-mono text-xs text-muted-foreground tabular-nums">
         {formatDuration(now - startedAt)}
       </span>
     </div>
   )
 }
 
+// Testo inglese: si traduce con t() dove si mostra.
 const STATUS_LABEL: Record<FileChange['status'], string> = {
-  A: 'Aggiunto',
-  M: 'Modificato',
-  D: 'Eliminato',
-  R: 'Rinominato'
+  A: 'Added',
+  M: 'Modified',
+  D: 'Deleted',
+  R: 'Renamed'
 }
 
 function ChangesCard({ end }: { end: TurnEndItem }) {
@@ -197,18 +199,18 @@ function ChangesCard({ end }: { end: TurnEndItem }) {
   const count = end.files.length
   return (
     <div data-item-id={end.id} className="overflow-hidden rounded-[10px] border border-border dark:border-input/70">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[12.5px] font-semibold text-foreground dark:border-input/70">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm font-semibold text-foreground dark:border-input/70">
         <FileDiff aria-hidden className="size-3.5 text-muted-foreground" strokeWidth={1.9} />
-        {count === 1 ? '1 file modificato' : `${count} file modificati`}
-        <span className="ml-auto font-mono text-[11.5px] font-medium">
+        {plural(count, '{n} file changed', '{n} files changed')}
+        <span className="ml-auto font-mono text-xs font-medium">
           <span className="text-success">+{added}</span> <span className="text-destructive">−{removed}</span>
         </span>
         <button
           type="button"
           onClick={() => openDiff(end.turnId)}
-          className="-my-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="-my-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          Rivedi
+          {t('Review')}
         </button>
       </div>
       <ul>
@@ -221,10 +223,10 @@ function ChangesCard({ end }: { end: TurnEndItem }) {
               <button
                 type="button"
                 onClick={(event) => (event.altKey ? openFile(file.path, undefined, true) : openDiff(end.turnId, file.path))}
-                title={`${STATUS_LABEL[file.status]} · ${file.path}\nClic: diff del turno · ⌥clic: apri nell’editor`}
-                className="flex w-full min-w-0 items-center gap-2.5 px-3 py-[5px] text-left font-mono text-[11.5px] text-foreground/85 outline-none hover:bg-accent focus-visible:bg-accent"
+                title={`${t(STATUS_LABEL[file.status])} · ${file.path}\n${t('Click to view the turn diff · ⌥-click to open in editor')}`}
+                className="flex w-full min-w-0 items-center gap-2.5 px-3 py-[5px] text-left font-mono text-xs text-foreground/85 outline-none hover:bg-accent focus-visible:bg-accent"
               >
-                <span aria-label={STATUS_LABEL[file.status]} className="w-3 shrink-0 text-faint">
+                <span aria-label={t(STATUS_LABEL[file.status])} className="w-3 shrink-0 text-faint">
                   {file.status}
                 </span>
                 <span className="flex min-w-0 flex-1">
@@ -251,21 +253,21 @@ function TurnFooter({ end }: { end: TurnEndItem }) {
       {end.status === 'error' ? (
         <div
           data-item-id={end.files.length > 0 ? undefined : end.id}
-          className="flex min-w-0 items-start gap-2 text-[12.5px] leading-[1.5] text-destructive"
+          className="flex min-w-0 items-start gap-2 text-sm leading-[1.5] text-destructive"
         >
           <CircleX aria-hidden className="mt-[2px] size-[14px] shrink-0" strokeWidth={2} />
           <p className="min-w-0 break-words">
-            <span className="font-semibold">Errore</span> · {end.error ?? 'Il turno si è fermato per un errore.'}
+            <span className="font-semibold">{t('Error')}</span> · {end.error ?? t('The turn stopped because of an error.')}
           </p>
         </div>
       ) : null}
       {end.status === 'interrupted' ? (
         <div
           data-item-id={end.files.length > 0 ? undefined : end.id}
-          className="flex items-center gap-2 text-[12.5px] text-muted-foreground"
+          className="flex items-center gap-2 text-sm text-muted-foreground"
         >
           <CircleStop aria-hidden className="size-[14px] shrink-0" strokeWidth={1.9} />
-          Interrotto
+          {t('Interrupted')}
         </div>
       ) : null}
     </>
@@ -281,7 +283,7 @@ function SummaryRow({ turn, end }: { turn: Turn; end: TurnEndItem }) {
         data-item-id={turn.steps[0]?.id}
         onClick={toggle}
         aria-expanded={open}
-        className="group flex h-6 w-full min-w-0 items-center gap-[7px] rounded-[5px] text-left text-[12.5px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="group flex h-6 w-full min-w-0 items-center gap-[7px] rounded-[5px] text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <ChevronRight
           aria-hidden

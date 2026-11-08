@@ -1,5 +1,6 @@
 // Commenti sulle righe del diff: si raccolgono per ambito e partono insieme come un solo messaggio all'agente.
 import { create } from 'zustand'
+import { t } from '@shared/i18n'
 
 export interface LineComment {
   id: string
@@ -43,10 +44,10 @@ export const useComments = create<CommentsState>((set) => ({
 export function commentsMessage(comments: LineComment[]): string {
   const sorted = [...comments].sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
   const blocks = sorted.map((c, i) => {
-    const where = `${c.path}:${c.line}${c.side === 'old' ? ' (riga tolta)' : ''}`
+    const where = `${c.path}:${c.line}${c.side === 'old' ? ` ${t('(removed line)')}` : ''}`
     const code = c.code.trim() ? `\n   > ${c.code.trim()}` : ''
-    const by = c.author ? ` (da ${c.author})` : ''
+    const by = c.author ? ` ${t('(from {author})', { author: c.author })}` : ''
     return `${i + 1}. \`${where}\`${by}${code}\n   ${c.text.trim().replace(/\n/g, '\n   ')}`
   })
-  return `Ho commentato le modifiche. Rispondi a ogni punto:\n\n${blocks.join('\n\n')}`
+  return `${t('I commented on the changes. Reply to each point:')}\n\n${blocks.join('\n\n')}`
 }

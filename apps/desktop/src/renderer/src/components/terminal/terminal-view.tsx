@@ -4,6 +4,7 @@ import { MessageSquarePlus } from 'lucide-react'
 import { clearTerminalSelection, focusTerminal, mountTerminal, onTerminalSelection } from '@/lib/terminal-registry'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
+import { t } from '@shared/i18n'
 
 interface TerminalViewProps {
   id: string
@@ -17,7 +18,7 @@ export function TerminalView({ id, composerKey, autoFocus, className }: Terminal
   const container = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState('')
   const insert = useApp((s) => s.insertIntoComposer)
-  const title = useApp((s) => s.terminals[id]?.title ?? 'terminale')
+  const title = useApp((s) => s.terminals[id]?.title) ?? t('terminal')
 
   useEffect(() => {
     if (!container.current) return
@@ -30,7 +31,7 @@ export function TerminalView({ id, composerKey, autoFocus, className }: Terminal
 
   const addToChat = () => {
     if (!composerKey || !selection) return
-    insert(composerKey, `Output del terminale “${title}”:\n\n\`\`\`text\n${selection}\n\`\`\`\n`)
+    insert(composerKey, `${t('Output from terminal “{title}”:', { title })}\n\n\`\`\`text\n${selection}\n\`\`\`\n`)
     clearTerminalSelection(id)
     setSelection('')
   }
@@ -46,10 +47,10 @@ export function TerminalView({ id, composerKey, autoFocus, className }: Terminal
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={addToChat}
-          className="absolute top-2 right-3 z-10 inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-popover px-2 text-[12px] text-popover-foreground shadow-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="absolute top-2 right-3 z-10 inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-popover px-2 text-xs text-popover-foreground shadow-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <MessageSquarePlus className="size-3.5" />
-          Aggiungi alla chat
+          {t('Add to chat')}
         </button>
       )}
     </div>

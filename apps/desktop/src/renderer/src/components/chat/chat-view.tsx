@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowDown } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChatItem, RequestResponse, RunState } from '@shared/protocol'
+import { t } from '@shared/i18n'
 import { Spinner } from './bits'
 import { ChatContext, createToggleStore, prefersReducedMotion, type ChatActions } from './chat-context'
 import { TurnRow } from './turn-row'
@@ -299,8 +300,8 @@ function ChatViewInner({
   const openRequest = lastTurn?.open[lastTurn.open.length - 1] ?? null
   const announcement = openRequest
     ? openRequest.requestType === 'question'
-      ? `Domanda dell’agente: ${openRequest.questions?.[0]?.question ?? openRequest.title}`
-      : `Approvazione richiesta: ${openRequest.command ?? openRequest.path ?? openRequest.title}`
+      ? t('Question from the agent: {question}', { question: openRequest.questions?.[0]?.question ?? openRequest.title })
+      : t('Approval requested: {target}', { target: openRequest.command ?? openRequest.path ?? openRequest.title })
     : ''
 
   const virtualItems = virtualizer.getVirtualItems()
@@ -311,7 +312,7 @@ function ChatViewInner({
         <div
           ref={scrollRef}
           tabIndex={0}
-          aria-label="Conversazione"
+          aria-label={t('Conversation')}
           onScroll={onScroll}
           onWheel={markUserMoved}
           onTouchStart={markUserMoved}
@@ -320,9 +321,9 @@ function ChatViewInner({
           className="chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto outline-none focus-visible:shadow-[inset_0_0_0_2px_color-mix(in_oklab,var(--ring)_45%,transparent)]"
         >
           {turns.length === 0 && (run === 'starting' || run === 'running') ? (
-            <div className="mx-auto flex w-full max-w-[680px] items-center gap-2 px-6 pt-6 text-[12.5px] text-muted-foreground">
+            <div className="mx-auto flex w-full max-w-[680px] items-center gap-2 px-6 pt-6 text-sm text-muted-foreground">
               <Spinner />
-              Avvio della sessione
+              {t('Starting session')}
             </div>
           ) : null}
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
@@ -351,14 +352,18 @@ function ChatViewInner({
           </div>
         </div>
 
+        {/* Il testo sfuma sotto l'intestazione invece di finirci contro: un velo del colore del fondo, non una linea.
+            Un velo sopra costa meno di una maschera sul contenitore che scorre. */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-5 bg-gradient-to-b from-background to-transparent" />
+
         {showJump ? (
           <button
             type="button"
             onClick={jumpToEnd}
-            className="absolute bottom-3 left-1/2 inline-flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full border border-input bg-popover px-3 text-[12px] font-medium text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.08),0_6px_18px_rgb(0_0_0/0.14)] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 dark:shadow-[0_1px_2px_rgb(0_0_0/0.5),0_8px_22px_rgb(0_0_0/0.4)]"
+            className="absolute bottom-3 left-1/2 inline-flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full border border-input bg-popover px-3 text-xs font-medium text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.08),0_6px_18px_rgb(0_0_0/0.14)] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 dark:shadow-[0_1px_2px_rgb(0_0_0/0.5),0_8px_22px_rgb(0_0_0/0.4)]"
           >
             <ArrowDown aria-hidden className="size-3.5" strokeWidth={2} />
-            In fondo
+            {t('Jump to bottom')}
           </button>
         ) : null}
 

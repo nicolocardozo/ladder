@@ -1,46 +1,46 @@
 // Testi brevi della chat: durate, conteggi, percorsi.
+import { localeTag, plural, t } from '@shared/i18n'
 import type { TurnEndItem } from './turns'
 
 /** 48 s · 2 min 41 s · 1 h 5 min */
 export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000))
-  if (total < 60) return `${total} s`
+  if (total < 60) return t('{s}s', { s: total })
   const h = Math.floor(total / 3600)
   const m = Math.floor((total % 3600) / 60)
   const s = total % 60
-  if (h > 0) return m > 0 ? `${h} h ${m} min` : `${h} h`
-  return s > 0 ? `${m} min ${s} s` : `${m} min`
+  if (h > 0) return m > 0 ? t('{h}h {m}m', { h, m }) : t('{h}h', { h })
+  return s > 0 ? t('{m}m {s}s', { m, s }) : t('{m}m', { m })
 }
 
 /** Durata breve per le righe degli strumenti: 0,4 s · 12 s · 2 min */
 export function formatShortDuration(ms: number): string {
-  if (ms < 1000) return `${(ms / 1000).toFixed(1).replace('.', ',')} s`
-  if (ms < 60_000) return `${Math.round(ms / 1000)} s`
+  if (ms < 1000) {
+    const s = (ms / 1000).toLocaleString(localeTag(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    return t('{s}s', { s })
+  }
+  if (ms < 60_000) return t('{s}s', { s: Math.round(ms / 1000) })
   return formatDuration(ms)
 }
 
 /** da 3 min · da 40 s · da 1 h */
 export function formatSince(at: number, now: number): string {
   const s = Math.max(0, Math.round((now - at) / 1000))
-  if (s < 60) return `da ${Math.max(1, s)} s`
-  if (s < 3600) return `da ${Math.floor(s / 60)} min`
-  return `da ${Math.floor(s / 3600)} h`
-}
-
-function plural(n: number, one: string, many: string) {
-  return `${n} ${n === 1 ? one : many}`
+  if (s < 60) return t('{n}s ago', { n: Math.max(1, s) })
+  if (s < 3600) return t('{n}m ago', { n: Math.floor(s / 60) })
+  return t('{n}h ago', { n: Math.floor(s / 3600) })
 }
 
 /** "Ha lavorato per 2 min 41 s · 6 comandi · 3 file modificati" */
 export function turnSummary(end: TurnEndItem): string {
-  const parts = [`Ha lavorato per ${formatDuration(end.durationMs)}`]
+  const parts = [t('Worked for {duration}', { duration: formatDuration(end.durationMs) })]
   const { commands, edits, reads, searches } = end.counts
-  if (commands > 0) parts.push(plural(commands, 'comando', 'comandi'))
+  if (commands > 0) parts.push(plural(commands, '{n} command', '{n} commands'))
   const changed = end.files.length > 0 ? end.files.length : edits
-  if (changed > 0) parts.push(plural(changed, 'file modificato', 'file modificati'))
+  if (changed > 0) parts.push(plural(changed, '{n} file changed', '{n} files changed'))
   if (commands === 0 && changed === 0) {
-    if (reads > 0) parts.push(plural(reads, 'file letto', 'file letti'))
-    if (searches > 0) parts.push(plural(searches, 'ricerca', 'ricerche'))
+    if (reads > 0) parts.push(plural(reads, '{n} file read', '{n} files read'))
+    if (searches > 0) parts.push(plural(searches, '{n} search', '{n} searches'))
   }
   return parts.join(' · ')
 }

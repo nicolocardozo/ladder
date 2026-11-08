@@ -26,13 +26,14 @@ function Shape({ shape, className, title }: LogoProps & { shape: keyof typeof LO
 
 /**
  * Simbolo di Ladder: tre barre angolari. Per i punti compatti (sidebar, tab, notifiche).
- * Il colore è quello del marchio per il tema corrente (bianco sui temi scuri, iris sui chiari, nero su Mono Light).
+ * Nell'interfaccia il logo prende l'accento del tema (verde in Candor, lavanda in Circuit, grigio nei Mono):
+ * segue il tema come il resto. L'icona dell'app nel Dock resta Circuit.
  */
 export function LadderMark({ className, title }: LogoProps) {
-  return <Shape shape="mark" className={cn('text-[var(--ladder-brand-ink)]', className)} title={title} />
+  return <Shape shape="mark" className={cn('text-primary', className)} title={title} />
 }
 
-/** Lockup orizzontale, simbolo e wordmark: per gli spazi larghi. */
+/** Lockup orizzontale, simbolo e wordmark: per gli spazi larghi. Stesso colore del simbolo. */
 export function LadderLockup({ className, title }: LogoProps) {
-  return <Shape shape="horizontal" className={cn('text-[var(--ladder-brand-ink)]', className)} title={title} />
+  return <Shape shape="horizontal" className={cn('text-primary', className)} title={title} />
 }

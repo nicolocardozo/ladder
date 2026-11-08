@@ -1,4 +1,5 @@
 import { CircleAlert, CircleX, Clock } from 'lucide-react'
+import { plural, t } from '@shared/i18n'
 import { cn } from '@/lib/utils'
 import type { ProjectAttention, SessionState } from '@/lib/session-state'
 
@@ -6,7 +7,7 @@ import type { ProjectAttention, SessionState } from '@/lib/session-state'
 export function RunningRing({ className }: { className?: string }) {
   return (
     <span
-      aria-label="In corso"
+      aria-label={t('Running')}
       className={cn(
         'block size-[11px] rounded-full border-[1.6px] border-border border-t-running animate-spin',
         'motion-reduce:animate-none motion-reduce:border-dotted motion-reduce:border-running',
@@ -18,7 +19,7 @@ export function RunningRing({ className }: { className?: string }) {
 
 /** Punto pieno: c'è una risposta da leggere. */
 export function UnreadDot({ className }: { className?: string }) {
-  return <span aria-label="Da leggere" className={cn('block size-2 rounded-full bg-unread', className)} />
+  return <span aria-label={t('Unread')} className={cn('block size-2 rounded-full bg-unread', className)} />
 }
 
 /** Simbolo di stato per una riga di sessione. Ogni stato ha una forma propria, non solo un colore. */
@@ -29,11 +30,11 @@ export function SessionGlyph({ state }: { state: SessionState }) {
     case 'unread':
       return <UnreadDot />
     case 'waiting':
-      return <CircleAlert aria-label="Richiede te" className="size-3 text-attention" strokeWidth={2.2} />
+      return <CircleAlert aria-label={t('Needs you')} className="size-3 text-attention" strokeWidth={2.2} />
     case 'error':
-      return <CircleX aria-label="Errore" className="size-3 text-destructive" strokeWidth={2.2} />
+      return <CircleX aria-label={t('Error')} className="size-3 text-destructive" strokeWidth={2.2} />
     case 'queued':
-      return <Clock aria-label="In coda" className="size-3 text-muted-foreground" strokeWidth={2.2} />
+      return <Clock aria-label={t('Queued')} className="size-3 text-muted-foreground" strokeWidth={2.2} />
     default:
       return null
   }
@@ -45,16 +46,16 @@ export function ProjectBadges({ attention }: { attention: ProjectAttention }) {
     <span data-attention className="ml-auto flex items-center gap-1.5">
       {attention.waiting > 0 && (
         <span
-          aria-label={`${attention.waiting} richieste bloccanti`}
-          className="h-4 min-w-4 rounded-[4px] bg-attention px-1 text-center text-[10px] leading-4 font-semibold text-attention-foreground"
+          aria-label={plural(attention.waiting, '{n} blocking request', '{n} blocking requests')}
+          className="h-4 min-w-4 rounded-[4px] bg-attention px-1 text-center text-xs leading-4 font-semibold text-attention-foreground"
         >
           !{attention.waiting}
         </span>
       )}
       {attention.unread > 0 && (
         <span
-          aria-label={`${attention.unread} risposte da leggere`}
-          className="h-4 min-w-4 rounded-full bg-unread px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground"
+          aria-label={plural(attention.unread, '{n} unread reply', '{n} unread replies')}
+          className="h-4 min-w-4 rounded-full bg-unread px-1 text-center text-xs leading-4 font-semibold text-primary-foreground"
         >
           {attention.unread}
         </span>

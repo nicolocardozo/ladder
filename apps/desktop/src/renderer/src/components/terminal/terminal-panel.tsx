@@ -8,6 +8,7 @@ import { disposeTerminal, focusNextTerminal } from '@/lib/terminal-registry'
 import { cn } from '@/lib/utils'
 import { DEFAULT_TERMINAL_HEIGHT, useApp } from '@/store/app-store'
 import { TerminalView } from './terminal-view'
+import { t } from '@shared/i18n'
 
 const NO_TERMINALS: TerminalInfo[] = []
 
@@ -70,22 +71,22 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
   }
 
   return (
-    <section aria-label="Terminali" className="relative flex shrink-0 flex-col border-t border-border bg-background" style={{ height }}>
+    <section aria-label={t('Terminals')} className="relative flex shrink-0 flex-col border-t border-border bg-background" style={{ height }}>
       <div
         role="separator"
         aria-orientation="horizontal"
-        aria-label="Ridimensiona il pannello terminale"
+        aria-label={t('Resize terminal panel')}
         onPointerDown={startResize}
         className="absolute -top-1 right-0 left-0 z-10 h-2 cursor-row-resize"
       />
-      <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border px-2" role="tablist" aria-label="Terminali del progetto">
-        {terminals.map((t) => {
-          const selected = t.id === active?.id
+      <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border px-2" role="tablist" aria-label={t('Project terminals')}>
+        {terminals.map((terminal) => {
+          const selected = terminal.id === active?.id
           return (
             <div
-              key={t.id}
+              key={terminal.id}
               className={cn(
-                'group flex h-6 max-w-[220px] min-w-0 items-center gap-1 rounded-md pr-0.5 pl-2 text-[12px]',
+                'group flex h-6 max-w-[220px] min-w-0 items-center gap-1 rounded-md pr-0.5 pl-2 text-xs',
                 selected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
               )}
             >
@@ -95,27 +96,27 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
                 aria-selected={selected}
                 onClick={() => {
                   focusNextTerminal()
-                  setPanel(projectId, { active: t.id })
+                  setPanel(projectId, { active: terminal.id })
                 }}
-                title={`${t.command ?? t.title} · ${t.cwd}${t.port ? ` · LADDER_PORT ${t.port}` : ''}`}
+                title={`${terminal.command ?? terminal.title} · ${terminal.cwd}${terminal.port ? ` · LADDER_PORT ${terminal.port}` : ''}`}
                 className="flex min-w-0 items-center gap-1.5 outline-none focus-visible:underline"
               >
-                {t.kind === 'run' ? <Play className="size-3 shrink-0" /> : <SquareTerminal className="size-3 shrink-0" />}
-                <span className="truncate">{t.title}</span>
-                {t.kind === 'run' && t.port && <span className="shrink-0 font-mono text-[10.5px] text-faint">:{t.port}</span>}
-                {t.state !== 'running' && (
-                  <span className={cn('shrink-0 text-[11px]', t.exitCode ? 'text-destructive' : 'text-faint')}>
-                    {t.state === 'stopped' ? 'fermo' : t.exitCode ? `uscito ${t.exitCode}` : 'finito'}
+                {terminal.kind === 'run' ? <Play className="size-3 shrink-0" /> : <SquareTerminal className="size-3 shrink-0" />}
+                <span className="truncate">{terminal.title}</span>
+                {terminal.kind === 'run' && terminal.port && <span className="shrink-0 font-mono text-xs text-faint">:{terminal.port}</span>}
+                {terminal.state !== 'running' && (
+                  <span className={cn('shrink-0 text-xs', terminal.exitCode ? 'text-destructive' : 'text-faint')}>
+                    {terminal.state === 'stopped' ? t('stopped') : terminal.exitCode ? t('exited {code}', { code: terminal.exitCode }) : t('done')}
                   </span>
                 )}
               </button>
               <button
                 type="button"
-                aria-label={`Chiudi ${t.title}`}
+                aria-label={t('Close {title}', { title: terminal.title })}
                 onClick={() => {
                   // Chiudere l'ultimo terminale nasconde il pannello invece di aprirne un altro.
                   if (terminals.length === 1) setPanel(projectId, { open: false, active: null })
-                  closeTerminal(t.id)
+                  closeTerminal(terminal.id)
                 }}
                 className="grid size-5 shrink-0 place-items-center rounded opacity-60 outline-none hover:bg-background/60 hover:opacity-100 focus-visible:opacity-100"
               >
@@ -126,8 +127,8 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
         })}
         <button
           type="button"
-          aria-label="Nuovo terminale"
-          title="Nuovo terminale"
+          aria-label={t('New terminal')}
+          title={t('New terminal')}
           onClick={() => void newShell(projectId, sessionId, cwd)}
           className="grid size-6 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
         >
@@ -138,17 +139,17 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
             <button
               type="button"
               onClick={() => send({ type: 'terminal.restart', id: active.id })}
-              className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground"
+              className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground"
             >
               <RotateCcw className="size-3" />
-              Riavvia
+              {t('Restart')}
             </button>
           )}
-          {active?.port && <span className="font-mono text-[11px] text-faint">LADDER_PORT {active.port}</span>}
+          {active?.port && <span className="font-mono text-xs text-faint">LADDER_PORT {active.port}</span>}
           <button
             type="button"
-            aria-label="Nascondi il pannello terminale"
-            title="Nascondi (⌃`)"
+            aria-label={t('Hide terminal panel')}
+            title={t('Hide (⌃`)')}
             onClick={() => setPanel(projectId, { open: false })}
             className="grid size-6 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
           >
@@ -159,7 +160,7 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
       {active ? (
         <TerminalView key={active.id} id={active.id} composerKey={composerKey} className="flex-1 px-2 pt-1" />
       ) : (
-        <div className="grid flex-1 place-items-center text-[12.5px] text-muted-foreground">Apro un terminale…</div>
+        <div className="grid flex-1 place-items-center text-sm text-muted-foreground">{t('Opening a terminal…')}</div>
       )}
     </section>
   )

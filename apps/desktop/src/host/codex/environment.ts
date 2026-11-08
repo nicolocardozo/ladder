@@ -5,6 +5,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { t } from '@shared/i18n'
 import type { AgentStatus } from '@shared/protocol'
 import { agentEnv, whichInShell } from '../agents/common'
 import { CodexRpc } from './rpc'
@@ -61,7 +62,7 @@ export function accountLabel(account: Record<string, unknown> | null | undefined
     const plan = String(account.planType ?? '')
     return `ChatGPT ${PLAN_NAMES[plan] ?? plan}`.trim()
   }
-  if (account.type === 'apiKey') return 'Chiave API'
+  if (account.type === 'apiKey') return t('API key')
   return String(account.type ?? '') || null
 }
 
@@ -86,7 +87,7 @@ export function parseModels(data: unknown): CodexModel[] {
 
 /** Account e modelli, con un app-server di breve durata: non consuma quota (nessun turno). */
 export async function probeCodex(cli: string, version: string): Promise<Pick<AgentStatus, 'account' | 'models' | 'limits'>> {
-  const rpc = new CodexRpc(cli, await agentEnv(CODEX_STRIP_ENV), () => undefined, async () => ({ error: { code: -32601, message: 'non previsto' } }))
+  const rpc = new CodexRpc(cli, await agentEnv(CODEX_STRIP_ENV), () => undefined, async () => ({ error: { code: -32601, message: t('unexpected') } }))
   try {
     await rpc.initialize(version)
     const account = await rpc.request<{ account: Record<string, unknown> | null }>('account/read', { refreshToken: false }, 15000)
@@ -113,8 +114,14 @@ export function describeLimits(data: unknown): string | null {
     const window = limits[key] as { usedPercent?: number; windowDurationMins?: number } | null | undefined
     if (!window || typeof window.usedPercent !== 'number') continue
     const minutes = window.windowDurationMins ?? 0
-    const span = minutes >= 7 * 24 * 60 ? 'settimanale' : minutes >= 60 ? `della finestra di ${Math.round(minutes / 60)} h` : `della finestra di ${minutes} min`
-    parts.push(`${Math.round(window.usedPercent)}% ${span}`)
+    const percent = Math.round(window.usedPercent)
+    parts.push(
+      minutes >= 7 * 24 * 60
+        ? t('{percent}% weekly', { percent })
+        : minutes >= 60
+          ? t('{percent}% of the {hours} h window', { percent, hours: Math.round(minutes / 60) })
+          : t('{percent}% of the {minutes} min window', { percent, minutes })
+    )
   }
   return parts.length ? parts.join(' · ') : null
 }

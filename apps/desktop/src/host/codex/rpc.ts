@@ -2,6 +2,7 @@
 // Ricavato dallo spike S1 (spikes/codex-app-server), senza log su file e con tipi ridotti ai metodi usati.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
+import { t } from '@shared/i18n'
 
 export interface RpcError {
   code: number
@@ -56,7 +57,7 @@ export class CodexRpc {
         this.closed = true
         for (const p of this.pending.values()) {
           clearTimeout(p.timer)
-          p.reject(new Error(`Codex si è chiuso durante ${p.method}`))
+          p.reject(new Error(t('Codex exited during {method}', { method: p.method })))
         }
         this.pending.clear()
         resolve({ code, signal })
@@ -110,12 +111,12 @@ export class CodexRpc {
     const id = this.nextId++
     return new Promise<T>((resolve, reject) => {
       if (this.closed) {
-        reject(new Error('Codex non è in esecuzione.'))
+        reject(new Error(t('Codex is not running.')))
         return
       }
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`Codex non ha risposto a ${method}.`))
+        reject(new Error(t('Codex did not respond to {method}.', { method })))
       }, timeoutMs)
       this.pending.set(id, { method, resolve: resolve as (v: unknown) => void, reject, timer })
       this.write(params === undefined ? { id, method } : { id, method, params })

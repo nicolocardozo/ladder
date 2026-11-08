@@ -56,9 +56,26 @@
 }
 
 @theme inline {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  /* Mona Sans per tutta l'interfaccia, Monaspace Neon per codice, diff e terminale (DESIGN.md, sezione 3). */
+  --font-sans: "Mona Sans Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   --font-heading: var(--font-sans);
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: "Monaspace Neon", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Scala in sei passi, niente sotto i 12 px: caption, label, body, title, headline, display. */
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 15px;
+  --text-base--line-height: 24px;
+  --text-lg: 17px;
+  --text-lg--line-height: 24px;
+  --text-lg--letter-spacing: -0.01em;
+  --text-xl: 21px;
+  --text-xl--line-height: 28px;
+  --text-xl--letter-spacing: -0.015em;
+  --text-2xl: 26px;
+  --text-2xl--line-height: 32px;
+  --text-2xl--letter-spacing: -0.02em;
   --color-attention: var(--attention);
   --color-attention-foreground: var(--attention-foreground);
   --color-success: var(--success);

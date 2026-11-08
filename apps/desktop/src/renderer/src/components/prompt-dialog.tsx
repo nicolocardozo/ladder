@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { SessionSummary } from '@shared/protocol'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { request, send } from '@/lib/host-client'
+import { t } from '@shared/i18n'
 
 export interface PromptRequest {
   name: string
@@ -61,13 +62,15 @@ export function PromptDialog({
     }
   }
 
-  const agent = session?.mode === 'terminal' ? `${session.command ?? 'claude'} nel terminale` : 'Claude Code'
+  const agent = session?.mode === 'terminal' ? t('{command} in the terminal', { command: session.command ?? 'claude' }) : 'Claude Code'
   return (
     <Dialog open={prompt !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="gap-3 sm:max-w-[620px]">
-        <DialogTitle className="text-[15px]">{prompt?.title}</DialogTitle>
-        <DialogDescription className="text-[12.5px]">
-          {session ? `Lo invii a “${session.title}” (${agent}). Puoi cambiarlo prima; il testo di partenza si imposta in .ladder/settings.toml, sotto [prompts].` : 'Apri una sessione che lavora su questo branch per inviarlo all’agente. Intanto puoi copiarlo.'}
+        <DialogTitle className="text-base">{prompt?.title}</DialogTitle>
+        <DialogDescription className="text-sm">
+          {session
+            ? t('Sent to “{title}” ({agent}). You can edit it first; the starting text is set in .ladder/settings.toml, under [prompts].', { title: session.title, agent })
+            : t('Open a session that works on this branch to send it to the agent. Meanwhile, you can copy it.')}
         </DialogDescription>
         <textarea
           ref={area}
@@ -80,28 +83,28 @@ export function PromptDialog({
             }
           }}
           rows={12}
-          aria-label="Testo del prompt"
-          placeholder={error ? '' : 'Preparo il prompt…'}
-          className="min-h-[220px] w-full resize-y rounded-lg border border-input bg-background p-3 font-mono text-[12.5px] leading-[1.55] outline-none focus-visible:border-ring"
+          aria-label={t('Prompt text')}
+          placeholder={error ? '' : t('Preparing the prompt…')}
+          className="min-h-[220px] w-full resize-y rounded-lg border border-input bg-background p-3 font-mono text-sm leading-[1.55] outline-none focus-visible:border-ring"
         />
-        {error && <p className="text-[12.5px] text-destructive">{error}</p>}
+        {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => void navigator.clipboard.writeText(text)}
             disabled={!text}
-            className="inline-flex h-8 items-center rounded-lg border border-input px-3 text-[13px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-lg border border-input px-3 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           >
-            Copia
+            {t('Copy')}
           </button>
           <button
             type="button"
             onClick={() => void submit()}
             disabled={!session || !text.trim() || busy}
-            className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           >
-            {busy ? 'Invio…' : session?.mode === 'terminal' ? 'Incolla nel terminale' : 'Invia a Claude Code'}
-            <kbd className="font-mono text-[11px] opacity-70">⌘↵</kbd>
+            {busy ? t('Sending…') : session?.mode === 'terminal' ? t('Paste into terminal') : t('Send to Claude Code')}
+            <kbd className="font-mono text-xs opacity-70">⌘↵</kbd>
           </button>
         </div>
       </DialogContent>

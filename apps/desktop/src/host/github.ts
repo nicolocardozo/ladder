@@ -2,6 +2,7 @@
 // LADDER_GH punta a un gh finto per le prove automatiche.
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { t } from '@shared/i18n'
 import type { IssueItem, MergeCheck, PrStatus, ReviewComment } from '@shared/protocol'
 import { git } from './git'
 
@@ -35,7 +36,7 @@ export class GhError extends Error {
 
 export async function gh(cwd: string, args: string[], timeout = 20000): Promise<string> {
   const path = await findGh()
-  if (!path) throw new GhError('gh non è installato', '')
+  if (!path) throw new GhError(t('gh is not installed'), '')
   try {
     const { stdout } = await run(path, args, {
       cwd,
@@ -172,7 +173,7 @@ export async function prForBranch(cwd: string, branch: string): Promise<PrDetail
     throw error
   }
   const checks: MergeCheck[] = (raw.statusCheckRollup ?? []).map((c) => ({
-    name: c.name ?? c.context ?? 'controllo',
+    name: c.name ?? c.context ?? t('check'),
     state: checkState(c),
     url: c.detailsUrl ?? c.targetUrl ?? null
   }))
@@ -190,7 +191,7 @@ export async function prForBranch(cwd: string, branch: string): Promise<PrDetail
     updatedAt: raw.updatedAt ? Date.parse(raw.updatedAt) : Date.now()
   }
   const comments: ReviewComment[] = (raw.comments ?? []).map((c) => ({
-    author: c.author?.login ?? 'utente',
+    author: c.author?.login ?? t('user'),
     path: null,
     line: null,
     body: c.body ?? '',
@@ -210,7 +211,7 @@ export async function prForBranch(cwd: string, branch: string): Promise<PrDetail
     }[]
     for (const c of inline) {
       comments.push({
-        author: c.user?.login ?? 'utente',
+        author: c.user?.login ?? t('user'),
         path: c.path ?? null,
         line: c.line ?? c.original_line ?? null,
         body: c.body ?? '',
@@ -236,7 +237,7 @@ export async function listGithubIssues(cwd: string): Promise<IssueItem[]> {
     body: i.body?.trim() || null,
     url: i.url,
     branch: null,
-    state: i.state === 'OPEN' ? 'aperta' : i.state === 'CLOSED' ? 'chiusa' : (i.state ?? null),
+    state: i.state === 'OPEN' ? t('open') : i.state === 'CLOSED' ? t('closed') : (i.state ?? null),
     updatedAt: i.updatedAt ? Date.parse(i.updatedAt) : null
   }))
 }
@@ -252,7 +253,7 @@ export async function listGithubPrs(cwd: string): Promise<IssueItem[]> {
     body: p.body?.trim() || null,
     url: p.url,
     branch: p.headRefName ?? null,
-    state: p.isDraft ? 'bozza' : 'aperta',
+    state: p.isDraft ? t('draft') : t('open'),
     updatedAt: p.updatedAt ? Date.parse(p.updatedAt) : null
   }))
 }

@@ -144,6 +144,7 @@
   margin-block: 1.1em;
 }
 .chat-md :not(pre) > code {
+  font-variant-ligatures: none;
   font-family: var(--font-mono);
   font-size: 0.84em;
   background: var(--muted);

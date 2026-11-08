@@ -5,6 +5,7 @@ import type { ChatItem, InspectorTab, SessionSummary } from '@shared/protocol'
 import { send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
+import { t } from '@shared/i18n'
 import { ChangesPanel } from './changes-panel'
 import { FilesPanel } from './files-panel'
 import { HistoryPanel } from './history-panel'
@@ -14,9 +15,9 @@ const WIDTH_KEY = 'ladder.inspector-width'
 const NO_ITEMS: ChatItem[] = []
 
 const TABS: { id: InspectorTab; label: string; key: string }[] = [
-  { id: 'changes', label: 'Modifiche', key: '⌘⌥1' },
-  { id: 'files', label: 'File', key: '⌘⌥2' },
-  { id: 'history', label: 'Cronologia', key: '⌘⌥3' },
+  { id: 'changes', label: 'Changes', key: '⌘⌥1' },
+  { id: 'files', label: 'Files', key: '⌘⌥2' },
+  { id: 'history', label: 'History', key: '⌘⌥3' },
   { id: 'merge', label: 'Merge', key: '⌘⌥4' }
 ]
 
@@ -79,35 +80,35 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
   else body = <MergePanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} />
 
   return (
-    <aside aria-label="Ispettore" className="relative flex shrink-0 flex-col border-l border-border bg-background" style={{ width }}>
+    <aside aria-label={t('Inspector')} className="relative flex shrink-0 flex-col border-l border-border bg-background" style={{ width }}>
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Ridimensiona l’ispettore"
+        aria-label={t('Resize inspector')}
         onPointerDown={startResize}
         className="absolute top-0 bottom-0 -left-1 z-10 w-2 cursor-col-resize"
       />
-      <div className="drag flex h-11 shrink-0 items-center gap-0.5 border-b border-border px-2" role="tablist" aria-label="Pannelli dell’ispettore">
-        {TABS.map((t) => (
+      <div className="drag flex h-11 shrink-0 items-center gap-0.5 border-b border-border px-2" role="tablist" aria-label={t('Inspector panels')}>
+        {TABS.map((item) => (
           <button
-            key={t.id}
+            key={item.id}
             type="button"
             role="tab"
-            aria-selected={tab === t.id}
-            title={`${t.label} (${t.key})`}
-            onClick={() => tab !== t.id && toggle(projectId, t.id)}
+            aria-selected={tab === item.id}
+            title={`${t(item.label)} (${item.key})`}
+            onClick={() => tab !== item.id && toggle(projectId, item.id)}
             className={cn(
-              'no-drag h-7 rounded-md px-2.5 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-              tab === t.id ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+              'no-drag h-7 rounded-md px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+              tab === item.id ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
             )}
           >
-            {t.label}
+            {t(item.label)}
           </button>
         ))}
         <button
           type="button"
-          aria-label="Chiudi l’ispettore"
-          title="Chiudi"
+          aria-label={t('Close inspector')}
+          title={t('Close')}
           onClick={() => toggle(projectId)}
           className="no-drag ml-auto grid size-7 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
         >

@@ -2,6 +2,7 @@
 // perché solo il main sa quale finestra è in primo piano e cosa sta guardando (sezione 2.3 del piano).
 import { appendFileSync } from 'node:fs'
 import { app, BrowserWindow, Notification } from 'electron'
+import { plural, t } from '@shared/i18n'
 import type { AppPrefs, AttentionEvent, WindowView } from '@shared/protocol'
 
 /** Turni più brevi non notificano: li vedi quando torni. */
@@ -77,8 +78,8 @@ export class Attention {
         const group = this.groups.get(event.projectId)
         const count = group && now - group.at < GROUP_MS ? group.count + 1 : 1
         if (group) this.clear((s) => s === group.shown)
-        const title = count === 1 ? `${event.projectName}: risposta pronta` : `${event.projectName}: ${count} risposte pronte`
-        const body = count === 1 ? event.title : `Ultima: ${event.title}`
+        const title = plural(count, '{project}: reply ready', '{project}: {n} replies ready', { project: event.projectName })
+        const body = count === 1 ? event.title : t('Latest: {title}', { title: event.title })
         const shown = this.show({ kind: 'turn', sessionId: event.sessionId, projectId: event.projectId, itemId: event.itemId }, title, body, false)
         if (shown) this.groups.set(event.projectId, { count, at: count === 1 ? now : group!.at, shown })
         return
@@ -142,7 +143,7 @@ export class Attention {
       return true
     }
     if (!Notification.isSupported()) return false
-    const notification = new Notification({ title: 'Ladder', body: 'Notifica di prova: con un clic torni qui.', silent: !this.prefs().sound })
+    const notification = new Notification({ title: 'Ladder', body: t('Test notification: click to come back here.'), silent: !this.prefs().sound })
     const shown: Shown = { kind: 'request', sessionId: '', projectId: '', itemId: null, notification, at: Date.now() }
     notification.on('click', () => {
       this.forgetShown(shown)

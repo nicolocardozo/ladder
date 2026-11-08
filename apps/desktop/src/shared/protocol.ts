@@ -1,3 +1,4 @@
+import type { Locale } from './i18n'
 // Tipi condivisi tra host delle sessioni, processo main e renderer.
 // L'host è la fonte di verità: il renderer riceve progetti, sessioni ed elementi della chat già pronti.
 
@@ -14,6 +15,8 @@ export interface AcpAgentSpec {
   source: 'registry' | 'custom'
   version?: string | null
   description?: string | null
+  /** Icona dal registro, scaricata all'aggiunta e salvata come data URL (SVG). */
+  icon?: string | null
 }
 
 /** Agente del registro ACP che Ladder sa avviare (npx o uvx). */
@@ -102,6 +105,30 @@ export interface SessionSummary {
   pr: PrStatus | null
   /** Da dove è nata la sessione: issue, PR o branch. */
   source: SessionSource | null
+  /** Sotto-agenti dell'ultimo turno e quelli ancora vivi: la mappa degli agenti. */
+  subagents?: SubagentInfo[]
+}
+
+/** Un sotto-agente avviato dalla sessione (Task di Claude Code, spawnAgent di Codex). */
+export interface SubagentInfo {
+  /** Id stabile: il tool_use di Claude Code o il thread del sotto-agente di Codex. */
+  id: string
+  /** Sotto-agente che l'ha avviato; null se l'ha avviato la sessione. */
+  parentId: string | null
+  /** Compito in breve: "Explore the auth module". */
+  title: string
+  /** Tipo di agente: "general-purpose", "Explore", "worker". */
+  kind: string | null
+  model: string | null
+  status: 'running' | 'done' | 'error' | 'stopped'
+  startedAt: number
+  endedAt: number | null
+  /** Cosa sta facendo adesso: l'ultimo strumento o il riassunto dell'agente. */
+  activity: string | null
+  tokens: number | null
+  toolUses: number | null
+  /** Continua in background mentre la sessione va avanti. */
+  background: boolean
 }
 
 export interface SessionSource {
@@ -231,6 +258,8 @@ export interface AgentStatus {
   limits?: string | null
   /** Percorso della CLI usata. */
   path?: string | null
+  /** Icona dell'agente ACP (data URL); per i nativi la sceglie l'interfaccia. */
+  icon?: string | null
 }
 
 export type InspectorTab = 'changes' | 'files' | 'history' | 'merge'
@@ -570,6 +599,8 @@ export type HostToMain = { type: 'attention'; event: AttentionEvent } | { type: 
 export interface HostPrefs {
   /** Turni attivi insieme per agente; gli altri aspettano "In coda". */
   maxActive: Record<AgentId, number>
+  /** Lingua di avvisi, errori, notifiche e prompt predefiniti. */
+  locale?: Locale
 }
 
 export type MainToHost = { type: 'connect' } | { type: 'prefs'; prefs: HostPrefs }
@@ -582,6 +613,8 @@ export interface AppPrefs {
   /** "Non disturbare" fino a questo istante: niente notifiche; "In attesa" e badge restano. */
   dndUntil: number | null
   maxActive: number
+  /** Lingua dell'interfaccia: inglese per default, italiano a scelta. */
+  locale: Locale
 }
 
 /** Cosa sta guardando la finestra: il main non notifica una richiesta della sessione che hai davanti. */

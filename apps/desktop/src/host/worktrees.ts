@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { cp } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { t } from '@shared/i18n'
 import type { Project, WorktreeInfo } from '@shared/protocol'
 import type { Db } from './db'
 import { addWorktree, addWorktreeForBranch, fetchRef, resolveCommit } from './git'
@@ -26,7 +27,7 @@ export function slugify(text: string): string {
     .split('-')
     .slice(0, 5)
     .join('-')
-  return `${base || 'sessione'}-${randomBytes(2).toString('hex')}`
+  return `${base || t('session')}-${randomBytes(2).toString('hex')}`
 }
 
 export interface WorktreeBranch {
@@ -47,7 +48,7 @@ export async function createWorktree(
   wanted?: WorktreeBranch | null
 ): Promise<{ info: WorktreeInfo; copied: string[]; missing: string[] }> {
   const head = await resolveCommit(project.path, 'HEAD')
-  if (!head) throw new Error('Il progetto non ha ancora commit: un worktree parte da un commit.')
+  if (!head) throw new Error(t('The project has no commits yet: a worktree starts from a commit.'))
   const slug = slugify(wanted?.name.replace(/^ladder\//, '') ?? title)
   const path = join(worktreesRoot(), project.name, slug)
   let branch = wanted?.name ?? `ladder/${slug}`

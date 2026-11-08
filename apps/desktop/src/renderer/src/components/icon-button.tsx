@@ -27,7 +27,7 @@ export function IconButton({ icon: Icon, label, shortcut, onClick, className }: 
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {label}
-        {shortcut && <span className="ml-1.5 font-mono text-[11px] opacity-70">{shortcut}</span>}
+        {shortcut && <span className="ml-1.5 font-mono text-xs opacity-70">{shortcut}</span>}
       </TooltipContent>
     </Tooltip>
   )

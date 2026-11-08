@@ -2,6 +2,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Image as ImageIcon, X } from 'lucide-react'
 import type { QueuedMessage } from '@shared/protocol'
+import { plural, t } from '@shared/i18n'
 
 interface QueueListProps {
   queue: QueuedMessage[]
@@ -36,10 +37,10 @@ export function QueueList({ queue, onQueueChange, onEditEnd }: QueueListProps) {
         return (
           <div
             key={message.id}
-            className="flex items-start gap-2.5 rounded-lg border border-dashed border-input bg-muted/40 px-3 py-1.5 text-[12.5px] text-secondary-foreground has-[textarea:focus]:border-solid has-[textarea:focus]:border-ring/50"
+            className="flex items-start gap-2.5 rounded-lg border border-dashed border-input bg-muted/40 px-3 py-1.5 text-sm text-secondary-foreground has-[textarea:focus]:border-solid has-[textarea:focus]:border-ring/50"
           >
-            <span className="mt-[3px] font-mono text-[10px] leading-4 tracking-wider whitespace-nowrap text-faint uppercase">
-              {index === 0 ? 'In coda' : `+${index}`}
+            <span className="mt-[3px] font-mono text-xs leading-4 whitespace-nowrap text-faint">
+              {index === 0 ? t('Queued') : `+${index}`}
             </span>
             {editing === message.id ? (
               <QueueEditor
@@ -57,8 +58,8 @@ export function QueueList({ queue, onQueueChange, onEditEnd }: QueueListProps) {
               <button
                 type="button"
                 onClick={() => onQueueChange && setEditing(message.id)}
-                title="Clic per modificare"
-                aria-label={`Modifica il messaggio in coda: ${message.text}`}
+                title={t('Click to edit')}
+                aria-label={t('Edit queued message: {text}', { text: message.text })}
                 className="min-w-0 flex-1 cursor-text truncate rounded-[4px] text-left leading-5 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 {message.text}
@@ -66,8 +67,8 @@ export function QueueList({ queue, onQueueChange, onEditEnd }: QueueListProps) {
             )}
             {images > 0 && (
               <span
-                aria-label={images === 1 ? '1 immagine' : `${images} immagini`}
-                className="mt-px inline-flex h-[18px] shrink-0 items-center gap-1 font-mono text-[11px] text-muted-foreground"
+                aria-label={plural(images, '{n} image', '{n} images')}
+                className="mt-px inline-flex h-[18px] shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground"
               >
                 <ImageIcon aria-hidden className="size-3" strokeWidth={1.9} />
                 {images}
@@ -75,7 +76,7 @@ export function QueueList({ queue, onQueueChange, onEditEnd }: QueueListProps) {
             )}
             <button
               type="button"
-              aria-label="Togli dalla coda"
+              aria-label={t('Remove from queue')}
               onClick={() => onQueueChange?.(queue.filter((m) => m.id !== message.id))}
               className={rowButton}
             >
@@ -111,7 +112,7 @@ function QueueEditor({ initial, onSave, onCancel }: { initial: string; onSave: (
       ref={ref}
       value={value}
       rows={1}
-      aria-label="Modifica il messaggio in coda. Invio salva, Esc annulla, vuoto lo toglie"
+      aria-label={t('Edit queued message. Return saves, Esc cancels, empty removes it')}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing) return

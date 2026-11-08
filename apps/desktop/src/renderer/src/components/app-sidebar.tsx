@@ -1,8 +1,11 @@
 import { ChevronDown, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, GitFork, GitPullRequest, Inbox, PanelLeft, Search, Settings, SquarePen, SquareTerminal, X, type LucideIcon } from 'lucide-react'
 import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import type { Project, SessionSummary } from '@shared/protocol'
+import { plural, t } from '@shared/i18n'
 import { IconButton } from '@/components/icon-button'
 import { ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
+import { AgentMark, useAgentLine } from '@/components/agent-mark'
+import { runningSubagents } from '@/components/agent-map'
 import { InboxPanel } from '@/components/inbox'
 import { ProjectBadges, RunningRing, SessionGlyph } from '@/components/status'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -13,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { LadderMark } from '@/components/brand/logo'
 import { useSettings } from '@/hooks/use-theme'
 import { request, send } from '@/lib/host-client'
-import { isConcluded, prNote, projectAttention, sessionNote, sessionState } from '@/lib/session-state'
+import { isConcluded, noteTone, prNote, projectAttention, sessionNote, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { canNavigate, useApp, type AwaySummary } from '@/store/app-store'
 
@@ -49,7 +52,7 @@ export async function addProjectFromDialog(): Promise<void> {
 /** Pulsante per riaprire la sidebar, nella barra in alto quando è nascosta. */
 export function ShowSidebarButton() {
   const toggleSidebar = useApp((s) => s.toggleSidebar)
-  return <IconButton icon={PanelLeft} label="Mostra sidebar" shortcut="⌘B" onClick={toggleSidebar} className="hover:bg-accent" />
+  return <IconButton icon={PanelLeft} label={t('Show sidebar')} shortcut="⌘B" onClick={toggleSidebar} className="hover:bg-accent" />
 }
 
 export function AppSidebar() {
@@ -105,18 +108,18 @@ export function AppSidebar() {
     <aside className="flex h-full w-[262px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none">
       {/* Barra del titolo: lo spazio a sinistra lascia posto ai semafori di macOS. */}
       <div className="drag flex h-11 shrink-0 items-center gap-0.5 pr-2 pl-[82px]">
-        <IconButton icon={PanelLeft} label="Nascondi sidebar" shortcut="⌘B" onClick={toggleSidebar} />
-        <IconButton icon={Search} label="Cerca" shortcut="⌘K" onClick={() => setPaletteOpen(true)} />
+        <IconButton icon={PanelLeft} label={t('Hide sidebar')} shortcut="⌘B" onClick={toggleSidebar} />
+        <IconButton icon={Search} label={t('Search')} shortcut="⌘K" onClick={() => setPaletteOpen(true)} />
         <span className="flex-1" />
-        <HistoryButton icon={ChevronLeft} label="Indietro" shortcut="⌘[" disabled={!canBack} onClick={() => navigate(-1)} />
-        <HistoryButton icon={ChevronRight} label="Avanti" shortcut="⌘]" disabled={!canForward} onClick={() => navigate(1)} />
+        <HistoryButton icon={ChevronLeft} label={t('Back')} shortcut="⌘[" disabled={!canBack} onClick={() => navigate(-1)} />
+        <HistoryButton icon={ChevronRight} label={t('Forward')} shortcut="⌘]" disabled={!canForward} onClick={() => navigate(1)} />
       </div>
 
-      <nav className="flex flex-col gap-px px-2 pt-1" aria-label="Azioni">
+      <nav className="flex flex-col gap-px px-2 pt-1" aria-label={t('Actions')}>
         <SidebarAction
           icon={SquarePen}
-          label="Nuova chat"
-          trailing={<kbd className="font-mono text-[10.5px] text-faint">⌘N</kbd>}
+          label={t('New chat')}
+          trailing={<kbd className="font-mono text-xs text-faint">⌘N</kbd>}
           active={selection.kind === 'new'}
           onClick={() => select({ kind: 'new', projectId: selection.projectId ?? projects[0]?.id ?? null })}
         />
@@ -132,19 +135,19 @@ export function AppSidebar() {
             render={
               <SidebarAction
                 icon={Inbox}
-                label="In attesa"
+                label={t('Waiting')}
                 active={inboxOpen}
                 onPointerDown={() => !inboxOpen && rememberFocus()}
                 trailing={
                   waitingTotal > 0 ? (
                     <span
-                      aria-label={`${waitingTotal} richieste`}
-                      className="h-[17px] min-w-[17px] rounded-[4px] bg-attention px-1 text-center text-[10px] leading-[17px] font-semibold text-attention-foreground"
+                      aria-label={plural(waitingTotal, '{n} pending request', '{n} pending requests')}
+                      className="h-[17px] min-w-[17px] rounded-[4px] bg-attention px-1 text-center text-xs leading-[17px] font-semibold text-attention-foreground"
                     >
                       !{waitingTotal}
                     </span>
                   ) : unreadTotal > 0 ? (
-                    <span aria-label={`${unreadTotal} da leggere`} className="h-4 min-w-4 rounded-full bg-unread px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground">
+                    <span aria-label={t('{n} unread', { n: unreadTotal })} className="h-4 min-w-4 rounded-full bg-unread px-1 text-center text-xs leading-4 font-semibold text-primary-foreground">
                       {unreadTotal}
                     </span>
                   ) : null
@@ -167,8 +170,8 @@ export function AppSidebar() {
       </nav>
 
       <div className="flex items-center justify-between pt-5 pr-3 pb-1 pl-4 text-xs text-muted-foreground">
-        <span>Progetti</span>
-        <IconButton icon={FolderPlus} label="Aggiungi progetto" className="size-6" onClick={() => void addProjectFromDialog()} />
+        <span>{t('Projects')}</span>
+        <IconButton icon={FolderPlus} label={t('Add project')} className="size-6" onClick={() => void addProjectFromDialog()} />
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -177,9 +180,9 @@ export function AppSidebar() {
             <button
               type="button"
               onClick={() => void addProjectFromDialog()}
-              className="mx-1 mt-1 rounded-md border border-dashed border-sidebar-border px-3 py-3 text-left text-[12.5px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="mx-1 mt-1 rounded-md border border-dashed border-sidebar-border px-3 py-3 text-left text-sm text-muted-foreground outline-none hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              Aggiungi la cartella di un progetto per iniziare.
+              {t('Add a project folder to get started.')}
             </button>
           )}
           {projects.map((project) => {
@@ -208,7 +211,7 @@ export function AppSidebar() {
                     }}
                     title={project.path}
                     className={cn(
-                      'flex min-h-[30px] items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none',
+                      'flex min-h-[30px] items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none',
                       'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-sidebar-accent/60',
                       open && 'text-sidebar-accent-foreground'
                     )}
@@ -241,7 +244,7 @@ export function AppSidebar() {
                     />
                   ))}
 
-                {open && all.length === 0 && <p className="ml-5 py-1 pl-2.5 text-[12px] text-faint">Nessuna sessione. ⌘N per iniziare.</p>}
+                {open && all.length === 0 && <p className="ml-5 py-1 pl-2.5 text-xs text-faint">{t('No sessions. Press ⌘N to start.')}</p>}
 
                 {open && concluded.length > 0 && (
                   <>
@@ -249,10 +252,10 @@ export function AppSidebar() {
                       type="button"
                       aria-expanded={concludedOpen}
                       onClick={() => toggleConcluded(project.id)}
-                      className="ml-5 flex min-h-6 items-center gap-1.5 rounded-md pl-2.5 text-left text-[12px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                      className="ml-5 flex min-h-6 items-center gap-1.5 rounded-md pl-2.5 text-left text-xs text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
                       <ChevronDown className={cn('size-3 transition-transform', !concludedOpen && '-rotate-90')} />
-                      Concluse · {concluded.length}
+                      {t('Done · {n}', { n: concluded.length })}
                     </button>
                     {concludedOpen &&
                       concluded.map((session) => (
@@ -266,10 +269,10 @@ export function AppSidebar() {
         </div>
       </ScrollArea>
 
-      <footer className="flex items-center gap-2 border-t border-sidebar-border px-3 py-2.5 text-[12.5px]">
+      <footer className="flex items-center gap-2 border-t border-sidebar-border px-3 py-2.5 text-sm">
         <LadderMark className="h-3.5 w-auto" title="Ladder" />
         <span className="font-semibold tracking-tight">Ladder</span>
-        <IconButton icon={Settings} label="Impostazioni" shortcut="⌘," onClick={() => useSettings.getState().setSettingsOpen(true)} className="ml-auto" />
+        <IconButton icon={Settings} label={t('Settings')} shortcut="⌘," onClick={() => useSettings.getState().setSettingsOpen(true)} className="ml-auto" />
       </footer>
 
       <RemoveProjectDialog project={removing} onClose={() => setRemoving(null)} />
@@ -294,6 +297,7 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
   const state = sessionState(session)
   const waiting = state === 'waiting'
   const note = sessionNote(session, hasDraft)
+  const tone = noteTone(note.code)
 
   return (
     <ContextMenu disabled={renaming}>
@@ -323,51 +327,46 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
               title={[
                 session.title,
                 session.queuedReason ?? session.activity,
-                session.estimated ? 'stato stimato' : null,
+                session.estimated ? t('estimated status') : null,
                 session.worktree?.branch,
-                session.pr ? `PR #${session.pr.number}${prNote(session) ? ` · ${prNote(session)}` : ''}` : null
+                session.pr ? `PR #${session.pr.number}${prNote(session) ? ` · ${prNote(session)!.text}` : ''}` : null
               ]
                 .filter(Boolean)
                 .join(' · ')}
               className={cn(
-                'relative grid min-h-7 w-full grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md py-1 pr-2 pl-2.5 text-left text-[12.5px] outline-none',
+                'relative grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-start gap-x-2 rounded-lg py-1.5 pr-2 pl-2 text-left outline-none',
                 'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
                 // Riga evidenziata mentre il suo menu (clic destro o "…") è aperto.
                 'group-data-[popup-open]/row:bg-sidebar-accent/60 group-has-[[data-popup-open]]/row:bg-sidebar-accent/60',
                 selected &&
                   'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent group-data-[popup-open]/row:bg-sidebar-accent group-has-[[data-popup-open]]/row:bg-sidebar-accent',
-                waiting && 'before:absolute before:top-[7px] before:bottom-[7px] before:left-[2px] before:w-[2.5px] before:bg-attention'
+                // Ti aspetta: un fondo appena tinto d'ambra, oltre a icona ed etichetta.
+                waiting && !selected && 'bg-attention/8'
               )}
             >
-              <span className="grid place-items-center">
+              <span className="row-span-2 grid h-[18px] place-items-center">
                 <SessionGlyph state={state} />
               </span>
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className={cn('truncate', state === 'unread' && 'font-semibold text-sidebar-accent-foreground')}>{session.title}</span>
-                {session.mode === 'terminal' && <SquareTerminal aria-label="Sessione terminale" className="size-3 shrink-0 text-faint" />}
-                {session.worktree && <GitFork aria-label={`Worktree ${session.worktree.branch}`} className="size-3 shrink-0 text-faint" />}
-                {session.pr && <GitPullRequest aria-label={`PR #${session.pr.number}`} className="size-3 shrink-0 text-faint" />}
-              </span>
+              <span className={cn('min-w-0 truncate text-sm', state === 'unread' ? 'font-semibold text-sidebar-accent-foreground' : selected && 'font-medium')}>{session.title}</span>
               {/* Lascia il posto al pulsante "…" quando la riga è sotto il puntatore o ha il focus. */}
               <span
                 className={cn(
-                  'text-[11px] whitespace-nowrap text-faint',
+                  'text-xs leading-[18px] whitespace-nowrap text-faint tabular-nums',
                   'group-hover/row:invisible group-has-[:focus-visible]/row:invisible group-has-[[data-popup-open]]/row:invisible',
-                  waiting && 'font-semibold text-attention',
-                  state === 'error' && 'font-semibold text-destructive',
-                  !waiting && state !== 'error' && (note === 'CI fallita' || note === 'PR chiusa') && 'font-semibold text-destructive',
-                  !waiting && state !== 'error' && note === 'conflitti' && 'font-semibold text-attention',
-                  !waiting && state !== 'error' && note === 'unita' && 'font-medium text-success'
+                  tone === 'attention' && 'font-semibold text-attention',
+                  tone === 'destructive' && 'font-semibold text-destructive',
+                  tone === 'success' && 'font-medium text-success'
                 )}
               >
-                {note === 'bozza' ? <i>bozza</i> : note}
+                {note.code === 'draft' ? <i>{note.text}</i> : note.text}
               </span>
+              <SessionMeta session={session} />
             </button>
             <DropdownMenu>
               <DropdownMenuTrigger
-                aria-label={`Azioni per ${session.title}`}
+                aria-label={t('Actions for {title}', { title: session.title })}
                 className={cn(
-                  'absolute top-1/2 right-1 grid size-6 -translate-y-1/2 place-items-center rounded-[5px] text-muted-foreground opacity-0 outline-none',
+                  'absolute top-1 right-1 grid size-6 place-items-center rounded-sm text-muted-foreground opacity-0 outline-none',
                   'hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50',
                   'group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 data-[popup-open]:bg-background/70 data-[popup-open]:opacity-100',
                   'dark:hover:bg-background/40 dark:data-[popup-open]:bg-background/40'
@@ -382,6 +381,38 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
       </ContextMenuTrigger>
       <SessionMenuContent variant="context" session={session} project={project} />
     </ContextMenu>
+  )
+}
+
+/** Seconda riga: chi lavora (segno del provider e modello) e cosa sta facendo, o dove lavora. */
+function SessionMeta({ session }: { session: SessionSummary }) {
+  const { name, model } = useAgentLine(session.agent, session.model)
+  const agents = runningSubagents(session)
+  const doing =
+    session.queuedReason ??
+    (session.run === 'running' || session.run === 'starting' || session.run === 'waiting' ? (session.request?.command ?? session.activity) : null) ??
+    (session.mode === 'terminal' ? t('Terminal · {command}', { command: session.command ?? 'claude' }) : null) ??
+    session.worktree?.branch ??
+    null
+  return (
+    <span className="col-span-2 col-start-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      {session.mode === 'terminal' ? <SquareTerminal aria-label={t('Terminal session')} className="size-3 shrink-0" /> : <AgentMark agent={session.agent} size={12} />}
+      <span className="shrink-0">{session.mode === 'terminal' ? (session.command?.split(' ')[0] ?? 'claude') : (model ?? name)}</span>
+      {doing && (
+        <>
+          <span aria-hidden className="text-faint">·</span>
+          <span className="min-w-0 truncate">{doing}</span>
+        </>
+      )}
+      {agents > 0 && <span aria-hidden className="text-faint">·</span>}
+      {agents > 0 && (
+        <span className="shrink-0 tabular-nums text-foreground/70" aria-label={plural(agents, '1 agent running', '{n} agents running')} title={plural(agents, '1 agent running', '{n} agents running')}>
+          {plural(agents, '1 agent', '{n} agents')}
+        </span>
+      )}
+      {session.worktree && <GitFork aria-label={`Worktree ${session.worktree.branch}`} className="size-3 shrink-0 text-faint" />}
+      {session.pr && <GitPullRequest aria-label={`PR #${session.pr.number}`} className="size-3 shrink-0 text-faint" />}
+    </span>
   )
 }
 
@@ -429,10 +460,10 @@ function RenameField({ session, onDone }: { session: SessionSummary; onDone: (vi
         }
       }}
       onBlur={() => finish(true, false)}
-      aria-label="Titolo della sessione"
+      aria-label={t('Session title')}
       spellCheck={false}
       maxLength={200}
-      className="h-6 w-full min-w-0 rounded-[5px] bg-background px-1.5 text-[12.5px] text-foreground ring-1 ring-ring/60 outline-none select-text"
+      className="h-6 w-full min-w-0 rounded-[5px] bg-background px-1.5 text-sm text-foreground ring-1 ring-ring/60 outline-none select-text"
     />
   )
 }
@@ -463,7 +494,7 @@ function HistoryButton({ icon: Icon, label, shortcut, disabled, onClick }: Histo
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {label}
-        <span className="ml-1.5 font-mono text-[11px] opacity-70">{shortcut}</span>
+        <span className="ml-1.5 font-mono text-xs opacity-70">{shortcut}</span>
       </TooltipContent>
     </Tooltip>
   )
@@ -484,7 +515,7 @@ const SidebarAction = forwardRef<HTMLButtonElement, SidebarActionProps>(function
       type="button"
       {...props}
       className={cn(
-        'flex h-[30px] items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none',
+        'flex h-[30px] items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none',
         'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
         active && 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent',
         className
@@ -501,10 +532,10 @@ const SidebarAction = forwardRef<HTMLButtonElement, SidebarActionProps>(function
 function AwayRow({ projectId, summary }: { projectId: string; summary: AwaySummary }) {
   const dismiss = useApp((s) => s.dismissAway)
   const parts = [
-    summary.requests && `${summary.requests} ${summary.requests === 1 ? 'richiesta' : 'richieste'}`,
-    summary.replies && `${summary.replies} ${summary.replies === 1 ? 'risposta' : 'risposte'}`,
-    summary.errors && `${summary.errors} ${summary.errors === 1 ? 'errore' : 'errori'}`,
-    summary.concluded && `${summary.concluded} ${summary.concluded === 1 ? 'sessione conclusa' : 'sessioni concluse'}`
+    summary.requests && plural(summary.requests, '{n} request', '{n} requests'),
+    summary.replies && plural(summary.replies, '{n} reply', '{n} replies'),
+    summary.errors && plural(summary.errors, '{n} error', '{n} errors'),
+    summary.concluded && plural(summary.concluded, '{n} session done', '{n} sessions done')
   ].filter(Boolean)
   const openFirst = () => {
     const state = useApp.getState()
@@ -516,13 +547,13 @@ function AwayRow({ projectId, summary }: { projectId: string; summary: AwaySumma
     dismiss(projectId)
   }
   return (
-    <div role="status" className="group/away relative ml-5 flex min-h-7 items-center rounded-md bg-sidebar-accent/45 pr-1 pl-2.5 text-[12px] text-muted-foreground">
+    <div role="status" className="group/away relative ml-5 flex min-h-7 items-center rounded-md bg-sidebar-accent/45 pr-1 pl-2.5 text-xs text-muted-foreground">
       <button type="button" onClick={openFirst} className="min-w-0 flex-1 truncate py-1 text-left outline-none hover:text-foreground focus-visible:underline">
-        <span className="font-medium text-sidebar-foreground">Mentre eri via:</span> {parts.join(', ')}
+        <span className="font-medium text-sidebar-foreground">{t('While you were away:')}</span> {parts.join(', ')}
       </button>
       <button
         type="button"
-        aria-label="Nascondi il riepilogo"
+        aria-label={t('Hide summary')}
         onClick={() => dismiss(projectId)}
         className="grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
       >

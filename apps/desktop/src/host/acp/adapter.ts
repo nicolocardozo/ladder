@@ -4,6 +4,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import * as acp from '@agentclientprotocol/sdk'
+import { t } from '@shared/i18n'
 import type { AcpAgentSpec, Attachment, Effort, PermissionLevel, RequestOption } from '@shared/protocol'
 import { agentEnv, clip, displayCommand, firstLine, whichInShell, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
 
@@ -71,13 +72,13 @@ export class AcpSession implements AgentSession {
 
   start(): void {
     this.ready = this.boot()
-    this.ready.catch((error: Error) => this.events.notice('error', `${this.options.spec.name} non è partito: ${error.message}`))
+    this.ready.catch((error: Error) => this.events.notice('error', t('{agent} failed to start: {message}', { agent: this.options.spec.name, message: error.message })))
   }
 
   private async boot(): Promise<void> {
     const { spec } = this.options
     const command = await whichInShell(spec.command)
-    if (!command) throw new Error(`comando “${spec.command}” non trovato`)
+    if (!command) throw new Error(t('command “{command}” not found', { command: spec.command }))
     const env = await agentEnv(STRIP_ENV, spec.env ?? {})
     const child = spawn(command, spec.args, { cwd: this.options.cwd, stdio: ['pipe', 'pipe', 'pipe'], env })
     this.child = child
@@ -93,8 +94,8 @@ export class AcpSession implements AgentSession {
       this.connection = null
       this.ready = null
       if (this.closed) return
-      if (this.running) this.finishTurn('error', `${spec.name} si è chiuso${stderr.length ? `: ${stderr.at(-1)}` : ''}`)
-      else if (code !== 0 && signal !== 'SIGTERM') this.events.notice('error', `${spec.name} si è chiuso (${signal ?? code}). Il prossimo messaggio lo riavvia.`)
+      if (this.running) this.finishTurn('error', stderr.length ? t('{agent} exited: {error}', { agent: spec.name, error: stderr.at(-1) ?? '' }) : t('{agent} exited', { agent: spec.name }))
+      else if (code !== 0 && signal !== 'SIGTERM') this.events.notice('error', t('{agent} exited ({reason}). The next message restarts it.', { agent: spec.name, reason: String(signal ?? code) }))
     })
 
     const stream = acp.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>)
@@ -169,14 +170,14 @@ export class AcpSession implements AgentSession {
         await this.setOption(mode, hit?.value ?? null)
       }
     } catch (error) {
-      this.events.notice('info', `${this.options.spec.name} non ha accettato le impostazioni: ${(error as Error).message}`)
+      this.events.notice('info', t('{agent} did not accept the settings: {message}', { agent: this.options.spec.name, message: (error as Error).message }))
     }
   }
 
   send(text: string, attachments: Attachment[] = []): void {
     this.running = true
     this.turnStartedAt = Date.now()
-    this.events.activity('Pensa…')
+    this.events.activity(t('Thinking…'))
     void (async () => {
       try {
         if (!this.ready) this.start()
@@ -186,7 +187,7 @@ export class AcpSession implements AgentSession {
           prompt: [...attachments.map((a) => ({ type: 'image' as const, data: a.data, mimeType: a.mediaType })), { type: 'text' as const, text }]
         })
         const reason = response.stopReason
-        this.finishTurn(reason === 'cancelled' ? 'interrupted' : reason === 'refusal' ? 'error' : 'completed', reason === 'refusal' ? 'L’agente ha rifiutato la richiesta.' : null)
+        this.finishTurn(reason === 'cancelled' ? 'interrupted' : reason === 'refusal' ? 'error' : 'completed', reason === 'refusal' ? t('The agent refused the request.') : null)
       } catch (error) {
         this.finishTurn('error', (error as Error).message)
       }
@@ -242,7 +243,7 @@ export class AcpSession implements AgentSession {
         }
         this.open.text += text
         if (kind === 'message') this.events.assistant(this.open.id, this.open.text, true)
-        else this.events.activity('Ragiona…')
+        else this.events.activity(t('Reasoning…'))
         return
       }
       case 'tool_call': {
@@ -326,7 +327,7 @@ export class AcpSession implements AgentSession {
         {
           requestType: 'permission',
           toolName: known?.kind ?? call.kind ?? 'tool',
-          title: call.title ?? known?.title ?? 'Richiesta dell’agente',
+          title: call.title ?? known?.title ?? t('Agent request'),
           command,
           path: diff?.path ?? call.locations?.[0]?.path ?? null,
           reason: null,
@@ -357,7 +358,7 @@ export class AcpSession implements AgentSession {
     this.tools.clear()
     this.diffs.clear()
     this.events.activity(null)
-    this.events.turnEnd({ status, durationMs: Date.now() - this.turnStartedAt, costUsd: null, error: status === 'error' ? (error ?? 'Il turno non è riuscito.') : null, context: this.context })
+    this.events.turnEnd({ status, durationMs: Date.now() - this.turnStartedAt, costUsd: null, error: status === 'error' ? (error ?? t('The turn failed.')) : null, context: this.context })
   }
 }
 

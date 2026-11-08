@@ -1,6 +1,7 @@
 // Canale verso l'host delle sessioni. La porta arriva dal preload con window.postMessage;
 // se l'host si riavvia, ne arriva una nuova e il client si ricollega da solo.
 import type { FromHost, HostCommand, HostEvent } from '@shared/protocol'
+import { t } from '@shared/i18n'
 
 type Listener = (event: HostEvent) => void
 type ConnectListener = () => void
@@ -14,7 +15,7 @@ const connectListeners = new Set<ConnectListener>()
 function attach(next: MessagePort): void {
   port?.close()
   port = next
-  for (const [, request] of pending) request.reject(new Error('Host riavviato'))
+  for (const [, request] of pending) request.reject(new Error(t('Host restarted')))
   pending.clear()
   port.onmessage = (event: MessageEvent<FromHost>) => {
     const message = event.data
@@ -52,7 +53,7 @@ export function onHostConnect(listener: ConnectListener): () => void {
 
 /** Invia un comando e aspetta la risposta dell'host. */
 export function request<T = unknown>(command: HostCommand): Promise<T> {
-  if (!port) return Promise.reject(new Error('Host non collegato'))
+  if (!port) return Promise.reject(new Error(t('Host not connected')))
   const rid = `r${++counter}`
   return new Promise<T>((resolve, reject) => {
     pending.set(rid, { resolve: resolve as (data: unknown) => void, reject })

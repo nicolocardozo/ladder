@@ -2,6 +2,7 @@
 // Il processo main gli passa una MessagePort per ogni finestra; l'host risponde ai comandi e trasmette gli eventi.
 import type { MessagePortMain } from 'electron'
 import type { FromHost, HostEvent, HostToMain, MainToHost, ToHost } from '@shared/protocol'
+import '@shared/locales/it'
 import { openDb } from './db'
 import { Host } from './sessions'
 
