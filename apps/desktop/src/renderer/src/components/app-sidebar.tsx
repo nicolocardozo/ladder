@@ -142,7 +142,8 @@ export function AppSidebar() {
           <PopoverContent
             side="right"
             align="start"
-            sideOffset={10}
+            // Abbastanza a destra da staccarsi dal bordo della sidebar: i due fili non devono coincidere.
+            sideOffset={16}
             className="w-[460px] gap-0 overflow-hidden p-0"
             // Chiuso il pannello, il focus torna dov'era: di solito il composer, con il cursore al suo posto.
             // Se intanto hai aperto un'altra sessione (Apri, ⌘⇧A), il focus resta dove l'ha messo lei.

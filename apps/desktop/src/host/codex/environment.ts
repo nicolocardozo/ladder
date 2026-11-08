@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { t } from '@shared/i18n'
-import type { AgentStatus } from '@shared/protocol'
+import type { AgentStatus, UsageWindow } from '@shared/protocol'
 import { agentEnv, whichInShell } from '../agents/common'
 import { CodexRpc } from './rpc'
 
@@ -90,25 +90,42 @@ export function parseModels(data: unknown): CodexModel[] {
 }
 
 /** Account e modelli, con un app-server di breve durata: non consuma quota (nessun turno). */
-export async function probeCodex(cli: string, version: string): Promise<Pick<AgentStatus, 'account' | 'email' | 'models' | 'limits'>> {
+export async function probeCodex(cli: string, version: string): Promise<Pick<AgentStatus, 'account' | 'email' | 'models' | 'limits' | 'usage'>> {
   const rpc = new CodexRpc(cli, await agentEnv(CODEX_STRIP_ENV), () => undefined, async () => ({ error: { code: -32601, message: t('unexpected') } }))
   try {
     await rpc.initialize(version)
     const account = await rpc.request<{ account: Record<string, unknown> | null }>('account/read', { refreshToken: false }, 15000)
     const models = parseModels(await rpc.request('model/list', {}, 15000))
     let limits: string | null = null
+    let usage: UsageWindow[] = []
     try {
-      limits = describeLimits(await rpc.request('account/rateLimits/read', { excludeResetCreditDetails: true }, 15000))
+      const data = await rpc.request('account/rateLimits/read', { excludeResetCreditDetails: true }, 15000)
+      limits = describeLimits(data)
+      usage = describeUsage(data)
     } catch {
       limits = null
     }
-    return { account: accountLabel(account.account), email: accountEmail(account.account), models: models.map((m) => ({ id: m.id, label: m.label })), limits }
+    return { usage, account: accountLabel(account.account), email: accountEmail(account.account), models: models.map((m) => ({ id: m.id, label: m.label, efforts: m.efforts as NonNullable<AgentStatus['models'][number]['efforts']> })), limits }
   } finally {
     rpc.kill()
   }
 }
 
 /** "14% della finestra di 5 h · 11% settimanale" dai limiti d'uso di Codex. */
+/** Limiti di Codex come finestre di Ladder. */
+export function describeUsage(data: unknown): UsageWindow[] {
+  const root = data as { rateLimits?: Record<string, unknown>; rateLimitsByLimitId?: Record<string, Record<string, unknown>> } | null
+  const limits = root?.rateLimits ?? Object.values(root?.rateLimitsByLimitId ?? {})[0]
+  if (!limits) return []
+  const out: UsageWindow[] = []
+  for (const key of ['primary', 'secondary'] as const) {
+    const window = limits[key] as { usedPercent?: number; windowDurationMins?: number; resetsAt?: number | null } | null | undefined
+    if (!window || typeof window.usedPercent !== 'number') continue
+    out.push({ key, minutes: window.windowDurationMins ?? 0, model: null, percent: window.usedPercent, resetsAt: window.resetsAt ?? null, state: window.usedPercent >= 100 ? 'limited' : 'ok' })
+  }
+  return out
+}
+
 export function describeLimits(data: unknown): string | null {
   const root = data as { rateLimits?: Record<string, unknown>; rateLimitsByLimitId?: Record<string, Record<string, unknown>> } | null
   const limits = root?.rateLimits ?? Object.values(root?.rateLimitsByLimitId ?? {})[0]

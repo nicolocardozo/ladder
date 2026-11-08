@@ -116,7 +116,7 @@ export function HistoryPanel({ projectId, root, isGit, session }: HistoryPanelPr
                     disabled={running || busy}
                     title={running ? t('The session is working. Stop it before restoring.') : t('Restore all files to this point. You can undo.')}
                     onClick={() => void restore(entry.sha, undefined, t('Restored to “{title}”', { title: entry.title.slice(0, 40) }))}
-                    className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-40"
+                    className="inline-flex h-6 items-center whitespace-nowrap gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-40"
                   >
                     <Undo2 className="size-3" />
                     {t('Restore here')}

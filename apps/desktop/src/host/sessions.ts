@@ -44,7 +44,7 @@ import { CodexSession } from './codex/adapter'
 import { codexVersion, findCodexCli, probeCodex } from './codex/environment'
 import { patchText, reviewPrompt, ReviewRun } from './review'
 import { claudeVersion, findClaudeCli, probeClaude } from './claude/environment'
-import { listTree, readText, RootWatcher } from './files'
+import { listTree, readText, RootWatcher, writeText } from './files'
 import { aheadBehind, changedFiles, createCheckpoint, dirtyCount, ensureExcluded, fetchRef, git, listBranches, listFiles, mergeConflicts, removeWorktree, repoInfo, resolveCommit, unpushedCount } from './git'
 import { defaultBranch, ghState, listGithubIssues, listGithubPrs, prForBranch, type PrDetails } from './github'
 import { renderPrompt } from './prompts'
@@ -176,6 +176,7 @@ export class Host {
       kind: 'native',
       account: claude.account ?? null,
       email: claude.email ?? null,
+      usage: claude.usage ?? [],
       models: claude.models ?? [],
       available: Boolean(claudeCli),
       version: claudeVer,
@@ -189,6 +190,7 @@ export class Host {
       kind: 'native',
       account: codex.account ?? null,
       email: codex.email ?? null,
+      usage: codex.usage ?? [],
       models: codex.models ?? [],
       limits: codex.limits ?? null,
       available: Boolean(codexCli),
@@ -278,7 +280,7 @@ export class Host {
     this.agents.set(agent, next)
     this.db
       .prepare(`insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value`)
-      .run(`agent:${agent}`, JSON.stringify({ account: next.account, email: next.email ?? null, models: next.models, limits: next.limits ?? null }))
+      .run(`agent:${agent}`, JSON.stringify({ account: next.account, email: next.email ?? null, models: next.models, limits: next.limits ?? null, usage: next.usage ?? [] }))
     this.broadcast({ type: 'agent.status', status: next })
   }
 
@@ -453,6 +455,13 @@ export class Host {
       case 'session.permission.set':
         await this.setPermission(command.sessionId, command.permission)
         return null
+      case 'session.effort.set': {
+        this.mustRow(command.sessionId)
+        this.updateRow(command.sessionId, { effort: command.effort })
+        await this.runtimes.get(command.sessionId)?.adapter.setEffort(command.effort)
+        this.emitSummary(command.sessionId)
+        return null
+      }
       case 'session.model.set':
         this.updateRow(command.sessionId, { model: command.model })
         await this.runtimes.get(command.sessionId)?.adapter.setModel(command.model)
@@ -492,6 +501,8 @@ export class Host {
         return listTree(this.knownRoot(command.root))
       case 'fs.read':
         return readText(this.knownRoot(command.root), command.path)
+      case 'fs.write':
+        return writeText(this.knownRoot(command.root), command.path, command.text, command.baseMtime)
       case 'fs.watch':
         if (command.on) this.watcher.watch(this.knownRoot(command.root))
         else this.watcher.unwatch(command.root)
@@ -1078,6 +1089,13 @@ export class Host {
       account: ({ account, email, models, limits }) => {
         const agent = this.rows.get(sessionId)?.agent
         if (agent) this.updateAgent(agent, { account, email, models, limits })
+      },
+      usage: (windows) => {
+        const agent = this.rows.get(sessionId)?.agent
+        if (!agent || windows.length === 0) return
+        const merged = new Map((this.agents.get(agent)?.usage ?? []).map((w) => [w.key, w]))
+        for (const window of windows) merged.set(window.key, window)
+        this.updateAgent(agent, { usage: [...merged.values()] })
       },
       subagent: (update) => {
         if (this.subagents.update(sessionId, update)) this.emitSubagents(sessionId)

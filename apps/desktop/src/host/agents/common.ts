@@ -15,6 +15,8 @@ export interface AgentSession {
   interrupt(): Promise<void>
   setPermission(level: PermissionLevel): Promise<void>
   setModel(model: string): Promise<void>
+  /** Vale dal prossimo messaggio. */
+  setEffort(effort: Effort): Promise<void>
   close(): void
 }
 

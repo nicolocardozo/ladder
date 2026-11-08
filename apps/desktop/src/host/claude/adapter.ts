@@ -11,9 +11,9 @@ import {
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
 import { localeTag, t } from '@shared/i18n'
-import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, ToolKind } from '@shared/protocol'
+import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, ToolKind, UsageWindow } from '@shared/protocol'
 import type { SubagentUpdate } from '../subagents'
-import { claudeAccountLabel, claudeEnv } from './environment'
+import { claudeAccountLabel, claudeEnv, claudeModel, claudeUsage } from './environment'
 
 export const PERMISSION_MODE: Record<PermissionLevel, PermissionMode> = {
   plan: 'plan',
@@ -88,7 +88,9 @@ export interface AdapterEvents {
   request(request: UserRequest, signal: AbortSignal): Promise<RequestResponse>
   turnEnd(result: TurnResult): void
   notice(tone: 'info' | 'error', text: string): void
-  account(info: { account: string | null; email?: string | null; models: { id: string; label: string }[]; limits?: string | null }): void
+  account(info: { account: string | null; email?: string | null; models: { id: string; label: string; efforts?: Effort[] }[]; limits?: string | null }): void
+  /** Finestre dei limiti del piano: si uniscono a quelle già note, per chiave. */
+  usage(windows: UsageWindow[]): void
   /** Sotto-agenti avviati dalla sessione: aggiornamenti parziali, uniti dall'host. */
   subagent(update: SubagentUpdate): void
   exit(error: string | null): void
@@ -286,6 +288,12 @@ export class ClaudeSession {
     await this.q?.setPermissionMode(PERMISSION_MODE[level])
   }
 
+  async setEffort(effort: Effort): Promise<void> {
+    // Vale dal prossimo messaggio; con una sessione non ancora avviata basta la scelta salvata.
+    this.options.effort = effort
+    await this.q?.applyFlagSettings({ effortLevel: effort })
+  }
+
   async setModel(model: string): Promise<void> {
     await this.q?.setModel(model)
   }
@@ -302,7 +310,7 @@ export class ClaudeSession {
       this.events.account({
         account: claudeAccountLabel(account),
         email: account.email ?? null,
-        models: models.map((m) => ({ id: m.value, label: m.displayName }))
+        models: models.map(claudeModel)
       })
     } catch {
       // Le informazioni sull'account sono un di più: senza, la sessione funziona lo stesso.
@@ -344,6 +352,8 @@ export class ClaudeSession {
         return
       case 'rate_limit_event': {
         const info = (m.rate_limit_info ?? {}) as Block
+        const window = claudeUsage(info)
+        if (window) this.events.usage([window])
         if (info.status === 'rejected') {
           const reset = typeof info.resetsAt === 'number' ? new Date(info.resetsAt * 1000).toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' }) : null
           this.events.notice('error', reset ? t('Usage limit reached: resets at {time}.', { time: reset }) : t('Usage limit reached.'))

@@ -4,9 +4,11 @@ import { request, send } from '@/lib/host-client'
 import type { AgentStatus, AppPrefs, ChatItem, ReviewState, DiffScope, HostEvent, InspectorTab, IssueItem, Project, ProjectUiState, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalData } from '@/lib/terminal-registry'
+import { disposeBuffer } from '@/components/editor/buffers'
+import { fileTabId, parseFileTab } from '@shared/file-tabs'
 import { t } from '@shared/i18n'
 
-export type Selection = { kind: 'new'; projectId: string | null } | { kind: 'session'; projectId: string; sessionId: string }
+export type Selection = { kind: 'new'; projectId: string | null } | { kind: 'session'; projectId: string; sessionId: string } | { kind: 'file'; projectId: string; root: string; path: string }
 
 interface AppState {
   connected: boolean
@@ -27,6 +29,10 @@ interface AppState {
   renaming: string | null
   /** Gruppo con il nome in modifica nella sidebar. */
   renamingGroup: string | null
+  /** File aperti come tab con modifiche non salvate, per id della tab. */
+  dirtyFiles: Record<string, boolean>
+  /** File di cui si sta chiudendo la tab con modifiche non salvate: si chiede cosa fare. */
+  closingFile: { projectId: string; root: string; path: string } | null
   /** Sessione aperta che l'utente ha segnato come da leggere: la vista non deve rileggerla finché non cambia la selezione. */
   heldUnread: string | null
   /** Cronologia delle selezioni per Indietro/Avanti; `historyIndex` punta alla selezione corrente. */
@@ -55,6 +61,10 @@ interface AppState {
   reviews: Record<string, ReviewState>
   applyEvent: (event: HostEvent) => void
   select: (selection: Selection) => void
+  openFile: (projectId: string, root: string, path: string) => void
+  closeFile: (projectId: string, root: string, path: string, force?: boolean) => void
+  cancelCloseFile: () => void
+  setFileDirty: (id: string, dirty: boolean) => void
   createGroup: (projectId: string, sessionId?: string) => void
   renameGroup: (projectId: string, groupId: string, name: string) => void
   startRenameGroup: (groupId: string) => void
@@ -191,6 +201,7 @@ function mergeItems(current: ChatItem[] | undefined, incoming: ChatItem[]): Chat
 
 export function sameSelection(a: Selection, b: Selection): boolean {
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
+  if (a.kind === 'file' && b.kind === 'file') return a.root === b.root && a.path === b.path
   return a.kind === b.kind && a.projectId === b.projectId
 }
 
@@ -244,6 +255,13 @@ export function canNavigate(state: AppState, delta: -1 | 1): boolean {
 /** Effetti di una selezione su tab, cartelle aperte e divisore "Nuovo". Non tocca la cronologia. */
 function selectionPatch(state: AppState, selection: Selection): Partial<AppState> {
   writeLastProject(selection.projectId)
+  if (selection.kind === 'file') {
+    const ui = state.ui[selection.projectId] ?? emptyUi()
+    const known = ui.fileTabs?.some((f) => f.root === selection.root && f.path === selection.path)
+    const nextUi = { ...ui, fileTabs: known ? ui.fileTabs : [...(ui.fileTabs ?? []), { root: selection.root, path: selection.path }], activeTab: fileTabId(selection.root, selection.path) }
+    persistUi(selection.projectId, nextUi)
+    return { selection, ui: { ...state.ui, [selection.projectId]: nextUi }, heldUnread: null }
+  }
   if (selection.kind !== 'session') return { selection, heldUnread: null }
   const session = state.sessions[selection.sessionId]
   const firstUnread = { ...state.firstUnread }
@@ -266,6 +284,16 @@ function sidebarOrder(state: AppState): SessionSummary[] {
     .sort((a, b) => rank.get(a.projectId)! - rank.get(b.projectId)! || b.createdAt - a.createdAt)
 }
 
+/** Cosa riaprire tornando su un progetto: la sua tab attiva, chat o file, oppure la nuova chat. */
+function selectionForProject(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, projectId: string): Selection {
+  const ui = state.ui[projectId]
+  const file = parseFileTab(ui?.activeTab)
+  if (file && ui?.fileTabs?.some((f) => f.root === file.root && f.path === file.path)) return { kind: 'file', projectId, ...file }
+  const active = ui?.activeTab
+  if (active && !file && isLiveSession(state, state.sessions[active])) return { kind: 'session', projectId, sessionId: active }
+  return { kind: 'new', projectId }
+}
+
 /** Cambia e salva lo stato interfaccia di un progetto. */
 function patchUi(state: AppState, projectId: string, change: (ui: ProjectUiState) => ProjectUiState): Pick<AppState, 'ui'> {
   const next = change(state.ui[projectId] ?? emptyUi())
@@ -275,6 +303,8 @@ function patchUi(state: AppState, projectId: string, change: (ui: ProjectUiState
 
 export const useApp = create<AppState>((set, get) => ({
   renamingGroup: null,
+  dirtyFiles: {},
+  closingFile: null,
   connected: false,
   projects: [],
   sessions: {},
@@ -317,10 +347,7 @@ export const useApp = create<AppState>((set, get) => ({
           if (state.selection.kind === 'new' && !state.selection.projectId) {
             const last = readLastProject()
             const projectId = event.projects.some((p) => p.id === last) ? last : (event.projects[0]?.id ?? null)
-            const active = projectId ? event.ui[projectId]?.activeTab : null
-            const live = active && isLiveSession(loaded, sessions[active]) ? active : null
-            const selection: Selection = live && projectId ? { kind: 'session', projectId, sessionId: live } : { kind: 'new', projectId }
-            patch = selectionPatch({ ...state, ...loaded }, selection)
+            patch = selectionPatch({ ...state, ...loaded }, projectId ? selectionForProject(loaded, projectId) : { kind: 'new', projectId })
           }
           return {
             connected: true,
@@ -389,6 +416,36 @@ export const useApp = create<AppState>((set, get) => ({
       return sameSelection(state.selection, selection) ? patch : { ...patch, ...pushHistory(state, selection) }
     }),
 
+  openFile: (projectId, root, path) => get().select({ kind: 'file', projectId, root, path }),
+  closeFile: (projectId, root, path, force = false) => {
+    const id = fileTabId(root, path)
+    if (!force && get().dirtyFiles[id]) {
+      set({ closingFile: { projectId, root, path } })
+      return
+    }
+    disposeBuffer(id)
+    set((state) => {
+      const dirtyFiles = { ...state.dirtyFiles }
+      delete dirtyFiles[id]
+      const ui = state.ui[projectId] ?? emptyUi()
+      const fileTabs = (ui.fileTabs ?? []).filter((f) => f.root !== root || f.path !== path)
+      const nextUi = { ...ui, fileTabs, activeTab: ui.activeTab === id ? null : ui.activeTab }
+      persistUi(projectId, nextUi)
+      const next = { ...state, ui: { ...state.ui, [projectId]: nextUi } }
+      const wasActive = state.selection.kind === 'file' && state.selection.root === root && state.selection.path === path
+      if (!wasActive) return { ui: next.ui, dirtyFiles, closingFile: null }
+      // Si passa al file aperto prima, poi all'ultima chat aperta, poi alla nuova chat.
+      const lastFile = fileTabs[fileTabs.length - 1]
+      const lastSession = [...nextUi.tabs].reverse().find((s) => isLiveSession(state, state.sessions[s]))
+      const selection: Selection = lastFile ? { kind: 'file', projectId, ...lastFile } : lastSession ? { kind: 'session', projectId, sessionId: lastSession } : { kind: 'new', projectId }
+      return { ui: next.ui, dirtyFiles, closingFile: null, ...selectionPatch(next, selection), ...pushHistory(state, selection) }
+    })
+  },
+  cancelCloseFile: () => set({ closingFile: null }),
+  setFileDirty: (id, dirty) => {
+    if (Boolean(get().dirtyFiles[id]) !== dirty) set((state) => ({ dirtyFiles: { ...state.dirtyFiles, [id]: dirty } }))
+  },
+
   createGroup: (projectId, sessionId) =>
     set((state) => {
       const id = crypto.randomUUID()
@@ -447,9 +504,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   selectProject: (projectId) => {
     const state = get()
-    const active = state.ui[projectId]?.activeTab
-    if (active && isLiveSession(state, state.sessions[active])) state.select({ kind: 'session', projectId, sessionId: active })
-    else state.select({ kind: 'new', projectId })
+    state.select(selectionForProject(state, projectId))
   },
 
   toggleSidebar: () =>

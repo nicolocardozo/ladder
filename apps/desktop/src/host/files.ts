@@ -1,9 +1,9 @@
 // File delle cartelle di lavoro: albero con stato git, lettura per il viewer e osservazione dei cambiamenti.
 import { watch, type FSWatcher } from 'node:fs'
-import { open, readdir, stat } from 'node:fs/promises'
-import { join, relative, resolve, sep } from 'node:path'
+import { open, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { t } from '@shared/i18n'
-import type { FileContent, FileTree } from '@shared/protocol'
+import type { FileContent, FileTree, FileWriteResult } from '@shared/protocol'
 import { isBinary, listFiles, MAX_TEXT_BYTES, repoInfo, statusMap } from './git'
 
 const MAX_FILES = 20000
@@ -47,15 +47,33 @@ export async function readText(root: string, rel: string): Promise<FileContent> 
   const absolute = insideRoot(root, rel)
   const info = await stat(absolute)
   if (!info.isFile()) throw new Error(t('Not a file.'))
-  if (info.size > MAX_TEXT_BYTES) return { path: rel, size: info.size, binary: false, tooLarge: true, text: null }
+  if (info.size > MAX_TEXT_BYTES) return { path: rel, size: info.size, binary: false, tooLarge: true, text: null, mtimeMs: info.mtimeMs }
   const handle = await open(absolute, 'r')
   try {
     const buffer = await handle.readFile()
-    if (isBinary(buffer)) return { path: rel, size: info.size, binary: true, tooLarge: false, text: null }
-    return { path: rel, size: info.size, binary: false, tooLarge: false, text: buffer.toString('utf8') }
+    if (isBinary(buffer)) return { path: rel, size: info.size, binary: true, tooLarge: false, text: null, mtimeMs: info.mtimeMs }
+    return { path: rel, size: info.size, binary: false, tooLarge: false, text: buffer.toString('utf8'), mtimeMs: info.mtimeMs }
   } finally {
     await handle.close()
   }
+}
+
+/** Scrive un file della cartella. Se è cambiato dopo l'ultima lettura non scrive: decide chi sta modificando. */
+export async function writeText(root: string, rel: string, text: string, baseMtime: number | null): Promise<FileWriteResult> {
+  const absolute = insideRoot(root, rel)
+  if (rel.split(/[\\/]/).includes('.git')) throw new Error(t('Ladder doesn’t edit files inside .git.'))
+  // Un collegamento simbolico non deve portare la scrittura fuori dalla cartella.
+  const realRoot = await realpath(root)
+  const target = await realpath(absolute).catch(async () => join(await realpath(dirname(absolute)), basename(absolute)))
+  if (target !== realRoot && !target.startsWith(realRoot + sep)) throw new Error(t('Path outside the session folder.'))
+  const info = await stat(absolute).catch(() => null)
+  if (info && !info.isFile()) throw new Error(t('Not a file.'))
+  if (info && baseMtime !== null && info.mtimeMs !== baseMtime) {
+    const current = await readFile(absolute, 'utf8')
+    if (current !== text) return { ok: false, text: current, mtimeMs: info.mtimeMs }
+  }
+  await writeFile(absolute, text, 'utf8')
+  return { ok: true, mtimeMs: (await stat(absolute)).mtimeMs }
 }
 
 /**

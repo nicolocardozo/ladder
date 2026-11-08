@@ -99,7 +99,6 @@ const it: Record<string, string> = {
   'Model': 'Modello',
   'The list appears after {agent} starts for the first time.': 'L’elenco arriva dopo il primo avvio di {agent}.',
   'Effort': 'Effort',
-  'Effort · chosen when the session starts': 'Effort · si sceglie all’apertura della sessione',
   'Permissions: {level}': 'Permessi: {level}',
   'Permissions · ⇧Tab to switch': 'Permessi · ⇧Tab per cambiare',
   'Not allowed by .ladder/settings.toml': 'Non ammesso da .ladder/settings.toml',

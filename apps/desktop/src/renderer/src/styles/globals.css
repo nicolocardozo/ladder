@@ -196,3 +196,14 @@
     animation: none;
   }
 }
+
+/*
+ * Menu, popover e dialoghi si aprono anche sopra le barre trascinabili della finestra: senza questa regola
+ * macOS si prende il mouse lì sopra e le prime voci non reagiscono né al passaggio né al clic.
+ */
+[data-slot$='-content'],
+[role='menu'],
+[role='listbox'],
+[role='dialog'] {
+  -webkit-app-region: no-drag;
+}

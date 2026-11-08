@@ -1,3 +1,6 @@
+import { fileTabId } from '@shared/file-tabs'
+import { getBuffer } from '@/components/editor/buffers'
+import { FileTabView, UnsavedFileDialog } from '@/components/file-tab'
 import { useEffect } from 'react'
 import { AppSidebar } from '@/components/app-sidebar'
 import { CommandPalette } from '@/components/command-palette'
@@ -193,6 +196,17 @@ export function App() {
         state.closeTab(current.projectId, current.sessionId)
         return
       }
+      // ⌘S salva anche se il cursore non è nel testo, per esempio dopo un clic su un avviso.
+      if (!event.shiftKey && key === 's' && current.kind === 'file') {
+        event.preventDefault()
+        getBuffer(fileTabId(current.root, current.path))?.onSave()
+        return
+      }
+      if (!event.shiftKey && key === 'w' && current.kind === 'file') {
+        event.preventDefault()
+        state.closeFile(current.projectId, current.root, current.path)
+        return
+      }
       // ⌘⇧N: nuova sessione da una issue, una PR o un branch.
       if (event.shiftKey && !event.altKey && key === 'n') {
         event.preventDefault()
@@ -223,6 +237,17 @@ export function App() {
     )
   }
 
+  // Con file non salvati la chiusura si ferma: il processo main chiede cosa fare.
+  useEffect(() => {
+    const guard = (event: BeforeUnloadEvent) => {
+      if (!Object.values(useApp.getState().dirtyFiles).some(Boolean)) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  }, [])
+
   return (
     <TooltipProvider delay={400}>
       <div className="flex h-full">
@@ -231,6 +256,8 @@ export function App() {
           <main className="drag grid flex-1 place-items-center bg-background text-sm text-muted-foreground">{t('Starting Ladder…')}</main>
         ) : selection.kind === 'session' ? (
           <SessionView sessionId={selection.sessionId} />
+        ) : selection.kind === 'file' ? (
+          <FileTabView key={`${selection.root}\n${selection.path}`} projectId={selection.projectId} root={selection.root} path={selection.path} />
         ) : (
           <NewChat projectId={selection.projectId} />
         )}
@@ -239,6 +266,7 @@ export function App() {
       <QuickOpen />
       <NewFromDialog />
       <SettingsDialog />
+      <UnsavedFileDialog />
     </TooltipProvider>
   )
 }

@@ -210,6 +210,11 @@ export class AcpSession implements AgentSession {
     if (this.connection) await this.applyConfig()
   }
 
+  async setEffort(effort: Effort): Promise<void> {
+    this.effort = effort
+    if (this.connection) await this.applyConfig()
+  }
+
   close(): void {
     this.closed = true
     for (const controller of this.pending.values()) controller.abort()

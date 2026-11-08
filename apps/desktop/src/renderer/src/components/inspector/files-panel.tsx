@@ -2,7 +2,7 @@
 // I file toccati dalla sessione portano il turno che li ha modificati per ultimo.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ChevronDown, ChevronRight, ExternalLink, File, Folder, FolderOpen, MessageSquarePlus, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, File, Folder, FolderOpen, MessageSquarePlus, Search, X, Pencil } from 'lucide-react'
 import type { ChatItem, FileContent, FileTree, GitStatusCode } from '@shared/protocol'
 import { resolveLang } from '@/components/chat/highlighter'
 import { request } from '@/lib/host-client'
@@ -226,6 +226,7 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
                     else if (event.altKey) openInEditor(projectId, `${root}/${node.path}`)
                     else setOpen({ path: node.path, line: null, nonce: Date.now() })
                   }}
+                  onDoubleClick={() => !node.dir && useApp.getState().openFile(projectId, root, node.path)}
                   title={status ? `${node.path} · ${t(STATUS_LABEL[status])}` : node.path}
                   style={{ position: 'absolute', top: 0, left: 0, right: 0, height: v.size, transform: `translateY(${v.start}px)`, paddingLeft: 8 + depth * 14 }}
                   className={cn(
@@ -354,6 +355,11 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
           {path}
         </span>
         {content?.text != null && <span className="shrink-0 text-xs text-faint">{plural(lines.length, '{n} line', '{n} lines')}</span>}
+        {content?.text != null && (
+          <ToolbarButton label={t('Edit file')} onClick={() => useApp.getState().openFile(projectId, root, path)}>
+            <Pencil className="size-3.5" />
+          </ToolbarButton>
+        )}
         <ToolbarButton label={t('Open in editor')} onClick={() => openInEditor(projectId, `${root}/${path}`, line ?? undefined)}>
           <ExternalLink className="size-3.5" />
         </ToolbarButton>
@@ -367,7 +373,7 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={addToChat}
-            className="absolute top-2 right-3 z-10 inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-popover px-2 text-xs text-popover-foreground shadow-sm outline-none hover:bg-accent"
+            className="absolute top-2 right-3 z-10 inline-flex h-7 items-center whitespace-nowrap gap-1.5 rounded-md border border-input bg-popover px-2 text-xs text-popover-foreground shadow-sm outline-none hover:bg-accent"
           >
             <MessageSquarePlus className="size-3.5" />
             {selection.from === selection.to

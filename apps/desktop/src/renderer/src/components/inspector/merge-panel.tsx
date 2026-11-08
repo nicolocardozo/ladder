@@ -57,9 +57,9 @@ function CheckIcon({ state }: { state: MergeCheck['state'] }) {
 }
 
 const actionButton =
-  'inline-flex h-7 items-center gap-1.5 rounded-md border border-input px-2.5 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50'
+  'inline-flex h-7 items-center whitespace-nowrap gap-1.5 rounded-md border border-input px-2.5 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50'
 const primaryButton =
-  'inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50'
+  'inline-flex h-7 items-center whitespace-nowrap gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50'
 
 export function MergePanel({ projectId, root, isGit, session }: { projectId: string; root: string; isGit: boolean; session: SessionSummary | null }) {
   const [info, setInfo] = useState<MergeInfo | null>(null)

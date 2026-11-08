@@ -210,7 +210,13 @@ Contesto della nuova chat (progetto, branch, cartella, agente) e scelte del comp
 Icona del provider monocromatica (Claude Code, Codex, icona dell'agente ACP dal registro, altrimenti iniziale) in 12–16 px, sempre accanto al nome del modello quando c'è spazio. Dice chi lavora senza aprire la sessione: sidebar, tab, intestazione, "In attesa", ⌘K, menu degli agenti, composer.
 
 ### Logo inciso
-Negli stati vuoti delle chat il logo è solo simbolo, centrato e grande (128 px di altezza), scavato nella superficie: riempimento appena più scuro del fondo, ombra interna in alto, filo chiaro di 1 px sotto. Tre valori derivati da `--background` (`.ladder-engraved` in `globals.css`), così vale per ogni tema. Decorativo: nascosto alle tecnologie assistive.
+Negli stati vuoti delle chat il logo è solo simbolo, centrato e grande (112 px di altezza), scavato nella superficie: riempimento appena più scuro del fondo, ombra interna in alto, filo chiaro di 1 px sotto. Tre valori derivati da `--background` (`.ladder-engraved` in `globals.css`), così vale per ogni tema. Decorativo: nascosto alle tecnologie assistive.
+
+### File nelle tab
+Un file modificabile è una tab accanto alle chat: icona, nome e un punto al posto della × finché ci sono modifiche non salvate. L'editor usa il passo Code (12/20) e i colori del codice del tema. Sopra il testo una barra da 32 px con il percorso, "Save" solo quando serve e l'apertura in Cursor; gli avvisi (agente al lavoro, file cambiato su disco) stanno in una riga sotto, mai in un dialogo. Il dialogo c'è solo per chiudere con modifiche non salvate.
+
+### Effort
+Nel menu del modello: etichetta con il livello tra parentesi e un cursore a pillola da 100 px con una tacca per ogni livello che il modello accetta. La parte piena è nell'accento, il cursore nel colore del testo. Si clicca, si trascina o si usano le frecce sinistra e destra.
 
 ### Scorciatoie e badge
 Le scorciatoie usano un solo componente (`ui/kbd.tsx`): un tasto per simbolo, 18 px, carattere di sistema, fondo leggero nel colore del testo. Il conteggio delle richieste è una pillola ambra chiara con icona e numero; quello da leggere è un punto iris con il numero accanto. Niente punti esclamativi.

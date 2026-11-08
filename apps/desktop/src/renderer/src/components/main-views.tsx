@@ -186,7 +186,7 @@ function EditorButton({ project, root }: { project: Project; root: string }) {
   )
 }
 
-function TopBar({ children, project, session, root }: { children?: ReactNode; project: Project | null; session: SessionSummary | null; root: string | null }) {
+export function TopBar({ children, project, session, root }: { children?: ReactNode; project: Project | null; session: SessionSummary | null; root: string | null }) {
   const sidebarOpen = useApp((s) => s.sidebarOpen)
   const filesOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.inspector?.open) && s.ui[project.id]?.inspector?.tab === 'files' : false))
   const terminalOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.terminal?.open) : false))
@@ -243,7 +243,7 @@ function TopBar({ children, project, session, root }: { children?: ReactNode; pr
 }
 
 /** Colonna centrale con il pannello terminale in basso e l'ispettore a destra. */
-function Workspace({ project, session, root, composerKey, children }: { project: Project; session: SessionSummary | null; root: string; composerKey: string | null; children: ReactNode }) {
+export function Workspace({ project, session, root, composerKey, children }: { project: Project; session: SessionSummary | null; root: string; composerKey: string | null; children: ReactNode }) {
   const inspectorOpen = useApp((s) => Boolean(s.ui[project.id]?.inspector?.open))
   const terminalOpen = useApp((s) => Boolean(s.ui[project.id]?.terminal?.open))
   const terminalRight = useApp((s) => s.ui[project.id]?.terminal?.side === 'right')
@@ -438,7 +438,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
       </TopBar>
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-8 pb-[12vh]">
         <div className="w-full max-w-[680px]">
-          <LadderEngraved className="mx-auto mb-12 h-32 w-auto" />
+          <LadderEngraved className="mx-auto mb-12 h-28 w-auto" />
           <div className="mb-2 flex flex-wrap items-center gap-0.5 pl-1">
             {project.branch && (
               <span className={contextButton}>
@@ -542,7 +542,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               model={model}
               onModelChange={setModel}
               effort={effort}
-              onEffortChange={supportsEffort(chatAgent) ? setEffort : undefined}
+              onEffortChange={setEffort}
               showEffort={supportsEffort(chatAgent)}
               permission={permission}
               onPermissionChange={setPermission}
@@ -557,9 +557,6 @@ export function NewChat({ projectId }: { projectId: string | null }) {
           {error && <p className="mt-2 pl-1 text-sm text-destructive">{error}</p>}
           <p className="mt-3 pl-1 text-xs text-faint">
             <Kbd>⌘N</Kbd> {t('new chat')} · <Kbd>⌘P</Kbd> {t('open file')} · <Kbd>⌘K</Kbd> {t('search')}
-            {launch.mode === 'chat' && agentStatus.account && <> · {t('{agent} as {account}', { agent: agentStatus.name, account: agentStatus.account })}</>}
-            {launch.mode === 'chat' && agentStatus.version && <> · CLI {agentStatus.version}</>}
-            {launch.mode === 'chat' && agentStatus.limits && <> · {agentStatus.limits}</>}
           </p>
         </div>
       </div>
@@ -796,6 +793,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               model={session.model}
               onModelChange={(model) => send({ type: 'session.model.set', sessionId, model })}
               effort={session.effort}
+              onEffortChange={(effort) => send({ type: 'session.effort.set', sessionId, effort })}
               permission={session.permission}
               onPermissionChange={(permission) => send({ type: 'session.permission.set', sessionId, permission })}
               running={running}

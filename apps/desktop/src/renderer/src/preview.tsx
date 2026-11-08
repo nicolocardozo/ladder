@@ -334,6 +334,7 @@ function Preview() {
         {/* Composer vero: @ per i file finti, immagini incollate o trascinate, coda modificabile. */}
         <div className="flex shrink-0 justify-center px-6 pb-4">
           <Composer
+            onEffortChange={() => undefined}
             draftKey="preview"
             projectId={PREVIEW_PROJECT}
             agentName="Claude Code"

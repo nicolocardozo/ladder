@@ -153,6 +153,11 @@ function createWindow(): void {
     attention.forget(contentsId)
   })
   window.once('ready-to-show', () => window.show())
+  // File con modifiche non salvate: la pagina blocca la chiusura e qui si chiede cosa fare.
+  window.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(window, { type: 'warning', buttons: [t('Discard changes'), t('Cancel')], defaultId: 1, cancelId: 1, message: t('You have unsaved files.'), detail: t('If you close now, your edits are lost.') })
+    if (choice === 0) event.preventDefault()
+  })
   window.webContents.on('did-finish-load', () => {
     connect(window)
     // Clic su una notifica senza finestre aperte: la sessione si apre appena la pagina è pronta.

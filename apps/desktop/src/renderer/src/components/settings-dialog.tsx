@@ -8,6 +8,7 @@ import { useApp } from '@/store/app-store'
 import type { ThemeInfo } from '@shared/themes.generated'
 import { LadderLockup } from '@/components/brand/logo'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { THEMES, useSettings, type SettingsSection } from '@/hooks/use-theme'
 import { cn } from '@/lib/utils'
 
@@ -273,23 +274,24 @@ function AgentsSection() {
         ))}
       </div>
       {prefs && (
-        <label className="flex items-center gap-3">
+        <div className="flex items-center gap-3">
           <span className="flex flex-col">
             <span className="text-sm font-medium">{t('Concurrent sessions per agent')}</span>
             <span className="text-xs text-muted-foreground">{t('Beyond the limit, sessions wait as “Queued” and start on their own. Terminal sessions don’t count.')}</span>
           </span>
-          <select
-            value={prefs.maxActive}
-            onChange={(e) => update({ maxActive: Number(e.target.value) })}
-            className="ml-auto h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
+          <Select value={prefs.maxActive} onValueChange={(value) => update({ maxActive: Number(value) })}>
+            <SelectTrigger aria-label={t('Concurrent sessions per agent')} className="ml-auto w-[68px] shrink-0">
+              <SelectValue className="tabular-nums" />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                <SelectItem key={n} value={n}>
+                  {n}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       )}
         </div>
       <AddAcpAgent />

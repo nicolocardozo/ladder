@@ -50,7 +50,6 @@ const it: Record<string, string> = {
   terminal: 'terminale',
   'from issue or PR': 'da issue o PR',
   files: 'file',
-  '{agent} as {account}': '{agent} con {account}',
   'From issue': 'Da issue',
   'From PR': 'Da PR',
   'From Linear': 'Da Linear',

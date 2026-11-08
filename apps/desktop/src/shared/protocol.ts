@@ -244,6 +244,18 @@ export type RequestResponse = { optionId: string; message?: string } | { answers
 export type ResponseVia = 'chat' | 'inbox' | 'notification'
 export type RequestItemData = Extract<ChatItem, { kind: 'request' }>
 
+/** Una finestra dei limiti del piano: quanto ne hai usato e quando si azzera. */
+export interface UsageWindow {
+  key: string
+  minutes: number
+  /** Limite riservato a una famiglia di modelli, per esempio Opus. */
+  model: string | null
+  percent: number | null
+  /** Secondi Unix. */
+  resetsAt: number | null
+  state: 'ok' | 'warning' | 'limited'
+}
+
 export interface AgentStatus {
   agent: AgentId
   name: string
@@ -254,8 +266,11 @@ export interface AgentStatus {
   account: string | null
   /** Email dell'account, quando l'agente la espone: si vede in basso nella sidebar. */
   email?: string | null
-  models: { id: string; label: string }[]
+  /** `efforts`: livelli che il modello accetta; vuoto se non ne ha, assente se l'agente non lo dice. */
+  models: { id: string; label: string; efforts?: Effort[] }[]
   error: string | null
+  /** Finestre dei limiti, aggiornate da ogni sessione. */
+  usage?: UsageWindow[]
   /** Limiti d'uso leggibili, quando l'agente li espone: "14% della finestra di 5 h · 11% settimanale". */
   limits?: string | null
   /** Percorso della CLI usata. */
@@ -279,6 +294,8 @@ export interface ProjectUiState {
   editor?: EditorId
   /** Ultima volta che hai guardato il progetto con la finestra attiva: serve a "Mentre eri via". */
   seenAt?: number
+  /** File aperti come tab, nell'ordine di apertura. */
+  fileTabs?: { root: string; path: string }[]
   /** Gruppi di chat creati da te, nell'ordine in cui si vedono nella sidebar. */
   groups?: { id: string; name: string; collapsed?: boolean }[]
   /** Gruppo di ogni sessione raggruppata. */
@@ -306,7 +323,11 @@ export interface FileContent {
   binary: boolean
   tooLarge: boolean
   text: string | null
+  /** Ora di modifica su disco: al salvataggio dice se nel frattempo qualcuno ha scritto il file. */
+  mtimeMs: number
 }
+
+export type FileWriteResult = { ok: true; mtimeMs: number } | { ok: false; text: string; mtimeMs: number }
 
 /** Ambito del pannello Modifiche. */
 export type DiffScope =
@@ -519,6 +540,7 @@ export type HostCommand =
   | { type: 'session.respond'; sessionId: string; requestId: string; response: RequestResponse; via?: ResponseVia }
   | { type: 'session.permission.set'; sessionId: string; permission: PermissionLevel }
   | { type: 'session.model.set'; sessionId: string; model: string }
+  | { type: 'session.effort.set'; sessionId: string; effort: Effort }
   | { type: 'session.open'; sessionId: string }
   | { type: 'session.read'; sessionId: string }
   | { type: 'session.archive'; sessionId: string }
@@ -527,6 +549,8 @@ export type HostCommand =
   // File, diff e cronologia. `root` è la cartella di un progetto o di una sessione (worktree).
   | { type: 'fs.tree'; root: string }
   | { type: 'fs.read'; root: string; path: string }
+  /** `baseMtime` null: scrive comunque. Altrimenti, se il file è cambiato, non scrive e rimanda il testo su disco. */
+  | { type: 'fs.write'; root: string; path: string; text: string; baseMtime: number | null }
   | { type: 'fs.watch'; root: string; on: boolean }
   | { type: 'diff.files'; root: string; scope: DiffScope }
   | { type: 'diff.file'; root: string; from: string; to: string; path: string; oldPath?: string | null }

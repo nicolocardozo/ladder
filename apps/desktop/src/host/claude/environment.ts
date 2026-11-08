@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { t } from '@shared/i18n'
+import type { Effort, UsageWindow } from '@shared/protocol'
 
 const run = promisify(execFile)
 
@@ -29,6 +30,33 @@ export async function findClaudeCli(): Promise<string | null> {
   }
 }
 
+/** Un modello come lo vede Ladder: nome, e livelli di effort quando il modello li ha. */
+export function claudeModel(m: { value: string; displayName: string; supportsEffort?: boolean; supportedEffortLevels?: string[] }): { id: string; label: string; efforts?: Effort[] } {
+  const efforts = m.supportsEffort === false ? [] : (m.supportedEffortLevels as Effort[] | undefined)
+  return { id: m.value, label: m.displayName, ...(efforts ? { efforts } : {}) }
+}
+
+const CLAUDE_WINDOWS: Record<string, { minutes: number; model: string | null }> = {
+  five_hour: { minutes: 300, model: null },
+  seven_day: { minutes: 10080, model: null },
+  seven_day_opus: { minutes: 10080, model: 'Opus' },
+  seven_day_sonnet: { minutes: 10080, model: 'Sonnet' }
+}
+
+/** Evento dei limiti di Claude Code come finestra di Ladder. `utilization` è una frazione da 0 a 1. */
+export function claudeUsage(info: Record<string, unknown>): UsageWindow | null {
+  const type = typeof info.rateLimitType === 'string' ? info.rateLimitType : null
+  const window = type ? CLAUDE_WINDOWS[type] : null
+  if (!type || !window) return null
+  return {
+    key: type,
+    ...window,
+    percent: typeof info.utilization === 'number' ? info.utilization * 100 : null,
+    resetsAt: typeof info.resetsAt === 'number' ? info.resetsAt : null,
+    state: info.status === 'rejected' ? 'limited' : info.status === 'allowed_warning' ? 'warning' : 'ok'
+  }
+}
+
 export function claudeAccountLabel(info: { subscriptionType?: string; apiKeySource?: string }): string | null {
   if (info.subscriptionType) return info.subscriptionType
   return info.apiKeySource && info.apiKeySource !== 'none' ? t('API key') : null
@@ -38,7 +66,7 @@ export function claudeAccountLabel(info: { subscriptionType?: string; apiKeySour
  * Account e modelli senza aprire una sessione: la CLI parte, risponde e si chiude senza ricevere messaggi,
  * quindi nessuna quota. Le informazioni arrivano dall'SDK: i file delle credenziali restano fuori da Ladder.
  */
-export async function probeClaude(cli: string): Promise<{ account: string | null; email: string | null; models: { id: string; label: string }[] }> {
+export async function probeClaude(cli: string): Promise<{ account: string | null; email: string | null; models: { id: string; label: string; efforts?: Effort[] }[] }> {
   const abort = new AbortController()
   const closed = new Promise<void>((resolve) => abort.signal.addEventListener('abort', () => resolve(), { once: true }))
   // Input che non manda niente: resta aperto finché la risposta non è arrivata.
@@ -57,7 +85,7 @@ export async function probeClaude(cli: string): Promise<{ account: string | null
         timer = setTimeout(() => reject(new Error('timeout')), 20000)
       })
     ])
-    return { account: claudeAccountLabel(info), email: info.email ?? null, models: models.map((m) => ({ id: m.value, label: m.displayName })) }
+    return { account: claudeAccountLabel(info), email: info.email ?? null, models: models.map(claudeModel) }
   } finally {
     clearTimeout(timer)
     abort.abort()

@@ -23,16 +23,10 @@ import { acceptImages, AttachmentStrip, IMAGE_ACCEPT, imagePlaceholder, MAX_IMAG
 import { caretCoordinates } from '@/components/composer/caret'
 import { findMention, mentionToken, rankFiles, refreshProjectFiles, useProjectFiles } from '@/components/composer/file-index'
 import { MentionPicker, optionId, type MentionOption } from '@/components/composer/mention-picker'
+import { EffortSlider, EFFORTS } from '@/components/composer/effort-slider'
 import { QueueList } from '@/components/composer/queue-list'
+import { UsageButton } from '@/components/composer/usage-button'
 
-// Etichette in inglese: si traducono con t() dove si mostrano.
-const EFFORTS: { id: Effort; label: string }[] = [
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' },
-  { id: 'xhigh', label: 'Extra high' },
-  { id: 'max', label: 'Max' }
-]
 
 interface ComposerProps {
   /** Chiave della bozza: id della sessione o `new:<progetto>`. */
@@ -40,12 +34,11 @@ interface ComposerProps {
   /** Progetto da cui prendere i file per le citazioni con @. */
   projectId: string | null
   agentName: string
-  models: { id: string; label: string }[]
+  models: { id: string; label: string; efforts?: Effort[] }[]
   model: string | null
   onModelChange: (model: string) => void
   effort: Effort | null
-  /** Presente solo prima di avviare la sessione: l'effort si sceglie all'apertura. */
-  onEffortChange?: (effort: Effort) => void
+  onEffortChange: (effort: Effort) => void
   permission: PermissionLevel
   onPermissionChange: (permission: PermissionLevel) => void
   running?: boolean
@@ -95,6 +88,8 @@ export function Composer(props: ComposerProps) {
   const saveTimer = useRef<number | null>(null)
   const pendingCaret = useRef<number | null>(null)
   const level = permissionLevels.find((p) => p.id === permission) ?? permissionLevels[2]
+  // Il modello scelto dice quali livelli di effort esistono; senza informazioni, tutti.
+  const effortLevels: Effort[] = (models.find((m) => m.id === model)?.efforts ?? EFFORTS.map((e) => e.id)).filter((level) => EFFORTS.some((e) => e.id === level))
   const modelName = models.find((m) => m.id === model)?.label ?? prettyModel(null, model) ?? t('Default model')
   const disabled = Boolean(disabledReason)
 
@@ -448,6 +443,7 @@ export function Composer(props: ComposerProps) {
         <div className="flex items-center gap-1 px-2.5 pt-1 pb-2.5">
           <IconButton icon={Plus} label={t('Attach images')} onClick={() => !disabled && fileInput.current?.click()} />
           <IconButton icon={AtSign} label={t('Mention a file')} shortcut="@" onClick={startMention} />
+          <UsageButton agent={agent} />
           <input
             ref={fileInput}
             type="file"
@@ -503,17 +499,9 @@ export function Composer(props: ComposerProps) {
                   ))}
                 </DropdownMenuRadioGroup>
               </DropdownMenuGroup>
-              {showEffort && <DropdownMenuSeparator />}
-              {showEffort && <DropdownMenuGroup>
-                <DropdownMenuLabel>{onEffortChange ? t('Effort') : t('Effort · chosen when the session starts')}</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={effort ?? ''} onValueChange={(value) => onEffortChange?.(value as Effort)}>
-                  {EFFORTS.map((e) => (
-                    <DropdownMenuRadioItem key={e.id} value={e.id} disabled={!onEffortChange}>
-                      {t(e.label)}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuGroup>}
+              {showEffort && effortLevels.length > 0 && <DropdownMenuSeparator />}
+              {showEffort && effortLevels.length > 0 && <EffortSlider levels={effortLevels} value={effort} onChange={onEffortChange} />}
+              {running && <p className="px-2 pt-1 pb-1.5 text-xs text-muted-foreground">{t('Changes apply from the next message.')}</p>}
             </DropdownMenuContent>
           </DropdownMenu>
 

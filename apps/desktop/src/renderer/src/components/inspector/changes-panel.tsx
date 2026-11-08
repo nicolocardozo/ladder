@@ -242,7 +242,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-        <div className="ml-auto flex items-center gap-0.5">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
           {session && files.length > 0 && <ReviewMenu session={session} scope={scope} />}
           <ToolbarButton label={t('Unified view')} active={mode === 'unified'} onClick={() => changeMode('unified')}>
             <Rows3 className="size-3.5" />
@@ -271,7 +271,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
             disabled={running || busy}
             title={running ? t('The session is working. Stop it before restoring.') : t('Restore all these files to their starting state. You can undo.')}
             onClick={() => void restore(result.from, files.flatMap((f) => (f.oldPath ? [f.oldPath, f.path] : [f.path])), restoreLabel)}
-            className="ml-auto inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+            className="ml-auto inline-flex h-6 items-center whitespace-nowrap gap-1 rounded-md px-1.5 text-xs outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           >
             <Undo2 className="size-3.5" />
             {t('Restore all')}
@@ -331,7 +331,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
           <button
             type="button"
             onClick={sendComments}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="inline-flex h-7 items-center whitespace-nowrap gap-1.5 rounded-md bg-primary px-2.5 font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <Send className="size-3.5" />
             {session.mode === 'terminal' ? t('Write to terminal') : t('Send to agent')}
@@ -512,9 +512,9 @@ function ReviewMenu({ session, scope }: { session: SessionSummary; scope: DiffSc
       <DropdownMenuTrigger
         disabled={running}
         title={error ?? t('Another agent reviews these changes, read-only')}
-        className="mr-1 inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 data-[popup-open]:bg-accent"
+        className="mr-1 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm whitespace-nowrap text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 data-[popup-open]:bg-accent"
       >
-        <ScanSearch className="size-3.5" />
+        <ScanSearch className="size-3.5 shrink-0" />
         {t('Ask for a review from…')}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">

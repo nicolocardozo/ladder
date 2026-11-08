@@ -4,9 +4,9 @@
 import { realpathSync } from 'node:fs'
 import { relative } from 'node:path'
 import { t } from '@shared/i18n'
-import type { Attachment, PermissionLevel, Question, RequestOption, RequestResponse } from '@shared/protocol'
+import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse } from '@shared/protocol'
 import { agentEnv, clip, displayCommand, firstLine, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
-import { accountEmail, accountLabel, CODEX_STRIP_ENV, describeLimits, parseModels, type CodexModel } from './environment'
+import { accountEmail, accountLabel, CODEX_STRIP_ENV, describeLimits, describeUsage, parseModels, type CodexModel } from './environment'
 import { CodexRpc, type ServerReply, type ServerRequest } from './rpc'
 
 export interface CodexOptions extends SessionOptions {
@@ -139,11 +139,13 @@ export class CodexSession implements AgentSession {
       this.models = parseModels(await rpc.request('model/list', {}, 15000))
       let limits: string | null = null
       try {
-        limits = describeLimits(await rpc.request('account/rateLimits/read', { excludeResetCreditDetails: true }, 15000))
+        const data = await rpc.request('account/rateLimits/read', { excludeResetCreditDetails: true }, 15000)
+        limits = describeLimits(data)
+        this.events.usage(describeUsage(data))
       } catch {
         limits = null
       }
-      this.events.account({ account: accountLabel(account.account), email: accountEmail(account.account), models: this.models.map((m) => ({ id: m.id, label: m.label })), limits })
+      this.events.account({ account: accountLabel(account.account), email: accountEmail(account.account), models: this.models.map((m) => ({ id: m.id, label: m.label, efforts: m.efforts as Effort[] })), limits })
     } catch {
       // Senza account e modelli la sessione funziona comunque.
     }
@@ -211,6 +213,11 @@ export class CodexSession implements AgentSession {
 
   async setModel(model: string): Promise<void> {
     this.model = model
+  }
+
+  async setEffort(effort: Effort): Promise<void> {
+    // Codex riceve l'effort a ogni turno.
+    this.options.effort = effort
   }
 
   close(): void {
@@ -293,6 +300,8 @@ export class CodexSession implements AgentSession {
         return
       }
       case 'account/rateLimits/updated':
+        this.events.usage(describeUsage(params))
+        return
       default:
         return
     }
