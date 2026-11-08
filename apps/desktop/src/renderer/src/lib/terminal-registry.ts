@@ -43,15 +43,20 @@ function mix(a: string, b: string, t: number): string {
   return `#${c(r1, r2)}${c(g1, g2)}${c(b1, b2)}`
 }
 
-/** Colori ANSI dai token del tema: nei temi Mono escono grigi, come il resto dell'interfaccia. */
+/** Colori ANSI dai token del tema; i temi Mono hanno i loro, perché lì accento e stati sono grigi. */
 export function terminalTheme(theme: ThemeInfo): ITheme {
   const t = theme.tokens
   const dark = theme.appearance === 'dark'
   const bright = (color: string) => mix(color, dark ? '#FFFFFF' : '#000000', 0.18)
   const black = dark ? mix(t.background, t.text, 0.28) : t.text
   const white = dark ? t.text : mix(t.background, t.text, 0.35)
-  const magenta = mix(t.accent, t.error, 0.45)
-  const cyan = mix(t.accent, t.success, 0.5)
+  const own = theme.syntax?.terminal
+  const red = own?.red ?? t.error
+  const green = own?.green ?? t.success
+  const yellow = own?.yellow ?? t.waiting
+  const blue = own?.blue ?? t.accent
+  const magenta = own?.magenta ?? mix(t.accent, t.error, 0.45)
+  const cyan = own?.cyan ?? mix(t.accent, t.success, 0.5)
   return {
     background: t.background,
     foreground: t.text,
@@ -61,18 +66,18 @@ export function terminalTheme(theme: ThemeInfo): ITheme {
     selectionForeground: t.onSelection,
     selectionInactiveBackground: mix(t.selection, t.background, 0.4),
     black,
-    red: t.error,
-    green: t.success,
-    yellow: t.waiting,
-    blue: t.accent,
+    red,
+    green,
+    yellow,
+    blue,
     magenta,
     cyan,
     white,
     brightBlack: t.textMuted,
-    brightRed: bright(t.error),
-    brightGreen: bright(t.success),
-    brightYellow: bright(t.waiting),
-    brightBlue: bright(t.accent),
+    brightRed: bright(red),
+    brightGreen: bright(green),
+    brightYellow: bright(yellow),
+    brightBlue: bright(blue),
     brightMagenta: bright(magenta),
     brightCyan: bright(cyan),
     brightWhite: dark ? mix(t.text, '#FFFFFF', 0.5) : mix(t.background, t.text, 0.18)

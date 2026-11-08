@@ -203,7 +203,7 @@ function ChangesCard({ end }: { end: TurnEndItem }) {
         <FileDiff aria-hidden className="size-3.5 text-muted-foreground" strokeWidth={1.9} />
         {plural(count, '{n} file changed', '{n} files changed')}
         <span className="ml-auto font-mono text-xs font-medium">
-          <span className="text-success">+{added}</span> <span className="text-destructive">−{removed}</span>
+          <span className="text-diff-added">+{added}</span> <span className="text-diff-removed">−{removed}</span>
         </span>
         <button
           type="button"
@@ -234,8 +234,8 @@ function ChangesCard({ end }: { end: TurnEndItem }) {
                   <span className="shrink-0">{base}</span>
                 </span>
                 <span className="flex shrink-0 gap-2 tabular-nums">
-                  {file.added > 0 ? <span className="text-success">+{file.added}</span> : null}
-                  {file.removed > 0 ? <span className="text-destructive">−{file.removed}</span> : null}
+                  {file.added > 0 ? <span className="text-diff-added">+{file.added}</span> : null}
+                  {file.removed > 0 ? <span className="text-diff-removed">−{file.removed}</span> : null}
                 </span>
               </button>
             </li>

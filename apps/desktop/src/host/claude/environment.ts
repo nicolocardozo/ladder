@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { t } from '@shared/i18n'
 
 const run = promisify(execFile)
 
@@ -24,6 +26,42 @@ export async function findClaudeCli(): Promise<string | null> {
     return path && existsSync(path) ? path : null
   } catch {
     return null
+  }
+}
+
+export function claudeAccountLabel(info: { subscriptionType?: string; apiKeySource?: string }): string | null {
+  if (info.subscriptionType) return info.subscriptionType
+  return info.apiKeySource && info.apiKeySource !== 'none' ? t('API key') : null
+}
+
+/**
+ * Account e modelli senza aprire una sessione: la CLI parte, risponde e si chiude senza ricevere messaggi,
+ * quindi nessuna quota. Le informazioni arrivano dall'SDK: i file delle credenziali restano fuori da Ladder.
+ */
+export async function probeClaude(cli: string): Promise<{ account: string | null; email: string | null; models: { id: string; label: string }[] }> {
+  const abort = new AbortController()
+  const closed = new Promise<void>((resolve) => abort.signal.addEventListener('abort', () => resolve(), { once: true }))
+  // Input che non manda niente: resta aperto finché la risposta non è arrivata.
+  async function* silent(): AsyncGenerator<SDKUserMessage> {
+    await closed
+  }
+  const q = query({
+    prompt: silent(),
+    options: { cwd: homedir(), env: claudeEnv(), abortController: abort, pathToClaudeCodeExecutable: cli, settingSources: [], settings: { disableClaudeAiConnectors: true } }
+  })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const [info, models] = await Promise.race([
+      Promise.all([q.accountInfo(), q.supportedModels()]),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), 20000)
+      })
+    ])
+    return { account: claudeAccountLabel(info), email: info.email ?? null, models: models.map((m) => ({ id: m.value, label: m.displayName })) }
+  } finally {
+    clearTimeout(timer)
+    abort.abort()
+    q.close()
   }
 }
 

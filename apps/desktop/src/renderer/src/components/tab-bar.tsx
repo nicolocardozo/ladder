@@ -25,7 +25,8 @@ export function TabBar({ projectId, activeSessionId }: { projectId: string; acti
     .sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
 
   return (
-    <div className="no-drag flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]" role="tablist" aria-label={t('Open sessions')}>
+    <div className="no-drag flex min-w-0 items-center gap-0.5">
+      <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]" role="tablist" aria-label={t('Open sessions')}>
       {visible.map((id) => {
         const session = sessions[id]
         const active = id === activeSessionId
@@ -35,7 +36,7 @@ export function TabBar({ projectId, activeSessionId }: { projectId: string; acti
               role="tab"
               aria-selected={active}
               className={cn(
-                'group flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-md pr-1 pl-2 text-sm text-muted-foreground select-none',
+                'group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1.5 rounded-md pr-1 pl-2 text-sm text-muted-foreground select-none',
                 active ? 'bg-accent text-foreground' : 'hover:bg-accent/60 data-[popup-open]:bg-accent/60'
               )}
             >
@@ -72,12 +73,13 @@ export function TabBar({ projectId, activeSessionId }: { projectId: string; acti
           {t('New chat')}
         </div>
       )}
+      </div>
       {waitingHere.length > 0 && (
         <button
           type="button"
           onClick={() => useApp.getState().openSessionAt(waitingHere[0].id, waitingHere[0].request?.id ?? null)}
           title={waitingHere.map((s) => `${s.title}: ${s.waitingLabel ?? t('request')}`).join('\n')}
-          className="order-last ml-1 flex h-7 max-w-[260px] min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-attention/50 px-2 text-xs text-foreground outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="ml-1 flex h-7 max-w-[260px] min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-attention/50 px-2 text-xs text-foreground outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <CircleAlert aria-hidden className="size-3 shrink-0 text-attention" strokeWidth={2.2} />
           <span className="truncate">

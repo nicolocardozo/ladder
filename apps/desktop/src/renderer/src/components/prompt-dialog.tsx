@@ -5,6 +5,7 @@ import type { SessionSummary } from '@shared/protocol'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { request, send } from '@/lib/host-client'
 import { t } from '@shared/i18n'
+import { Kbd } from '@/components/ui/kbd'
 
 export interface PromptRequest {
   name: string
@@ -104,7 +105,7 @@ export function PromptDialog({
             className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           >
             {busy ? t('Sending…') : session?.mode === 'terminal' ? t('Paste into terminal') : t('Send to Claude Code')}
-            <kbd className="font-mono text-xs opacity-70">⌘↵</kbd>
+            <Kbd>⌘↵</Kbd>
           </button>
         </div>
       </DialogContent>

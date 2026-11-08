@@ -22,6 +22,9 @@ import { linearIssues, linearStatus, setLinearKey } from './linear'
 app.setName('Ladder')
 // Cartella dati alternativa per prove automatiche o profili separati.
 if (process.env.LADDER_USER_DATA) app.setPath('userData', process.env.LADDER_USER_DATA)
+// Un profilo, una sola istanza: due processi sullo stesso database si contenderebbero sessioni e agenti.
+const primaryInstance = app.requestSingleInstanceLock()
+if (!primaryInstance) app.quit()
 
 let host: UtilityProcess | null = null
 const windows = new Set<BrowserWindow>()
@@ -316,6 +319,16 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+// Chi prova ad aprire un secondo Ladder sullo stesso profilo trova la finestra che c'è già.
+app.on('second-instance', () => {
+  const window = [...windows].find((w) => !w.isDestroyed())
+  if (!window) return createWindow()
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  app.focus({ steal: true })
+})
+
 // I link ladder:// arrivano da macOS anche prima che l'app sia pronta.
 app.on('open-url', (event, url) => {
   event.preventDefault()
@@ -324,6 +337,7 @@ app.on('open-url', (event, url) => {
 })
 
 app.whenReady().then(() => {
+  if (!primaryInstance) return
   settings = loadSettings()
   setLocale(settings.locale)
   // Il protocollo si registra solo nell'app installata: in sviluppo punterebbe al binario di Electron,

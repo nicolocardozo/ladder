@@ -66,6 +66,10 @@ export function accountLabel(account: Record<string, unknown> | null | undefined
   return String(account.type ?? '') || null
 }
 
+export function accountEmail(account: Record<string, unknown> | null | undefined): string | null {
+  return typeof account?.email === 'string' && account.email ? account.email : null
+}
+
 export interface CodexModel {
   id: string
   label: string
@@ -86,7 +90,7 @@ export function parseModels(data: unknown): CodexModel[] {
 }
 
 /** Account e modelli, con un app-server di breve durata: non consuma quota (nessun turno). */
-export async function probeCodex(cli: string, version: string): Promise<Pick<AgentStatus, 'account' | 'models' | 'limits'>> {
+export async function probeCodex(cli: string, version: string): Promise<Pick<AgentStatus, 'account' | 'email' | 'models' | 'limits'>> {
   const rpc = new CodexRpc(cli, await agentEnv(CODEX_STRIP_ENV), () => undefined, async () => ({ error: { code: -32601, message: t('unexpected') } }))
   try {
     await rpc.initialize(version)
@@ -98,7 +102,7 @@ export async function probeCodex(cli: string, version: string): Promise<Pick<Age
     } catch {
       limits = null
     }
-    return { account: accountLabel(account.account), models: models.map((m) => ({ id: m.id, label: m.label })), limits }
+    return { account: accountLabel(account.account), email: accountEmail(account.account), models: models.map((m) => ({ id: m.id, label: m.label })), limits }
   } finally {
     rpc.kill()
   }

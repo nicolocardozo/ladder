@@ -13,6 +13,27 @@ export function sessionState(session: SessionSummary): SessionState {
   return 'idle'
 }
 
+/** Ultima volta che è successo qualcosa nella sessione: ordina "All sessions" e sceglie le recenti. */
+export function lastTouched(session: SessionSummary): number {
+  return Math.max(session.activityAt, session.createdAt)
+}
+
+/** Sessioni ferme mostrate nella sidebar, oltre a quelle vive. */
+export const RECENT_SESSIONS = 5
+
+/**
+ * Righe della sidebar: quelle che ti aspettano, al lavoro, da leggere o con una bozza, più le ultime ferme.
+ * Le altre stanno in "All sessions": così la lista resta corta anche con 50 sessioni. L'ordine resta quello di `all`.
+ */
+export function sidebarSessions(all: SessionSummary[], keep: (session: SessionSummary) => boolean): SessionSummary[] {
+  const pinned = all.filter((s) => keep(s) || sessionState(s) !== 'idle')
+  const recent = all
+    .filter((s) => !pinned.includes(s))
+    .sort((a, b) => lastTouched(b) - lastTouched(a))
+    .slice(0, RECENT_SESSIONS)
+  return all.filter((s) => pinned.includes(s) || recent.includes(s))
+}
+
 /** Dopo 3 giorni senza attività e senza niente da leggere una sessione scende in "Concluse". */
 export const CONCLUDED_AFTER_MS = 3 * 24 * 60 * 60_000
 

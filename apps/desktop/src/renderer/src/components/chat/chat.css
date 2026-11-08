@@ -3,24 +3,23 @@
  * Usano solo i token di globals.css più pochi colori di sintassi, definiti qui per chiaro e scuro.
  */
 :root {
-  /* Sintassi derivata dai token del tema: nei temi Mono accento, successo e attesa coincidono con il testo
-     e il codice resta in scala di grigi. */
+  /* Sintassi derivata dai token del tema; i temi Mono hanno colori propri, perché lì accento e stati sono grigi. */
   --chat-code-bg: var(--ladder-code-background);
   --chat-code-head: var(--ladder-surface);
   --shiki-foreground: color-mix(in oklab, var(--ladder-text) 90%, var(--ladder-code-background));
   --shiki-background: transparent;
-  --shiki-token-keyword: var(--ladder-accent);
-  --shiki-token-string: var(--ladder-success);
-  --shiki-token-string-expression: var(--ladder-success);
-  --shiki-token-function: color-mix(in oklab, var(--ladder-accent) 55%, var(--ladder-text));
-  --shiki-token-constant: var(--ladder-waiting);
+  --shiki-token-keyword: var(--ladder-syntax-keyword, var(--ladder-accent));
+  --shiki-token-string: var(--ladder-syntax-string, var(--ladder-success));
+  --shiki-token-string-expression: var(--ladder-syntax-string, var(--ladder-success));
+  --shiki-token-function: var(--ladder-syntax-function, color-mix(in oklab, var(--ladder-accent) 55%, var(--ladder-text)));
+  --shiki-token-constant: var(--ladder-syntax-constant, var(--ladder-waiting));
   --shiki-token-parameter: var(--ladder-text);
   --shiki-token-comment: var(--ladder-text-muted);
   --shiki-token-punctuation: color-mix(in oklab, var(--ladder-text-muted) 70%, var(--ladder-text));
-  --shiki-token-link: var(--ladder-accent);
-  --shiki-token-inserted: var(--ladder-success);
-  --shiki-token-deleted: var(--ladder-error);
-  --shiki-token-changed: var(--ladder-waiting);
+  --shiki-token-link: var(--ladder-syntax-constant, var(--ladder-accent));
+  --shiki-token-inserted: var(--ladder-syntax-added, var(--ladder-success));
+  --shiki-token-deleted: var(--ladder-syntax-removed, var(--ladder-error));
+  --shiki-token-changed: var(--ladder-syntax-constant, var(--ladder-waiting));
 }
 
 /* Markdown dell'agente. */

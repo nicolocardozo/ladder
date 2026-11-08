@@ -12,6 +12,7 @@ const it: Record<string, string> = {
   '{n} stopped': '{n} fermati',
   Agents: 'Agenti',
   'Main session': 'Sessione principale',
+  Accounts: 'Account',
   Subagents: 'Sotto-agenti',
   Subagent: 'Sotto-agente',
   background: 'in background',

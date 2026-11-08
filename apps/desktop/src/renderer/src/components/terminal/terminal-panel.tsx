@@ -1,12 +1,12 @@
-// Pannello terminale in basso (⌃`): i terminali del progetto in schede. Restano vivi quando cambi progetto
+// Pannello terminale in basso o a destra (⌃`): i terminali del progetto in schede. Restano vivi quando cambi progetto
 // o chiudi il pannello; si chiudono solo con la ×.
 import { useEffect, useMemo, useRef } from 'react'
-import { ChevronDown, Play, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, PanelBottom, PanelRight, Play, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import type { TerminalInfo } from '@shared/protocol'
 import { request, send } from '@/lib/host-client'
 import { disposeTerminal, focusNextTerminal } from '@/lib/terminal-registry'
 import { cn } from '@/lib/utils'
-import { DEFAULT_TERMINAL_HEIGHT, useApp } from '@/store/app-store'
+import { DEFAULT_TERMINAL_HEIGHT, DEFAULT_TERMINAL_WIDTH, useApp } from '@/store/app-store'
 import { TerminalView } from './terminal-view'
 import { t } from '@shared/i18n'
 
@@ -46,6 +46,8 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
   const setPanel = useApp((s) => s.setTerminalPanel)
   const terminals = usePanelTerminals(projectId)
   const height = panel?.height ?? DEFAULT_TERMINAL_HEIGHT
+  const width = panel?.width ?? DEFAULT_TERMINAL_WIDTH
+  const right = panel?.side === 'right'
   const active = terminals.find((t) => t.id === panel?.active) ?? terminals[terminals.length - 1] ?? null
   const creating = useRef(false)
 
@@ -58,10 +60,16 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
 
   const startResize = (event: React.PointerEvent) => {
     event.preventDefault()
+    const startX = event.clientX
     const startY = event.clientY
     const startHeight = height
+    const startWidth = width
     const max = Math.round(window.innerHeight * 0.7)
-    const move = (e: PointerEvent) => setPanel(projectId, { height: Math.min(max, Math.max(120, startHeight + startY - e.clientY)) })
+    const maxWidth = Math.round(window.innerWidth * 0.6)
+    const move = (e: PointerEvent) =>
+      right
+        ? setPanel(projectId, { width: Math.min(maxWidth, Math.max(280, startWidth + startX - e.clientX)) })
+        : setPanel(projectId, { height: Math.min(max, Math.max(120, startHeight + startY - e.clientY)) })
     const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
@@ -71,15 +79,15 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
   }
 
   return (
-    <section aria-label={t('Terminals')} className="relative flex shrink-0 flex-col border-t border-border bg-background" style={{ height }}>
+    <section aria-label={t('Terminals')} className={cn('relative flex shrink-0 flex-col border-border bg-background', right ? 'border-l' : 'border-t')} style={right ? { width } : { height }}>
       <div
         role="separator"
-        aria-orientation="horizontal"
+        aria-orientation={right ? 'vertical' : 'horizontal'}
         aria-label={t('Resize terminal panel')}
         onPointerDown={startResize}
-        className="absolute -top-1 right-0 left-0 z-10 h-2 cursor-row-resize"
+        className={cn('absolute z-10', right ? 'top-0 bottom-0 -left-1 w-2 cursor-col-resize' : 'right-0 -top-1 left-0 h-2 cursor-row-resize')}
       />
-      <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border px-2" role="tablist" aria-label={t('Project terminals')}>
+      <div className={cn('flex shrink-0 items-center gap-0.5 border-b border-border px-2 [&_button]:no-drag', right ? 'drag h-11' : 'h-8')} role="tablist" aria-label={t('Project terminals')}>
         {terminals.map((terminal) => {
           const selected = terminal.id === active?.id
           return (
@@ -148,12 +156,21 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
           {active?.port && <span className="font-mono text-xs text-faint">LADDER_PORT {active.port}</span>}
           <button
             type="button"
+            aria-label={right ? t('Move terminal to the bottom') : t('Move terminal to the right')}
+            title={right ? t('Move terminal to the bottom') : t('Move terminal to the right')}
+            onClick={() => setPanel(projectId, { side: right ? 'bottom' : 'right' })}
+            className="grid size-6 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {right ? <PanelBottom className="size-3.5" /> : <PanelRight className="size-3.5" />}
+          </button>
+          <button
+            type="button"
             aria-label={t('Hide terminal panel')}
             title={t('Hide (⌃`)')}
             onClick={() => setPanel(projectId, { open: false })}
             className="grid size-6 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            <ChevronDown className="size-3.5" />
+            {right ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
           </button>
         </div>
       </div>

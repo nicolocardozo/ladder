@@ -11,6 +11,7 @@ import { request } from '@/lib/host-client'
 import { relativeAge } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
+import { Kbd } from '@/components/ui/kbd'
 
 type Source = IssueItem['source']
 
@@ -171,10 +172,10 @@ function NewFromBody({ onClose }: { onClose: () => void }) {
       </CommandList>
       <div className="flex h-9 items-center gap-3 border-t border-border px-4 text-xs text-faint">
         <span>
-          <kbd className="font-mono">↵</kbd> {t('prepare session')}
+          <Kbd>↵</Kbd> {t('prepare session')}
         </span>
         <span>
-          <kbd className="font-mono">⇥</kbd> {t('switch source')}
+          <Kbd>⇥</Kbd> {t('switch source')}
         </span>
         <span className="ml-auto">{source === 'branch' ? t('Works in a worktree on the branch') : source === 'github-pr' ? t('Worktree on the PR branch') : t('Prompt editable before sending')}</span>
       </div>

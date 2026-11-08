@@ -129,11 +129,11 @@ Non deve sembrare: l'interfaccia affollata di agmux, il SaaS da dashboard con ca
 
 ## 2. Colors
 
-Strategia **Restrained**: neutri tinti verso il viola di Circuit e un accento sotto il 10% della superficie. I dodici temi cambiano i valori, non i ruoli. I valori qui sotto sono quelli di Circuit, il tema iniziale; la fonte di verità resta `brand/themes.json`.
+Strategia **Restrained**: neutri tinti verso il viola di Circuit e un accento sotto il 10% della superficie. I temi cambiano i valori, non i ruoli. I valori qui sotto sono quelli di Circuit, il tema iniziale; la fonte di verità resta `brand/themes.json`.
 
 ### Primary
 - **Iris segnale** (#AC97FF): focus, selezione attiva, pulsante principale, punto delle risposte da leggere. Mai decorativo.
-- **Iris marchio** (#5525CF) e **Viola profondo** (#22123C): solo l'icona dell'app nel Dock. Nell'interfaccia il logo prende l'accento del tema (Iris segnale in Circuit).
+- **Iris marchio** (#5525CF) e **Viola profondo** (#22123C): solo l'icona dell'app nel Dock. Nell'interfaccia il logo prende l'accento del tema (Iris segnale in Circuit), tranne quello inciso degli stati vuoti, che resta tono su tono.
 
 ### Neutral
 - **Tela Circuit** (#181424): fondo della conversazione.
@@ -143,6 +143,8 @@ Strategia **Restrained**: neutri tinti verso il viola di Circuit e un accento so
 - **Filo** (#4A4357): linee di separazione, usate di rado.
 
 ### Named Rules
+**La regola del codice.** Nei temi Mono l'interfaccia resta in bianco e nero, ma codice, diff e terminale hanno colori propri (blocco `syntax` di `brand/themes.json`).
+
 **La regola dei tre segnali.** Citron significa "in corso", ambra significa "ti aspetta", rosa significa "errore". Nessun altro uso, e sempre insieme a una forma e a un'etichetta.
 
 **La regola del filo.** Una linea solo dove separa due zone di lavoro (sidebar, conversazione, ispettore, terminale). Dentro una zona si separa con lo spazio e il tono.
@@ -200,11 +202,18 @@ Contesto della nuova chat (progetto, branch, cartella, agente) e scelte del comp
 - **Campi:** 32 px, raggio 6 px, filo dei controlli, focus con anello iris da 2 px.
 
 ### Navigation
-- **Sidebar:** 264 px. Righe di sessione su due livelli: titolo (13 px) ed età a destra; sotto, icona del provider, modello e attività o branch (12 px tenue). Lo stato a sinistra in uno slot da 16 px. Selezione con fondo di selezione, raggio 8 px.
-- **Barra in alto:** 44 px, solo tab e poche icone; le tab mostrano icona del provider e titolo, e lo stato quando non è a riposo.
+- **Sidebar:** 264 px. Si apre un progetto alla volta, quello selezionato (fondo tenue e peso 500); gli altri mostrano solo i badge. Sotto stanno le sessioni vive, da leggere o con una bozza e le ultime 5 ferme, poi la riga "All sessions · N", che al passaggio apre una seconda sidebar da 360 px sopra la chat (un clic la tiene aperta). I gruppi creati da te stanno sopra la lista, un livello più a destra. Senza simbolo di stato il titolo parte dal bordo; i titoli lunghi scorrono al passaggio. Righe di sessione su due livelli: titolo (13 px) ed età a destra; sotto, icona del provider, modello e attività o branch (12 px tenue). Lo stato a sinistra in uno slot da 16 px. Selezione con fondo di selezione, raggio 8 px.
+- **Account:** in fondo alla sidebar, a sinistra dell'ingranaggio: iniziale in un cerchio neutro da 28 px, email (13 px) e piani degli agenti (12 px tenue). Apre Impostazioni → Agenti.
+- **Barra in alto:** 44 px: a sinistra `progetto / branch`, poi le tab e poche azioni, con il pulsante "Files"; le tab mostrano icona del provider e titolo, e lo stato quando non è a riposo.
 
 ### Agent Mark (Signature Component)
 Icona del provider monocromatica (Claude Code, Codex, icona dell'agente ACP dal registro, altrimenti iniziale) in 12–16 px, sempre accanto al nome del modello quando c'è spazio. Dice chi lavora senza aprire la sessione: sidebar, tab, intestazione, "In attesa", ⌘K, menu degli agenti, composer.
+
+### Logo inciso
+Negli stati vuoti delle chat il logo è solo simbolo, centrato e grande (128 px di altezza), scavato nella superficie: riempimento appena più scuro del fondo, ombra interna in alto, filo chiaro di 1 px sotto. Tre valori derivati da `--background` (`.ladder-engraved` in `globals.css`), così vale per ogni tema. Decorativo: nascosto alle tecnologie assistive.
+
+### Scorciatoie e badge
+Le scorciatoie usano un solo componente (`ui/kbd.tsx`): un tasto per simbolo, 18 px, carattere di sistema, fondo leggero nel colore del testo. Il conteggio delle richieste è una pillola ambra chiara con icona e numero; quello da leggere è un punto iris con il numero accanto. Niente punti esclamativi.
 
 ### Agent Map
 Chip "N agents" (28 px, fantasma) sopra il composer, allineato a destra, solo quando la sessione ha avviato sotto-agenti; l'anello citron dice che qualcuno lavora ancora. Apre un popover con un albero: in cima la sessione principale con il suo segno, sotto i sotto-agenti, ogni livello rientrato con un filo verticale da 1 px. Ogni riga: stato in uno slot da 16 px (anello, spunta menta, croce rosa, quadrato tenue), compito in 13 px, durata in 12 px a destra in cifre tabulari; sotto, in 12 px tenue, l'attività corrente e poi tipo, modello, token e strumenti. Nella sidebar basta il conteggio: "2 agents" in fondo alla seconda riga.

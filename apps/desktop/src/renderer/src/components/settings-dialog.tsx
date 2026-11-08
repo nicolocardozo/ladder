@@ -67,9 +67,10 @@ export function SettingsDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="flex max-h-[86vh] w-[min(920px,calc(100vw-48px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
+      {/* Dimensioni fisse: passando da una sezione all'altra la finestra non si muove. */}
+      <DialogContent className="flex h-[min(760px,calc(100vh-48px))] w-[min(1120px,calc(100vw-48px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
         <div className="flex min-h-0 flex-1">
-          <nav className="flex w-[190px] shrink-0 flex-col gap-1 border-r border-border bg-sidebar p-3" aria-label={t('Settings sections')}>
+          <nav className="flex w-[210px] shrink-0 flex-col gap-1 border-r border-border bg-sidebar p-3" aria-label={t('Settings sections')}>
             <LadderLockup className="mx-1 mt-1 mb-4 h-[18px] w-auto" title="Ladder" />
             {SECTIONS.map((item) => (
               <button
@@ -89,7 +90,7 @@ export function SettingsDialog() {
               </button>
             ))}
           </nav>
-          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
+          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-8 py-7">
             {section === 'appearance' && <AppearanceSection open={open} />}
             {section === 'notifications' && <NotificationsSection />}
             {section === 'agents' && <AgentsSection />}
@@ -115,12 +116,16 @@ function AppearanceSection({ open }: { open: boolean }) {
 
   return (
     <>
-            <DialogTitle className="text-xl font-semibold">{t('Appearance')}</DialogTitle>
-            <DialogDescription className="mt-1 max-w-[60ch] text-sm text-muted-foreground">
-              {t('The theme changes chat, navigation, panels and dialogs in every window, and stays after a restart. The logo takes on the theme colors too; the app icon in the Dock stays Circuit.')}
-            </DialogDescription>
-            <LanguagePicker />
-            <div ref={grid} className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3" role="radiogroup" aria-label={t('Theme')}>
+            <div className="flex items-start justify-between gap-8">
+              <div className="min-w-0">
+                <DialogTitle className="text-xl font-semibold">{t('Appearance')}</DialogTitle>
+                <DialogDescription className="mt-1 max-w-[60ch] text-sm text-muted-foreground">
+                  {t('The theme changes chat, navigation, panels and dialogs in every window, and stays after a restart. The logo takes on the theme colors too; the app icon in the Dock stays Circuit.')}
+                </DialogDescription>
+              </div>
+              <LanguagePicker />
+            </div>
+            <div ref={grid} className="mt-6 grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3" role="radiogroup" aria-label={t('Theme')}>
               {THEMES.map((theme) => {
                 const selected = theme.id === current
                 return (
@@ -158,7 +163,7 @@ function LanguagePicker() {
   const [prefs, update] = usePrefs()
   const current = prefs?.locale ?? getLocale()
   return (
-    <div className="mt-5 flex items-center gap-3" role="radiogroup" aria-label={t('Language')}>
+    <div className="flex shrink-0 items-center gap-3" role="radiogroup" aria-label={t('Language')}>
       <span className="text-sm font-medium">{t('Language')}</span>
       <div className="flex gap-1 rounded-md bg-muted p-0.5">
         {LOCALES.map((locale) => (
@@ -189,12 +194,12 @@ function usePrefs(): [AppPrefs | null, (patch: Partial<AppPrefs>) => void] {
 
 function Toggle({ label, description, checked, onChange, disabled }: { label: string; description: ReactNode; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
   return (
-    <label className={cn('flex items-start gap-3 py-3', disabled && 'opacity-60')}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-primary [color-scheme:light] dark:[color-scheme:dark]" />
-      <span className="flex flex-col gap-0.5">
+    <label className={cn('flex items-center justify-between gap-6 px-4 py-3.5', disabled && 'opacity-60')}>
+      <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-sm font-medium">{label}</span>
         <span className="text-sm text-muted-foreground">{description}</span>
       </span>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="size-4 shrink-0 accent-primary [color-scheme:light] dark:[color-scheme:dark]" />
     </label>
   )
 }
@@ -209,7 +214,7 @@ function NotificationsSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Approvals and questions arrive right away, unless you’re looking at that session. Finished replies only for turns over a minute, when you’re not in the project, grouped by project. Clicking takes you to the session and the item.')}
       </DialogDescription>
-      <div className="mt-4 flex max-w-[62ch] flex-col divide-y divide-border">
+      <div className="mt-6 flex flex-col divide-y divide-border rounded-lg border border-border">
         <Toggle label={t('macOS notifications')} description={t('Requests still stay in “Waiting” and in the Dock badge.')} checked={prefs.notifications} onChange={(notifications) => update({ notifications })} />
         <Toggle label={t('Sound for approvals and questions')} description={t('Only for what blocks an agent; finished replies stay silent.')} checked={prefs.sound} disabled={!prefs.notifications} onChange={(sound) => update({ sound })} />
         <Toggle
@@ -232,14 +237,7 @@ function NotificationsSection() {
 function TestNotification() {
   const [state, setState] = useState<'idle' | 'sent' | 'unsupported'>('idle')
   return (
-    <div className="flex items-start gap-3 py-3">
-      <button
-        type="button"
-        onClick={() => void window.ladder?.testNotification().then((ok) => setState(ok ? 'sent' : 'unsupported'))}
-        className="h-8 shrink-0 rounded-md border border-input px-3 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        {t('Send a test notification')}
-      </button>
+    <div className="flex items-center justify-between gap-6 px-4 py-3.5">
       <p role="status" className="text-sm text-muted-foreground">
         {state === 'sent'
           ? t('Sent. If you don’t see it, enable Ladder in System Settings → Notifications.')
@@ -247,6 +245,13 @@ function TestNotification() {
             ? t('This Mac doesn’t accept notifications from Ladder.')
             : t('It arrives even with “Do Not Disturb” on. The first time, macOS asks for permission.')}
       </p>
+      <button
+        type="button"
+        onClick={() => void window.ladder?.testNotification().then((ok) => setState(ok ? 'sent' : 'unsupported'))}
+        className="h-8 shrink-0 rounded-md border border-input px-3 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        {t('Send a test notification')}
+      </button>
     </div>
   )
 }
@@ -260,13 +265,15 @@ function AgentsSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Claude Code and Codex have a native adapter. Other agents speak ACP, the open protocol between editors and agents: to add one, all you need is the command that starts it.')}
       </DialogDescription>
-      <div className="mt-4 flex max-w-[66ch] flex-col divide-y divide-border rounded-lg border border-border">
+      <div className="mt-6 grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-8">
+        <div className="flex min-w-0 flex-col gap-5">
+      <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
         {agents.map((agent) => (
           <AgentRow key={agent.agent} agent={agent} />
         ))}
       </div>
       {prefs && (
-        <label className="mt-5 flex max-w-[66ch] items-center gap-3">
+        <label className="flex items-center gap-3">
           <span className="flex flex-col">
             <span className="text-sm font-medium">{t('Concurrent sessions per agent')}</span>
             <span className="text-xs text-muted-foreground">{t('Beyond the limit, sessions wait as “Queued” and start on their own. Terminal sessions don’t count.')}</span>
@@ -284,7 +291,9 @@ function AgentsSection() {
           </select>
         </label>
       )}
+        </div>
       <AddAcpAgent />
+      </div>
     </>
   )
 }
@@ -359,7 +368,7 @@ function AddAcpAgent() {
   const words = commandLine.trim().split(/\s+/).filter(Boolean)
 
   return (
-    <section className="mt-6 flex max-w-[66ch] flex-col gap-2">
+    <section className="flex min-w-0 flex-col gap-2">
       <div className="flex items-center gap-1">
         <h3 className="mr-2 text-sm font-semibold">{t('Add an ACP agent')}</h3>
         {(['registry', 'custom'] as const).map((id) => (
@@ -383,7 +392,7 @@ function AddAcpAgent() {
             aria-label={t('Search the ACP registry')}
             className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
           />
-          <div className="max-h-[260px] overflow-y-auto rounded-lg border border-border">
+          <div className="max-h-[440px] overflow-y-auto rounded-lg border border-border">
             {!registry && !problem && <p className="px-3 py-3 text-sm text-muted-foreground">{t('Reading the registry…')}</p>}
             {shown.map((r) => (
               <div key={r.id} className="flex items-start gap-3 border-b border-border px-3 py-2 last:border-0">
@@ -459,8 +468,8 @@ function IntegrationsSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Used by “New session from…” (⌘⇧N) and the Merge panel.')}
       </DialogDescription>
-      <div className="mt-5 flex max-w-[62ch] flex-col gap-5">
-        <section className="flex flex-col gap-1">
+      <div className="mt-6 grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-4">
+        <section className="flex flex-col gap-1 rounded-lg border border-border p-4">
           <h3 className="text-sm font-semibold">GitHub</h3>
           <p className="text-sm text-muted-foreground">
             {withNodes(t('Ladder uses the {gh} CLI with its login: issues, PRs, CI and comments are read from there, and Ladder keeps no tokens. If it’s missing: {install}, then {login}.'), {
@@ -470,7 +479,7 @@ function IntegrationsSection() {
             })}
           </p>
         </section>
-        <section className="flex flex-col gap-2">
+        <section className="flex flex-col gap-2 rounded-lg border border-border p-4">
           <h3 className="text-sm font-semibold">Linear</h3>
           <p className="text-sm text-muted-foreground">
             {t('Create a personal API key in Linear (Settings → Security & access) and paste it here. It’s stored encrypted in the macOS Keychain and only used to read your issues.')}

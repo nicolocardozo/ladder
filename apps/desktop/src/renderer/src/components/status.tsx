@@ -40,26 +40,32 @@ export function SessionGlyph({ state }: { state: SessionState }) {
   }
 }
 
+/** Quante richieste ti aspettano: pillola ambra chiara con icona e numero. */
+export function WaitingCount({ count, label }: { count: number; label: string }) {
+  return (
+    <span aria-label={label} className="inline-flex h-[18px] items-center gap-1 rounded-full bg-attention/15 px-1.5 text-xs font-semibold text-attention tabular-nums">
+      <CircleAlert aria-hidden className="size-3" strokeWidth={2.4} />
+      {count}
+    </span>
+  )
+}
+
+/** Quante risposte sono da leggere: punto iris e numero, senza fondo. */
+export function UnreadCount({ count, label }: { count: number; label: string }) {
+  return (
+    <span aria-label={label} className="inline-flex h-[18px] items-center gap-1 text-xs font-medium text-muted-foreground tabular-nums">
+      <span aria-hidden className="block size-2 rounded-full bg-unread" />
+      {count}
+    </span>
+  )
+}
+
 /** Stato aggregato accanto al nome di un progetto chiuso. */
 export function ProjectBadges({ attention }: { attention: ProjectAttention }) {
   return (
     <span data-attention className="ml-auto flex items-center gap-1.5">
-      {attention.waiting > 0 && (
-        <span
-          aria-label={plural(attention.waiting, '{n} blocking request', '{n} blocking requests')}
-          className="h-4 min-w-4 rounded-[4px] bg-attention px-1 text-center text-xs leading-4 font-semibold text-attention-foreground"
-        >
-          !{attention.waiting}
-        </span>
-      )}
-      {attention.unread > 0 && (
-        <span
-          aria-label={plural(attention.unread, '{n} unread reply', '{n} unread replies')}
-          className="h-4 min-w-4 rounded-full bg-unread px-1 text-center text-xs leading-4 font-semibold text-primary-foreground"
-        >
-          {attention.unread}
-        </span>
-      )}
+      {attention.waiting > 0 && <WaitingCount count={attention.waiting} label={plural(attention.waiting, '{n} blocking request', '{n} blocking requests')} />}
+      {attention.unread > 0 && <UnreadCount count={attention.unread} label={plural(attention.unread, '{n} unread reply', '{n} unread replies')} />}
       {attention.running && <RunningRing />}
     </span>
   )

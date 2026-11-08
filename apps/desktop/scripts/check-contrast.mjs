@@ -51,6 +51,14 @@ for (const [id, theme] of Object.entries(themes)) {
       rows.push(`  ✗ ${label}: ${r.toFixed(2)} (minimo ${min}) · ${fgHex} su ${t[bg]}`)
     }
   }
+  for (const key of ['keyword', 'string', 'function', 'constant', 'added', 'removed']) {
+    if (!theme.syntax) break
+    const r = ratio(theme.syntax[key], t.codeBackground)
+    if (r + 1e-9 < 4.5) {
+      failures++
+      rows.push(`  ✗ codice (${key}): ${r.toFixed(2)} (minimo 4.5) · ${theme.syntax[key]} su ${t.codeBackground}`)
+    }
+  }
   console.log(`${rows.length ? '✗' : '✓'} ${theme.name}`)
   for (const row of rows) console.log(row)
 }

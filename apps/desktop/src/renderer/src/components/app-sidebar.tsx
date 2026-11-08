@@ -1,22 +1,24 @@
-import { ChevronDown, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, GitFork, GitPullRequest, Inbox, PanelLeft, Search, Settings, SquarePen, SquareTerminal, X, type LucideIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, GitFork, GitPullRequest, Inbox, PanelLeft, Plus, Search, Settings, SquarePen, SquareTerminal, UserRound, X, type LucideIcon } from 'lucide-react'
 import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import type { Project, SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { IconButton } from '@/components/icon-button'
-import { ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
+import { GroupMenuContent, ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
 import { AgentMark, useAgentLine } from '@/components/agent-mark'
+import { AllSessionsButton } from '@/components/all-sessions'
 import { runningSubagents } from '@/components/agent-map'
 import { InboxPanel } from '@/components/inbox'
-import { ProjectBadges, RunningRing, SessionGlyph } from '@/components/status'
+import { ProjectBadges, RunningRing, SessionGlyph, UnreadCount, WaitingCount } from '@/components/status'
+import { Kbd } from '@/components/ui/kbd'
+import { MarqueeText } from '@/components/ui/marquee-text'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { LadderMark } from '@/components/brand/logo'
 import { useSettings } from '@/hooks/use-theme'
 import { request, send } from '@/lib/host-client'
-import { isConcluded, noteTone, prNote, projectAttention, sessionNote, sessionState } from '@/lib/session-state'
+import { noteTone, prNote, projectAttention, sessionNote, sessionState, sidebarSessions } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { canNavigate, useApp, type AwaySummary } from '@/store/app-store'
 
@@ -44,9 +46,7 @@ export async function addProjectFromDialog(): Promise<void> {
   const path = await window.ladder?.pickFolder()
   if (!path) return
   const project = await request<{ id: string }>({ type: 'project.add', path })
-  const { select, expanded } = useApp.getState()
-  useApp.setState({ expanded: expanded.includes(project.id) ? expanded : [...expanded, project.id] })
-  select({ kind: 'new', projectId: project.id })
+  useApp.getState().select({ kind: 'new', projectId: project.id })
 }
 
 /** Pulsante per riaprire la sidebar, nella barra in alto quando è nascosta. */
@@ -59,10 +59,11 @@ export function AppSidebar() {
   const projects = useApp((s) => s.projects)
   const sessions = useApp((s) => s.sessions)
   const drafts = useApp((s) => s.drafts)
-  const expanded = useApp((s) => s.expanded)
   const selection = useApp((s) => s.selection)
   const select = useApp((s) => s.select)
-  const toggleProject = useApp((s) => s.toggleProject)
+  const selectProject = useApp((s) => s.selectProject)
+  const renaming = useApp((s) => s.renaming)
+  const ui = useApp((s) => s.ui)
   const toggleSidebar = useApp((s) => s.toggleSidebar)
   const setPaletteOpen = useApp((s) => s.setPaletteOpen)
   const navigate = useApp((s) => s.navigate)
@@ -71,10 +72,7 @@ export function AppSidebar() {
   const inboxOpen = useApp((s) => s.inboxOpen)
   const setInboxOpen = useApp((s) => s.setInboxOpen)
   const away = useApp((s) => s.away)
-  const ui = useApp((s) => s.ui)
-  const setUi = useApp((s) => s.setUi)
   const [removing, setRemoving] = useState<Project | null>(null)
-  const now = Date.now()
 
   const byProject = useMemo(() => {
     const known = new Set(projects.map((p) => p.id))
@@ -97,13 +95,6 @@ export function AppSidebar() {
     unreadTotal += list.filter((s) => sessionState(s) === 'unread' || (s.run === 'error' && s.unread)).length
   }
 
-  const toggleConcluded = (projectId: string) => {
-    const current = useApp.getState().ui[projectId] ?? { tabs: [], activeTab: null, scroll: {} }
-    const next = { ...current, concludedOpen: !current.concludedOpen }
-    setUi(projectId, next)
-    send({ type: 'ui.set', projectId, state: next })
-  }
-
   return (
     <aside className="flex h-full w-[262px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none">
       {/* Barra del titolo: lo spazio a sinistra lascia posto ai semafori di macOS. */}
@@ -119,7 +110,7 @@ export function AppSidebar() {
         <SidebarAction
           icon={SquarePen}
           label={t('New chat')}
-          trailing={<kbd className="font-mono text-xs text-faint">⌘N</kbd>}
+          trailing={<Kbd className="text-muted-foreground">⌘N</Kbd>}
           active={selection.kind === 'new'}
           onClick={() => select({ kind: 'new', projectId: selection.projectId ?? projects[0]?.id ?? null })}
         />
@@ -140,16 +131,9 @@ export function AppSidebar() {
                 onPointerDown={() => !inboxOpen && rememberFocus()}
                 trailing={
                   waitingTotal > 0 ? (
-                    <span
-                      aria-label={plural(waitingTotal, '{n} pending request', '{n} pending requests')}
-                      className="h-[17px] min-w-[17px] rounded-[4px] bg-attention px-1 text-center text-xs leading-[17px] font-semibold text-attention-foreground"
-                    >
-                      !{waitingTotal}
-                    </span>
+                    <WaitingCount count={waitingTotal} label={plural(waitingTotal, '{n} pending request', '{n} pending requests')} />
                   ) : unreadTotal > 0 ? (
-                    <span aria-label={t('{n} unread', { n: unreadTotal })} className="h-4 min-w-4 rounded-full bg-unread px-1 text-center text-xs leading-4 font-semibold text-primary-foreground">
-                      {unreadTotal}
-                    </span>
+                    <UnreadCount count={unreadTotal} label={t('{n} unread', { n: unreadTotal })} />
                   ) : null
                 }
               />
@@ -175,7 +159,7 @@ export function AppSidebar() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-px px-2 pb-3">
+        <div className="flex flex-col gap-1.5 px-2 pb-3">
           {projects.length === 0 && (
             <button
               type="button"
@@ -186,93 +170,76 @@ export function AppSidebar() {
             </button>
           )}
           {projects.map((project) => {
-            const open = expanded.includes(project.id)
+            // Si apre solo il progetto selezionato: le righe sotto sono sempre quelle delle tab in alto.
+            const open = project.id === selection.projectId
             const all = byProject.get(project.id) ?? []
             const attention = projectAttention(all)
             const FolderIcon = open ? FolderOpen : Folder
-            // "Concluse": 3 giorni senza attività e niente da leggere. La sessione aperta resta sempre nella lista.
             const isSelected = (id: string) => selection.kind === 'session' && selection.sessionId === id
-            const concluded = all.filter((s) => !isSelected(s.id) && isConcluded(s, Boolean(drafts[s.id]?.trim()), now))
-            const list = all.filter((s) => !concluded.includes(s))
-            const concludedOpen = Boolean(ui[project.id]?.concludedOpen)
+            const groups = ui[project.id]?.groups ?? []
+            const groupOf = ui[project.id]?.groupOf ?? {}
+            const inGroup = (id: string) => all.filter((s) => groupOf[s.id] === id)
+            const free = all.filter((s) => !groups.some((g) => g.id === groupOf[s.id]))
+            const list = open ? sidebarSessions(free, (s) => isSelected(s.id) || s.id === renaming || Boolean(drafts[s.id]?.trim())) : []
             return (
-              <div key={project.id} className="flex flex-col gap-px">
-                <ContextMenu>
-                  <ContextMenuTrigger
-                    render={<button type="button" />}
-                    aria-expanded={open}
-                    onClick={(event) => {
-                      // Un clic sul simbolo di stato di un progetto chiuso apre la sessione che lo ha generato.
-                      if (!open && attention.target && (event.target as HTMLElement).closest('[data-attention]')) {
-                        useApp.getState().openSessionAt(attention.target.id, attention.target.request?.id ?? null)
-                        return
-                      }
-                      toggleProject(project.id)
-                    }}
-                    title={project.path}
-                    className={cn(
-                      'flex min-h-[30px] items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none',
-                      'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-sidebar-accent/60',
-                      open && 'text-sidebar-accent-foreground'
-                    )}
-                  >
-                    <FolderIcon className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
-                    <span className="truncate">{project.name}</span>
-                    {open ? (
-                      attention.running && (
-                        <span className="ml-auto">
-                          <RunningRing />
-                        </span>
-                      )
-                    ) : (
-                      <ProjectBadges attention={attention} />
-                    )}
-                  </ContextMenuTrigger>
-                  <ProjectMenuContent project={project} onRemove={() => setRemoving(project)} />
-                </ContextMenu>
+              <div key={project.id} className="flex flex-col gap-1">
+                <div className="group/project relative">
+                  <ContextMenu>
+                    <ContextMenuTrigger
+                      render={<button type="button" />}
+                      aria-expanded={open}
+                      aria-current={open ? 'true' : undefined}
+                      onClick={(event) => {
+                        // Un clic sul simbolo di stato di un altro progetto apre la sessione che lo ha generato.
+                        if (!open && attention.target && (event.target as HTMLElement).closest('[data-attention]')) {
+                          useApp.getState().openSessionAt(attention.target.id, attention.target.request?.id ?? null)
+                          return
+                        }
+                        if (!open) selectProject(project.id)
+                      }}
+                      title={project.path}
+                      className={cn(
+                        'flex min-h-[30px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none',
+                        'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-sidebar-accent/60',
+                        open && 'bg-sidebar-accent/50 font-medium text-sidebar-accent-foreground'
+                      )}
+                    >
+                      <FolderIcon className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
+                      <span className="truncate">{project.name}</span>
+                      <span className="ml-auto flex items-center group-hover/project:invisible group-has-[:focus-visible]/project:invisible">
+                        {open ? attention.running && <RunningRing /> : <ProjectBadges attention={attention} />}
+                      </span>
+                    </ContextMenuTrigger>
+                    <ProjectMenuContent project={project} onRemove={() => setRemoving(project)} />
+                  </ContextMenu>
+                  <IconButton
+                    icon={Plus}
+                    label={t('New chat in {project}', { project: project.name })}
+                    onClick={() => select({ kind: 'new', projectId: project.id })}
+                    className="absolute top-[3px] right-[3px] size-6 opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
+                  />
+                </div>
 
                 {open && away[project.id] && <AwayRow projectId={project.id} summary={away[project.id]} />}
 
-                {open &&
-                  list.map((session) => (
-                    <SessionRow
-                      key={session.id}
-                      session={session}
-                      project={project}
-                      selected={isSelected(session.id)}
-                      hasDraft={Boolean(drafts[session.id]?.trim())}
-                    />
-                  ))}
+                {open && groups.map((group) => <SessionGroup key={group.id} project={project} group={group} sessions={inGroup(group.id)} isSelected={isSelected} />)}
+
+                {list.map((session) => (
+                  <SessionRow key={session.id} session={session} project={project} selected={isSelected(session.id)} hasDraft={Boolean(drafts[session.id]?.trim())} />
+                ))}
 
                 {open && all.length === 0 && <p className="ml-5 py-1 pl-2.5 text-xs text-faint">{t('No sessions. Press ⌘N to start.')}</p>}
 
-                {open && concluded.length > 0 && (
-                  <>
-                    <button
-                      type="button"
-                      aria-expanded={concludedOpen}
-                      onClick={() => toggleConcluded(project.id)}
-                      className="ml-5 flex min-h-6 items-center gap-1.5 rounded-md pl-2.5 text-left text-xs text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      <ChevronDown className={cn('size-3 transition-transform', !concludedOpen && '-rotate-90')} />
-                      {t('Done · {n}', { n: concluded.length })}
-                    </button>
-                    {concludedOpen &&
-                      concluded.map((session) => (
-                        <SessionRow key={session.id} session={session} project={project} selected={false} hasDraft={false} />
-                      ))}
-                  </>
-                )}
+                {open && list.length < free.length && <AllSessionsButton project={project} count={all.length} />}
               </div>
             )
           })}
         </div>
       </ScrollArea>
 
-      <footer className="flex items-center gap-2 border-t border-sidebar-border px-3 py-2.5 text-sm">
-        <LadderMark className="h-3.5 w-auto" title="Ladder" />
-        <span className="font-semibold tracking-tight">Ladder</span>
-        <IconButton icon={Settings} label={t('Settings')} shortcut="⌘," onClick={() => useSettings.getState().setSettingsOpen(true)} className="ml-auto" />
+      <footer className="flex items-center gap-1 border-t border-sidebar-border p-2">
+        <AccountButton />
+        <IconButton icon={Settings} label={t('Settings')} shortcut="⌘," onClick={() => useSettings.getState().setSettingsOpen(true)} />
       </footer>
 
       <RemoveProjectDialog project={removing} onClose={() => setRemoving(null)} />
@@ -285,10 +252,93 @@ interface SessionRowProps {
   project: Project
   selected: boolean
   hasDraft: boolean
+  /** Dentro un gruppo: un livello più a destra. */
+  nested?: boolean
+}
+
+/** Gruppo di chat creato da te: si apre e si chiude, e da chiuso mostra quello che ti aspetta. */
+function SessionGroup({ project, group, sessions, isSelected }: { project: Project; group: { id: string; name: string; collapsed?: boolean }; sessions: SessionSummary[]; isSelected: (id: string) => boolean }) {
+  const toggleGroup = useApp((s) => s.toggleGroup)
+  const renameGroup = useApp((s) => s.renameGroup)
+  const stopRenameGroup = useApp((s) => s.stopRenameGroup)
+  const startRenameGroup = useApp((s) => s.startRenameGroup)
+  const renaming = useApp((s) => s.renamingGroup === group.id)
+  const drafts = useApp((s) => s.drafts)
+  // La sessione aperta resta sempre visibile, anche in un gruppo chiuso.
+  const open = !group.collapsed || sessions.some((s) => isSelected(s.id))
+  return (
+    <div className="flex flex-col gap-1">
+      <ContextMenu disabled={renaming}>
+        <ContextMenuTrigger className="ml-5 rounded-md">
+          {renaming ? (
+            <GroupNameField
+              name={group.name}
+              onDone={(name) => {
+                if (name) renameGroup(project.id, group.id, name)
+                stopRenameGroup()
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => toggleGroup(project.id, group.id)}
+              onDoubleClick={() => startRenameGroup(group.id)}
+              className="flex min-h-7 w-full items-center gap-1.5 rounded-md pr-2 pl-2 text-left text-xs font-medium text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <ChevronRight aria-hidden className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
+              <span className="truncate">{group.name}</span>
+              <span className="font-normal text-faint tabular-nums">{sessions.length}</span>
+              {!open && <ProjectBadges attention={projectAttention(sessions)} />}
+            </button>
+          )}
+        </ContextMenuTrigger>
+        <GroupMenuContent projectId={project.id} groupId={group.id} />
+      </ContextMenu>
+      {open && sessions.map((session) => <SessionRow key={session.id} session={session} project={project} selected={isSelected(session.id)} hasDraft={Boolean(drafts[session.id]?.trim())} nested />)}
+    </div>
+  )
+}
+
+/** Nome del gruppo nella riga. Invio o clic altrove salva, Esc lascia quello di prima. */
+function GroupNameField({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {
+  const [value, setValue] = useState(name)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const finished = useRef(false)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  const finish = (save: boolean) => {
+    if (finished.current) return
+    finished.current = true
+    onDone(save ? value.trim() || null : null)
+  }
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      aria-label={t('Group name')}
+      onChange={(event) => setValue(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return
+        if (event.key === 'Enter') finish(true)
+        else if (event.key === 'Escape') {
+          event.stopPropagation()
+          finish(false)
+        }
+      }}
+      onBlur={() => finish(true)}
+      className="h-7 w-full rounded-md bg-sidebar-accent px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+    />
+  )
 }
 
 /** Riga di una sessione: clic per aprirla, clic destro o "…" per le azioni, doppio clic per rinominarla. */
-function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
+function SessionRow({ session, project, selected, hasDraft, nested }: SessionRowProps) {
   const select = useApp((s) => s.select)
   const renaming = useApp((s) => s.renaming === session.id)
   const startRename = useApp((s) => s.startRename)
@@ -298,10 +348,13 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
   const waiting = state === 'waiting'
   const note = sessionNote(session, hasDraft)
   const tone = noteTone(note.code)
+  const [hovered, setHovered] = useState(false)
+  // Senza simbolo di stato il titolo si riprende lo spazio a sinistra.
+  const hasGlyph = state !== 'idle'
 
   return (
     <ContextMenu disabled={renaming}>
-      <ContextMenuTrigger className="group/row relative ml-5 rounded-md">
+      <ContextMenuTrigger className={cn('group/row relative rounded-md', nested ? 'ml-9' : 'ml-5')} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
         {renaming ? (
           <div className="grid min-h-7 grid-cols-[12px_minmax(0,1fr)] items-center gap-2.5 rounded-md bg-sidebar-accent py-0.5 pr-1 pl-2.5">
             <span className="grid place-items-center">
@@ -334,7 +387,8 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
                 .filter(Boolean)
                 .join(' · ')}
               className={cn(
-                'relative grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-start gap-x-2 rounded-lg py-1.5 pr-2 pl-2 text-left outline-none',
+                'relative grid w-full items-start gap-x-2 gap-y-1 rounded-lg py-2 pr-2.5 pl-2.5 text-left outline-none',
+                hasGlyph ? 'grid-cols-[16px_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]',
                 'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
                 // Riga evidenziata mentre il suo menu (clic destro o "…") è aperto.
                 'group-data-[popup-open]/row:bg-sidebar-accent/60 group-has-[[data-popup-open]]/row:bg-sidebar-accent/60',
@@ -344,10 +398,14 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
                 waiting && !selected && 'bg-attention/8'
               )}
             >
-              <span className="row-span-2 grid h-[18px] place-items-center">
-                <SessionGlyph state={state} />
-              </span>
-              <span className={cn('min-w-0 truncate text-sm', state === 'unread' ? 'font-semibold text-sidebar-accent-foreground' : selected && 'font-medium')}>{session.title}</span>
+              {hasGlyph && (
+                <span className="row-span-2 grid h-[18px] place-items-center">
+                  <SessionGlyph state={state} />
+                </span>
+              )}
+              <MarqueeText active={hovered} className={cn('text-sm', state === 'unread' ? 'font-semibold text-sidebar-accent-foreground' : selected && 'font-medium')}>
+                {session.title}
+              </MarqueeText>
               {/* Lascia il posto al pulsante "…" quando la riga è sotto il puntatore o ha il focus. */}
               <span
                 className={cn(
@@ -360,7 +418,7 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
               >
                 {note.code === 'draft' ? <i>{note.text}</i> : note.text}
               </span>
-              <SessionMeta session={session} />
+              <SessionMeta session={session} hasGlyph={hasGlyph} />
             </button>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -385,7 +443,33 @@ function SessionRow({ session, project, selected, hasDraft }: SessionRowProps) {
 }
 
 /** Seconda riga: chi lavora (segno del provider e modello) e cosa sta facendo, o dove lavora. */
-function SessionMeta({ session }: { session: SessionSummary }) {
+/** In basso a sinistra: con quale account lavorano gli agenti. Apre Impostazioni → Agenti, dove ci sono tutti. */
+function AccountButton() {
+  const agents = useApp((s) => s.agents)
+  const linked = agents.filter((a) => a.kind === 'native' && (a.account || a.email))
+  const email = linked.find((a) => a.email)?.email ?? null
+  const plans = linked.flatMap((a) => (a.account ? [a.account] : []))
+  const name = email ?? plans[0] ?? t('Accounts')
+  const detail = (email ? plans : plans.slice(1)).join(' · ')
+  return (
+    <button
+      type="button"
+      onClick={() => useSettings.getState().openSection('agents')}
+      title={[email, ...plans].filter(Boolean).join('\n') || undefined}
+      className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+    >
+      <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/10 text-xs font-semibold text-foreground">
+        {email ? email.slice(0, 1).toUpperCase() : <UserRound className="size-3.5" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{name}</span>
+        {detail && <span className="block truncate text-xs text-muted-foreground">{detail}</span>}
+      </span>
+    </button>
+  )
+}
+
+function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph: boolean }) {
   const { name, model } = useAgentLine(session.agent, session.model)
   const agents = runningSubagents(session)
   const doing =
@@ -395,7 +479,7 @@ function SessionMeta({ session }: { session: SessionSummary }) {
     session.worktree?.branch ??
     null
   return (
-    <span className="col-span-2 col-start-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+    <span className={cn('col-span-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground', hasGlyph && 'col-start-2')}>
       {session.mode === 'terminal' ? <SquareTerminal aria-label={t('Terminal session')} className="size-3 shrink-0" /> : <AgentMark agent={session.agent} size={12} />}
       <span className="shrink-0">{session.mode === 'terminal' ? (session.command?.split(' ')[0] ?? 'claude') : (model ?? name)}</span>
       {doing && (

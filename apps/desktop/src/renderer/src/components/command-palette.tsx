@@ -19,6 +19,7 @@ import { relativeAge, sessionState } from '@/lib/session-state'
 import { newShell } from '@/components/terminal/terminal-panel'
 import { focusNextTerminal } from '@/lib/terminal-registry'
 import { isLiveSession, useApp } from '@/store/app-store'
+import { Kbd } from '@/components/ui/kbd'
 
 function inspectorActions(run: (perform: () => void) => void): Action[] {
   const open = (tab: 'changes' | 'files' | 'history' | 'merge') => () =>
@@ -322,7 +323,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                 {(action.shortcut || action.hint) && (
                   <CommandShortcut className={sideClass}>
                     {action.hint && <span className="text-faint">{action.hint}</span>}
-                    {action.shortcut && <kbd className="font-mono text-xs">{action.shortcut}</kbd>}
+                    {action.shortcut && <Kbd>{action.shortcut}</Kbd>}
                   </CommandShortcut>
                 )}
               </CommandItem>
@@ -339,9 +340,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                 className={itemClass}
                 onSelect={() =>
                   run(() => {
-                    const state = useApp.getState()
-                    if (!state.expanded.includes(project.id)) state.toggleProject(project.id)
-                    state.selectProject(project.id)
+                    useApp.getState().selectProject(project.id)
                   })
                 }
               >
@@ -349,7 +348,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <CommandShortcut className={sideClass}>
                   <span className="truncate text-faint">{shortPath(project.path)}</span>
-                  {index < 9 && <kbd className="shrink-0 font-mono text-xs">⌘{index + 1}</kbd>}
+                  {index < 9 && <Kbd>⌘{index + 1}</Kbd>}
                 </CommandShortcut>
               </CommandItem>
             ))}
@@ -365,15 +364,15 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         {!notice && (
           <>
             <span>
-              <kbd className="font-mono">↑↓</kbd> {t('to select')}
+              <Kbd>↑↓</Kbd> {t('to select')}
             </span>
             <span>
-              <kbd className="font-mono">↵</kbd> {t('to open')}
+              <Kbd>↵</Kbd> {t('to open')}
             </span>
           </>
         )}
         <span className="ml-auto">
-          <kbd className="font-mono">esc</kbd> {t('to close')}
+          <Kbd>esc</Kbd> {t('to close')}
         </span>
       </div>
     </Command>

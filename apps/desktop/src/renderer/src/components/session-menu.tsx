@@ -1,19 +1,19 @@
 // Menu di sessioni e progetti: le stesse azioni per il clic destro (sidebar e tab) e per il pulsante "…" della riga.
 import { useRef, useState } from 'react'
-import { Archive, CheckCheck, CircleDot, ExternalLink, FolderSearch, Pencil, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, Check, CheckCheck, CircleDot, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, Pencil, SquarePen, Trash2 } from 'lucide-react'
 import type { Project, SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
-import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@/components/ui/context-menu'
+import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@/components/ui/dropdown-menu'
 import { useApp } from '@/store/app-store'
 
 type Variant = 'context' | 'dropdown'
 
 const parts = {
-  context: { Content: ContextMenuContent, Item: ContextMenuItem, Separator: ContextMenuSeparator },
-  dropdown: { Content: DropdownMenuContent, Item: DropdownMenuItem, Separator: DropdownMenuSeparator }
+  context: { Content: ContextMenuContent, Item: ContextMenuItem, Separator: ContextMenuSeparator, Sub: ContextMenuSub, SubTrigger: ContextMenuSubTrigger, SubContent: ContextMenuSubContent },
+  dropdown: { Content: DropdownMenuContent, Item: DropdownMenuItem, Separator: DropdownMenuSeparator, Sub: DropdownMenuSub, SubTrigger: DropdownMenuSubTrigger, SubContent: DropdownMenuSubContent }
 } as const
 
 const contentClass = 'w-auto min-w-52'
@@ -35,7 +35,11 @@ interface SessionMenuProps {
 
 /** Azioni su una sessione. Rinomina sposta il focus sul campo nella riga, quindi il menu non lo riporta al pulsante. */
 export function SessionMenuContent({ variant, session, project }: SessionMenuProps) {
-  const { Content, Item, Separator } = parts[variant]
+  const { Content, Item, Separator, Sub, SubTrigger, SubContent } = parts[variant]
+  const groups = useApp((s) => s.ui[session.projectId]?.groups) ?? []
+  const currentGroup = useApp((s) => s.ui[session.projectId]?.groupOf?.[session.id] ?? null)
+  const createGroup = useApp((s) => s.createGroup)
+  const moveToGroup = useApp((s) => s.moveToGroup)
   const startRename = useApp((s) => s.startRename)
   const archiveSession = useApp((s) => s.archiveSession)
   const markUnread = useApp((s) => s.markUnread)
@@ -46,7 +50,7 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
     <Content
       className={contentClass}
       align={variant === 'dropdown' ? 'end' : 'start'}
-      finalFocus={() => useApp.getState().renaming !== sessionId}
+      finalFocus={() => useApp.getState().renaming !== sessionId && !useApp.getState().renamingGroup}
     >
       <Item className={itemClass} onClick={() => startRename(sessionId)}>
         <Pencil />
@@ -75,12 +79,55 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
           </Item>
         </>
       )}
+      <Sub>
+        <SubTrigger className={itemClass}>
+          <FolderInput />
+          {t('Move to group')}
+        </SubTrigger>
+        <SubContent className={contentClass}>
+          {groups.map((group) => (
+            <Item key={group.id} className={itemClass} onClick={() => moveToGroup(session.projectId, sessionId, group.id)}>
+              <Check className={group.id === currentGroup ? undefined : 'opacity-0'} />
+              {group.name}
+            </Item>
+          ))}
+          {groups.length > 0 && <Separator />}
+          <Item className={itemClass} onClick={() => createGroup(session.projectId, sessionId)}>
+            <FolderPlus />
+            {t('New group')}
+          </Item>
+          {currentGroup && (
+            <Item className={itemClass} onClick={() => moveToGroup(session.projectId, sessionId, null)}>
+              <FolderMinus />
+              {t('Remove from group')}
+            </Item>
+          )}
+        </SubContent>
+      </Sub>
       <Separator />
       <Item className={itemClass} onClick={() => archiveSession(sessionId)}>
         <Archive />
         {t('Archive')}
       </Item>
     </Content>
+  )
+}
+
+/** Clic destro su un gruppo. Togliere il gruppo lascia le chat nella lista del progetto. */
+export function GroupMenuContent({ projectId, groupId }: { projectId: string; groupId: string }) {
+  const startRenameGroup = useApp((s) => s.startRenameGroup)
+  const deleteGroup = useApp((s) => s.deleteGroup)
+  return (
+    <ContextMenuContent className={contentClass} finalFocus={() => !useApp.getState().renamingGroup}>
+      <ContextMenuItem className={itemClass} onClick={() => startRenameGroup(groupId)}>
+        <Pencil />
+        {t('Rename')}
+      </ContextMenuItem>
+      <ContextMenuItem className={itemClass} onClick={() => deleteGroup(projectId, groupId)}>
+        <FolderMinus />
+        {t('Remove group')}
+      </ContextMenuItem>
+    </ContextMenuContent>
   )
 }
 
@@ -103,6 +150,16 @@ export function ProjectMenuContent({ project, onRemove }: ProjectMenuProps) {
         return restore
       }}
     >
+      <ContextMenuItem
+        className={itemClass}
+        onClick={() => {
+          useApp.getState().selectProject(project.id)
+          useApp.getState().createGroup(project.id)
+        }}
+      >
+        <FolderPlus />
+        {t('New group')}
+      </ContextMenuItem>
       <ContextMenuItem className={itemClass} onClick={() => select({ kind: 'new', projectId: project.id })}>
         <SquarePen />
         {t('New chat')}

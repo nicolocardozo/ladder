@@ -4,6 +4,7 @@ import { request, send } from '@/lib/host-client'
 import type { AgentStatus, AppPrefs, ChatItem, ReviewState, DiffScope, HostEvent, InspectorTab, IssueItem, Project, ProjectUiState, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalData } from '@/lib/terminal-registry'
+import { t } from '@shared/i18n'
 
 export type Selection = { kind: 'new'; projectId: string | null } | { kind: 'session'; projectId: string; sessionId: string }
 
@@ -15,8 +16,8 @@ interface AppState {
   drafts: Record<string, string>
   ui: Record<string, ProjectUiState>
   agents: AgentStatus[]
+  /** Dice anche il progetto selezionato: tab, file, terminale e nuova chat seguono lui. */
   selection: Selection
-  expanded: string[]
   /** Primo elemento non letto quando la sessione è stata aperta, per il divisore "Nuovo". */
   firstUnread: Record<string, number | null>
   /** Sidebar visibile. Si ricorda tra un avvio e l'altro. */
@@ -24,6 +25,8 @@ interface AppState {
   paletteOpen: boolean
   /** Sessione con il titolo in modifica nella sidebar. */
   renaming: string | null
+  /** Gruppo con il nome in modifica nella sidebar. */
+  renamingGroup: string | null
   /** Sessione aperta che l'utente ha segnato come da leggere: la vista non deve rileggerla finché non cambia la selezione. */
   heldUnread: string | null
   /** Cronologia delle selezioni per Indietro/Avanti; `historyIndex` punta alla selezione corrente. */
@@ -52,7 +55,13 @@ interface AppState {
   reviews: Record<string, ReviewState>
   applyEvent: (event: HostEvent) => void
   select: (selection: Selection) => void
-  toggleProject: (projectId: string) => void
+  createGroup: (projectId: string, sessionId?: string) => void
+  renameGroup: (projectId: string, groupId: string, name: string) => void
+  startRenameGroup: (groupId: string) => void
+  stopRenameGroup: () => void
+  deleteGroup: (projectId: string, groupId: string) => void
+  toggleGroup: (projectId: string, groupId: string) => void
+  moveToGroup: (projectId: string, sessionId: string, groupId: string | null) => void
   setDraft: (key: string, text: string) => void
   setUi: (projectId: string, state: ProjectUiState) => void
   closeTab: (projectId: string, sessionId: string) => void
@@ -114,6 +123,7 @@ export interface InspectorRequest {
   nonce: number
 }
 
+export const DEFAULT_TERMINAL_WIDTH = 480
 export const DEFAULT_TERMINAL_HEIGHT = 260
 
 const MAX_TABS = 8
@@ -144,6 +154,21 @@ function readSidebarOpen(): boolean {
   }
 }
 
+const LAST_PROJECT_KEY = 'ladder.last-project'
+function readLastProject(): string | null {
+  try {
+    return localStorage.getItem(LAST_PROJECT_KEY)
+  } catch {
+    return null
+  }
+}
+function writeLastProject(projectId: string | null): void {
+  try {
+    if (projectId) localStorage.setItem(LAST_PROJECT_KEY, projectId)
+  } catch {
+    // Solo una comodità: senza storage si riparte dal primo progetto.
+  }
+}
 function writeSidebarOpen(open: boolean): void {
   try {
     localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed')
@@ -218,19 +243,19 @@ export function canNavigate(state: AppState, delta: -1 | 1): boolean {
 
 /** Effetti di una selezione su tab, cartelle aperte e divisore "Nuovo". Non tocca la cronologia. */
 function selectionPatch(state: AppState, selection: Selection): Partial<AppState> {
+  writeLastProject(selection.projectId)
   if (selection.kind !== 'session') return { selection, heldUnread: null }
   const session = state.sessions[selection.sessionId]
   const firstUnread = { ...state.firstUnread }
   // Il divisore "Nuovo" si calcola all'apertura e resta fermo finché la sessione è aperta.
   if (session && !(selection.sessionId in firstUnread)) firstUnread[selection.sessionId] = session.unread ? session.lastReadSeq + 1 : null
-  const expanded = state.expanded.includes(selection.projectId) ? state.expanded : [...state.expanded, selection.projectId]
   // La sessione aperta diventa una tab del suo progetto; oltre 8 tab si chiude la meno recente.
   const ui = state.ui[selection.projectId] ?? emptyUi()
   let tabs = ui.tabs.includes(selection.sessionId) ? ui.tabs : [...ui.tabs, selection.sessionId]
   if (tabs.length > MAX_TABS) tabs = tabs.slice(tabs.length - MAX_TABS)
   const nextUi = { ...ui, tabs, activeTab: selection.sessionId }
   persistUi(selection.projectId, nextUi)
-  return { selection, firstUnread, expanded, ui: { ...state.ui, [selection.projectId]: nextUi }, heldUnread: null }
+  return { selection, firstUnread, ui: { ...state.ui, [selection.projectId]: nextUi }, heldUnread: null }
 }
 
 /** Sessioni nell'ordine della sidebar: progetti in ordine, poi la più recente in alto. */
@@ -241,7 +266,15 @@ function sidebarOrder(state: AppState): SessionSummary[] {
     .sort((a, b) => rank.get(a.projectId)! - rank.get(b.projectId)! || b.createdAt - a.createdAt)
 }
 
+/** Cambia e salva lo stato interfaccia di un progetto. */
+function patchUi(state: AppState, projectId: string, change: (ui: ProjectUiState) => ProjectUiState): Pick<AppState, 'ui'> {
+  const next = change(state.ui[projectId] ?? emptyUi())
+  persistUi(projectId, next)
+  return { ui: { ...state.ui, [projectId]: next } }
+}
+
 export const useApp = create<AppState>((set, get) => ({
+  renamingGroup: null,
   connected: false,
   projects: [],
   sessions: {},
@@ -250,7 +283,6 @@ export const useApp = create<AppState>((set, get) => ({
   ui: {},
   agents: [],
   selection: { kind: 'new', projectId: null },
-  expanded: [],
   firstUnread: {},
   sidebarOpen: readSidebarOpen(),
   paletteOpen: false,
@@ -277,21 +309,26 @@ export const useApp = create<AppState>((set, get) => ({
         case 'snapshot': {
           const sessions: Record<string, SessionSummary> = {}
           for (const s of event.sessions) sessions[s.id] = s
-          const firstProject = event.projects[0]?.id ?? null
-          const selection =
-            state.selection.kind === 'new' && !state.selection.projectId ? { kind: 'new' as const, projectId: firstProject } : state.selection
           const terminals: Record<string, TerminalInfo> = {}
           for (const t of event.terminals) terminals[t.id] = t
+          const loaded = { projects: event.projects, sessions, ui: event.ui }
+          // All'avvio si torna sull'ultimo progetto guardato, sulla tab che aveva.
+          let patch: Partial<AppState> = {}
+          if (state.selection.kind === 'new' && !state.selection.projectId) {
+            const last = readLastProject()
+            const projectId = event.projects.some((p) => p.id === last) ? last : (event.projects[0]?.id ?? null)
+            const active = projectId ? event.ui[projectId]?.activeTab : null
+            const live = active && isLiveSession(loaded, sessions[active]) ? active : null
+            const selection: Selection = live && projectId ? { kind: 'session', projectId, sessionId: live } : { kind: 'new', projectId }
+            patch = selectionPatch({ ...state, ...loaded }, selection)
+          }
           return {
             connected: true,
-            projects: event.projects,
-            sessions,
             drafts: event.drafts,
-            ui: event.ui,
             agents: event.agents,
             terminals,
-            selection,
-            expanded: state.expanded.length ? state.expanded : firstProject ? [firstProject] : []
+            ...loaded,
+            ...patch
           }
         }
         case 'project.upsert': {
@@ -302,11 +339,10 @@ export const useApp = create<AppState>((set, get) => ({
         }
         case 'project.removed': {
           const projects = state.projects.filter((p) => p.id !== event.projectId)
-          const expanded = state.expanded.filter((id) => id !== event.projectId)
-          if (state.selection.projectId !== event.projectId) return { projects, expanded }
+          if (state.selection.projectId !== event.projectId) return { projects }
           // La selezione era nel progetto rimosso: si passa alla nuova chat del primo progetto rimasto.
           const selection: Selection = { kind: 'new', projectId: projects[0]?.id ?? null }
-          return { projects, expanded, selection, ...pushHistory(state, selection) }
+          return { projects, selection, ...pushHistory(state, selection) }
         }
         case 'session.upsert': {
           const before = state.sessions[event.session.id]
@@ -353,10 +389,42 @@ export const useApp = create<AppState>((set, get) => ({
       return sameSelection(state.selection, selection) ? patch : { ...patch, ...pushHistory(state, selection) }
     }),
 
-  toggleProject: (projectId) =>
-    set((state) => ({
-      expanded: state.expanded.includes(projectId) ? state.expanded.filter((id) => id !== projectId) : [...state.expanded, projectId]
-    })),
+  createGroup: (projectId, sessionId) =>
+    set((state) => {
+      const id = crypto.randomUUID()
+      return {
+        renamingGroup: id,
+        ...patchUi(state, projectId, (ui) => ({
+          ...ui,
+          groups: [...(ui.groups ?? []), { id, name: t('New group') }],
+          groupOf: sessionId ? { ...ui.groupOf, [sessionId]: id } : ui.groupOf
+        }))
+      }
+    }),
+  renameGroup: (projectId, groupId, name) =>
+    set((state) => patchUi(state, projectId, (ui) => ({ ...ui, groups: ui.groups?.map((g) => (g.id === groupId ? { ...g, name } : g)) }))),
+  startRenameGroup: (groupId) => set({ renamingGroup: groupId }),
+  stopRenameGroup: () => set({ renamingGroup: null }),
+  // Togliere un gruppo non tocca le chat: tornano nella lista del progetto.
+  deleteGroup: (projectId, groupId) =>
+    set((state) =>
+      patchUi(state, projectId, (ui) => ({
+        ...ui,
+        groups: ui.groups?.filter((g) => g.id !== groupId),
+        groupOf: Object.fromEntries(Object.entries(ui.groupOf ?? {}).filter(([, g]) => g !== groupId))
+      }))
+    ),
+  toggleGroup: (projectId, groupId) =>
+    set((state) => patchUi(state, projectId, (ui) => ({ ...ui, groups: ui.groups?.map((g) => (g.id === groupId ? { ...g, collapsed: !g.collapsed } : g)) }))),
+  moveToGroup: (projectId, sessionId, groupId) =>
+    set((state) =>
+      patchUi(state, projectId, (ui) => {
+        const groupOf = { ...ui.groupOf }
+        if (groupId) groupOf[sessionId] = groupId
+        else delete groupOf[sessionId]
+        return { ...ui, groupOf, groups: ui.groups?.map((g) => (g.id === groupId ? { ...g, collapsed: false } : g)) }
+      })
+    ),
 
   setDraft: (key, text) => set((state) => ({ drafts: { ...state.drafts, [key]: text } })),
   setUi: (projectId, uiState) => set((state) => ({ ui: { ...state.ui, [projectId]: uiState } })),
@@ -397,8 +465,7 @@ export const useApp = create<AppState>((set, get) => ({
       const session = state.sessions[sessionId]
       if (!session) return {}
       if (!state.sidebarOpen) writeSidebarOpen(true)
-      const expanded = state.expanded.includes(session.projectId) ? state.expanded : [...state.expanded, session.projectId]
-      return { renaming: sessionId, sidebarOpen: true, expanded }
+      return { renaming: sessionId, sidebarOpen: true }
     }),
 
   stopRename: () => set({ renaming: null }),

@@ -260,7 +260,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
           {loading && !result ? t('Computing diff…') : plural(files.length, '{n} file', '{n} files')}
           {files.length > 0 && (
             <span className="ml-2 font-mono">
-              <span className="text-success">+{added}</span> <span className="text-destructive">−{removed}</span>
+              <span className="text-diff-added">+{added}</span> <span className="text-diff-removed">−{removed}</span>
             </span>
           )}
           {result?.live && <span className="ml-2 text-faint">· {t('so far')}</span>}
@@ -416,8 +416,8 @@ function FileSection(props: FileSectionProps) {
           </span>
           <span className="ml-auto flex shrink-0 gap-1.5 pl-2 font-mono text-xs tabular-nums">
             {file.binary ? <span className="text-faint">{t('binary')}</span> : null}
-            {file.added > 0 && <span className="text-success">+{file.added}</span>}
-            {file.removed > 0 && <span className="text-destructive">−{file.removed}</span>}
+            {file.added > 0 && <span className="text-diff-added">+{file.added}</span>}
+            {file.removed > 0 && <span className="text-diff-removed">−{file.removed}</span>}
           </span>
         </button>
         {file.status !== 'D' && (

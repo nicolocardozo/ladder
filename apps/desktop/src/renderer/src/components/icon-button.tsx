@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { Kbd } from '@/components/ui/kbd'
 
 interface IconButtonProps {
   icon: LucideIcon
@@ -27,7 +28,7 @@ export function IconButton({ icon: Icon, label, shortcut, onClick, className }: 
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {label}
-        {shortcut && <span className="ml-1.5 font-mono text-xs opacity-70">{shortcut}</span>}
+        {shortcut && <Kbd className="ml-1.5">{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>
   )

@@ -150,13 +150,15 @@ Fase 4.5, revisione dell’interfaccia: approvata l’8/11 (da riguardare dopo i
 - **Chi lavora**: segno del provider e modello ovunque compaia una sessione (sidebar su due righe, tab, intestazione, “In attesa”, ⌘K, menu, composer).
 - `PRODUCT.md` e `DESIGN.md` nella radice del repository descrivono personalità, principi e sistema visivo: valgono per ogni modifica all’interfaccia.
 - **Lingua**: l’inglese è la lingua predefinita, l’italiano si sceglie in Settings → Appearance → Language. Il testo nel codice è inglese dentro `t()` e `plural()` (`src/shared/i18n.ts`); le traduzioni italiane stanno in `src/shared/locales/it/`, con la frase inglese come chiave. Anche host e menu seguono la lingua scelta, e i prompt predefiniti per gli agenti esistono in tutte e due.
+- **Stati vuoti e account**: la nuova chat ha il logo solo simbolo, grande e inciso tono su tono; in fondo alla sidebar c'è l'account con cui lavorano gli agenti (email e piani, dall'SDK di Claude Code e dall'App Server di Codex, senza toccare i file delle credenziali).
+- **Navigazione per progetto**: si apre un progetto alla volta e tab, file, terminale e nuova chat lo seguono. Nella sidebar restano le sessioni vive, da leggere o con una bozza e le ultime 5 ferme; il resto è in "All sessions", una seconda sidebar che si apre al passaggio del mouse, con ricerca, filtri e archiviazione multipla. Le chat si raccolgono in gruppi dal loro menu. Il terminale può stare in basso o a destra.
 - **Mappa degli agenti**: quando una sessione avvia sotto-agenti (Agent/Task di Claude Code, `spawnAgent` di Codex) sopra il composer compare il chip “N agents”; apre un albero con stato, durata, modello, token e strumenti di ciascuno. La riga della sessione nella sidebar dice quanti ne stanno lavorando.
 
 Prossime fasi: il passaggio tra agenti (5) e i piani eseguibili (6). L’open source (7) viene dopo un periodo di prova nell’uso quotidiano.
 
 ## Brand e temi
 
-- `brand/themes.json` è la fonte dei token dei dodici temi; `brand/themes.css` è il riferimento per le variabili.
+- `brand/themes.json` è la fonte dei token dei temi; `brand/themes.css` è il riferimento per le variabili.
 - `pnpm --filter @ladder/desktop sync-brand` rigenera dal JSON e dagli SVG in `logo/svg/` i file usati dall’app: `themes.generated.css`, `src/shared/themes.generated.ts` e i tracciati del logo.
 - `node apps/desktop/scripts/check-contrast.mjs` verifica il contrasto di ogni tema: 4,5:1 per il testo, 3:1 per focus, bordi dei controlli e indicatori.
 - Icone in `app-icon/` (la build usa `app-icon/macos/ladder-circuit.icns`), logo in `logo/`, tavole in `reference/`.

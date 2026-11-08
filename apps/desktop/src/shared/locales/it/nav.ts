@@ -1,0 +1,32 @@
+// Navigazione per progetto e pagina "All sessions".
+const it: Record<string, string> = {
+  'All sessions': 'Tutte le sessioni',
+  'All sessions · {n}': 'Tutte le sessioni · {n}',
+  'New chat in {project}': 'Nuova chat in {project}',
+  'Search by title or branch': 'Cerca per titolo o branch',
+  'Search sessions': 'Cerca nelle sessioni',
+  All: 'Tutte',
+  Idle: 'Ferme',
+  'Any agent': 'Tutti gli agenti',
+  'Any branch': 'Tutti i branch',
+  'Select all': 'Seleziona tutte',
+  'Select {title}': 'Seleziona {title}',
+  '{n} selected': '{n} selezionate',
+  'Archive this session?': 'Archiviare questa sessione?',
+  'Archive these {n} sessions?': 'Archiviare queste {n} sessioni?',
+  'Clear selection': 'Togli la selezione',
+  'No sessions match these filters.': 'Nessuna sessione con questi filtri.',
+  'Files of this project': 'File di questo progetto',
+  'worktree {branch}': 'worktree {branch}',
+  search: 'cerca',
+  'New group': 'Nuovo gruppo',
+  'Move to group': 'Sposta nel gruppo',
+  'Remove from group': 'Togli dal gruppo',
+  'Remove group': 'Togli il gruppo',
+  'Group name': 'Nome del gruppo',
+  'Move terminal to the right': 'Sposta il terminale a destra',
+  'Move terminal to the bottom': 'Sposta il terminale in basso',
+  Today: 'Oggi',
+  Yesterday: 'Ieri'
+}
+export default it

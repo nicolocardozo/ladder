@@ -21,8 +21,8 @@ interface DiffViewProps {
   onDeleteComment: (id: string) => void
 }
 
-const ADD_BG = 'bg-[color-mix(in_oklab,var(--ladder-success)_13%,transparent)]'
-const DEL_BG = 'bg-[color-mix(in_oklab,var(--ladder-error)_13%,transparent)]'
+const ADD_BG = 'bg-[color-mix(in_oklab,var(--color-diff-added)_13%,transparent)]'
+const DEL_BG = 'bg-[color-mix(in_oklab,var(--color-diff-removed)_13%,transparent)]'
 
 export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment, onDeleteComment }: DiffViewProps) {
   const hunks = useMemo(() => parsePatch(patch.patch), [patch.patch])
@@ -117,7 +117,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
                 {line.newNo ?? ''}
               </td>
               <td className="py-0 pr-3 pl-1 whitespace-pre">
-                <span aria-hidden className={cn('mr-2 inline-block w-2 select-none', line.kind === 'add' ? 'text-success' : 'text-destructive')}>
+                <span aria-hidden className={cn('mr-2 inline-block w-2 select-none', line.kind === 'add' ? 'text-diff-added' : 'text-diff-removed')}>
                   {sign(line)}
                 </span>
                 <span className="sr-only">{line.kind === 'add' ? `${t('added:')} ` : line.kind === 'del' ? `${t('removed:')} ` : ''}</span>
@@ -142,7 +142,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
             <td className={cn('w-1/2 py-0 pr-2 pl-1 whitespace-pre', bg(line), which === 'left' && 'border-r border-border')}>
               {line && (
                 <>
-                  <span aria-hidden className={cn('mr-1.5 inline-block w-2 select-none', line.kind === 'add' ? 'text-success' : 'text-destructive')}>
+                  <span aria-hidden className={cn('mr-1.5 inline-block w-2 select-none', line.kind === 'add' ? 'text-diff-added' : 'text-diff-removed')}>
                     {line.kind === 'context' ? ' ' : sign(line)}
                   </span>
                   <CodeText text={line.text} tokens={tokensFor(line)} />

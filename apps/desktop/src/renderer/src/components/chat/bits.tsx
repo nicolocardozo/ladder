@@ -72,6 +72,4 @@ export function NewDivider() {
   )
 }
 
-export function Kbd({ children, className }: { children: string; className?: string }) {
-  return <kbd className={cn('font-mono text-xs font-medium opacity-65', className)}>{children}</kbd>
-}
+export { Kbd } from '@/components/ui/kbd'

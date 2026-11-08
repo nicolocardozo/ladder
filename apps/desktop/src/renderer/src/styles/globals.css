@@ -79,6 +79,8 @@
   --color-attention: var(--attention);
   --color-attention-foreground: var(--attention-foreground);
   --color-success: var(--success);
+  --color-diff-added: var(--ladder-syntax-added, var(--ladder-success));
+  --color-diff-removed: var(--ladder-syntax-removed, var(--ladder-error));
   --color-composer: var(--composer);
   --color-running: var(--running);
   --color-unread: var(--unread);
@@ -151,5 +153,46 @@
     line-height: 1.45;
     overflow: hidden;
     cursor: default;
+  }
+}
+
+/* Logo inciso negli stati vuoti: tono su tono, ombra interna in alto e filo chiaro sotto. Tutto deriva dal fondo del tema. */
+.ladder-engraved {
+  fill: color-mix(in oklab, var(--background) 91%, black);
+  filter: drop-shadow(0 1px 0 color-mix(in oklab, var(--background) 91%, white));
+}
+.ladder-engraved-shade {
+  flood-color: color-mix(in oklab, var(--background) 55%, black);
+}
+:root:not(.dark) .ladder-engraved {
+  fill: color-mix(in oklab, var(--background) 95%, black);
+  filter: drop-shadow(0 1px 0 color-mix(in oklab, var(--background) 50%, white));
+}
+:root:not(.dark) .ladder-engraved-shade {
+  flood-color: color-mix(in oklab, var(--background) 82%, black);
+}
+
+/* Tasti delle scorciatoie: il carattere di sistema disegna ⌘ ⇧ ⌥ ⌃ alla loro grandezza. */
+.kbd-key {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+/* Titolo troppo lungo al passaggio del mouse: pausa, scorre fino alla fine, pausa e torna. */
+@keyframes marquee-title {
+  0%,
+  14% {
+    transform: translateX(0);
+  }
+  86%,
+  100% {
+    transform: translateX(var(--marquee-shift));
+  }
+}
+.marquee-run {
+  animation: marquee-title var(--marquee-time) linear infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-run {
+    animation: none;
   }
 }

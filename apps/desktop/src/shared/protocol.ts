@@ -252,6 +252,8 @@ export interface AgentStatus {
   version: string | null
   /** Account in uso, per esempio "Claude Ultra" o "ChatGPT Plus". */
   account: string | null
+  /** Email dell'account, quando l'agente la espone: si vede in basso nella sidebar. */
+  email?: string | null
   models: { id: string; label: string }[]
   error: string | null
   /** Limiti d'uso leggibili, quando l'agente li espone: "14% della finestra di 5 h · 11% settimanale". */
@@ -272,13 +274,15 @@ export interface ProjectUiState {
   scroll: Record<string, { itemId: string; offset: number }>
   /** Ispettore a destra (Modifiche, File, Cronologia) e pannello terminale in basso. */
   inspector?: { open: boolean; tab: InspectorTab }
-  terminal?: { open: boolean; height: number; active: string | null }
+  terminal?: { open: boolean; height: number; active: string | null; side?: 'bottom' | 'right'; width?: number }
   /** Editor esterno preferito per il progetto. */
   editor?: EditorId
   /** Ultima volta che hai guardato il progetto con la finestra attiva: serve a "Mentre eri via". */
   seenAt?: number
-  /** Gruppo "Concluse" aperto nella sidebar. */
-  concludedOpen?: boolean
+  /** Gruppi di chat creati da te, nell'ordine in cui si vedono nella sidebar. */
+  groups?: { id: string; name: string; collapsed?: boolean }[]
+  /** Gruppo di ogni sessione raggruppata. */
+  groupOf?: Record<string, string>
   /** Ultimo agente usato in chat nel progetto: la nuova chat lo propone. */
   lastAgent?: AgentId
 }

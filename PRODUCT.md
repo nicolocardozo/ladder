@@ -37,7 +37,7 @@ Riferimento principale: la finestra agenti di Cursor (struttura scura ed essenzi
 
 ## Accessibility & Inclusion
 
-- Contrasto WCAG AA su tutti i dodici temi: 4,5:1 per il testo, 3:1 per bordi dei controlli, focus e indicatori (verificato da `apps/desktop/scripts/check-contrast.mjs`).
+- Contrasto WCAG AA su tutti i temi: 4,5:1 per il testo, 3:1 per bordi dei controlli, focus e indicatori (verificato da `apps/desktop/scripts/check-contrast.mjs`).
 - Nessun testo sotto i 12 px.
 - Ogni stato distinguibile in scala di grigi (forma, icona, etichetta), anche nei temi Mono.
 - Movimento ridotto rispettato: animazioni brevi e sostituite da stati statici con `prefers-reduced-motion`.

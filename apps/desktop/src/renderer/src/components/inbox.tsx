@@ -13,6 +13,7 @@ import { request } from '@/lib/host-client'
 import { sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { isLiveSession, useApp } from '@/store/app-store'
+import { Kbd } from '@/components/ui/kbd'
 
 export interface InboxGroups {
   waiting: SessionSummary[]
@@ -75,7 +76,10 @@ export function InboxPanel() {
                 .filter(Boolean)
                 .join(' · ')}
         </span>
-        <kbd className="ml-auto font-mono text-xs text-faint">{t('⌘⇧A next')}</kbd>
+        <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Kbd>⌘⇧A</Kbd>
+          {t('next')}
+        </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {total === 0 && (

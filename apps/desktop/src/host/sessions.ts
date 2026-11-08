@@ -43,7 +43,7 @@ import { whichInShell, type AgentSession, type SessionOptions } from './agents/c
 import { CodexSession } from './codex/adapter'
 import { codexVersion, findCodexCli, probeCodex } from './codex/environment'
 import { patchText, reviewPrompt, ReviewRun } from './review'
-import { claudeVersion, findClaudeCli } from './claude/environment'
+import { claudeVersion, findClaudeCli, probeClaude } from './claude/environment'
 import { listTree, readText, RootWatcher } from './files'
 import { aheadBehind, changedFiles, createCheckpoint, dirtyCount, ensureExcluded, fetchRef, git, listBranches, listFiles, mergeConflicts, removeWorktree, repoInfo, resolveCommit, unpushedCount } from './git'
 import { defaultBranch, ghState, listGithubIssues, listGithubPrs, prForBranch, type PrDetails } from './github'
@@ -175,6 +175,7 @@ export class Host {
       name: 'Claude Code',
       kind: 'native',
       account: claude.account ?? null,
+      email: claude.email ?? null,
       models: claude.models ?? [],
       available: Boolean(claudeCli),
       version: claudeVer,
@@ -187,6 +188,7 @@ export class Host {
       name: 'Codex',
       kind: 'native',
       account: codex.account ?? null,
+      email: codex.email ?? null,
       models: codex.models ?? [],
       limits: codex.limits ?? null,
       available: Boolean(codexCli),
@@ -194,6 +196,12 @@ export class Host {
       path: codexCli,
       error: codexCli ? null : t('Codex not found. Install the CLI (npm i -g @openai/codex, or the Codex app) and reopen Ladder.')
     })
+    // Alla prima apertura: chi sei per Claude Code, senza aspettare la prima sessione. Se non risponde lo saprà la sessione.
+    if (claudeCli && !claude.email) {
+      void probeClaude(claudeCli)
+        .then((info) => this.updateAgent('claude-code', info))
+        .catch(() => undefined)
+    }
     // Account, modelli e limiti di Codex senza aspettare la prima sessione (nessun turno, nessuna quota).
     if (codexCli) {
       void probeCodex(codexCli, '0.0.0')
@@ -263,13 +271,14 @@ export class Host {
       ...current,
       ...patch,
       account: patch.account ?? current.account,
+      email: patch.email ?? current.email ?? null,
       models: patch.models?.length ? patch.models : current.models,
       limits: patch.limits ?? current.limits ?? null
     }
     this.agents.set(agent, next)
     this.db
       .prepare(`insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value`)
-      .run(`agent:${agent}`, JSON.stringify({ account: next.account, models: next.models, limits: next.limits ?? null }))
+      .run(`agent:${agent}`, JSON.stringify({ account: next.account, email: next.email ?? null, models: next.models, limits: next.limits ?? null }))
     this.broadcast({ type: 'agent.status', status: next })
   }
 
@@ -1066,9 +1075,9 @@ export class Host {
         const runtime = this.runtimes.get(sessionId)
         this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime?.turnId ?? 'system', at: Date.now(), tone, text })
       },
-      account: ({ account, models, limits }) => {
+      account: ({ account, email, models, limits }) => {
         const agent = this.rows.get(sessionId)?.agent
-        if (agent) this.updateAgent(agent, { account, models, limits })
+        if (agent) this.updateAgent(agent, { account, email, models, limits })
       },
       subagent: (update) => {
         if (this.subagents.update(sessionId, update)) this.emitSubagents(sessionId)

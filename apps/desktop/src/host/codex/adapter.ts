@@ -6,7 +6,7 @@ import { relative } from 'node:path'
 import { t } from '@shared/i18n'
 import type { Attachment, PermissionLevel, Question, RequestOption, RequestResponse } from '@shared/protocol'
 import { agentEnv, clip, displayCommand, firstLine, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
-import { accountLabel, CODEX_STRIP_ENV, describeLimits, parseModels, type CodexModel } from './environment'
+import { accountEmail, accountLabel, CODEX_STRIP_ENV, describeLimits, parseModels, type CodexModel } from './environment'
 import { CodexRpc, type ServerReply, type ServerRequest } from './rpc'
 
 export interface CodexOptions extends SessionOptions {
@@ -143,7 +143,7 @@ export class CodexSession implements AgentSession {
       } catch {
         limits = null
       }
-      this.events.account({ account: accountLabel(account.account), models: this.models.map((m) => ({ id: m.id, label: m.label })), limits })
+      this.events.account({ account: accountLabel(account.account), email: accountEmail(account.account), models: this.models.map((m) => ({ id: m.id, label: m.label })), limits })
     } catch {
       // Senza account e modelli la sessione funziona comunque.
     }

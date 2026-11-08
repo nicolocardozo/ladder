@@ -82,7 +82,7 @@ const it: Record<string, string> = {
   'nothing to do': 'niente da fare',
   '{n} waiting for you': '{n} ti aspettano',
   '{n} with errors': '{n} con errori',
-  '⌘⇧A next': '⌘⇧A prossima',
+  next: 'prossima',
   'No sessions are waiting for you. Agent requests from all projects show up here.':
     'Nessuna sessione ti aspetta. Le richieste degli agenti di tutti i progetti compaiono qui.',
   'Need you': 'Richiedono te',

@@ -16,6 +16,8 @@ const header = '/* File generato da scripts/sync-brand.mjs a partire da brand/th
 // ── CSS dei temi
 function themeBlock(selector, theme, id) {
   const vars = Object.entries(theme.tokens).map(([k, v]) => `  --ladder-${kebab(k)}: ${v};`)
+  // Colori del codice propri del tema (nei Mono): senza, codice e diff derivano da accento e stati.
+  for (const [k, v] of Object.entries(theme.syntax ?? {})) if (k !== 'terminal') vars.push(`  --ladder-syntax-${kebab(k)}: ${v};`)
   // Colore del marchio in UI: bianco sui temi scuri, iris Circuit sui chiari, nero su Mono Light.
   vars.push(`  --ladder-brand-ink: ${theme.appearance === 'dark' ? source.brand.white : id === 'mono-light' ? source.brand.black : source.brand.primary};`)
   // Testo sopra il colore "in attesa": scuro sui temi scuri (dove l'attesa è chiara), bianco sui chiari.
@@ -28,7 +30,7 @@ for (const [id, theme] of Object.entries(source.themes)) blocks.push(themeBlock(
 writeFileSync(join(app, 'src/renderer/src/styles/themes.generated.css'), header + '\n' + blocks.join('\n\n') + '\n')
 
 // ── Elenco dei temi per TypeScript
-const themes = Object.entries(source.themes).map(([id, t]) => ({ id, name: t.name, appearance: t.appearance, palette: t.palette, tokens: t.tokens }))
+const themes = Object.entries(source.themes).map(([id, t]) => ({ id, name: t.name, appearance: t.appearance, palette: t.palette, tokens: t.tokens, ...(t.syntax ? { syntax: t.syntax } : {}) }))
 const ts = `${header.replace('/*', '//').replace(' */', '')}
 export type ThemeId = ${themes.map((t) => `'${t.id}'`).join(' | ')}
 
@@ -38,6 +40,7 @@ export interface ThemeInfo {
   appearance: 'light' | 'dark'
   palette: { primary: string; secondary: string; highlight: string }
   tokens: Record<${Object.keys(themes[0].tokens).map((k) => `'${k}'`).join(' | ')}, string>
+  syntax?: { keyword: string; string: string; function: string; constant: string; added: string; removed: string; terminal: { red: string; green: string; yellow: string; blue: string; magenta: string; cyan: string } }
 }
 
 export const DEFAULT_THEME: ThemeId = '${source.defaultTheme}'

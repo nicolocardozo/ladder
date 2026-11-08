@@ -13,7 +13,7 @@ import {
 import { localeTag, t } from '@shared/i18n'
 import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, ToolKind } from '@shared/protocol'
 import type { SubagentUpdate } from '../subagents'
-import { claudeEnv } from './environment'
+import { claudeAccountLabel, claudeEnv } from './environment'
 
 export const PERMISSION_MODE: Record<PermissionLevel, PermissionMode> = {
   plan: 'plan',
@@ -88,7 +88,7 @@ export interface AdapterEvents {
   request(request: UserRequest, signal: AbortSignal): Promise<RequestResponse>
   turnEnd(result: TurnResult): void
   notice(tone: 'info' | 'error', text: string): void
-  account(info: { account: string | null; models: { id: string; label: string }[]; limits?: string | null }): void
+  account(info: { account: string | null; email?: string | null; models: { id: string; label: string }[]; limits?: string | null }): void
   /** Sotto-agenti avviati dalla sessione: aggiornamenti parziali, uniti dall'host. */
   subagent(update: SubagentUpdate): void
   exit(error: string | null): void
@@ -299,10 +299,9 @@ export class ClaudeSession {
     if (!this.q) return
     try {
       const [account, models] = await Promise.all([this.q.accountInfo(), this.q.supportedModels()])
-      const plan = (account as Record<string, unknown>).subscriptionType
-      const keySource = (account as Record<string, unknown>).apiKeySource
       this.events.account({
-        account: typeof plan === 'string' ? plan : keySource && keySource !== 'none' ? t('API key') : null,
+        account: claudeAccountLabel(account),
+        email: account.email ?? null,
         models: models.map((m) => ({ id: m.value, label: m.displayName }))
       })
     } catch {

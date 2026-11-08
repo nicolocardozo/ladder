@@ -1,6 +1,7 @@
 // Ispettore a destra: Modifiche (⌘⌥1), File (⌘⌥2), Cronologia (⌘⌥3), Merge (⌘⌥4) sulla cartella della sessione.
 import { useEffect, useState, type ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { FolderOpen, FolderSearch, X } from 'lucide-react'
+import { IconButton } from '@/components/icon-button'
 import type { ChatItem, InspectorTab, SessionSummary } from '@shared/protocol'
 import { send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
@@ -44,6 +45,10 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
   const items = useApp((s) => (session ? (s.items[session.id] ?? NO_ITEMS) : NO_ITEMS))
   const openRequest = useApp((s) => (s.inspectorRequest?.projectId === projectId ? s.inspectorRequest : null))
   const [width, setWidth] = useState(readWidth)
+  // Tutte le schede guardano la stessa cartella: il checkout del progetto o il worktree della sessione.
+  const projectName = useApp((s) => s.projects.find((p) => p.id === projectId)?.name ?? null)
+  const projectBranch = useApp((s) => s.projects.find((p) => p.id === projectId)?.branch ?? null)
+  const where = session?.worktree ? t('worktree {branch}', { branch: session.worktree.branch }) : (session?.branch ?? projectBranch)
 
   // L'host osserva la cartella finché l'ispettore è aperto: albero, stato e diff "attuali" si aggiornano da soli.
   useEffect(() => {
@@ -114,6 +119,14 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
         >
           <X className="size-3.5" />
         </button>
+      </div>
+      <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border pr-1 pl-3 text-xs text-muted-foreground" title={root}>
+        <FolderOpen aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
+        <span className="min-w-0 truncate">
+          <span className="font-medium text-foreground">{projectName}</span>
+          {where ? ` · ${where}` : ''}
+        </span>
+        <IconButton icon={FolderSearch} label={t('Show in Finder')} onClick={() => void window.ladder?.reveal(root)} className="ml-auto size-6 hover:bg-accent" />
       </div>
       {body}
     </aside>

@@ -11,6 +11,7 @@ import { Command, CommandEmpty, CommandItem, CommandList } from '@/components/ui
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { request } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
+import { Kbd } from '@/components/ui/kbd'
 
 /** Cartella di lavoro della selezione: il worktree della sessione o il progetto. */
 export function useSelectionRoot(): { projectId: string | null; root: string | null } {
@@ -113,13 +114,13 @@ function QuickOpenBody({ onClose }: { onClose: () => void }) {
       </CommandList>
       <div className="flex h-9 items-center gap-3 border-t border-border px-4 text-xs text-faint">
         <span>
-          <kbd className="font-mono">↵</kbd> {t('open in viewer')}
+          <Kbd>↵</Kbd> {t('open in viewer')}
         </span>
         <span>
-          <kbd className="font-mono">⌥↵</kbd> {t('open in editor')}
+          <Kbd>⌥↵</Kbd> {t('open in editor')}
         </span>
         <span className="ml-auto">
-          <kbd className="font-mono">esc</kbd> {t('to close')}
+          <Kbd>esc</Kbd> {t('to close')}
         </span>
       </div>
     </Command>

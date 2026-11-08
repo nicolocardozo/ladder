@@ -3,12 +3,12 @@ import {
   Check,
   ChevronDown,
   ExternalLink,
-  FolderGit2,
+  FolderOpen,
+  FolderTree,
   FolderPlus,
   GitBranch,
   GitFork,
   HardDrive,
-  PanelRight,
   Play,
   RotateCcw,
   SquareTerminal,
@@ -22,7 +22,7 @@ import { AgentMark, modelLabel } from '@/components/agent-mark'
 import { AgentMapChip } from '@/components/agent-map'
 import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
-import { LadderLockup } from '@/components/brand/logo'
+import { LadderEngraved } from '@/components/brand/logo'
 import { Composer } from '@/components/composer'
 import { Inspector } from '@/components/inspector/inspector'
 import { EDITOR_NAME, openInEditor } from '@/components/inspector/open-file'
@@ -45,6 +45,7 @@ import { cn } from '@/lib/utils'
 import { useSettings } from '@/hooks/use-theme'
 import { useApp } from '@/store/app-store'
 import { t } from '@shared/i18n'
+import { Kbd } from '@/components/ui/kbd'
 
 const EMPTY_ITEMS: ChatItem[] = []
 
@@ -96,7 +97,7 @@ function BarIcon({ label, shortcut, active, onClick, children }: { label: string
         {children}
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        {label} <span className="ml-1 font-mono text-xs opacity-70">{shortcut}</span>
+        {label} <Kbd className="ml-1">{shortcut}</Kbd>
       </TooltipContent>
     </Tooltip>
   )
@@ -187,7 +188,7 @@ function EditorButton({ project, root }: { project: Project; root: string }) {
 
 function TopBar({ children, project, session, root }: { children?: ReactNode; project: Project | null; session: SessionSummary | null; root: string | null }) {
   const sidebarOpen = useApp((s) => s.sidebarOpen)
-  const inspectorOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.inspector?.open) : false))
+  const filesOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.inspector?.open) && s.ui[project.id]?.inspector?.tab === 'files' : false))
   const terminalOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.terminal?.open) : false))
   const toggleInspector = useApp((s) => s.toggleInspector)
   const setPanel = useApp((s) => s.setTerminalPanel)
@@ -195,6 +196,19 @@ function TopBar({ children, project, session, root }: { children?: ReactNode; pr
     // Con la sidebar nascosta i semafori di macOS stanno sopra questa barra: 82px di margine, come nella sidebar.
     <div className={`drag flex h-11 shrink-0 items-center gap-1 pr-2 ${sidebarOpen ? 'pl-3' : 'pl-[82px]'}`}>
       {!sidebarOpen && <ShowSidebarButton />}
+      {project && (
+        // Dove sei: anche a sidebar chiusa si legge il progetto a cui appartengono le tab.
+        <div className="mr-1 flex max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 text-sm" title={root ?? project.path}>
+          <FolderOpen aria-hidden className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+          <span className="truncate font-medium">{project.name}</span>
+          {(session?.branch ?? project.branch) && (
+            <>
+              <span aria-hidden className="text-faint">/</span>
+              <span className="truncate text-muted-foreground">{session?.branch ?? project.branch}</span>
+            </>
+          )}
+        </div>
+      )}
       <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
       {project && (
         <>
@@ -205,9 +219,22 @@ function TopBar({ children, project, session, root }: { children?: ReactNode; pr
             }}>
             <SquareTerminal className="size-4" strokeWidth={1.75} />
           </BarIcon>
-          <BarIcon label={inspectorOpen ? t('Close inspector') : t('Changes, files and history')} shortcut="⌘⌥1–4" active={inspectorOpen} onClick={() => toggleInspector(project.id)}>
-            <PanelRight className="size-4" strokeWidth={1.75} />
-          </BarIcon>
+          <Tooltip>
+            <TooltipTrigger
+              aria-pressed={filesOpen}
+              onClick={() => toggleInspector(project.id, 'files')}
+              className={cn(
+                'no-drag flex h-7 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+                filesOpen && 'bg-accent text-foreground'
+              )}
+            >
+              <FolderTree aria-hidden className="size-4" strokeWidth={1.75} />
+              {t('Files')}
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {t('Files of this project')} <Kbd className="ml-1">⌘⌥2</Kbd>
+            </TooltipContent>
+          </Tooltip>
           {root && <EditorButton project={project} root={root} />}
         </>
       )}
@@ -219,12 +246,15 @@ function TopBar({ children, project, session, root }: { children?: ReactNode; pr
 function Workspace({ project, session, root, composerKey, children }: { project: Project; session: SessionSummary | null; root: string; composerKey: string | null; children: ReactNode }) {
   const inspectorOpen = useApp((s) => Boolean(s.ui[project.id]?.inspector?.open))
   const terminalOpen = useApp((s) => Boolean(s.ui[project.id]?.terminal?.open))
+  const terminalRight = useApp((s) => s.ui[project.id]?.terminal?.side === 'right')
+  const terminal = terminalOpen ? <TerminalPanel projectId={project.id} sessionId={session?.id ?? null} cwd={root} composerKey={composerKey} /> : null
   return (
     <main className="flex min-w-0 flex-1 bg-background">
       <div className="flex min-w-0 flex-1 flex-col">
         {children}
-        {terminalOpen && <TerminalPanel projectId={project.id} sessionId={session?.id ?? null} cwd={root} composerKey={composerKey} />}
+        {!terminalRight && terminal}
       </div>
+      {terminalRight && terminal}
       {inspectorOpen && <Inspector projectId={project.id} root={root} isGit={project.isGit} session={session} composerKey={composerKey} />}
     </main>
   )
@@ -408,30 +438,8 @@ export function NewChat({ projectId }: { projectId: string | null }) {
       </TopBar>
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-8 pb-[12vh]">
         <div className="w-full max-w-[680px]">
-          <LadderLockup className="mb-6 ml-1 h-5 w-auto" title="Ladder" />
+          <LadderEngraved className="mx-auto mb-12 h-32 w-auto" />
           <div className="mb-2 flex flex-wrap items-center gap-0.5 pl-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger className={contextButton}>
-                <FolderGit2 className="size-3.5" />
-                {project.name}
-                <ChevronDown className="size-3 text-faint" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-64">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>{t('Project')}</DropdownMenuLabel>
-                  {projects.map((p) => (
-                    <DropdownMenuItem key={p.id} onClick={() => select({ kind: 'new', projectId: p.id })}>
-                      <Check className={p.id === project.id ? 'size-3.5' : 'size-3.5 opacity-0'} />
-                      {p.name}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuItem onClick={() => void addProjectFromDialog()}>
-                    <FolderPlus className="size-3.5" />
-                    {t('Add project…')}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
             {project.branch && (
               <span className={contextButton}>
                 <GitBranch className="size-3.5" />
@@ -548,8 +556,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
           )}
           {error && <p className="mt-2 pl-1 text-sm text-destructive">{error}</p>}
           <p className="mt-3 pl-1 text-xs text-faint">
-            <kbd className="font-mono">⌘N</kbd> {t('new chat')} · <kbd className="font-mono">⌘P</kbd> {t('open file')} · <kbd className="font-mono">⌃`</kbd> {t('terminal')} ·{' '}
-            <kbd className="font-mono">⌘⇧N</kbd> {t('from issue or PR')} · <kbd className="font-mono">⌘⌥2</kbd> {t('files')}
+            <Kbd>⌘N</Kbd> {t('new chat')} · <Kbd>⌘P</Kbd> {t('open file')} · <Kbd>⌘K</Kbd> {t('search')}
             {launch.mode === 'chat' && agentStatus.account && <> · {t('{agent} as {account}', { agent: agentStatus.name, account: agentStatus.account })}</>}
             {launch.mode === 'chat' && agentStatus.version && <> · CLI {agentStatus.version}</>}
             {launch.mode === 'chat' && agentStatus.limits && <> · {agentStatus.limits}</>}
@@ -729,7 +736,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const sessionModel = modelLabel(agentStatus, session?.model ?? null)
   if (!session || !project) return <main className="flex-1 bg-background" />
   const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting' || session.run === 'queued'
-  const branch = session.worktree?.branch ?? project.branch
+  const headerNotes = [session.worktree ? 'worktree' : null, session.run !== 'waiting' && isTerminal ? session.activity : null, session.estimated ? t('estimated status') : null].filter(Boolean).join(' · ')
 
   return (
     <Workspace project={project} session={session} root={root} composerKey={isTerminal ? null : sessionId}>
@@ -741,14 +748,12 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         {isTerminal ? <SquareTerminal aria-hidden className="size-3.5 shrink-0" /> : <AgentMark agent={session.agent} size={14} />}
         <span className="shrink-0 font-medium text-foreground">{isTerminal ? t('{command} in the terminal', { command: session.command ?? 'claude' }) : agentStatus.name}</span>
         {!isTerminal && sessionModel && <span className="shrink-0">{sessionModel}</span>}
-        <span aria-hidden className="text-faint">·</span>
-        <span className="min-w-0 truncate">
-          {project.name}
-          {branch ? ` · ${branch}` : ''}
-          {session.worktree ? ' · worktree' : ''}
-          {session.run !== 'waiting' && session.activity && isTerminal ? ` · ${session.activity}` : ''}
-          {session.estimated ? ` · ${t('estimated status')}` : ''}
-        </span>
+        {headerNotes && (
+          <>
+            <span aria-hidden className="text-faint">·</span>
+            <span className="min-w-0 truncate">{headerNotes}</span>
+          </>
+        )}
         {session.run === 'waiting' && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
       </div>
       {isTerminal ? (
