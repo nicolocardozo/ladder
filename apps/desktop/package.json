@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "node scripts/postinstall.mjs",
     "dist": "electron-vite build && electron-builder --mac --dir",
+    "release:mac": "node scripts/release-mac.mjs",
     "sync-brand": "node scripts/sync-brand.mjs"
   },
   "devDependencies": {

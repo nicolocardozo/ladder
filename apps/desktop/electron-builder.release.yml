@@ -1,0 +1,13 @@
+# Build da distribuire: firmata con Developer ID e notarizzata. Si lancia con `pnpm release:mac`, che trova il certificato.
+extends: electron-builder.yml
+directories:
+  output: dist/release
+  buildResources: resources
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  notarize: true
