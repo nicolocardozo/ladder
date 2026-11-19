@@ -90,14 +90,14 @@ export function parseModels(data: unknown): CodexModel[] {
 }
 
 /** Account e modelli, con un app-server di breve durata: non consuma quota (nessun turno). */
-export async function probeCodex(cli: string, version: string): Promise<Pick<AgentStatus, 'account' | 'email' | 'models' | 'limits' | 'usage'>> {
+export async function probeCodex(cli: string, version: string): Promise<Pick<AgentStatus, 'account' | 'email' | 'models' | 'limits' | 'usage' | 'usageAt'>> {
   const rpc = new CodexRpc(cli, await agentEnv(CODEX_STRIP_ENV), () => undefined, async () => ({ error: { code: -32601, message: t('unexpected') } }))
   try {
     await rpc.initialize(version)
     const account = await rpc.request<{ account: Record<string, unknown> | null }>('account/read', { refreshToken: false }, 15000)
     const models = parseModels(await rpc.request('model/list', {}, 15000))
     let limits: string | null = null
-    let usage: UsageWindow[] = []
+    let usage: UsageWindow[] | undefined
     try {
       const data = await rpc.request('account/rateLimits/read', { excludeResetCreditDetails: true }, 15000)
       limits = describeLimits(data)
@@ -105,7 +105,7 @@ export async function probeCodex(cli: string, version: string): Promise<Pick<Age
     } catch {
       limits = null
     }
-    return { usage, account: accountLabel(account.account), email: accountEmail(account.account), models: models.map((m) => ({ id: m.id, label: m.label, efforts: m.efforts as NonNullable<AgentStatus['models'][number]['efforts']> })), limits }
+    return { ...(usage ? { usage, usageAt: Date.now() } : {}), account: accountLabel(account.account), email: accountEmail(account.account), models: models.map((m) => ({ id: m.id, label: m.label, efforts: m.efforts as NonNullable<AgentStatus['models'][number]['efforts']> })), limits }
   } finally {
     rpc.kill()
   }

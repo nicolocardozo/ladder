@@ -177,6 +177,7 @@ export class Host {
       account: claude.account ?? null,
       email: claude.email ?? null,
       usage: claude.usage ?? [],
+      usageAt: claude.usageAt ?? null,
       models: claude.models ?? [],
       available: Boolean(claudeCli),
       version: claudeVer,
@@ -191,6 +192,7 @@ export class Host {
       account: codex.account ?? null,
       email: codex.email ?? null,
       usage: codex.usage ?? [],
+      usageAt: codex.usageAt ?? null,
       models: codex.models ?? [],
       limits: codex.limits ?? null,
       available: Boolean(codexCli),
@@ -198,8 +200,8 @@ export class Host {
       path: codexCli,
       error: codexCli ? null : t('Codex not found. Install the CLI (npm i -g @openai/codex, or the Codex app) and reopen Ladder.')
     })
-    // Alla prima apertura: chi sei per Claude Code, senza aspettare la prima sessione. Se non risponde lo saprà la sessione.
-    if (claudeCli && !claude.email) {
+    // All'avvio: account, modelli e limiti di Claude Code, senza aspettare la prima sessione. Se non risponde lo saprà la sessione.
+    if (claudeCli) {
       void probeClaude(claudeCli)
         .then((info) => this.updateAgent('claude-code', info))
         .catch(() => undefined)
@@ -280,8 +282,24 @@ export class Host {
     this.agents.set(agent, next)
     this.db
       .prepare(`insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value`)
-      .run(`agent:${agent}`, JSON.stringify({ account: next.account, email: next.email ?? null, models: next.models, limits: next.limits ?? null, usage: next.usage ?? [] }))
+      .run(`agent:${agent}`, JSON.stringify({ account: next.account, email: next.email ?? null, models: next.models, limits: next.limits ?? null, usage: next.usage ?? [], usageAt: next.usageAt ?? null }))
     this.broadcast({ type: 'agent.status', status: next })
+  }
+
+  private usageRefresh = new Map<string, Promise<AgentStatus | null>>()
+
+  /** Limiti d'uso letti di nuovo, con un processo di breve durata e nessun turno. Due clic ravvicinati condividono la stessa lettura. */
+  private refreshUsage(agent: string): Promise<AgentStatus | null> {
+    const running = this.usageRefresh.get(agent)
+    if (running) return running
+    const read = async (): Promise<AgentStatus | null> => {
+      if (agent === 'claude-code' && this.claudeCli) this.updateAgent(agent, await probeClaude(this.claudeCli))
+      else if (agent === 'codex' && this.codexCli) this.updateAgent(agent, await probeCodex(this.codexCli, '0.0.0'))
+      return this.agents.get(agent) ?? null
+    }
+    const promise = read().finally(() => this.usageRefresh.delete(agent))
+    this.usageRefresh.set(agent, promise)
+    return promise
   }
 
   private agentName(agent: string): string {
@@ -581,6 +599,8 @@ export class Host {
       case 'agents.remove':
         this.removeAcpAgent(command.id)
         return null
+      case 'agents.usage':
+        return this.refreshUsage(command.agent)
       case 'review.start':
         return this.startReview(command.sessionId, command.agent, command.scope)
       case 'review.cancel':
@@ -1095,7 +1115,7 @@ export class Host {
         if (!agent || windows.length === 0) return
         const merged = new Map((this.agents.get(agent)?.usage ?? []).map((w) => [w.key, w]))
         for (const window of windows) merged.set(window.key, window)
-        this.updateAgent(agent, { usage: [...merged.values()] })
+        this.updateAgent(agent, { usage: [...merged.values()], usageAt: Date.now() })
       },
       subagent: (update) => {
         if (this.subagents.update(sessionId, update)) this.emitSubagents(sessionId)

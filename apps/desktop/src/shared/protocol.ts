@@ -254,6 +254,12 @@ export interface UsageWindow {
   /** Secondi Unix. */
   resetsAt: number | null
   state: 'ok' | 'warning' | 'limited'
+  /** Nome già pronto quando la finestra non è una durata, per esempio un modello o l'uso extra. */
+  label?: string
+  /** Testo sotto la barra al posto del reset, per esempio "12,40 € di 50 €". */
+  detail?: string
+  /** Da dove viene il consumo della finestra, in punti percentuali del limite: "Claude Code 34", "Chat 2". */
+  breakdown?: { label: string; percent: number }[]
 }
 
 export interface AgentStatus {
@@ -271,6 +277,8 @@ export interface AgentStatus {
   error: string | null
   /** Finestre dei limiti, aggiornate da ogni sessione. */
   usage?: UsageWindow[]
+  /** Quando i limiti sono stati letti l'ultima volta, in millisecondi. */
+  usageAt?: number | null
   /** Limiti d'uso leggibili, quando l'agente li espone: "14% della finestra di 5 h · 11% settimanale". */
   limits?: string | null
   /** Percorso della CLI usata. */
@@ -579,6 +587,8 @@ export type HostCommand =
   | { type: 'agents.registry' }
   | { type: 'agents.add'; spec: AcpAgentSpec }
   | { type: 'agents.remove'; id: string }
+  /** Rilegge i limiti d'uso del piano, senza aprire una sessione né consumare quota. */
+  | { type: 'agents.usage'; agent: AgentId }
   /** Review in sola lettura delle modifiche di una sessione, chiesta a un altro agente. Torna come commenti. */
   | { type: 'review.start'; sessionId: string; agent: AgentId; scope: DiffScope }
   | { type: 'review.cancel'; reviewId: string }

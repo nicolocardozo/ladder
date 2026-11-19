@@ -35,7 +35,7 @@ function CardFrame({ item, label, icon, frameRef, onKeyDown, children }: FramePr
       aria-label={`${label}: ${item.command ?? item.path ?? item.title}`}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="grid min-w-0 gap-2.5 rounded-xl border border-attention/45 bg-[color-mix(in_oklab,var(--card),var(--attention)_4%)] px-4 py-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 rounded-xl border border-attention/45 bg-[color-mix(in_oklab,var(--card),var(--attention)_4%)] px-4 py-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
     >
       <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-attention">
         {icon}
@@ -173,11 +173,12 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
       frameRef={frameRef}
       onKeyDown={onKeyDown}
     >
-      {item.title && item.title !== item.command ? (
-        <p className="text-sm leading-[1.45] font-medium text-foreground">{item.title}</p>
+      {/* "Runs <comando…>" ripete il comando che segue: il titolo si mostra solo se dice altro. */}
+      {item.title && !(item.command && item.title.replace(/…$/, '').includes(item.command.slice(0, 24))) ? (
+        <p className="text-sm leading-[1.45] font-medium [overflow-wrap:anywhere] text-foreground">{item.title}</p>
       ) : null}
       {item.command ? (
-        <pre className="m-0 rounded-[7px] border border-border bg-[var(--chat-code-bg)] px-2.5 py-2 font-mono text-sm leading-[1.5] break-words whitespace-pre-wrap text-foreground dark:border-input/60">
+        <pre className="m-0 rounded-[7px] border border-border bg-[var(--chat-code-bg)] px-2.5 py-2 font-mono text-sm leading-[1.5] [overflow-wrap:anywhere] whitespace-pre-wrap text-foreground dark:border-input/60">
           {item.command}
         </pre>
       ) : item.path ? (

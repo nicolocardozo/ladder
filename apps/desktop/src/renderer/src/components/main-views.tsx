@@ -18,7 +18,7 @@ import {
 import type { AgentId, AgentStatus, Attachment, ChatItem, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { allowedLevels, FALLBACK_AGENT, supportsEffort } from '@/lib/agents'
 import { SOURCE_ICON } from '@/components/new-from'
-import { AgentMark, modelLabel } from '@/components/agent-mark'
+import { AgentMark } from '@/components/agent-mark'
 import { AgentMapChip } from '@/components/agent-map'
 import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
@@ -730,7 +730,6 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     [project, sessionId, setUi]
   )
 
-  const sessionModel = modelLabel(agentStatus, session?.model ?? null)
   if (!session || !project) return <main className="flex-1 bg-background" />
   const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting' || session.run === 'queued'
   const headerNotes = [session.worktree ? 'worktree' : null, session.run !== 'waiting' && isTerminal ? session.activity : null, session.estimated ? t('estimated status') : null].filter(Boolean).join(' · ')
@@ -740,19 +739,24 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       <TopBar project={project} session={session} root={root}>
         <TabBar projectId={project.id} activeSessionId={sessionId} />
       </TopBar>
-      {/* Chi lavora e dove: il titolo è già nella tab. Allineato alla colonna della conversazione, senza linee. */}
-      <div className={cn('flex w-full min-w-0 items-center gap-1.5 pb-1 text-xs text-muted-foreground', isTerminal ? 'px-5' : 'mx-auto max-w-[728px] px-6')}>
-        {isTerminal ? <SquareTerminal aria-hidden className="size-3.5 shrink-0" /> : <AgentMark agent={session.agent} size={14} />}
-        <span className="shrink-0 font-medium text-foreground">{isTerminal ? t('{command} in the terminal', { command: session.command ?? 'claude' }) : agentStatus.name}</span>
-        {!isTerminal && sessionModel && <span className="shrink-0">{sessionModel}</span>}
-        {headerNotes && (
-          <>
-            <span aria-hidden className="text-faint">·</span>
-            <span className="min-w-0 truncate">{headerNotes}</span>
-          </>
-        )}
-        {session.run === 'waiting' && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
-      </div>
+      {/* Solo note che non stanno altrove: agente e modello di una chat sono già nel composer, il titolo nella tab. */}
+      {(isTerminal || headerNotes || session.run === 'waiting') && (
+        <div className={cn('flex w-full min-w-0 items-center gap-1.5 pb-1 text-xs text-muted-foreground', isTerminal ? 'px-5' : 'mx-auto max-w-[728px] px-6')}>
+          {isTerminal && (
+            <>
+              <SquareTerminal aria-hidden className="size-3.5 shrink-0" />
+              <span className="shrink-0 font-medium text-foreground">{t('{command} in the terminal', { command: session.command ?? 'claude' })}</span>
+            </>
+          )}
+          {headerNotes && (
+            <>
+              {isTerminal && <span aria-hidden className="text-faint">·</span>}
+              <span className="min-w-0 truncate">{headerNotes}</span>
+            </>
+          )}
+          {session.run === 'waiting' && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
+        </div>
+      )}
       {isTerminal ? (
         <TerminalSessionBody session={session} />
       ) : (

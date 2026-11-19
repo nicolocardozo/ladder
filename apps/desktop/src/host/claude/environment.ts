@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { t } from '@shared/i18n'
+import { localeTag, t } from '@shared/i18n'
 import type { Effort, UsageWindow } from '@shared/protocol'
 
 const run = promisify(execFile)
@@ -57,6 +57,41 @@ export function claudeUsage(info: Record<string, unknown>): UsageWindow | null {
   }
 }
 
+type PlanWindow = { utilization: number | null; resets_at: string | null } | null | undefined
+
+function planWindow(key: string, window: PlanWindow, minutes: number, model: string | null, label?: string): UsageWindow | null {
+  if (!window || (window.utilization === null && !window.resets_at)) return null
+  const percent = window.utilization
+  const resetsAt = window.resets_at ? Math.round(Date.parse(window.resets_at) / 1000) : null
+  return { key, minutes, model, percent, resetsAt: Number.isFinite(resetsAt) ? resetsAt : null, state: percent !== null && percent >= 100 ? 'limited' : percent !== null && percent >= 80 ? 'warning' : 'ok', ...(label ? { label } : {}) }
+}
+
+/** Limiti del piano Claude letti su richiesta (la stessa fonte di /usage): tutte le finestre, con percentuale e reset. */
+export function claudePlanUsage(data: unknown): UsageWindow[] | null {
+  const limits = (data as { rate_limits?: Record<string, unknown> | null } | null)?.rate_limits
+  if (!limits) return null
+  const rows = ((limits.seven_day_breakdown as { rows?: { display_name: string; percent_of_limit: number }[] } | null | undefined)?.rows ?? [])
+    .filter((r) => typeof r.percent_of_limit === 'number' && r.percent_of_limit > 0)
+    .map((r) => ({ label: r.display_name, percent: r.percent_of_limit }))
+  const weekly = planWindow('seven_day', limits.seven_day as PlanWindow, 10080, null)
+  const out: (UsageWindow | null)[] = [
+    planWindow('five_hour', limits.five_hour as PlanWindow, 300, null),
+    weekly && rows.length ? { ...weekly, breakdown: rows } : weekly,
+    planWindow('seven_day_opus', limits.seven_day_opus as PlanWindow, 10080, 'Opus'),
+    planWindow('seven_day_sonnet', limits.seven_day_sonnet as PlanWindow, 10080, 'Sonnet')
+  ]
+  for (const scoped of (limits.model_scoped as { display_name: string; utilization: number | null; resets_at: string | null }[] | undefined) ?? []) {
+    out.push(planWindow(`model:${scoped.display_name}`, scoped, 10080, scoped.display_name))
+  }
+  const extra = limits.extra_usage as { is_enabled: boolean; monthly_limit: number | null; used_credits: number | null; utilization: number | null; currency?: string | null } | null | undefined
+  if (extra?.is_enabled) {
+    const money = (value: number) => new Intl.NumberFormat(localeTag(), { style: 'currency', currency: extra.currency || 'USD' }).format(value / 100)
+    const detail = extra.used_credits !== null && extra.monthly_limit !== null ? t('{used} of {limit} this month', { used: money(extra.used_credits), limit: money(extra.monthly_limit) }) : undefined
+    out.push({ key: 'extra_usage', minutes: 0, model: null, percent: extra.utilization, resetsAt: null, state: extra.utilization !== null && extra.utilization >= 100 ? 'limited' : 'ok', label: t('Extra usage'), ...(detail ? { detail } : {}) })
+  }
+  return out.filter((w): w is UsageWindow => w !== null)
+}
+
 export function claudeAccountLabel(info: { subscriptionType?: string; apiKeySource?: string }): string | null {
   if (info.subscriptionType) return info.subscriptionType
   return info.apiKeySource && info.apiKeySource !== 'none' ? t('API key') : null
@@ -66,7 +101,7 @@ export function claudeAccountLabel(info: { subscriptionType?: string; apiKeySour
  * Account e modelli senza aprire una sessione: la CLI parte, risponde e si chiude senza ricevere messaggi,
  * quindi nessuna quota. Le informazioni arrivano dall'SDK: i file delle credenziali restano fuori da Ladder.
  */
-export async function probeClaude(cli: string): Promise<{ account: string | null; email: string | null; models: { id: string; label: string; efforts?: Effort[] }[] }> {
+export async function probeClaude(cli: string): Promise<{ account: string | null; email: string | null; models: { id: string; label: string; efforts?: Effort[] }[]; usage?: UsageWindow[]; usageAt?: number }> {
   const abort = new AbortController()
   const closed = new Promise<void>((resolve) => abort.signal.addEventListener('abort', () => resolve(), { once: true }))
   // Input che non manda niente: resta aperto finché la risposta non è arrivata.
@@ -85,7 +120,12 @@ export async function probeClaude(cli: string): Promise<{ account: string | null
         timer = setTimeout(() => reject(new Error('timeout')), 20000)
       })
     ])
-    return { account: claudeAccountLabel(info), email: info.email ?? null, models: models.map(claudeModel) }
+    // API sperimentale dell'SDK: se cambia forma o non risponde, restano i limiti visti nelle sessioni.
+    const usage = await Promise.race([
+      q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }).then(claudePlanUsage),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000))
+    ]).catch(() => null)
+    return { account: claudeAccountLabel(info), email: info.email ?? null, models: models.map(claudeModel), ...(usage ? { usage, usageAt: Date.now() } : {}) }
   } finally {
     clearTimeout(timer)
     abort.abort()
