@@ -4,6 +4,6 @@ dist/
 .DS_Store
 *.log
 .tmp/
-spikes/*/results/
-spikes/*/generated/
+app/spikes/*/results/
+app/spikes/*/generated/
 .env*

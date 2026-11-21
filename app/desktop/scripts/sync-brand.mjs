@@ -2,7 +2,7 @@
 //  - src/renderer/src/styles/themes.generated.css  variabili --ladder-* per ogni tema
 //  - src/shared/themes.generated.ts                 elenco dei temi con palette e token, per anteprime e processo main
 //  - src/renderer/src/components/brand/logo-paths.generated.ts  tracciati di simbolo e wordmark
-// Fonte: brand/themes.json e logo/svg/*.svg. Rieseguire con `pnpm --filter @ladder/desktop sync-brand`.
+// Fonte: brand/themes.json e brand/logo/svg/*.svg. Rieseguire con `pnpm --filter @ladder/desktop sync-brand`.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -57,7 +57,7 @@ writeFileSync(join(app, 'src/shared/themes.generated.ts'), ts)
 
 // ── Tracciati del logo (le versioni bianche: il colore lo decide l'interfaccia con currentColor)
 function svgPaths(file) {
-  const svg = readFileSync(join(root, 'logo/svg', file), 'utf8')
+  const svg = readFileSync(join(root, 'brand/logo/svg', file), 'utf8')
   const viewBox = svg.match(/viewBox="([^"]+)"/)[1]
   // Ogni tracciato con la sua eventuale trasformazione (il wordmark del lockup è spostato con translate).
   const paths = [...svg.matchAll(/<path([^>]*)\/?>/g)].map((m) => ({

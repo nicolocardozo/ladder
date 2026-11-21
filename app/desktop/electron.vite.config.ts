@@ -3,7 +3,7 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// electron-vite gira dalla cartella apps/desktop: i percorsi sono relativi a lei.
+// electron-vite gira dalla cartella app/desktop: i percorsi sono relativi a lei.
 const shared = { '@shared': resolve('src/shared') }
 
 export default defineConfig({
