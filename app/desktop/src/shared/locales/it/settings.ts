@@ -1,0 +1,173 @@
+// Traduzioni italiane: leggibilità, editor esterno, worktree, dati e sistema (Impostazioni) e archiviazione automatica. Chiave = testo inglese esatto del codice.
+const it: Record<string, string> = {
+  // Sezioni
+  Workspace: 'Workspace',
+  'Data and system': 'Dati e sistema',
+
+  // Leggibilità (Aspetto)
+  'Chat text size': 'Dimensione del testo della chat',
+  'How big replies and your messages are, on top of the size of the chat font. Code blocks and the rest of the app keep theirs.':
+    'Quanto sono grandi le risposte e i tuoi messaggi, in aggiunta alla dimensione del font della chat. I blocchi di codice e il resto dell’app restano come sono.',
+  Small: 'Piccola',
+  Large: 'Grande',
+  'Extra large': 'Molto grande',
+  'A little smaller': 'Un po’ più piccola',
+  'Sized for the font': 'Adatta al font',
+  'A little bigger': 'Un po’ più grande',
+  'Much bigger': 'Molto più grande',
+  Code: 'Codice',
+  'The font applies to the file editor and to code blocks in the chat. The size applies to the file editor only.': 'Il font vale per l’editor dei file e per i blocchi di codice nella chat. La dimensione vale solo per l’editor dei file.',
+  'Code font': 'Font del codice',
+  'SF Mono, or Menlo': 'SF Mono, oppure Menlo',
+  'Comes with Ladder': 'Incluso in Ladder',
+  'File editor text size': 'Dimensione del testo dell’editor dei file',
+  '{n} px': '{n} px',
+  'Reset to {n} px': 'Torna a {n} px',
+  'Sidebar density': 'Densità della sidebar',
+  'Height of the session rows in the sidebar. The content is the same.': 'Altezza delle righe delle sessioni nella sidebar. Il contenuto è lo stesso.',
+  'Taller rows with more air': 'Righe più alte, con più aria',
+  Compact: 'Compatta',
+  'Shorter rows, more sessions in view': 'Righe più basse, più sessioni in vista',
+
+  // Editor esterno e worktree
+  'Where files open outside Ladder and where sessions that work in their own copy of the project keep it.':
+    'Dove si aprono i file fuori da Ladder e dove le sessioni che lavorano in una copia propria del progetto la tengono.',
+  'External editor': 'Editor esterno',
+  'Used by “Open in editor” for files and project folders. A project can pick its own from the Open in menu in the top bar.':
+    'Lo usa “Apri nell’editor” per file e cartelle dei progetti. Un progetto può sceglierne uno suo dal menu Apri in della barra in alto.',
+  'not installed': 'non installato',
+  '{editor} isn’t installed: Ladder opens {other} instead.': '{editor} non è installato: Ladder apre {other}.',
+  'None of these editors is installed: Ladder opens files with the app macOS picks.': 'Nessuno di questi editor è installato: Ladder apre i file con l’app scelta da macOS.',
+  Worktrees: 'Worktree',
+  'A worktree is a separate copy of the project for one session, on its own branch. These apply to new ones; existing worktrees stay where they are.':
+    'Un worktree è una copia separata del progetto per una sessione, su un branch suo. Valgono per quelli nuovi; i worktree esistenti restano dove sono.',
+  Folder: 'Cartella',
+  'Default location': 'Posizione predefinita',
+  'Default: ~/Developer/.ladder/worktrees, or ~/.ladder/worktrees without a Developer folder': 'Predefinita: ~/Developer/.ladder/worktrees, oppure ~/.ladder/worktrees senza una cartella Developer',
+  'Choose…': 'Scegli…',
+  'Use default': 'Usa la predefinita',
+  'Branch prefix': 'Prefisso dei branch',
+  'New branches are named {example}.': 'I branch nuovi si chiamano {example}.',
+  'Not a valid prefix for a git branch. Use letters, digits, dots, dashes and slashes, for example “{example}”.':
+    'Non è un prefisso valido per un branch di git. Usa lettere, cifre, punti, trattini e barre, per esempio “{example}”.',
+  'Worktrees of a project': 'Worktree di un progetto',
+  'Script, wait and files for new worktrees of one project. Saved in .ladder/settings.local.toml: personal, and kept out of git.':
+    'Script, attesa e file per i worktree nuovi di un progetto. Si salva in .ladder/settings.local.toml: personale e fuori da git.',
+  'Add a git project to set these.': 'Aggiungi un progetto git per impostarli.',
+  'Reading the project settings…': 'Lettura delle impostazioni del progetto…',
+  'Setup script': 'Script di preparazione',
+  'Runs in a “setup” terminal when a worktree is created, with LADDER_PORT set. For example install dependencies.':
+    'Parte in un terminale “setup” quando si crea un worktree, con LADDER_PORT impostata. Per esempio installa le dipendenze.',
+  'Cleanup script': 'Script di pulizia',
+  'Runs when a session with a worktree is archived.': 'Parte quando si archivia una sessione con un worktree.',
+  'When the setup script runs': 'Come parte lo script di preparazione',
+  'The session starts right away': 'La sessione parte subito',
+  'The script runs alongside the first message.': 'Lo script gira in parallelo al primo messaggio.',
+  'Wait for the script': 'Aspetta lo script',
+  'The first message goes out when the script is done.': 'Il primo messaggio parte quando lo script ha finito.',
+  'Without a setup script this changes nothing yet.': 'Senza uno script di preparazione per ora non cambia nulla.',
+  'Files copied into a new worktree': 'File copiati in un worktree nuovo',
+  'Ignored files like .env that a fresh checkout doesn’t have. List them in a .worktreeinclude file at the project root, with the same syntax as .gitignore; only files git ignores are copied. node_modules is never copied.':
+    'File ignorati, come .env, che un checkout nuovo non ha. Elencali in un file .worktreeinclude nella radice del progetto, con la sintassi di .gitignore; si copiano solo i file che git ignora. node_modules non si copia mai.',
+  'Looking for files…': 'Ricerca dei file…',
+  'From .worktreeinclude': 'Da .worktreeinclude',
+  'No .worktreeinclude file: copying .env* files': 'Nessun file .worktreeinclude: si copiano i file .env*',
+  'Nothing would be copied.': 'Non si copierebbe nulla.',
+  '{n} file would be copied': 'Si copierebbe {n} file',
+  '{n} files would be copied': 'Si copierebbero {n} file',
+  'and {n} more': 'e altri {n}',
+  'More paths to copy': 'Altri percorsi da copiare',
+  'One per line, relative to the project root. Added to the list above.': 'Uno per riga, relativo alla radice del progetto. Si aggiungono all’elenco qui sopra.',
+
+  // Nuova sessione in un worktree
+  'Branch {prefix}… from {base}': 'Branch {prefix}… da {base}',
+  'Start without waiting for the setup script': 'Parti senza aspettare lo script di preparazione',
+  'The first message goes out right away and “{setup}” runs alongside.': 'Il primo messaggio parte subito e “{setup}” gira in parallelo.',
+
+  // Archiviazione e dati
+  'What Ladder keeps on this Mac, and how it behaves alongside the rest of the system.': 'Cosa tiene Ladder su questo Mac e come si comporta insieme al resto del sistema.',
+  Archiving: 'Archiviazione',
+  'Archive idle sessions': 'Archivia le sessioni ferme',
+  'Archives sessions with no turn running, no request waiting and nothing queued for this long. Their conversations are kept.':
+    'Archivia le sessioni senza turno in corso, richieste in attesa né messaggi in coda da così tanto tempo. Le conversazioni si conservano.',
+  Never: 'Mai',
+  'After {days}': 'Dopo {days}',
+  '{n} day': '{n} giorno',
+  '{n} days': '{n} giorni',
+  'Your data': 'I tuoi dati',
+  'Sessions, conversations and settings live in one database on this Mac. A copy is consistent even while sessions are working.':
+    'Sessioni, conversazioni e impostazioni stanno in un solo database su questo Mac. Una copia è coerente anche a sessioni al lavoro.',
+  'Data folder': 'Cartella dei dati',
+  'Reading…': 'Lettura…',
+  'Open folder': 'Apri la cartella',
+  Database: 'Database',
+  'Back up now': 'Copia ora',
+  'Adds a copy to the backups folder inside the data folder.': 'Aggiunge una copia nella cartella backups dentro la cartella dei dati.',
+  'Back up': 'Copia',
+  'Backing up…': 'Copia in corso…',
+  'Export a copy': 'Esporta una copia',
+  'Choose where to save it. Ladder can’t restore from a copy yet, so keep it somewhere safe.': 'Scegli dove salvarla. Ladder non sa ancora ripristinare da una copia: tienila in un posto sicuro.',
+  'Export…': 'Esporta…',
+  'Exporting…': 'Esportazione…',
+  'Saved {path} ({size}).': 'Salvato {path} ({size}).',
+  'Latest copies': 'Ultime copie',
+  System: 'Sistema',
+  'Open Ladder at login': 'Apri Ladder all’accesso',
+  'Starts with your Mac. Works in the installed app only.': 'Parte con il Mac. Funziona solo nell’app installata.',
+  'Keep the Mac awake while an agent works': 'Tieni il Mac sveglio mentre un agente lavora',
+  'The screen can still turn off. The Mac sleeps again when no session is working.': 'Lo schermo può comunque spegnersi. Il Mac torna a dormire quando nessuna sessione lavora.',
+  '{n} idle session archived': '{n} sessione ferma archiviata',
+  '{n} idle sessions archived': '{n} sessioni ferme archiviate',
+  '{n} session archived after a day without activity': '{n} sessione archiviata dopo un giorno senza attività',
+  '{n} sessions archived after a day without activity': '{n} sessioni archiviate dopo un giorno senza attività',
+  '{n} session archived after {days} days without activity': '{n} sessione archiviata dopo {days} giorni senza attività',
+  '{n} sessions archived after {days} days without activity': '{n} sessioni archiviate dopo {days} giorni senza attività',
+
+  // Suono delle richieste
+  Sound: 'Suono',
+  Play: 'Prova',
+  'The sound for approvals and questions. “Default” is the macOS notification sound.': 'Il suono per approvazioni e domande. “Predefinito” è il suono di notifica di macOS.',
+  'Played with a test notification.': 'Provato con una notifica di prova.',
+
+  // Servizi del worktree (LAD-66)
+  Services: 'Servizi',
+  'Commands that keep running, like a dev server. Each one starts in its own terminal when a worktree is created, after the setup script. Yours are saved in .ladder/settings.local.toml; the project’s come from .ladder/settings.toml.':
+    'Comandi che restano in esecuzione, come un server di sviluppo. Ognuno parte in un terminale suo quando si crea un worktree, dopo lo script di preparazione. I tuoi si salvano in .ladder/settings.local.toml; quelli del progetto vengono da .ladder/settings.toml.',
+  'No services yet. Add one to start it with every new worktree.': 'Ancora nessun servizio. Aggiungine uno per avviarlo con ogni worktree nuovo.',
+  'Add service': 'Aggiungi servizio',
+  Personal: 'Personale',
+  'Personal, replaces the project’s': 'Personale, sostituisce quello del progetto',
+  Disabled: 'Disattivato',
+  'Gets a free port, available as $LADDER_PORT': 'Riceve una porta libera, disponibile come $LADDER_PORT',
+  'Project version:': 'Versione del progetto:',
+  'Enable {name}': 'Attiva {name}',
+  Enable: 'Attiva',
+  'Disable {name}': 'Disattiva {name}',
+  Disable: 'Disattiva',
+  'Edit {name}': 'Modifica {name}',
+  'Remove {name}': 'Togli {name}',
+  'Restore the project’s version of {name}: {command}': 'Ripristina la versione del progetto di {name}: {command}',
+  'Restore the project’s': 'Ripristina quello del progetto',
+  'Give the service a name.': 'Dai un nome al servizio.',
+  'Another service is already called “{name}”.': 'Un altro servizio si chiama già “{name}”.',
+  'Enter the command to run.': 'Scrivi il comando da eseguire.',
+  'Assign a port, available as $LADDER_PORT': 'Assegna una porta, disponibile come $LADDER_PORT',
+  'Saved as your personal version. The project file stays as it is.': 'Si salva come tua versione personale. Il file del progetto resta com’è.',
+
+  // Browser per l'agente (LAD-57 parte 2)
+  'Browser for the agent': 'Browser per l’agente',
+  'Let the agent use a browser': 'Lascia che l’agente usi un browser',
+  'The agent can open local pages, read them and, with your approval according to the session’s permission level, click and type.':
+    'L’agente può aprire pagine locali, leggerle e, con la tua conferma secondo il livello di permesso della sessione, cliccare e scrivere.',
+  'It uses a separate browser, without your cookies or logins. It only reaches localhost unless you allow another site, and you can stop it at any time from its tab or with Stop in the chat.':
+    'Usa un browser separato, senza i tuoi cookie né i tuoi accessi. Raggiunge solo localhost a meno che tu non ammetta un altro sito, e puoi fermarlo in ogni momento dalla sua tab o con Ferma nella chat.',
+  'Turning it off applies right away. Turning it on applies the next time a session’s agent restarts. A single project can override this, in New sessions.':
+    'Se lo spegni vale subito. Se lo accendi vale dalla prossima ripartenza dell’agente di una sessione. Un singolo progetto può scavalcarlo, in Nuove sessioni.',
+  '“{title}” is already running: it gets the browser the next time its agent restarts.': '“{title}” è già avviata: avrà il browser alla prossima ripartenza del suo agente.',
+  'On in this project. Sessions pick it up the next time their agent restarts.': 'Acceso in questo progetto. Le sessioni lo prendono alla prossima ripartenza del loro agente.',
+  'Off in this project. Sessions lose the browser right away.': 'Spento in questo progetto. Le sessioni perdono subito il browser.',
+  'Follows the global setting, which is on.': 'Segue l’impostazione globale, che è accesa.',
+  'Follows the global setting, which is off.': 'Segue l’impostazione globale, che è spenta.',
+  'On for this project': 'Acceso per questo progetto'
+}
+export default it
