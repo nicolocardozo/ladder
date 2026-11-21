@@ -2,14 +2,18 @@
 
 Workspace desktop per macOS in cui lavori su più repository insieme, con Claude Code, Codex e altri agenti di sviluppo in chat o in terminale.
 
-Il piano di prodotto e architettura è in [`docs/piano.html`](docs/piano.html).
+Il piano di prodotto e architettura è in [`app/docs/piano.html`](app/docs/piano.html).
 
 ## Struttura
 
 | Cartella | Contenuto |
 |---|---|
-| `apps/desktop` | App Electron con React, TypeScript, Tailwind v4 e shadcn/ui (base Base UI) |
-| `spikes/` | Prototipi della fase 0, pacchetti npm autonomi fuori dal workspace |
+| `app/desktop` | App Electron con React, TypeScript, Tailwind v4 e shadcn/ui (base Base UI) |
+| `app/docs` | Piano, backlog e note di fase dell’app |
+| `website` | Sito di Ladder |
+| `brand` | Temi, logo, icone dell’app e tavole: condivisi da app e sito |
+| `docs` | Documenti trasversali: strategia di rilascio, richieste esterne |
+| `app/spikes/` | Prototipi della fase 0, pacchetti npm autonomi fuori dal workspace |
 | `docs/` | Piano, rapporto della fase 0 e documenti di lavoro |
 
 ## Avvio
@@ -33,7 +37,7 @@ pnpm --filter @ladder/desktop dev:web
 Se Electron non parte perché manca il binario, lo scarica lo script `postinstall` dell’app; in alternativa:
 
 ```bash
-node apps/desktop/node_modules/electron/install.js
+node app/desktop/node_modules/electron/install.js
 ```
 
 ## Stato
@@ -148,7 +152,7 @@ Fase 4.5, revisione dell’interfaccia: approvata l’8/11 (da riguardare dopo i
 - **Scala**: sei passi da 12 a 26 px (`text-xs`…`text-2xl` in `globals.css`), al posto delle dimensioni scritte a mano.
 - **Pulizia**: niente maiuscoletti spaziati né barre laterali colorate, meno linee, nessun titolo ripetuto.
 - **Chi lavora**: segno del provider e modello ovunque compaia una sessione (sidebar su due righe, tab, intestazione, “In attesa”, ⌘K, menu, composer).
-- `PRODUCT.md` e `DESIGN.md` nella radice del repository descrivono personalità, principi e sistema visivo: valgono per ogni modifica all’interfaccia.
+- `app/PRODUCT.md` e `app/DESIGN.md` descrivono personalità, principi e sistema visivo: valgono per ogni modifica all’interfaccia.
 - **Lingua**: l’inglese è la lingua predefinita, l’italiano si sceglie in Settings → Appearance → Language. Il testo nel codice è inglese dentro `t()` e `plural()` (`src/shared/i18n.ts`); le traduzioni italiane stanno in `src/shared/locales/it/`, con la frase inglese come chiave. Anche host e menu seguono la lingua scelta, e i prompt predefiniti per gli agenti esistono in tutte e due.
 - **Stati vuoti e account**: la nuova chat ha il logo solo simbolo, grande e inciso tono su tono; in fondo alla sidebar c'è l'account con cui lavorano gli agenti (email e piani, dall'SDK di Claude Code e dall'App Server di Codex, senza toccare i file delle credenziali).
 - **Navigazione per progetto**: si apre un progetto alla volta e tab, file, terminale e nuova chat lo seguono. Nella sidebar restano le sessioni vive, da leggere o con una bozza e le ultime 5 ferme; il resto è in "All sessions", una seconda sidebar che si apre al passaggio del mouse, con ricerca, filtri e archiviazione multipla. Le chat si raccolgono in gruppi dal loro menu. Il terminale può stare in basso o a destra.
@@ -162,9 +166,9 @@ Prossime fasi: il passaggio tra agenti (5) e i piani eseguibili (6). L’open so
 ## Brand e temi
 
 - `brand/themes.json` è la fonte dei token dei temi; `brand/themes.css` è il riferimento per le variabili.
-- `pnpm --filter @ladder/desktop sync-brand` rigenera dal JSON e dagli SVG in `logo/svg/` i file usati dall’app: `themes.generated.css`, `src/shared/themes.generated.ts` e i tracciati del logo.
-- `node apps/desktop/scripts/check-contrast.mjs` verifica il contrasto di ogni tema: 4,5:1 per il testo, 3:1 per focus, bordi dei controlli e indicatori.
-- Icone in `app-icon/` (la build usa `app-icon/macos/ladder-circuit.icns`), logo in `logo/`, tavole in `reference/`.
+- `pnpm --filter @ladder/desktop sync-brand` rigenera dal JSON e dagli SVG in `brand/logo/svg/` i file usati dall’app: `themes.generated.css`, `src/shared/themes.generated.ts` e i tracciati del logo.
+- `node app/desktop/scripts/check-contrast.mjs` verifica il contrasto di ogni tema: 4,5:1 per il testo, 3:1 per focus, bordi dei controlli e indicatori.
+- Icone in `brand/app-icon/` (la build usa `brand/app-icon/macos/ladder-circuit.icns`), logo in `brand/logo/`, tavole in `brand/reference/`.
 
 ## Build da installare
 
@@ -172,7 +176,7 @@ Prossime fasi: il passaggio tra agenti (5) e i piani eseguibili (6). L’open so
 pnpm --filter @ladder/desktop dist
 ```
 
-Crea `apps/desktop/dist/mac-arm64/Ladder.app` con l’icona Circuit (`app-icon/macos/ladder-circuit.icns`), firmata solo per questo Mac: trascinala in Applicazioni.
+Crea `app/desktop/dist/mac-arm64/Ladder.app` con l’icona Circuit (`brand/app-icon/macos/ladder-circuit.icns`), firmata solo per questo Mac: trascinala in Applicazioni.
 
 ## Architettura in breve
 

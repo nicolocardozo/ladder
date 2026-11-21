@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "pnpm --filter @ladder/desktop dev",
     "build": "pnpm --filter @ladder/desktop build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "dev:web": "pnpm --filter @ladder/website dev",
+    "build:web": "pnpm --filter @ladder/website build"
   }
 }

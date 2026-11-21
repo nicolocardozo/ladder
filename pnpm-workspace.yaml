@@ -1,5 +1,6 @@
 packages:
-  - "apps/*"
+  - "app/desktop"
+  - "website"
 allowBuilds:
   electron-winstaller: false
   # Il prebuild N-API incluso basta: niente node-gyp. Lo spawn-helper diventa eseguibile nel postinstall.

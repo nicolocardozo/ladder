@@ -1,0 +1,676 @@
+<title>Ladder Site Hero</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mona+Sans:wdth,wght@75..125,300..800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a dotted, rounded hero frame holds a big left-aligned claim; scrolling shrinks the claim and lifts the real Ladder window (Circuit) into the frame. White statement with fibers below, then a sticky step list with a 3-layer card drum. Single light page theme by choice; app mocks are always Circuit. */
+:root{
+  color-scheme: light;
+  --bg:#FFFFFF; --frame:#F4F3F8; --tint:#F7F6FB; --ink:#181424; --muted:#5F5A6E; --hair:#E6E3EE; --dot:#CFC8DE;
+  --iris:#5525CF; --iris-wash:#EFEAFF; --iris-dot:#7B5CF0;
+  --c-bg:#181424; --c-side:#1A1427; --c-surf:#211A30; --c-ink:#F7F4FF; --c-mut:#A9A6B2; --c-line:#2C2440; --c-hair:#4A4357; --c-ctl:#6C6777;
+  --c-acc:#AC97FF; --c-sel:#362D50; --c-code:#1B1628;
+  --run:#ECFC7F; --wait:#FDBB69; --ok:#8CE9B7; --err:#FDA4AE;
+  --sans:"Mona Sans","Mona Sans Variable",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono","Monaspace Neon",ui-monospace,"SF Mono",Menlo,monospace;
+  --gut:max(16px,env(safe-area-inset-left,0px));
+}
+*{box-sizing:border-box}
+html{scroll-behavior:auto}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:clip}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit}
+.wrap{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+:focus-visible{outline:2px solid var(--iris);outline-offset:2px;border-radius:6px}
+svg.i{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.am{width:13px;height:13px;flex:none;display:inline-block}
+.am svg{width:100%;height:100%;display:block}
+
+/* ---------- header: logo box left, nav pill right ---------- */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--bg)}
+.hdr{position:fixed;z-index:29;top:calc(env(safe-area-inset-top,0px) + 24px);left:max(28px,calc(env(safe-area-inset-left,0px) + 24px));right:max(28px,calc(env(safe-area-inset-right,0px) + 24px));pointer-events:none}
+.hdr nav{pointer-events:auto;max-width:1000px;margin:0 auto;height:52px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 8px 0 16px;border:1px solid var(--hair);border-radius:14px;background:rgb(255 255 255/.74);backdrop-filter:blur(14px) saturate(1.4);-webkit-backdrop-filter:blur(14px) saturate(1.4);box-shadow:0 1px 2px rgb(24 20 36/.04);transition:box-shadow .3s,max-width .4s cubic-bezier(.2,.8,.2,1)}
+.hdr.scrolled nav{box-shadow:0 1px 2px rgb(24 20 36/.05),0 12px 32px rgb(40 22 90/.08);max-width:920px}
+.logo{display:flex;align-items:center;color:var(--ink)}
+.logo svg{height:19px;width:auto}
+.links{display:flex;gap:2px;font-size:13.5px;font-weight:500}
+.links a{padding:6px 12px;border-radius:8px;transition:background .15s}
+.links a:hover{background:var(--tint)}
+.nr{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+.nbtn{display:inline-flex;align-items:center;height:34px;padding:0 13px;border-radius:9px;font:500 13.5px/1 var(--sans);transition:background .15s,transform .2s}
+.nbtn.txt:hover{background:var(--tint)}
+.nbtn.dark{background:var(--ink);color:#fff;box-shadow:inset 0 1px 0 rgb(255 255 255/.12),0 1px 2px rgb(24 20 36/.2)}
+.nbtn.dark:hover{background:#2A2340;transform:translateY(-1px)}
+@media (max-width:760px){.links{display:none}.hdr nav{grid-template-columns:1fr auto}.nr .txt{display:none}.hdr{left:20px;right:20px;top:calc(env(safe-area-inset-top,0px) + 20px)}}
+
+/* ---------- hero frame ---------- */
+.hero{height:250vh;height:250svh;padding:12px max(12px,env(safe-area-inset-right,0px)) 0 max(12px,env(safe-area-inset-left,0px))}
+.hf{position:sticky;top:12px;height:calc(100vh - 24px);height:calc(100svh - 24px);border-radius:26px;overflow:hidden;background:var(--frame);isolation:isolate}
+.dots,.dots-hot{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.dots{background:radial-gradient(circle,var(--dot) 1.15px,transparent 1.65px) 0 0/22px 22px;-webkit-mask-image:linear-gradient(180deg,#000 55%,rgb(0 0 0/.35));mask-image:linear-gradient(180deg,#000 55%,rgb(0 0 0/.35))}
+.dots-hot{background:radial-gradient(circle,var(--iris-dot) 1.5px,transparent 2px) 0 0/22px 22px;opacity:0;transition:opacity .4s;
+  -webkit-mask-image:radial-gradient(220px circle at var(--mx,50%) var(--my,50%),#000,transparent 75%);mask-image:radial-gradient(220px circle at var(--mx,50%) var(--my,50%),#000,transparent 75%)}
+.hf:hover .dots-hot{opacity:.85}
+.aura{position:absolute;z-index:-1;right:-10%;bottom:-30%;width:70%;height:90%;background:radial-gradient(closest-side,rgb(124 92 240/.16),transparent);pointer-events:none}
+.claim{position:absolute;left:clamp(24px,4.4vw,64px);top:30%;transform-origin:0 0;will-change:transform}
+.claim h1{margin:0;font-size:clamp(46px,8.4vw,132px);line-height:.96;letter-spacing:-.045em;font-weight:620;font-stretch:108%;color:var(--ink)}
+.claim h1 span{color:var(--iris)}
+.foot-l{position:absolute;left:clamp(24px,4.4vw,64px);bottom:clamp(24px,4vh,44px);max-width:44ch;font-size:15.5px;line-height:1.55;color:var(--muted)}
+.foot-r{position:absolute;right:clamp(24px,4.4vw,64px);bottom:clamp(24px,4vh,44px);display:flex;gap:6px}
+.cta{display:inline-flex;align-items:center;gap:10px;height:42px;padding:0 16px;border-radius:10px;background:#fff;border:1px solid var(--hair);font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;transition:transform .2s}
+.cta:hover{transform:translateY(-1px)}
+.cta.sq{width:42px;padding:0;justify-content:center;background:var(--ink);color:#fff;border-color:var(--ink)}
+.scrollhint{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.scrollhint i{width:1px;height:22px;background:linear-gradient(var(--muted),transparent);animation:drop 1.8s ease-in-out infinite}
+@keyframes drop{0%{transform:scaleY(0);transform-origin:top}50%{transform:scaleY(1);transform-origin:top}51%{transform-origin:bottom}100%{transform:scaleY(0);transform-origin:bottom}}
+@media (max-width:760px){.foot-r{display:none}.scrollhint{display:none}.claim{top:24%}}
+
+/* ---------- Ladder window (Circuit) ---------- */
+.lw{position:absolute;z-index:2;left:50%;width:min(1240px,calc(100% - 2*clamp(24px,4.4vw,64px)));top:var(--wtop,190px);bottom:24px;transform:translate(-50%,110%);will-change:transform;
+  display:flex;flex-direction:column;background:var(--c-bg);color:var(--c-ink);border-radius:14px;overflow:hidden;font-size:13px;line-height:1.4;
+  box-shadow:0 0 0 1px rgb(24 20 36/.9),0 2px 4px rgb(24 20 36/.12),0 40px 90px -20px rgb(60 30 160/.45),0 70px 140px -40px rgb(24 20 36/.35)}
+.lw-body{display:grid;grid-template-columns:248px minmax(0,1fr);flex:1;min-height:0}
+.sb{background:var(--c-side);border-right:1px solid var(--c-line);display:flex;flex-direction:column;min-width:0}
+.sb-top{display:flex;align-items:center;gap:6px;height:44px;padding:0 10px;flex:none}
+.tl{display:flex;gap:7px;margin-right:auto}.tl i{width:11px;height:11px;border-radius:50%;display:block;background:#FF5F57}.tl i:nth-child(2){background:#FEBC2E}.tl i:nth-child(3){background:#28C840}
+.ib{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;color:var(--c-mut)}
+.sb-nav{padding:2px 8px;display:flex;flex-direction:column;gap:1px}
+.it{display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:8px;color:var(--c-ink);background:none;border:0;width:100%;text-align:left;transition:background .2s}
+.it .k{margin-left:auto;font:500 11px/1 var(--sans);color:var(--c-mut);display:flex;gap:3px}
+.it .k span{background:var(--c-surf);border-radius:4px;padding:3px 5px}
+.it.sel{background:var(--c-sel)}
+.it.pulse{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{background:rgb(253 187 105/.14)}}
+.wc{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:99px;background:rgb(253 187 105/.15);color:var(--wait);font-size:11.5px;font-weight:600;transform:scale(.6);opacity:0;transition:transform .3s cubic-bezier(.3,1.6,.5,1),opacity .2s}
+.wc.on{transform:none;opacity:1}
+.wc svg.i{width:12px;height:12px;stroke-width:2.4}
+.sec{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 6px;font-size:12px;color:var(--c-mut)}
+.projs{padding:0 8px;display:flex;flex-direction:column;gap:2px;overflow:hidden;flex:1}
+.pj{display:flex;align-items:center;gap:9px;height:32px;padding:0 8px;border-radius:8px;flex:none}
+.pj.open{background:rgb(54 45 80/.55)}
+.pj .bd{margin-left:auto;display:flex;align-items:center;gap:6px}
+.ss{display:block;padding:8px 10px;margin-left:14px;border-radius:10px;transition:background .25s;flex:none}
+.ss.sel{background:var(--c-sel)}
+.ss .r1{display:flex;align-items:center;gap:8px}
+.ss .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.ss .ag{font-size:11.5px;color:var(--c-mut)}
+.ss .r2{display:flex;align-items:center;gap:6px;margin-top:3px;font-size:11.5px;color:var(--c-mut)}
+.ss .r2 .am{width:12px;height:12px}
+.sfoot{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--c-line);flex:none}
+.av{width:26px;height:26px;border-radius:50%;background:var(--c-surf);display:grid;place-items:center;font-size:12px;font-weight:600}
+.sfoot .n{font-size:12.5px;line-height:1.25}.sfoot .n small{display:block;color:var(--c-mut);font-size:11.5px}
+.ring{width:11px;height:11px;border-radius:50%;border:1.6px solid var(--c-hair);border-top-color:var(--run);animation:spin .9s linear infinite;flex:none;display:inline-block}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--c-acc);flex:none;display:inline-block}
+.alert{color:var(--wait);display:inline-flex}.alert svg.i{width:13px;height:13px;stroke-width:2.2}
+@keyframes spin{to{transform:rotate(360deg)}}
+.mn{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.tabs{display:flex;align-items:center;gap:4px;height:44px;padding:0 10px;border-bottom:1px solid var(--c-line);color:var(--c-mut);white-space:nowrap;overflow:hidden;flex:none}
+.crumb{display:flex;align-items:center;gap:6px;padding:0 8px 0 2px;color:var(--c-ink)}
+.crumb span{color:var(--c-mut)}
+.tab{display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:7px;max-width:180px}
+.tab .am{width:12px;height:12px}
+.tab .lbl{overflow:hidden;text-overflow:ellipsis}
+.tab.act{background:var(--c-surf);color:var(--c-ink)}
+.tabs .rt{margin-left:auto;display:flex;align-items:center;gap:12px}
+.chat{flex:1;min-height:0;overflow:hidden;position:relative;-webkit-mask-image:linear-gradient(transparent,#000 70px);mask-image:linear-gradient(transparent,#000 70px)}
+.col-c{position:absolute;left:0;right:0;bottom:0;max-width:660px;margin:0 auto;padding:0 24px 8px;display:flex;flex-direction:column;gap:11px}
+.who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--c-mut)}
+.who b{color:var(--c-ink);font-weight:500}
+.ub{align-self:flex-end;max-width:82%;background:var(--c-surf);border-radius:14px;padding:9px 13px;font-size:14.5px;line-height:1.5}
+.tx{font-size:14.5px;line-height:1.6}
+.tool{display:flex;align-items:center;gap:8px;font:400 12.5px/1.5 var(--mono);color:var(--c-mut)}
+.tool b{font-weight:500;color:var(--c-ink)}
+.tool .p{color:var(--ok)}.tool .m{color:var(--err)}
+.tool svg.i{width:13px;height:13px}
+.subl{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--c-mut);padding:7px 10px;border:1px solid var(--c-line);border-radius:10px;align-self:flex-start}
+.ani{animation:in .35s cubic-bezier(.2,.8,.2,1)}
+@keyframes in{from{opacity:0;transform:translateY(6px)}}
+.req{border:1px solid rgb(253 187 105/.45);background:var(--c-surf);border-radius:12px;padding:12px 14px}
+.req .h{display:flex;gap:8px;align-items:center;color:var(--wait);font-weight:600;font-size:13px}
+.req code{display:block;margin-top:8px;font:400 12px/1.6 var(--mono);background:var(--c-code);border-radius:8px;padding:7px 10px;color:var(--c-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.req .a{display:flex;gap:6px;justify-content:flex-end;margin-top:10px}
+.cbtn{height:28px;padding:0 11px;border-radius:6px;font:500 12.5px/1 var(--sans);border:1px solid var(--c-ctl);background:var(--c-surf);color:var(--c-ink);cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:transform .12s,filter .15s}
+.cbtn.pri{background:var(--c-acc);border-color:var(--c-acc);color:#000}
+.cbtn.pri:hover{filter:brightness(1.08)}
+.cbtn kbd{font:500 11px/1 var(--mono);background:rgb(0 0 0/.12);padding:2px 4px;border-radius:4px}
+.cbtn.press{transform:scale(.94)}
+.req.done{border-color:rgb(140 233 183/.5)}
+.req.done .h{color:var(--ok)}
+.st-line{display:flex;justify-content:flex-end;align-items:center;gap:7px;max-width:660px;margin:0 auto;width:100%;padding:0 24px;font-size:12px;color:var(--c-mut);height:20px;flex:none}
+.cmp{max-width:660px;width:calc(100% - 48px);margin:6px auto 16px;border:1px solid var(--c-ctl);border-radius:16px;background:var(--c-bg);padding:12px 14px 10px;transition:border-color .3s;flex:none}
+.cmp.focus{border-color:var(--c-acc)}
+.cmp .ph{font-size:14.5px;min-height:22px;color:var(--c-mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmp .ph.typed{color:var(--c-ink)}
+.caret{display:inline-block;width:1.5px;height:16px;background:var(--c-acc);vertical-align:-3px;margin-left:1px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.cmp .row{display:flex;align-items:center;gap:10px;margin-top:10px;color:var(--c-mut)}
+.cmp .sp{margin-left:auto}
+.use{display:flex;align-items:center;gap:6px;font-size:12px}
+.use svg{width:13px;height:13px}
+.pk{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px;border:1px solid var(--c-hair);border-radius:7px;font-size:12px;color:var(--c-ink);white-space:nowrap}
+.pk span{color:var(--c-mut)}
+.send{width:28px;height:28px;border-radius:50%;background:var(--c-surf);display:grid;place-items:center;color:var(--c-mut);transition:background .2s,color .2s}
+.send.go{background:var(--c-acc);color:#000}
+.note{position:absolute;z-index:5;top:56px;right:14px;width:300px;display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border-radius:14px;background:rgb(255 255 255/.88);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);color:var(--ink);box-shadow:0 0 0 1px rgb(24 20 36/.08),0 16px 40px rgb(24 20 36/.25);font-size:12.5px;line-height:1.35;transform:translateX(calc(100% + 30px));opacity:0;transition:transform .55s cubic-bezier(.2,.9,.2,1),opacity .3s;pointer-events:none}
+.note.on{transform:none;opacity:1;pointer-events:auto;cursor:pointer}
+.appi{width:30px;height:30px;border-radius:8px;background:linear-gradient(160deg,#5525CF,#22123C);display:grid;place-items:center;color:#AC97FF;flex:none}
+.appi svg{width:20px;height:auto}
+.note b{font-weight:600}.note small{float:right;color:var(--muted);font-size:11px}
+@media (max-width:860px){.lw-body{grid-template-columns:minmax(0,1fr)}.sb{display:none}.note{width:auto;left:14px}.tabs .rt,.tab:not(.act){display:none}.cmp .pk:last-of-type{display:none}}
+
+/* ---------- statement + fibers ---------- */
+.stmt{position:relative;padding-block:160px 0}
+.big{margin:0;font-size:clamp(30px,4.1vw,56px);line-height:1.12;letter-spacing:-.032em;font-weight:600;font-stretch:104%;max-width:23ch;text-wrap:pretty}
+.big .w{color:#D2CDDC;transition:color .25s}
+.big .w.lit{color:var(--ink)}
+.big .w.hl.lit{color:var(--iris)}
+.fibers{display:block;width:100%;height:420px;margin-top:-20px}
+
+/* ---------- steps with 3-layer drum ---------- */
+.steps{position:relative;height:500vh;height:500svh}
+.steps-in{position:sticky;top:0;height:100vh;height:100svh;display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:48px;align-items:center}
+.steps h2{font-size:clamp(34px,4.4vw,60px);line-height:1.02;letter-spacing:-.035em;font-weight:600;font-stretch:104%;margin:0 0 44px;max-width:13ch;text-wrap:balance}
+.sl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
+.sl li{display:grid;grid-template-columns:28px minmax(0,1fr);cursor:pointer}
+.sl .n{font:500 12px/2.1 var(--mono);color:#B5AFC3;transition:color .3s}
+.sl .t{font-size:clamp(19px,1.7vw,24px);letter-spacing:-.015em;color:#B5AFC3;transition:color .3s;line-height:1.35}
+.sl .d{grid-column:2;color:var(--muted);font-size:15px;line-height:1.55;max-width:42ch;display:grid;grid-template-rows:0fr;transition:grid-template-rows .45s cubic-bezier(.2,.8,.2,1),opacity .35s;opacity:0}
+.sl .d>span{overflow:hidden}
+.sl li.on .n{color:var(--iris)}
+.sl li.on .t{color:var(--ink)}
+.sl li.on .d{grid-template-rows:1fr;opacity:1;padding-top:8px}
+.drum{position:relative;height:min(520px,70vh);perspective:1500px;perspective-origin:50% 50%}
+.card{position:absolute;left:0;right:0;top:50%;height:min(380px,52vh);margin-top:calc(min(380px,52vh)/-2);background:var(--c-bg);color:var(--c-ink);border-radius:14px;overflow:hidden;font-size:12.5px;line-height:1.4;
+  box-shadow:0 0 0 1px rgb(24 20 36/.9),0 30px 70px -24px rgb(60 30 160/.45);backface-visibility:hidden;will-change:transform,opacity;display:flex;flex-direction:column}
+.card .ch{display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-bottom:1px solid var(--c-line);font-weight:500;flex:none}
+.card .ch .tl{margin-right:6px;gap:6px}
+.card .ch .tl i{width:9px;height:9px;background:var(--c-hair)}
+.card .ch .r{margin-left:auto;color:var(--c-mut);font-weight:400;font-size:11.5px}
+.card .cb{flex:1;min-height:0;padding:16px;position:relative;overflow:hidden}
+@media (max-width:900px){
+  .steps{height:auto}
+  .steps-in{position:static;height:auto;grid-template-columns:minmax(0,1fr);padding-block:100px}
+  .sl .d{grid-template-rows:1fr;opacity:1;padding-top:6px}.sl .t,.sl .n{color:var(--ink)}
+  .drum{height:auto;perspective:none;display:flex;flex-direction:column;gap:16px}
+  .card{position:relative;top:auto;margin:0;transform:none!important;opacity:1!important;height:340px}
+}
+
+/* card contents */
+.nc-in{border:1px solid var(--c-acc);border-radius:14px;padding:12px 14px;font-size:14px;min-height:76px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.chp{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px;border-radius:7px;background:var(--c-surf);font-size:12px;white-space:nowrap}
+.chp span{color:var(--c-mut)}
+.menu{position:absolute;right:16px;bottom:16px;width:250px;background:var(--c-surf);border:1px solid var(--c-hair);border-radius:12px;padding:6px;box-shadow:0 18px 40px rgb(0 0 0/.4)}
+.mi{display:flex;align-items:center;gap:9px;height:32px;padding:0 9px;border-radius:7px;font-size:12.5px;transition:background .25s}
+.mi small{margin-left:auto;color:var(--c-mut);font-size:11px}
+.mi.sel{background:var(--c-sel)}
+.mi .am{width:14px;height:14px}
+.ilist{display:flex;flex-direction:column;gap:8px}
+.ic2{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--c-surf);border-radius:10px;border:1px solid transparent;transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .4s,border-color .3s}
+.ic2 .pn{font:500 11px/1 var(--mono);color:var(--c-mut)}
+.ic2 .tx2{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic2 kbd{font:500 11px/1 var(--mono);color:var(--c-mut);border:1px solid var(--c-hair);padding:3px 5px;border-radius:5px}
+.ic2.first{border-color:rgb(253 187 105/.45)}
+.ic2.ok{border-color:rgb(140 233 183/.5)}
+.ic2.out{opacity:0;transform:translateX(50px)}
+.ic2.new{opacity:0;transform:translateY(-12px)}
+.dl-row{display:grid;grid-template-columns:34px minmax(0,1fr);font:400 12px/1.75 var(--mono);color:var(--c-mut)}
+.dl-row b{font-weight:400;text-align:right;padding-right:10px;color:#6C6777}
+.dl-row.add{background:rgb(140 233 183/.09);color:var(--c-ink)}.dl-row.add b{color:var(--ok)}
+.dl-row.del{background:rgb(253 164 174/.08);color:var(--c-mut);text-decoration:line-through;text-decoration-color:rgb(253 164 174/.5)}.dl-row.del b{color:var(--err)}
+.dl-row span{white-space:pre;overflow:hidden;text-overflow:ellipsis}
+.mbar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--c-line);background:var(--c-bg);font-size:12px;color:var(--c-mut)}
+.mbar .sp{margin-left:auto}
+.lb{display:flex;flex-direction:column;gap:12px}
+.lb .pv{display:flex;align-items:center;gap:8px;font-weight:600}
+.lb .pv small{margin-left:auto;font-weight:400;color:var(--c-mut);font-size:11.5px}
+.lr .lh{display:flex;justify-content:space-between;font-size:12px;color:var(--c-mut)}
+.lr .lh b{color:var(--c-ink);font-weight:500;font-variant-numeric:tabular-nums}
+.trk{height:6px;border-radius:99px;background:var(--c-surf);margin-top:6px;overflow:hidden}
+.fil{height:100%;border-radius:99px;background:var(--c-acc);transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.fil.hot{background:var(--wait)}
+.sep{height:1px;background:var(--c-line);margin:2px 0}
+
+/* agents strip */
+.strip{padding-block:40px 0;text-align:center}
+.strip p{font-size:13px;color:var(--muted);margin:0 0 20px}
+.marq{overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 15%,#000 85%,transparent);mask-image:linear-gradient(90deg,transparent,#000 15%,#000 85%,transparent)}
+.marq-in{display:flex;gap:44px;width:max-content;animation:marq 40s linear infinite}
+.marq span{display:inline-flex;align-items:center;gap:9px;font-size:17px;font-weight:600;color:#3B3550;letter-spacing:-.01em;white-space:nowrap}
+.marq .am{width:18px;height:18px}
+@keyframes marq{to{transform:translateX(-50%)}}
+
+/* closing frame (bookend of the hero) */
+.closing{margin:120px max(12px,env(safe-area-inset-right,0px)) 12px max(12px,env(safe-area-inset-left,0px));position:relative;border-radius:26px;overflow:hidden;background:var(--frame);isolation:isolate;padding:120px 24px;text-align:center}
+.closing .dots{-webkit-mask-image:radial-gradient(60% 70% at 50% 50%,#000,transparent);mask-image:radial-gradient(60% 70% at 50% 50%,#000,transparent)}
+.closing .appi{width:58px;height:58px;border-radius:15px;margin:0 auto 26px;box-shadow:0 18px 40px -10px rgb(85 37 207/.55)}
+.closing .appi svg{width:34px}
+.closing h2{margin:0 auto;font-size:clamp(32px,4.4vw,60px);line-height:1.02;letter-spacing:-.035em;font-weight:600;font-stretch:104%;max-width:16ch;text-wrap:balance}
+.closing .row{display:flex;gap:6px;justify-content:center;margin-top:30px}
+footer{padding-block:26px;font-size:12.5px;color:var(--muted)}
+footer .wrap{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+footer .l{margin-left:auto;display:flex;gap:18px}
+
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+
+<div class="hdr" id="hdr">
+  <nav>
+    <a class="logo" href="#top" aria-label="Ladder"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 890 199">
+<path fill="currentColor" fill-rule="evenodd" transform="translate(0 11)" d="M68 0L189 0Q194 0 197.34 3.72L226.66 36.28Q230 40 235 40L291 40Q296 40 296 45L296 75Q296 80 291 80L218 80Q213 80 209.66 76.28L180.34 43.72Q177 40 172 40L68 40Q63 40 63 35L63 5Q63 0 68 0ZM39 68L160 68Q165 68 168.34 71.72L196.66 103.28Q200 107 205 107L318 107Q323 107 323 112L323 142Q323 147 318 147L188 147Q183 147 179.66 143.28L151.34 111.72Q148 108 143 108L39 108Q34 108 34 103L34 73Q34 68 39 68ZM5 136L132 136Q137 136 140.35 139.71L169.48 171.99A3 3 0 0 1 167.25 177L5 177Q0 177 0 172L0 141Q0 136 5 136Z"/><path fill="currentColor" fill-rule="evenodd" transform="translate(373 38)" d="M2.00 58.50L2.00 116.00 40.50 116.00L79.00 116.00 79.00 106.00L79.00 96.00 51.50 96.00L24.00 96.00 24.00 48.50L24.00 1.00 13.00 1.00L2.00 1.00 2.00 58.50ZM236.00 20.82L236.00 40.63 231.05 35.86C224.72 29.76 217.88 27.55 207.40 28.22C191.16 29.27 178.88 40.89 175.11 58.80C173.52 66.36 173.74 81.57 175.53 88.47C180.14 106.17 193.17 117.00 209.86 117.00C219.22 117.00 225.28 114.70 231.35 108.85C234.12 106.18 236.52 104.00 236.69 104.00C236.86 104.00 237.00 106.70 237.00 110.00L237.00 116.00 247.50 116.00L258.00 116.00 258.00 58.50L258.00 1.00 247.00 1.00L236.00 1.00 236.00 20.82ZM223.51 47.86C228.42 50.10 233.35 55.54 235.09 60.66C237.07 66.46 236.85 79.59 234.69 85.19C231.30 93.98 221.45 100.06 213.13 98.50C208.06 97.55 204.76 95.62 201.19 91.56C197.12 86.93 195.56 81.31 195.60 71.48C195.63 65.06 196.15 62.36 198.19 57.89C202.93 47.54 213.54 43.34 223.51 47.86ZM333.00 20.50C333.00 31.22 332.85 40.00 332.66 40.00C332.48 40.00 330.48 38.24 328.22 36.09C322.08 30.25 314.41 27.71 304.46 28.21C290.81 28.90 280.85 35.69 274.93 48.34C270.97 56.79 269.69 64.59 270.28 76.50C271.07 92.28 275.96 103.06 285.69 110.49C298.30 120.12 317.68 119.10 328.37 108.26L333.00 103.56 333.00 109.78L333.00 116.00 343.50 116.00L354.00 116.00 354.00 58.50L354.00 1.00 343.50 1.00L333.00 1.00 333.00 20.50ZM320.69 47.95C329.22 51.82 333.61 61.96 332.80 75.96C332.44 82.09 331.77 84.72 329.62 88.39C324.52 97.09 316.28 100.39 306.65 97.59C300.14 95.69 295.91 91.26 293.39 83.67C291.14 76.88 291.84 63.04 294.72 57.50C300.01 47.34 310.69 43.41 320.69 47.95ZM115.13 29.08C102.91 31.48 93.53 40.10 91.37 50.92C90.76 53.95 90.82 54.00 94.73 54.00C96.92 54.00 101.36 54.26 104.60 54.58L110.50 55.15 112.00 51.85C114.12 47.19 119.00 44.67 125.88 44.67C135.80 44.68 140.58 48.68 141.67 57.87L142.28 63.00 134.89 63.01C124.30 63.02 110.31 64.75 104.51 66.77C97.00 69.37 90.60 76.04 88.44 83.50C86.97 88.56 86.87 90.51 87.79 95.94C89.21 104.28 92.91 109.59 100.03 113.50C105.08 116.27 106.27 116.50 115.50 116.50C124.43 116.50 126.05 116.21 130.62 113.80C133.44 112.31 136.89 109.73 138.31 108.05C139.72 106.37 141.12 105.00 141.44 105.00C141.75 105.00 142.00 107.47 142.00 110.50L142.00 116.00 152.00 116.00L162.00 116.00 162.00 84.04C162.00 54.56 161.85 51.66 160.01 46.75C154.65 32.43 135.81 25.01 115.13 29.08ZM141.71 82.48C140.62 93.10 134.50 99.44 124.18 100.67C114.40 101.82 108.00 97.39 108.00 89.47C108.00 85.86 108.53 84.74 111.46 82.17C113.83 80.08 116.41 78.93 119.71 78.49C122.34 78.13 124.95 77.69 125.50 77.50C126.05 77.31 130.05 77.12 134.39 77.08L142.28 77.00 141.71 82.48ZM396.75 29.03C377.93 33.74 365.98 51.02 366.01 73.46C366.03 87.91 370.09 98.09 379.20 106.52C387.88 114.56 393.56 116.46 409.00 116.47C420.45 116.48 421.98 116.26 427.18 113.83C430.30 112.37 434.85 109.34 437.29 107.09C441.82 102.91 446.97 94.64 445.78 93.44C445.41 93.08 442.05 92.16 438.31 91.39C434.56 90.63 430.52 89.78 429.33 89.51C427.67 89.12 426.67 89.80 425.04 92.43C419.18 101.91 400.65 103.01 392.80 94.34C390.31 91.58 387.05 83.91 387.02 80.75L387.00 78.00 417.80 78.00L448.61 78.00 448.84 74.10C449.55 61.97 443.53 45.42 435.88 38.51C433.61 36.46 428.77 33.38 425.12 31.68C419.48 29.03 417.18 28.54 409.50 28.33C404.55 28.20 398.81 28.51 396.75 29.03ZM413.60 45.47C420.93 47.65 425.29 52.65 427.37 61.25L428.04 64.00 408.02 64.00L388.00 64.00 388.02 61.25C388.04 57.78 391.71 51.27 395.06 48.79C397.80 46.76 404.49 44.12 407.07 44.04C407.93 44.02 410.87 44.66 413.60 45.47ZM493.93 30.75C490.07 32.71 487.56 34.90 485.25 38.36L482.00 43.23 482.00 36.11L482.00 29.00 471.50 29.00L461.00 29.00 461.00 72.50L461.00 116.00 471.50 116.00L482.00 116.00 482.00 91.44C482.00 76.84 482.45 65.11 483.10 62.50C485.70 52.20 495.81 46.00 507.61 47.47L513.00 48.14 513.00 38.07L513.00 28.00 506.18 28.00C500.72 28.00 498.27 28.55 493.93 30.75Z"/>
+</svg></a>
+    <div class="links"><a href="#how">Product</a><a href="#agents">Agents</a><a href="#how">Changelog</a><a href="#how">Docs</a></div>
+    <div class="nr"><a class="nbtn txt" href="#how">GitHub</a><a class="nbtn dark" href="#top">Download</a></div>
+  </nav>
+</div>
+
+<header class="hero" id="top">
+  <div class="hf" id="hf">
+    <div class="dots"></div><div class="dots-hot" id="hot"></div><div class="aura"></div>
+    <div class="claim" id="claim"><h1>Every agent,<br>every repo,<br><span>one calm window.</span></h1></div>
+    <p class="foot-l" id="footl">Ladder is a macOS workspace for coding with agents across many repositories. See who is working and who is waiting for you, and step in with one keystroke.</p>
+    <div class="foot-r" id="footr"><a class="cta" href="#top">Download for macOS</a><a class="cta sq" href="#top" aria-label="Download"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M19 12l-7 7-7-7"/></svg></a></div>
+    <div class="scrollhint" id="shint"><i></i>Scroll to open Ladder</div>
+
+    <div class="lw" id="lw" role="group" aria-label="Ladder, live demo">
+      <div class="note" id="note" role="status"><span class="appi"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 323 177">
+<path fill="currentColor" fill-rule="evenodd" d="M68 0L189 0Q194 0 197.34 3.72L226.66 36.28Q230 40 235 40L291 40Q296 40 296 45L296 75Q296 80 291 80L218 80Q213 80 209.66 76.28L180.34 43.72Q177 40 172 40L68 40Q63 40 63 35L63 5Q63 0 68 0ZM39 68L160 68Q165 68 168.34 71.72L196.66 103.28Q200 107 205 107L318 107Q323 107 323 112L323 142Q323 147 318 147L188 147Q183 147 179.66 143.28L151.34 111.72Q148 108 143 108L39 108Q34 108 34 103L34 73Q34 68 39 68ZM5 136L132 136Q137 136 140.35 139.71L169.48 171.99A3 3 0 0 1 167.25 177L5 177Q0 177 0 172L0 141Q0 136 5 136Z"/>
+</svg></span><span><small>now</small><b>billing-api needs you</b><br>Codex wants to run <span style="font-family:var(--mono);font-size:11.5px">pnpm test</span></span></div>
+      <div class="lw-body">
+        <aside class="sb">
+          <div class="sb-top"><div class="tl"><i></i><i></i><i></i></div><span class="ib"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg></span><span class="ib"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span></div>
+          <div class="sb-nav">
+            <div class="it"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 1 1 3 3L12 15l-4 1 1-4Z"/></svg> New chat <span class="k"><span>⌘</span><span>N</span></span></div>
+            <button class="it" id="waitBtn" type="button" style="cursor:pointer"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg> Waiting <span class="wc" id="wc"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><span id="wcn">1</span></span></button>
+          </div>
+          <div class="sec">Projects <span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 10v6M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span></div>
+          <div class="projs" id="projs"></div>
+          <div class="sfoot"><span class="av">A</span><span class="n">ada@ladder.dev<small>Claude Max · ChatGPT Plus</small></span></div>
+        </aside>
+        <div class="mn">
+          <div class="tabs" id="tabs"></div>
+          <div class="chat"><div class="col-c" id="chat"></div></div>
+          <div class="st-line" id="stl"></div>
+          <div class="cmp" id="cmp">
+            <div class="ph" id="ph">Ask Claude Code. @ to mention a file, / for commands</div>
+            <div class="row"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V14M12 20V4M18 20v-8"/></svg><span class="sp"></span>
+              <span class="use"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#4A4357" stroke-width="2.4"/><circle id="usering" cx="8" cy="8" r="6" fill="none" stroke="#A9A6B2" stroke-width="2.4" stroke-dasharray="37.7" stroke-dashoffset="33" transform="rotate(-90 8 8)" style="transition:stroke-dashoffset .8s"/></svg><span id="usepct">12%</span></span>
+              <span class="pk"><span class="am"><svg aria-hidden="true" fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg></span>Claude Code <span>· Opus 5.5</span></span>
+              <span class="pk"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>Full access</span>
+              <span class="send" id="send"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="stmt"><div class="wrap">
+  <p class="big" id="big">Agents write code faster than ever. Keeping track of them is the slow part: five terminals, three repos, and a request that sat unanswered for twenty minutes. <em>Ladder puts every agent in one window and tells you the moment one needs you.</em></p>
+</div>
+<canvas class="fibers" id="fibers" aria-hidden="true"></canvas>
+</section>
+
+<section class="steps" id="how"><div class="wrap steps-in">
+  <div>
+    <h2>One window for the whole day of work</h2>
+    <ol class="sl" id="sl">
+      <li><span class="n">1</span><span class="t">Start an agent in any repo</span><span class="d"><span>Pick the project, the agent and the model. Each session gets its own worktree, so agents never trip over each other.</span></span></li>
+      <li><span class="n">2</span><span class="t">Follow every session at once</span><span class="d"><span>The sidebar tells you who is working, with which model, and how many sub-agents they started, without opening anything.</span></span></li>
+      <li><span class="n">3</span><span class="t">Answer what is waiting</span><span class="d"><span>Approvals and questions from every project line up in Waiting. Press ⏎ and the next one is already there.</span></span></li>
+      <li><span class="n">4</span><span class="t">Review the diff, then merge</span><span class="d"><span>Read the changes next to the conversation and merge the worktree into main, or throw it away.</span></span></li>
+      <li><span class="n">5</span><span class="t">Keep an eye on your plan</span><span class="d"><span>See what is left of your Claude and Codex plans while the agents spend it, before a long run stops halfway.</span></span></li>
+    </ol>
+  </div>
+  <div class="drum" id="drum">
+    <div class="card"><div class="ch"><span class="tl"><i></i><i></i><i></i></span>New chat<span class="r">⌘N</span></div><div class="cb">
+      <div class="nc-in" id="ncin"></div>
+      <div class="chips"><span class="chp"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>ladder</span><span class="chp"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v6M18 9a9 9 0 0 1-9 9"/></svg>new worktree <span>· ladder/restore-tabs</span></span><span class="chp" id="ncag"><span class="am"><svg aria-hidden="true" fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg></span>Claude Code <span>· Opus 5.5</span></span></div>
+      <div class="menu" id="ncmenu"></div>
+    </div></div>
+    <div class="card"><div class="ch"><span class="tl"><i></i><i></i><i></i></span>Projects<span class="r">5 sessions · 2 running</span></div><div class="cb" style="padding:10px 8px"><div id="sessl" style="display:flex;flex-direction:column;gap:2px"></div></div></div>
+    <div class="card"><div class="ch"><span class="tl"><i></i><i></i><i></i></span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg> Waiting<span class="r" id="ibc">3 requests</span></div><div class="cb"><div class="ilist" id="ilist"></div></div></div>
+    <div class="card"><div class="ch"><span class="tl"><i></i><i></i><i></i></span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg> renderer/store/tabs.ts<span class="r"><span style="color:var(--ok)">+42</span> <span style="color:var(--err)">−7</span></span></div><div class="cb" style="padding:10px 0 50px" id="diff"></div></div>
+    <div class="card"><div class="ch"><span class="tl"><i></i><i></i><i></i></span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg> Plan limits<span class="r">updated now</span></div><div class="cb"><div class="lb" id="lim"></div></div></div>
+  </div>
+</div></section>
+
+<div class="strip" id="agents"><p>Works with the agents you already use</p><div class="marq"><div class="marq-in" id="marq"></div></div></div>
+
+<div class="closing">
+  <div class="dots"></div>
+  <div class="appi"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 323 177">
+<path fill="currentColor" fill-rule="evenodd" d="M68 0L189 0Q194 0 197.34 3.72L226.66 36.28Q230 40 235 40L291 40Q296 40 296 45L296 75Q296 80 291 80L218 80Q213 80 209.66 76.28L180.34 43.72Q177 40 172 40L68 40Q63 40 63 35L63 5Q63 0 68 0ZM39 68L160 68Q165 68 168.34 71.72L196.66 103.28Q200 107 205 107L318 107Q323 107 323 112L323 142Q323 147 318 147L188 147Q183 147 179.66 143.28L151.34 111.72Q148 108 143 108L39 108Q34 108 34 103L34 73Q34 68 39 68ZM5 136L132 136Q137 136 140.35 139.71L169.48 171.99A3 3 0 0 1 167.25 177L5 177Q0 177 0 172L0 141Q0 136 5 136Z"/>
+</svg></div>
+  <h2>Stop juggling terminals. Start running a team.</h2>
+  <div class="row"><a class="cta" href="#top">Download for macOS</a><a class="cta sq" href="#top" aria-label="Download"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M19 12l-7 7-7-7"/></svg></a></div>
+</div>
+<footer><div class="wrap"><span>© Ladder</span><span>Made for people who work with agents all day.</span><span class="l"><a href="#how">Changelog</a><a href="#how">Privacy</a><a href="#how">GitHub</a></span></div></footer>
+
+<script>
+(() => {
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, RM ? 0 : ms));
+const clamp = (v,a=0,b=1) => Math.max(a, Math.min(b, v));
+const ease = t => t<.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+const AM = {claude:`<svg aria-hidden="true" fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg>`, codex:`<svg aria-hidden="true" fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"></path></svg>`, gemini:`<svg aria-hidden="true" fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16.793 10.358v3.867L7.236 18.82v-2.8l7.751-3.728-7.75-3.728V5.763l9.556 4.595z"></path><path clip-rule="evenodd" d="M19.608 0A4.392 4.392 0 0124 4.392v15.216A4.392 4.392 0 0119.608 24H4.392A4.392 4.392 0 010 19.608V4.392A4.392 4.392 0 014.392 0h15.216zM4.26 1.444A2.816 2.816 0 001.444 4.26v15.48a2.816 2.816 0 002.816 2.816h15.48a2.816 2.816 0 002.816-2.816V4.26a2.816 2.816 0 00-2.816-2.816H4.26z"></path></svg>`};
+const I = {alert:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>`, check:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`, folder:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`, folderopen:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>`, file:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>`, term:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"/></svg>`, edit:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>`, plus:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`, files:`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/></svg>`};
+const am = k => `<span class="am">${AM[k]}</span>`;
+const AG = {claude:'Claude Code', codex:'Codex', gemini:'Gemini CLI'};
+
+/* ---------------- hero: dots + scroll reveal ---------------- */
+const hf = $('#hf'), hot = $('#hot'), claim = $('#claim'), lw = $('#lw'), hdr = $('#hdr');
+hf.addEventListener('pointermove', e => { const r = hf.getBoundingClientRect(); hot.style.setProperty('--mx', (e.clientX-r.left)+'px'); hot.style.setProperty('--my', (e.clientY-r.top)+'px'); });
+let started = false;
+function heroScroll(){
+  const hero = $('#top'), r = hero.getBoundingClientRect();
+  const span = hero.offsetHeight - innerHeight;
+  const p = RM ? 1 : clamp(-r.top / (span*.8));
+  const e = ease(p);
+  const H = hf.clientHeight, W = hf.clientWidth;
+  // the claim shrinks into a title above the window
+  const ch = claim.offsetHeight, top0 = H*(W<760 ? .24 : .30), sFinal = W<760 ? .5 : .36;
+  const finalTop = 92;
+  const s = 1 - (1-sFinal)*e;
+  claim.style.transform = `translateY(${(finalTop - top0)*e}px) scale(${s})`;
+  lw.style.setProperty('--wtop', (finalTop + ch*sFinal + 26) + 'px');
+  const lift = clamp((p-.12)/.88);
+  lw.style.transform = `translate(-50%, ${(1-ease(lift))*110}%)`;
+  const fade = 1 - clamp(p/.35);
+  ['#footl','#footr','#shint'].forEach(id => { const el = $(id); el.style.opacity = fade; el.style.transform = `translateY(${(1-fade)*12}px)`; el.style.pointerEvents = fade < .2 ? 'none' : ''; });
+  if (!started && lift > .7) { started = true; story(0); }
+}
+
+/* ---------------- demo model ---------------- */
+const P = { billing:{name:'billing-api', st:'running'}, web:{name:'marketing-web', st:'running'}, infra:{name:'infra', st:null} };
+const LS = [
+  {title:'Restore tabs after relaunch', agent:'claude', model:'Opus 5.5', age:'now', st:null, subs:0},
+  {title:'Diff viewer word wrap', agent:'codex', model:'GPT-5.5', age:'12 min', st:'unread', subs:0},
+  {title:'Command palette initials', agent:'claude', model:'Sonnet 5.5', age:'1 h', st:null, subs:1}
+];
+let view = 'tabs', chat = [], reqState = 'open', subsRunning = 0;
+const glyph = st => st==='running' ? '<span class="ring" aria-label="Running"></span>' : st==='waiting' ? `<span class="alert" aria-label="Needs you">${I.alert}</span>` : st==='unread' ? '<span class="dot" aria-label="Unread"></span>' : '';
+function renderSide(){
+  let h = ['billing','web','infra'].map(id => { const p = P[id]; return `<div class="pj">${I.folder}<span>${p.name}</span><span class="bd">${p.st==='waiting' ? `<span class="wc on">${I.alert}1</span>` : glyph(p.st)}</span></div>`; }).join('');
+  h += `<div class="pj open">${I.folderopen}<span>ladder</span></div>`;
+  h += LS.map((s,i) => `<div class="ss${view==='tabs' && i===0 ? ' sel' : ''}"><div class="r1"><span class="tt">${s.title}</span>${glyph(s.st)}<span class="ag">${s.age}</span></div><div class="r2">${am(s.agent)}${s.model}${s.subs ? ` · ${s.subs} agent${s.subs>1?'s':''}` : ''}</div></div>`).join('');
+  $('#projs').innerHTML = h;
+  const n = Object.values(P).filter(p => p.st==='waiting').length;
+  $('#wc').classList.toggle('on', n>0); $('#wcn').textContent = n;
+  $('#waitBtn').classList.toggle('sel', view==='request');
+}
+function renderTabs(){
+  const r = view==='request';
+  $('#tabs').innerHTML = `<span class="crumb">${I.folder}${r?'billing-api':'ladder'} <span>/ main</span></span>` +
+    (r ? `<span class="tab act">${am('codex')}<span class="lbl">Rate limit webhooks</span></span>`
+       : `<span class="tab act">${am('claude')}<span class="lbl">Restore tabs</span></span><span class="tab">${am('codex')}<span class="lbl">Word wrap</span></span><span class="tab">${am('claude')}<span class="lbl">Palette</span></span>`) +
+    `<span class="ib">${I.plus}</span><span class="rt">${I.term}<span style="display:flex;gap:6px;align-items:center">${I.files}Files</span></span>`;
+}
+const itemHtml = it => {
+  if (it.t==='who') return `<div class="who">${am(it.a)}<b>${AG[it.a]}</b> ${it.m}</div>`;
+  if (it.t==='u') return `<div class="ub ani">${it.x}</div>`;
+  if (it.t==='x') return `<div class="tx ani">${it.x}</div>`;
+  if (it.t==='sub') return `<div class="subl ani">${it.done ? `<span style="color:var(--ok);display:inline-flex">${I.check}</span>` : '<span class="ring"></span>'}${it.x}</div>`;
+  const ic = it.k==='Edit' ? I.edit : it.k==='Ran' ? I.term : I.file;
+  return `<div class="tool ani">${ic}<b>${it.k}</b> ${it.x}${it.p ? ` <span class="p">${it.p}</span> <span class="m">${it.m}</span>` : ''}${it.ok ? ` <span class="p">${I.check}</span>` : ''}</div>`;
+};
+function renderChat(){
+  if (view==='request') {
+    const done = reqState==='done';
+    $('#chat').innerHTML = [{t:'who',a:'codex',m:'GPT-5.5'},{t:'u',x:'Add a per-customer rate limit to POST /webhooks'},{t:'tool',k:'Read',x:'src/routes/webhooks.ts'},{t:'tool',k:'Edit',x:'middleware/limit.ts',p:'+58',m:'−0'}].map(itemHtml).join('') +
+      `<div class="req${done?' done':''}"><div class="h">${done ? I.check+' Approved' : I.alert+' Codex wants to run a command'}</div><code>pnpm test --filter billing-api</code>${done ? '' : `<div class="a"><button class="cbtn" type="button" data-deny>Deny</button><button class="cbtn pri" type="button" data-ok id="okBtn">Approve <kbd>⏎</kbd></button></div>`}</div>`;
+    $('#stl').innerHTML = '';
+  } else {
+    $('#chat').innerHTML = `<div class="who">${am('claude')}<b>Claude Code</b> Opus 5.5</div>` + chat.map(itemHtml).join('');
+    const s = LS[0];
+    $('#stl').innerHTML = s.subs ? `<span class="${subsRunning ? 'ring' : ''}"></span>${s.subs} agents${subsRunning ? ` · ${subsRunning} running` : ''}` : '';
+  }
+}
+function render(){ renderSide(); renderTabs(); renderChat(); }
+
+/* ---------------- story ---------------- */
+let approveResolve = null, userTouched = false;
+const approve = () => { if (approveResolve) { approveResolve(); approveResolve = null; } };
+const openReq = () => { if (P.billing.st==='waiting') { userTouched = true; view='request'; render(); } };
+$('#waitBtn').addEventListener('click', openReq);
+$('#note').addEventListener('click', openReq);
+$('#chat').addEventListener('click', e => { if (e.target.closest('[data-ok],[data-deny]')) { userTouched = true; approve(); } });
+document.addEventListener('keydown', e => {
+  if (e.key!=='Enter' || P.billing.st!=='waiting' || e.target.closest('a,input,textarea')) return;
+  e.preventDefault(); userTouched = true; if (view!=='request') { view='request'; render(); } setTimeout(approve, 250);
+});
+const PROMPT = 'Reopen my tabs and scroll position after Ladder restarts';
+async function typeIn(text){
+  const ph = $('#ph'), cmp = $('#cmp');
+  cmp.classList.add('focus'); ph.classList.add('typed');
+  for (let i=1;i<=text.length;i++){ ph.innerHTML = text.slice(0,i) + '<span class="caret"></span>'; await sleep(24 + Math.random()*28); }
+  $('#send').classList.add('go'); await sleep(420);
+  ph.textContent = 'Ask Claude Code. @ to mention a file, / for commands'; ph.classList.remove('typed'); cmp.classList.remove('focus'); $('#send').classList.remove('go');
+}
+const push = it => { chat.push(it); if (view==='tabs') renderChat(); };
+let use = 12;
+const bumpUse = d => { use = Math.min(96, use + d); $('#usepct').textContent = use + '%'; $('#usering').setAttribute('stroke-dashoffset', 37.7*(1-use/100)); };
+async function story(loop){
+  view='tabs'; chat=[]; reqState='open'; subsRunning=0;
+  Object.assign(LS[0], {st:null, age:'now', subs:0}); P.billing.st='running'; P.web.st='running';
+  render(); await sleep(700);
+  await typeIn(PROMPT);
+  push({t:'u', x:PROMPT}); LS[0].st='running'; renderSide();
+  await sleep(900);  push({t:'x', x:'I’ll check how tabs are saved on quit and read back on launch.'});
+  await sleep(800);  push({t:'tool', k:'Read', x:'src/host/sessions.ts'}); bumpUse(1);
+  await sleep(700);  push({t:'tool', k:'Read', x:'renderer/store/tabs.ts'});
+  await sleep(800);  LS[0].subs=2; subsRunning=2; push({t:'sub', x:'Started 2 agents · map the host · check the renderer'}); renderSide();
+  await sleep(1300);
+  P.billing.st='waiting'; render(); $('#note').classList.add('on'); $('#waitBtn').classList.add('pulse');
+  await new Promise(res => {
+    approveResolve = res;
+    setTimeout(() => { if (approveResolve && !userTouched) { view='request'; render(); } }, 2800);
+    setTimeout(() => { if (approveResolve && !userTouched) { const b=$('#okBtn'); b && b.classList.add('press'); setTimeout(approve, 220); } }, 5600);
+  });
+  $('#note').classList.remove('on'); $('#waitBtn').classList.remove('pulse');
+  reqState='done'; P.billing.st='running'; if (view==='request') renderChat(); renderSide();
+  await sleep(view==='request' ? 900 : 0);
+  view='tabs'; userTouched=false; render();
+  await sleep(700);  subsRunning=1; renderChat();
+  await sleep(700);  push({t:'tool', k:'Edit', x:'renderer/store/tabs.ts', p:'+42', m:'−7'}); bumpUse(2);
+  await sleep(800);  subsRunning=0; chat = chat.map(c => c.t==='sub' ? {...c, done:true, x:'2 agents finished · reports read'} : c); renderChat();
+  await sleep(700);  P.web.st='unread'; renderSide();
+  await sleep(600);  push({t:'tool', k:'Ran', x:'pnpm typecheck', ok:true}); bumpUse(1);
+  await sleep(900);  push({t:'x', x:'Tabs now reopen per project, and the scroll position comes back once the transcript is measured.'});
+  LS[0].st=null; LS[0].age='1 min'; renderSide();
+  await sleep(1400); P.billing.st='unread'; renderSide();
+  await sleep(4500);
+  if (use > 80) use = 10;
+  story(loop+1);
+}
+render();
+
+/* ---------------- statement words ---------------- */
+const big = $('#big'), em = big.querySelector('em');
+const wrapW = (txt, hl) => txt.split(/(\s+)/).map(t => /\s+/.test(t) ? t : `<span class="w${hl?' hl':''}">${t}</span>`).join('');
+big.innerHTML = wrapW(big.firstChild.textContent) + wrapW(em.textContent, true);
+const words = [...big.querySelectorAll('.w')];
+function wordsScroll(){
+  const b = big.getBoundingClientRect(), vh = innerHeight;
+  const q = clamp((vh*.85 - b.top) / (b.height + vh*.3));
+  const n = RM ? words.length : Math.round(q*words.length);
+  words.forEach((w,i) => w.classList.toggle('lit', i < n));
+}
+
+/* ---------------- ghost fibers: dotted ribbons drifting in depth ---------------- */
+(function(){
+  const cv = $('#fibers'), ctx = cv.getContext('2d');
+  let w=0, h=0, t=0, vis=false;
+  const size = () => { const d = Math.min(2, devicePixelRatio||1); w = cv.clientWidth; h = cv.clientHeight; cv.width = w*d; cv.height = h*d; ctx.setTransform(d,0,0,d,0,0); };
+  size(); addEventListener('resize', size);
+  new IntersectionObserver(e => vis = e[0].isIntersecting).observe(cv);
+  // cool slate, kept away from the iris of the statement
+  const ribbons = [
+    {y:.42, amp:.20, f:.85, tw:1.4, ph:0,   n:34, col:[96,104,124]},
+    {y:.58, amp:.16, f:1.15, tw:1.1, ph:2.2, n:28, col:[128,136,154]},
+    {y:.50, amp:.26, f:.6,  tw:1.8, ph:4.1, n:22, col:[160,166,182]}
+  ];
+  function draw(){
+    ctx.clearRect(0,0,w,h);
+    ribbons.forEach(r => {
+      for (let k=0;k<r.n;k++){
+        const v = k/(r.n-1) - .5;               // position across the ribbon
+        for (let x=-10; x<=w+10; x+=5){
+          const u = x/w;
+          const twist = Math.sin(u*Math.PI*r.tw + t*.6 + r.ph);    // ribbon rotates along its length
+          const width = 46 * twist;
+          const yc = h*r.y + Math.sin(u*Math.PI*2*r.f + t + r.ph)*h*r.amp*(.7+.3*Math.sin(u*2.3 + t*.4));
+          const y = yc + v*width;
+          const depth = Math.cos(u*Math.PI*r.tw + t*.6 + r.ph)*v; // -.5 .. .5, front vs back fibers
+          const focus = Math.abs(depth)*2;                         // out of focus away from the middle plane
+          const edge = Math.min(1, (u<.12 ? u/.12 : u>.88 ? (1-u)/.12 : 1));
+          const a = (.55 - focus*.4) * edge * (.35 + .65*Math.abs(twist));
+          if (a <= .02) continue;
+          const s = .8 + focus*1.6;
+          ctx.fillStyle = `rgba(${r.col[0]},${r.col[1]},${r.col[2]},${a.toFixed(3)})`;
+          ctx.fillRect(x, y, s, s);
+        }
+      }
+    });
+  }
+  function loop(){ if (vis) { t += .006; draw(); } requestAnimationFrame(loop); }
+  draw(); if (!RM) loop();
+})();
+
+/* ---------------- steps: sticky list + 3-layer drum ---------------- */
+const steps = $('#how'), cards = [...document.querySelectorAll('.card')], lis = [...document.querySelectorAll('#sl li')];
+const N = cards.length;
+let act = -1;
+function stepsScroll(){
+  if (innerWidth <= 900) { lis.forEach(l => l.classList.add('on')); return; }
+  const r = steps.getBoundingClientRect(), span = steps.offsetHeight - innerHeight;
+  const p = clamp(-r.top / span);
+  const f = p*(N-1), i = Math.floor(f), fr = f - i;
+  // rest on each card, then roll quickly to the next
+  const pos = i + ease(clamp((fr - .55)/.45));
+  const R = 300, A = 52;
+  cards.forEach((c,k) => {
+    const d = k - pos;
+    const ad = Math.abs(d);
+    c.style.transform = `translateZ(${-R}px) rotateX(${-d*A}deg) translateZ(${R}px) scale(${1 - Math.min(ad,1)*.06})`;
+    c.style.opacity = ad > 1.35 ? 0 : String(1 - Math.min(ad,1)*.45);
+    c.style.zIndex = String(10 - Math.round(ad*3));
+    c.style.filter = ad > .05 ? `brightness(${1 - Math.min(ad,1)*.25})` : '';
+  });
+  const a = Math.round(pos);
+  if (a !== act) { act = a; lis.forEach((l,k) => l.classList.toggle('on', k===a)); }
+}
+lis.forEach((l,k) => l.addEventListener('click', () => {
+  const span = steps.offsetHeight - innerHeight;
+  scrollTo({top: steps.offsetTop + span*(k/(N-1)) + 2, behavior: RM ? 'auto' : 'smooth'});
+}));
+
+/* card 1: new chat */
+(function(){
+  const opts = [['claude','Claude Code','Opus 5.5'],['claude','Claude Code','Sonnet 5.5'],['codex','Codex','GPT-5.5'],['gemini','Gemini CLI','ACP']];
+  const menu = $('#ncmenu'), inp = $('#ncin');
+  let sel = 0;
+  const draw = () => { menu.innerHTML = opts.map(([a,n,m],k) => `<div class="mi${k===sel?' sel':''}">${am(a)}${n}<small>${m}</small></div>`).join(''); };
+  draw(); inp.innerHTML = '<span style="color:var(--c-mut)">Describe the task…</span>';
+  if (RM) return;
+  const txt = 'Reopen tabs after a relaunch';
+  async function loop(){
+    sel = 0; draw(); inp.innerHTML = '<span class="caret"></span>';
+    for (let k=1;k<=txt.length;k++){ inp.innerHTML = txt.slice(0,k)+'<span class="caret"></span>'; await sleep(45); }
+    await sleep(600);
+    for (const s of [1,2,0]) { sel = s; draw(); const [a,n,m] = opts[s]; $('#ncag').innerHTML = `${am(a)}${n} <span>· ${m}</span>`; await sleep(900); }
+    await sleep(1600); loop();
+  }
+  loop();
+})();
+/* card 2: sessions */
+(function(){
+  const rows = [
+    ['billing-api', null], ['Rate limit webhooks','codex','GPT-5.5','waiting','2 min',0],
+    ['ladder', null], ['Restore tabs after relaunch','claude','Opus 5.5','running','now',2], ['Diff viewer word wrap','codex','GPT-5.5','unread','12 min',0],
+    ['marketing-web', null], ['Pricing page copy','gemini','ACP','running','4 min',0]
+  ];
+  const el = $('#sessl');
+  const draw = () => el.innerHTML = rows.map(r => r[1]===null ? `<div class="pj open" style="margin-top:4px">${I.folderopen}<span>${r[0]}</span></div>` :
+    `<div class="ss"><div class="r1"><span class="tt">${r[0]}</span>${glyph(r[3])}<span class="ag">${r[4]}</span></div><div class="r2">${am(r[1])}${r[2]}${r[5] ? ` · ${r[5]} agents` : ''}</div></div>`).join('');
+  draw();
+  if (RM) return;
+  const cycle = ['running','waiting','running','unread'];
+  let k = 0;
+  setInterval(() => { k++; rows[6][3] = cycle[k%4]; rows[3][5] = k%3===0 ? 3 : 2; rows[1][3] = k%2 ? 'running' : 'waiting'; draw(); }, 1800);
+})();
+/* card 3: waiting */
+(function(){
+  const REQ = [['billing-api','Codex wants to run pnpm test'],['infra','Claude Code asks: keep Node 20 in the CI matrix?'],['marketing-web','Gemini CLI wants to edit 4 files'],['ladder','Claude Code wants to run pnpm typecheck'],['billing-api','Codex wants to write outside the worktree']];
+  const il = $('#ilist'); let ri = 0;
+  const rc = ([p,t]) => { const d = document.createElement('div'); d.className = 'ic2'; d.innerHTML = `<span class="alert">${I.alert}</span><span class="tx2"><span class="pn">${p}</span><br>${t}</span><kbd>⏎</kbd>`; return d; };
+  for (; ri<4; ri++) il.appendChild(rc(REQ[ri]));
+  il.firstElementChild.classList.add('first');
+  if (RM) return;
+  setInterval(() => {
+    const f = il.firstElementChild; f.classList.remove('first'); f.classList.add('ok'); const a = f.querySelector('.alert'); a.innerHTML = I.check; a.style.color = 'var(--ok)';
+    setTimeout(() => f.classList.add('out'), 500);
+    setTimeout(() => { f.remove(); il.firstElementChild.classList.add('first'); const c = rc(REQ[ri++ % REQ.length]); c.classList.add('new'); il.appendChild(c); requestAnimationFrame(() => requestAnimationFrame(() => c.classList.remove('new'))); }, 950);
+  }, 2600);
+})();
+/* card 4: diff + merge */
+(function(){
+  const L = [
+    [' ',41,'export function restoreTabs(project: ProjectId) {'],
+    ['-',42,'  const tabs = loadTabs(project) ?? []'],
+    ['+',42,'  const saved = readTabState(project)'],
+    ['+',43,'  if (!saved) return openDefaultTab(project)'],
+    ['+',44,'  for (const tab of saved.tabs) openTab(tab, { focus: false })'],
+    ['+',45,'  focusTab(saved.activeId)'],
+    ['+',46,'  whenMeasured(saved.activeId, () => scrollTo(saved.scroll))'],
+    [' ',47,'}'],
+    [' ',48,''],
+    ['+',49,'window.addEventListener(\'beforeunload\', saveTabState)']
+  ];
+  const d = $('#diff');
+  d.innerHTML = L.map(([k,n,s],i) => `<div class="dl-row${k==='+'?' add':k==='-'?' del':''}" data-i="${i}"><b>${k===' '?n:k}</b><span>${s.replace(/</g,'&lt;')}</span></div>`).join('') +
+    `<div class="mbar">${I.check.replace('class="i"','class="i" style="color:var(--ok)"')} typecheck passed · worktree ladder/restore-tabs<span class="sp"></span><span class="cbtn">Discard</span><span class="cbtn pri" id="mergeBtn">Merge into main</span></div>`;
+  if (RM) return;
+  const rows = [...d.querySelectorAll('.dl-row')];
+  async function loop(){
+    rows.forEach(r => r.style.opacity = .15);
+    for (const r of rows) { r.style.transition = 'opacity .3s'; r.style.opacity = 1; await sleep(140); }
+    await sleep(900); const b = $('#mergeBtn'); b.classList.add('press'); await sleep(160); b.classList.remove('press'); b.textContent = 'Merged';
+    await sleep(2200); b.textContent = 'Merge into main'; loop();
+  }
+  loop();
+})();
+/* card 5: limits */
+(function(){
+  const G = [
+    {plan:'Claude Max', a:'claude', note:'2 sessions running', rows:[['5-hour window', 58, 'resets in 2h 14m'], ['This week', 31, 'resets Mon 09:00']]},
+    {plan:'ChatGPT Plus', a:'codex', note:'1 session running', rows:[['5-hour window', 22, 'resets in 3h 40m'], ['This week', 47, 'resets Thu 18:00']]}
+  ];
+  const el = $('#lim');
+  el.innerHTML = G.map((g,gi) => (gi ? '<div class="sep"></div>' : '') + `<div class="pv">${am(g.a)}${g.plan}<small>${g.note}</small></div>` +
+    g.rows.map((r,ri) => `<div class="lr"><div class="lh"><span>${r[0]} · ${r[2]}</span><b data-v="${gi}${ri}">${r[1]}%</b></div><div class="trk"><div class="fil" data-f="${gi}${ri}" style="width:${r[1]}%"></div></div></div>`).join('')).join('');
+  if (RM) return;
+  setInterval(() => G.forEach((g,gi) => g.rows.forEach((r,ri) => {
+    r[1] = r[1] >= 92 ? (ri ? r[1] : 4) : Math.min(96, r[1] + (ri ? 1 : 2 + Math.round(Math.random()*3)));
+    el.querySelector(`[data-v="${gi}${ri}"]`).textContent = r[1] + '%';
+    const f = el.querySelector(`[data-f="${gi}${ri}"]`); f.style.width = r[1] + '%'; f.classList.toggle('hot', r[1] >= 80);
+  })), 1400);
+})();
+
+/* ---------------- agent strip ---------------- */
+const names = [['claude','Claude Code'],['codex','Codex'],['gemini','Gemini CLI'],[null,'OpenCode'],[null,'Goose'],[null,'Qwen Code'],[null,'Amp'],[null,'Cline'],[null,'Kimi CLI']];
+const strip = names.map(([k,n]) => `<span>${k ? am(k) : '<span class="am" style="border-radius:4px;background:#E6E2EF;display:inline-grid;place-items:center;font-size:11px;color:#5F5A6E">'+n[0]+'</span>'}${n}</span>`).join('');
+$('#marq').innerHTML = strip + strip;
+
+/* ---------------- one scroll loop ---------------- */
+let queued = false;
+function onScroll(){ queued = false; hdr.classList.toggle('scrolled', scrollY > 10); heroScroll(); wordsScroll(); stepsScroll(); }
+addEventListener('scroll', () => { if (!queued) { queued = true; requestAnimationFrame(onScroll); } }, {passive:true});
+addEventListener('resize', onScroll);
+document.fonts && document.fonts.ready.then(onScroll);
+onScroll();
+if (RM && !started) { started = true; chat = [{t:'u',x:PROMPT},{t:'tool',k:'Read',x:'src/host/sessions.ts'},{t:'tool',k:'Edit',x:'renderer/store/tabs.ts',p:'+42',m:'−7'}]; LS[0].st='running'; P.billing.st='waiting'; render(); }
+})();
+</script>
