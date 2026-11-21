@@ -8,8 +8,11 @@ import type { ChatItem, RequestResponse, RunState } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { Spinner } from './bits'
 import { ChatContext, createToggleStore, prefersReducedMotion, type ChatActions } from './chat-context'
+import { WaitingAgentsLine } from './agents-lines'
 import { TurnRow } from './turn-row'
-import { createTurnCache, estimateTurnHeight, groupTurns, type Turn } from './turns'
+import { useApp } from '@/store/app-store'
+import { CHAT_LAYOUT_WILL_CHANGE, DEFAULT_CHAT_WIDTH, DEFAULT_TEXT_SIZE } from '@/hooks/use-chat-font'
+import { chatColumn, createTurnCache, estimateTurnHeight, groupTurns, type Turn } from './turns'
 
 /** Posizione di lettura: elemento in cima alla vista e quanti pixel ne sono già passati sopra il bordo. */
 export interface ChatAnchor {
@@ -39,10 +42,22 @@ export interface ChatViewProps {
   /** Elemento da raggiungere (⌘⇧A, notifica, ricerca): la vista ci scorre e mette il focus sulla sua prima azione. */
   focusRequest?: { itemId: string | null; nonce: number } | null
   onFocusDone?: (nonce: number) => void
+  /** Colonna stretta: margini ridotti e card degli strumenti chiuse (restano apribili con un clic). */
+  compact?: boolean
+  /** Sotto-agenti in background ancora al lavoro con il coordinatore fermo: sotto l'ultimo turno compare "Waiting for N background agents". */
+  waitingAgents?: number
+  /** "Continue" sulla riga dei sotto-agenti finiti: invia session.continue. Rifiuta con il messaggio d'errore dell'host. */
+  onContinue?: (itemId: string) => Promise<unknown>
+  /** Mette del testo nel composer senza inviarlo. */
+  onPrefill?: (text: string) => void
+  /** Colonna attiva (default: sì). Una colonna non attiva non porta via il focus a chi sta scrivendo altrove. */
+  active?: boolean
 }
 
 const PADDING_START = 20
 const PADDING_END = 28
+/** Spazio sotto l'ultimo turno per la riga "in attesa di N agenti" (22 px). */
+const WAITING_ROW = 22
 const AT_END_PX = 8
 const JUMP_PX = 240
 const ANCHOR_DEBOUNCE_MS = 300
@@ -52,6 +67,18 @@ export function ChatView(props: ChatViewProps) {
   return <ChatViewInner key={props.sessionId} {...props} />
 }
 
+/** Elemento in cima alla vista e quanti pixel ne sono già passati sopra il bordo. */
+function readAnchor(el: HTMLElement | null): ChatAnchor | null {
+  if (!el || !el.isConnected) return null
+  const top = el.getBoundingClientRect().top
+  for (const node of el.querySelectorAll<HTMLElement>('[data-item-id]')) {
+    const rect = node.getBoundingClientRect()
+    if (rect.height === 0 || rect.bottom <= top + 1) continue
+    return { itemId: node.dataset.itemId!, offset: Math.round(top - rect.top) }
+  }
+  return null
+}
+
 function turnIndexOfItem(turns: Turn[], items: ChatItem[], itemId: string) {
   const item = items.find((i) => i.id === itemId)
   if (!item) return -1
@@ -59,6 +86,7 @@ function turnIndexOfItem(turns: Turn[], items: ChatItem[], itemId: string) {
 }
 
 function ChatViewInner({
+  sessionId,
   items,
   run,
   activity,
@@ -69,44 +97,98 @@ function ChatViewInner({
   onOpenFile,
   onOpenDiff,
   focusRequest,
-  onFocusDone
+  onFocusDone,
+  compact = false,
+  waitingAgents = 0,
+  onContinue,
+  onPrefill,
+  active = true
 }: ChatViewProps) {
   const rootRef = useRef<HTMLDivElement>(null)
+  const activeRef = useRef(active)
+  activeRef.current = active
   const scrollRef = useRef<HTMLDivElement>(null)
   const cacheRef = useRef(createTurnCache())
   const turns = useMemo(() => groupTurns(items, cacheRef.current), [items])
   const turnsRef = useRef(turns)
   turnsRef.current = turns
 
-  const callbacks = useRef({ onAnchorChange, onRespond, onOpenFile, onOpenDiff, onFocusDone })
+  const callbacks = useRef({ onAnchorChange, onRespond, onOpenFile, onOpenDiff, onFocusDone, onContinue, onPrefill })
   useLayoutEffect(() => {
-    callbacks.current = { onAnchorChange, onRespond, onOpenFile, onOpenDiff, onFocusDone }
+    callbacks.current = { onAnchorChange, onRespond, onOpenFile, onOpenDiff, onFocusDone, onContinue, onPrefill }
   })
   const itemsRef = useRef(items)
   itemsRef.current = items
 
+  // Le sezioni aperte non dipendono da `compact`: l'archivio resta lo stesso quando la colonna cambia larghezza.
+  const [toggles] = useState(createToggleStore)
+  const hasContinue = Boolean(onContinue)
+  const hasPrefill = Boolean(onPrefill)
   const actions = useMemo<ChatActions>(
     () => ({
       openFile: (path, line, external) => callbacks.current.onOpenFile(path, line, external),
       openDiff: (turnId, path) => callbacks.current.onOpenDiff?.(turnId, path),
       respond: (requestId, response) => callbacks.current.onRespond(requestId, response),
       canTakeFocus: () => {
+        if (!activeRef.current) return false
         const active = document.activeElement
         return !active || active === document.body || Boolean(rootRef.current?.contains(active))
       },
-      toggles: createToggleStore()
+      continueSession: hasContinue ? (itemId) => callbacks.current.onContinue!(itemId) : undefined,
+      prefill: hasPrefill ? (text) => callbacks.current.onPrefill!(text) : undefined,
+      toggles,
+      compact,
+      sessionId
     }),
-    []
+    [toggles, compact, sessionId, hasContinue, hasPrefill]
   )
+  // Passando alla vista compatta le card degli strumenti si chiudono.
+  useEffect(() => {
+    if (compact) toggles.closeAll(['tool:', 'out:'])
+  }, [compact, toggles])
 
-  // Chiavi e stime cambiano solo quando cambia la sequenza dei turni, non a ogni pezzo di streaming.
+  const chatFont = useApp((s) => s.prefs?.chatFont) ?? 'system-mono'
+  const chatWidth = useApp((s) => s.prefs?.chatWidth) ?? DEFAULT_CHAT_WIDTH
+  const chatSize = useApp((s) => s.prefs?.chatTextSize) ?? DEFAULT_TEXT_SIZE
+  // Colonna di testo effettiva (caratteri per riga): si misura in modo sincrono al primo layout e poi a ogni resize,
+  // ma lo stato cambia solo se cambiano chars, userChars o line, non a ogni pixel di una finestra più larga del limite.
+  const [column, setColumn] = useState(() => chatColumn(chatFont, chatWidth, 0, compact, chatSize))
+  const [measured, setMeasured] = useState(false)
+  // Ultima posizione di lettura vista PRIMA di un eventuale cambio di layout: si aggiorna a ogni scroll, a ogni resize e a ogni
+  // passo del ripristino. Al cambio di larghezza o font non si rilegge il DOM (che a quel punto è già quello nuovo).
+  const liveAnchorRef = useRef<ChatAnchor | null>(null)
+  const captureAnchor = () => {
+    liveAnchorRef.current = readAnchor(scrollRef.current) ?? liveAnchorRef.current
+  }
+  const columnRef = useRef(column)
+  columnRef.current = column
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const update = () => {
+      captureAnchor()
+      const next = chatColumn(chatFont, chatWidth, el.clientWidth, compact, chatSize)
+      setColumn((prev) => (prev.chars === next.chars && prev.userChars === next.userChars && prev.line === next.line ? prev : next))
+      setMeasured(true)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [chatFont, chatWidth, compact, chatSize])
+
+  // Chiavi e stime cambiano solo quando cambia la sequenza dei turni (non a ogni pezzo di streaming) o la colonna.
+  // `column` è anche tra le dipendenze di getItemKey: virtual-core ricalcola le misure solo quando cambiano le sue opzioni
+  // (estimateSize non conta), e così gli elementi non ancora misurati prendono la stima nuova senza perdere quelli misurati.
   const idsKey = useMemo(() => turns.map((t) => t.id).join('\u0001'), [turns])
-  const getItemKey = useCallback((index: number) => turnsRef.current[index]?.id ?? index, [idsKey])
+  const getItemKey = useCallback((index: number) => turnsRef.current[index]?.id ?? index, [idsKey, column])
   const estimateSize = useCallback(
-    (index: number) => (turnsRef.current[index] ? estimateTurnHeight(turnsRef.current[index]) : 120),
-    [idsKey]
+    (index: number) => (turnsRef.current[index] ? estimateTurnHeight(turnsRef.current[index], column) : 120),
+    [idsKey, column]
   )
 
+  // La riga "in attesa" compare con gli agenti al lavoro e sparisce da sé quando finiscono o parte un turno (run non più idle).
+  const showWaiting = waitingAgents > 0 && run === 'idle' && turns.length > 0
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: turns.length,
     getScrollElement: () => scrollRef.current,
@@ -114,7 +196,7 @@ function ChatViewInner({
     getItemKey,
     overscan: 3,
     paddingStart: PADDING_START,
-    paddingEnd: PADDING_END,
+    paddingEnd: PADDING_END + (showWaiting ? WAITING_ROW : 0),
     anchorTo: 'end',
     followOnAppend: true,
     scrollEndThreshold: AT_END_PX,
@@ -123,7 +205,7 @@ function ChatViewInner({
       const index = initialAnchor ? turnIndexOfItem(list, items, initialAnchor.itemId) : -1
       const until = index >= 0 ? index : list.length
       let offset = PADDING_START
-      for (let i = 0; i < until; i++) offset += estimateTurnHeight(list[i])
+      for (let i = 0; i < until; i++) offset += estimateTurnHeight(list[i], columnRef.current)
       return index >= 0 ? offset : offset + PADDING_END
     }
   })
@@ -137,16 +219,7 @@ function ChatViewInner({
   const anchorTimerRef = useRef<number | undefined>(undefined)
   const computeAnchor = useCallback(() => {
     anchorTimerRef.current = undefined
-    const el = scrollRef.current
-    if (!el || !el.isConnected) return
-    const top = el.getBoundingClientRect().top
-    let anchor: ChatAnchor | null = null
-    for (const node of el.querySelectorAll<HTMLElement>('[data-item-id]')) {
-      const rect = node.getBoundingClientRect()
-      if (rect.height === 0 || rect.bottom <= top + 1) continue
-      anchor = { itemId: node.dataset.itemId!, offset: Math.round(top - rect.top) }
-      break
-    }
+    const anchor = readAnchor(scrollRef.current)
     if (!anchor) return
     const key = `${anchor.itemId}:${anchor.offset}`
     if (key === lastAnchorRef.current) return
@@ -173,17 +246,86 @@ function ChatViewInner({
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight
     atEndRef.current = distance <= AT_END_PX
     setShowJump(distance > JUMP_PX)
+    captureAnchor()
     scheduleAnchor()
   }
 
+  const inputSeqRef = useRef(0)
   const markUserMoved = () => {
     userMovedRef.current = true
+    inputSeqRef.current++
   }
+
+  // Cambio di larghezza o di font a metà lettura: le altezze cambiano, la posizione di lettura no. Si prende l'ancora
+  // prima che il DOM cambi (durante il render, dove ancora c'è il layout vecchio) e la si ritrova dopo, rifinita sulle misure reali.
+  const layoutKey = `${chatFont}|${chatWidth}|${chatSize}`
+  const layoutKeyRef = useRef(layoutKey)
+  const pendingRef = useRef<{ anchor: ChatAnchor | null; end: boolean } | null>(null)
+  // Di norma l'ancora è già stata presa dall'evento (useChatFont lo manda prima di cambiare il layout); questo è il ripiego.
+  useLayoutEffect(() => {
+    const onWillChange = () => {
+      pendingRef.current = { anchor: atEndRef.current ? null : readAnchor(scrollRef.current), end: atEndRef.current }
+    }
+    window.addEventListener(CHAT_LAYOUT_WILL_CHANGE, onWillChange)
+    return () => window.removeEventListener(CHAT_LAYOUT_WILL_CHANGE, onWillChange)
+  }, [])
+  if (layoutKeyRef.current !== layoutKey) {
+    layoutKeyRef.current = layoutKey
+    pendingRef.current ??= { anchor: atEndRef.current ? null : liveAnchorRef.current, end: atEndRef.current }
+  }
+  useLayoutEffect(() => {
+    const pending = pendingRef.current
+    pendingRef.current = null
+    if (!pending) return
+    const seq = inputSeqRef.current
+    if (pending.end || !pending.anchor) {
+      // In fondo si resta in fondo, finché le misure delle righe non smettono di cambiare l'altezza totale.
+      let last = -1
+      let calm = 0
+      let n = 0
+      let id = 0
+      const follow = () => {
+        const el = scrollRef.current
+        if (!el || inputSeqRef.current !== seq) return
+        virtualizer.scrollToEnd()
+        calm = el.scrollHeight === last ? calm + 1 : 0
+        last = el.scrollHeight
+        if (++n < 40 && calm < 4) id = requestAnimationFrame(follow)
+        else captureAnchor()
+      }
+      follow()
+      return () => cancelAnimationFrame(id)
+    }
+    const anchor = pending.anchor
+    const index = turnIndexOfItem(turnsRef.current, itemsRef.current, anchor.itemId)
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: 'start' })
+    const selector = `[data-item-id="${CSS.escape(anchor.itemId)}"]`
+    let frame = 0
+    let stable = 0
+    let raf = 0
+    const tick = () => {
+      const el = scrollRef.current
+      if (!el || inputSeqRef.current !== seq) return
+      const target = el.querySelector<HTMLElement>(selector)
+      if (target) {
+        const delta = target.getBoundingClientRect().top - el.getBoundingClientRect().top + anchor.offset
+        if (Math.abs(delta) > 1) {
+          stable = 0
+          virtualizer.scrollBy(delta)
+        } else stable++
+      }
+      if (++frame < 40 && stable < 4) raf = requestAnimationFrame(tick)
+      else captureAnchor()
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [layoutKey, virtualizer])
 
   // Posizione iniziale: il fondo, oppure l'ancora salvata (rifinita sugli elementi reali per qualche frame).
   const positionedRef = useRef(false)
   useLayoutEffect(() => {
-    if (positionedRef.current || turns.length === 0) return
+    // Si parte a larghezza misurata: stime e posizione iniziale usano la colonna reale.
+    if (positionedRef.current || turns.length === 0 || !measured) return
     positionedRef.current = true
     const anchor = initialAnchor
     const index = anchor ? turnIndexOfItem(turns, items, anchor.itemId) : -1
@@ -218,12 +360,17 @@ function ChatViewInner({
       positionedRef.current = false
     }
     // Solo alla prima comparsa degli elementi.
-  }, [turns.length > 0])
+  }, [turns.length > 0 && measured])
 
   // Quando l'utente invia un messaggio si torna in fondo, anche se stava leggendo più su.
   const lastUserIdRef = useRef<string | null>(null)
   const lastUserId = useMemo(() => {
-    for (let i = turns.length - 1; i >= 0; i--) if (turns[i].user) return turns[i].user!.id
+    // Vale anche un messaggio inserito nel turno (steered): l'ultimo 'user' di tutti, nei passi o in testa.
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const steps = turns[i].steps
+      for (let j = steps.length - 1; j >= 0; j--) if (steps[j].kind === 'user') return steps[j].id
+      if (turns[i].user) return turns[i].user!.id
+    }
     return null
   }, [turns])
   useEffect(() => {
@@ -304,6 +451,19 @@ function ChatViewInner({
       : t('Approval requested: {target}', { target: openRequest.command ?? openRequest.path ?? openRequest.title })
     : ''
 
+  // Seq dell'ultima riga di avvio "dopo la fine degli agenti": le righe "picked up" che la precedono sarebbero un doppione.
+  const bgStartSeq = useMemo(() => {
+    let seq = -1
+    for (const item of items) if (item.kind === 'agent-start' && item.reason === 'background-agents' && item.seq > seq) seq = item.seq
+    return seq
+  }, [items])
+
+  const wasWaitingRef = useRef(false)
+  useLayoutEffect(() => {
+    if (showWaiting && !wasWaitingRef.current && atEndRef.current) virtualizer.scrollToEnd()
+    wasWaitingRef.current = showWaiting
+  }, [showWaiting, virtualizer])
+
   const virtualItems = virtualizer.getVirtualItems()
 
   return (
@@ -321,9 +481,13 @@ function ChatViewInner({
           className="chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto outline-none focus-visible:shadow-[inset_0_0_0_2px_color-mix(in_oklab,var(--ring)_45%,transparent)]"
         >
           {turns.length === 0 && (run === 'starting' || run === 'running') ? (
-            <div className="mx-auto flex w-full max-w-[680px] items-center gap-2 px-6 pt-6 text-sm text-muted-foreground">
-              <Spinner />
-              {t('Starting session')}
+            <div className="chat-col" data-compact={compact ? '' : undefined}>
+              <div className="chat-text">
+                <div className="chat-reset flex items-center gap-2 pt-6 text-sm text-muted-foreground">
+                  <Spinner />
+                  {t('Starting session')}
+                </div>
+              </div>
             </div>
           ) : null}
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
@@ -345,10 +509,20 @@ function ChatViewInner({
                     run={live ? run : 'idle'}
                     activity={live ? activity : null}
                     dividerBefore={unread && unread.turnId === turn.id ? unread.itemId : null}
+                    bgStartSeq={bgStartSeq}
                   />
                 </div>
               )
             })}
+            {showWaiting ? (
+              <div className="chat-col absolute inset-x-0" style={{ bottom: PADDING_END }} data-compact={compact ? '' : undefined}>
+                <div className="chat-text">
+                  <div className="chat-reset">
+                    <WaitingAgentsLine count={waitingAgents} />
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 

@@ -8,6 +8,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { themeById, type ThemeInfo } from '@shared/themes.generated'
 import { onHostConnect, request, send } from '@/lib/host-client'
+import { findBinding, matchesCommand, TERMINAL_NATIVE_KEYS } from '@shared/shortcuts'
 
 interface Entry {
   id: string
@@ -134,8 +135,12 @@ function create(id: string): Entry {
   // al terminale vanno solo copia, incolla e seleziona tutto.
   term.attachCustomKeyEventHandler((event) => {
     if (event.type !== 'keydown') return true
-    if (event.ctrlKey && event.code === 'Backquote') return false
-    return !(event.metaKey && !['c', 'v', 'a'].includes(event.key.toLowerCase()))
+    if (matchesCommand(event, 'terminal.toggle')) return false
+    if (event.metaKey && !TERMINAL_NATIVE_KEYS.includes(event.key.toLowerCase())) return false
+    // Una scorciatoia globale con ⌃ (⌃Tab per cambiare tab) è dell'app: xterm la inghiottirebbe come tasto del terminale.
+    // Quelle senza ⌃ né ⌘ restano al terminale, così scrivere non viene intercettato.
+    const binding = event.ctrlKey ? findBinding(event, 'global') : null
+    return !binding
   })
   entries.set(id, entry)
   return entry

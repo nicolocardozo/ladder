@@ -1,4 +1,6 @@
 // Ispettore a destra: Modifiche (⌘⌥1), File (⌘⌥2), Cronologia (⌘⌥3), Merge (⌘⌥4) sulla cartella della sessione.
+import { shortcutLabel, type CommandId } from '@shared/shortcuts'
+import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { useEffect, useState, type ReactNode } from 'react'
 import { FolderOpen, FolderSearch, X } from 'lucide-react'
 import { IconButton } from '@/components/icon-button'
@@ -15,11 +17,11 @@ import { MergePanel } from './merge-panel'
 const WIDTH_KEY = 'ladder.inspector-width'
 const NO_ITEMS: ChatItem[] = []
 
-const TABS: { id: InspectorTab; label: string; key: string }[] = [
-  { id: 'changes', label: 'Changes', key: '⌘⌥1' },
-  { id: 'files', label: 'Files', key: '⌘⌥2' },
-  { id: 'history', label: 'History', key: '⌘⌥3' },
-  { id: 'merge', label: 'Merge', key: '⌘⌥4' }
+const TABS: { id: InspectorTab; label: string; command: CommandId }[] = [
+  { id: 'changes', label: 'Changes', command: 'inspector.changes' },
+  { id: 'files', label: 'Files', command: 'inspector.files' },
+  { id: 'history', label: 'History', command: 'inspector.history' },
+  { id: 'merge', label: 'Merge', command: 'inspector.merge' }
 ]
 
 function readWidth(): number {
@@ -40,6 +42,7 @@ interface InspectorProps {
 }
 
 export function Inspector({ projectId, root, isGit, session, composerKey }: InspectorProps) {
+  useShortcutsRevision()
   const tab = useApp((s) => s.ui[projectId]?.inspector?.tab ?? 'changes')
   const toggle = useApp((s) => s.toggleInspector)
   const items = useApp((s) => (session ? (s.items[session.id] ?? NO_ITEMS) : NO_ITEMS))
@@ -100,7 +103,7 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
             type="button"
             role="tab"
             aria-selected={tab === item.id}
-            title={`${t(item.label)} (${item.key})`}
+            title={shortcutLabel(item.command) ? `${t(item.label)} (${shortcutLabel(item.command)})` : t(item.label)}
             onClick={() => tab !== item.id && toggle(projectId, item.id)}
             className={cn(
               'no-drag h-7 rounded-md px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50',

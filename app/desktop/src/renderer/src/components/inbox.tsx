@@ -1,5 +1,7 @@
 // "In attesa": richieste bloccanti di tutti i progetti, con le azioni, poi errori e risposte da leggere.
 // Si apre dalla sidebar sopra la sessione che hai davanti: approvi e resti dove sei, con la bozza intatta.
+import { shortcutLabel } from '@shared/shortcuts'
+import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { ArrowUpRight, Check, CircleX, SquareTerminal } from 'lucide-react'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { RequestResponse, SessionSummary } from '@shared/protocol'
@@ -9,8 +11,9 @@ import { formatSince } from '@/components/chat/format'
 import { RequestCard } from '@/components/chat/request-card'
 import { SessionGlyph } from '@/components/status'
 import { AgentMark, useAgentLine } from '@/components/agent-mark'
+import { useSessionProfileName } from '@/lib/profiles'
 import { request } from '@/lib/host-client'
-import { sessionState } from '@/lib/session-state'
+import { isUnreadState, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { isLiveSession, useApp } from '@/store/app-store'
 import { Kbd } from '@/components/ui/kbd'
@@ -30,7 +33,7 @@ export function useInboxGroups(): InboxGroups {
     return {
       waiting: live.filter((s) => s.run === 'waiting').sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0)),
       errors: live.filter((s) => s.run === 'error' && s.unread).sort((a, b) => b.activityAt - a.activityAt),
-      unread: live.filter((s) => sessionState(s) === 'unread').sort((a, b) => b.activityAt - a.activityAt)
+      unread: live.filter((s) => isUnreadState(sessionState(s))).sort((a, b) => b.activityAt - a.activityAt)
     }
   }, [sessions, projects])
 }
@@ -39,6 +42,7 @@ const linkButton =
   'inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50'
 
 export function InboxPanel() {
+  useShortcutsRevision()
   const { waiting, errors, unread } = useInboxGroups()
   const projects = useApp((s) => s.projects)
   const names = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
@@ -77,7 +81,7 @@ export function InboxPanel() {
                 .join(' · ')}
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Kbd>⌘⇧A</Kbd>
+          <Kbd>{shortcutLabel('session.nextWaiting')}</Kbd>
           {t('next')}
         </span>
       </div>
@@ -125,6 +129,7 @@ function Section({ label, count, children }: { label: string; count: number; chi
 function EntryHeader({ session, projectName, at, trailing }: { session: SessionSummary; projectName: string; at: number; trailing?: ReactNode }) {
   const now = useNow(30_000)
   const { name, model } = useAgentLine(session.agent, session.model)
+  const profile = useSessionProfileName(session)
   const open = () => useApp.getState().openSessionAt(session.id, session.request?.id ?? null)
   return (
     <div className="flex min-w-0 items-center gap-2 px-1.5">
@@ -137,6 +142,7 @@ function EntryHeader({ session, projectName, at, trailing }: { session: SessionS
         <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
           <AgentMark agent={session.agent} size={12} />
           {model ?? name}
+          {profile && <span className="max-w-24 truncate text-faint">· {profile}</span>}
         </span>
       </button>
       <span className="shrink-0 text-xs text-faint tabular-nums">{formatSince(at, now)}</span>

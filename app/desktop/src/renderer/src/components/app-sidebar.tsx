@@ -1,10 +1,14 @@
-import { ChevronLeft, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, GitFork, GitPullRequest, Inbox, PanelLeft, Plus, Search, Settings, SquarePen, SquareTerminal, UserRound, X, type LucideIcon } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, Search, Settings, Sparkles, SquarePen, SquareTerminal, UserRound, X, type LucideIcon } from 'lucide-react'
+import { useShortcutsRevision } from '@/lib/use-shortcuts'
+import { shortcutLabel } from '@shared/shortcuts'
 import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
-import type { Project, SessionSummary } from '@shared/protocol'
+import { useShallow } from 'zustand/react/shallow'
+import type { AgentId, AgentStatus, ConnectionStatus, Project, ProjectGroup, SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { IconButton } from '@/components/icon-button'
-import { GroupMenuContent, ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
+import { GroupMenuContent, ProjectGroupMenuContent, ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
 import { AgentMark, useAgentLine } from '@/components/agent-mark'
+import { isDefaultProfileId, isProfileAgent, normalizeProfileId, profilesOf, projectProfileId, useSessionProfileName } from '@/lib/profiles'
 import { AllSessionsButton } from '@/components/all-sessions'
 import { runningSubagents } from '@/components/agent-map'
 import { InboxPanel } from '@/components/inbox'
@@ -13,12 +17,15 @@ import { Kbd } from '@/components/ui/kbd'
 import { MarqueeText } from '@/components/ui/marquee-text'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
-import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useSettings } from '@/hooks/use-theme'
 import { request, send } from '@/lib/host-client'
-import { noteTone, prNote, projectAttention, sessionNote, sessionState, sidebarSessions } from '@/lib/session-state'
+import { NO_SECTION, startProjectDrag, startSectionDrag, useProjectDrag } from '@/lib/project-drag'
+import { layoutProjects, type ProjectLayout } from '@/lib/project-groups'
+import { NO_GROUP, pickClick, startSessionDrag, useSessionDrag, usePick } from '@/lib/session-drag'
+import { isUnreadState, noteTone, prNote, projectAttention, sessionNote, sessionState, sidebarSessions } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { canNavigate, useApp, type AwaySummary } from '@/store/app-store'
 
@@ -51,11 +58,13 @@ export async function addProjectFromDialog(): Promise<void> {
 
 /** Pulsante per riaprire la sidebar, nella barra in alto quando è nascosta. */
 export function ShowSidebarButton() {
+  useShortcutsRevision()
   const toggleSidebar = useApp((s) => s.toggleSidebar)
-  return <IconButton icon={PanelLeft} label={t('Show sidebar')} shortcut="⌘B" onClick={toggleSidebar} className="hover:bg-accent" />
+  return <IconButton icon={PanelLeft} label={t('Show sidebar')} shortcut={shortcutLabel('sidebar.toggle')} onClick={toggleSidebar} className="hover:bg-accent" />
 }
 
 export function AppSidebar() {
+  useShortcutsRevision()
   const projects = useApp((s) => s.projects)
   const sessions = useApp((s) => s.sessions)
   const drafts = useApp((s) => s.drafts)
@@ -72,6 +81,14 @@ export function AppSidebar() {
   const inboxOpen = useApp((s) => s.inboxOpen)
   const setInboxOpen = useApp((s) => s.setInboxOpen)
   const away = useApp((s) => s.away)
+  const projectGroups = useApp((s) => s.projectGroups)
+  const sidebarNotice = useApp((s) => s.sidebarNotice)
+  const sidebarNoticeTone = useApp((s) => s.sidebarNoticeTone)
+  const clearSidebarNotice = useApp((s) => s.clearSidebarNotice)
+  const createProjectGroup = useApp((s) => s.createProjectGroup)
+  const pick = usePick()
+  const dragOver = useSessionDrag((s) => (s.active ? s.over : null))
+  const dragging = useProjectDrag((s) => (s.active?.kind === 'project' ? s.active.id : null))
   const [removing, setRemoving] = useState<Project | null>(null)
 
   const byProject = useMemo(() => {
@@ -88,29 +105,138 @@ export function AppSidebar() {
     return map
   }, [sessions, projects])
 
+  const layout = useMemo(() => layoutProjects(projects, projectGroups), [projects, projectGroups])
+  /** Stato aggregato delle sessioni di più progetti: serve alla testata di una sezione chiusa. */
+  const attentionOf = (list: Project[]) => projectAttention(list.flatMap((p) => byProject.get(p.id) ?? []))
+
   let waitingTotal = 0
   let unreadTotal = 0
   for (const list of byProject.values()) {
     waitingTotal += list.reduce((n, s) => n + (s.run === 'waiting' ? Math.max(1, s.openRequests) : 0), 0)
-    unreadTotal += list.filter((s) => sessionState(s) === 'unread' || (s.run === 'error' && s.unread)).length
+    unreadTotal += list.filter((s) => isUnreadState(sessionState(s)) || (s.run === 'error' && s.unread)).length
+  }
+
+  /** Un progetto con le sue sessioni. `slot` è la linea che mostra dove cadrebbe un progetto trascinato. */
+  const renderProject = (project: Project, slot: 'before' | 'after' | null) => {
+    // Si apre solo il progetto selezionato: le righe sotto sono sempre quelle delle tab in alto.
+    const open = project.id === selection.projectId
+    const all = byProject.get(project.id) ?? []
+    const attention = projectAttention(all)
+    const FolderIcon = open ? FolderOpen : Folder
+    const isSelected = (id: string) => selection.kind === 'session' && selection.sessionId === id
+    const groups = ui[project.id]?.groups ?? []
+    const groupOf = ui[project.id]?.groupOf ?? {}
+    const inGroup = (id: string) => all.filter((s) => groupOf[s.id] === id)
+    const free = all.filter((s) => !groups.some((g) => g.id === groupOf[s.id]))
+    const list = open ? sidebarSessions(free, (s) => isSelected(s.id) || s.id === renaming || Boolean(drafts[s.id]?.trim())) : []
+    // Righe visibili, dall'alto in basso: serve alla selezione con ⇧.
+    const order = open ? [...groups.filter((g) => !g.collapsed || inGroup(g.id).some((s) => isSelected(s.id))).flatMap((g) => inGroup(g.id)), ...list].map((s) => s.id) : []
+    const picked = pick.projectId === project.id ? pick.ids.filter((id) => all.some((s) => s.id === id)) : []
+    return (
+      <div key={project.id} className={cn('relative flex flex-col gap-1', dragging === project.id && 'opacity-50')}>
+        {slot && <DropLine position={slot} />}
+        <div
+          data-project-row={project.id}
+          data-drop-group={NO_GROUP}
+          data-drop-project={project.id}
+          className={cn('group/project relative rounded-md', dragOver === NO_GROUP && open && 'bg-sidebar-accent/60 ring-1 ring-ring/50')}
+        >
+          <ContextMenu>
+            <ContextMenuTrigger
+              render={<button type="button" />}
+              aria-expanded={open}
+              aria-current={open ? 'true' : undefined}
+              onClick={(event) => {
+                // Un clic sul simbolo di stato di un altro progetto apre la sessione che lo ha generato.
+                if (!open && attention.target && (event.target as HTMLElement).closest('[data-attention]')) {
+                  useApp.getState().openSessionAt(attention.target.id, attention.target.request?.id ?? null)
+                  return
+                }
+                if (!open) selectProject(project.id)
+              }}
+              onPointerDown={(event) => {
+                if (event.button !== 0 || event.metaKey || event.shiftKey || event.ctrlKey) return
+                startProjectDrag({ event, id: project.id, label: project.name })
+              }}
+              title={project.path}
+              className={cn(
+                'flex min-h-[30px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none in-data-[sidebar-density=compact]:min-h-7',
+                'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-sidebar-accent/60',
+                open && 'bg-sidebar-accent/50 font-medium text-sidebar-accent-foreground'
+              )}
+            >
+              <FolderIcon className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
+              <span className="truncate">{project.name}</span>
+              <span className="ml-auto flex items-center group-hover/project:invisible group-has-[:focus-visible]/project:invisible group-has-[[data-popup-open]]/project:invisible">
+                {open ? attention.running && <RunningRing /> : <ProjectBadges attention={attention} />}
+              </span>
+            </ContextMenuTrigger>
+            <ProjectMenuContent project={project} onRemove={() => setRemoving(project)} />
+          </ContextMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label={t('Actions for {title}', { title: project.name })}
+              className={cn(
+                'absolute top-[3px] right-[29px] grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 outline-none',
+                'hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50',
+                'group-hover/project:opacity-100 data-[popup-open]:bg-sidebar-accent data-[popup-open]:opacity-100'
+              )}
+            >
+              <Ellipsis className="size-[15px]" strokeWidth={1.75} />
+            </DropdownMenuTrigger>
+            <ProjectMenuContent variant="dropdown" project={project} onRemove={() => setRemoving(project)} />
+          </DropdownMenu>
+          <IconButton
+            icon={Plus}
+            label={t('New chat in {project}', { project: project.name })}
+            onClick={() => select({ kind: 'new', projectId: project.id })}
+            className="absolute top-[3px] right-[3px] size-6 opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
+          />
+        </div>
+
+        {open && away[project.id] && <AwayRow projectId={project.id} summary={away[project.id]} />}
+
+        {open && picked.length > 0 && <PickBar project={project} ids={picked} groups={groups} groupOf={groupOf} />}
+
+        {open && groups.map((group) => <SessionGroup key={group.id} project={project} group={group} sessions={inGroup(group.id)} isSelected={isSelected} order={order} picked={picked} />)}
+
+        {list.length > 0 && (
+          <div data-drop-group={NO_GROUP} data-drop-project={project.id} className={cn('flex flex-col gap-1 rounded-md', dragOver === NO_GROUP && 'bg-sidebar-accent/60 ring-1 ring-ring/50')}>
+            {list.map((session) => (
+              <SessionRow key={session.id} session={session} project={project} selected={isSelected(session.id)} hasDraft={Boolean(drafts[session.id]?.trim())} order={order} picked={picked} />
+            ))}
+          </div>
+        )}
+
+        {open && all.length === 0 && <p className="ml-5 py-1 pl-2.5 text-xs text-faint">{t('No sessions. Press ⌘N to start.')}</p>}
+
+        {open && list.length < free.length && <AllSessionsButton project={project} count={all.length} />}
+      </div>
+    )
   }
 
   return (
-    <aside className="flex h-full w-[262px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none">
+    <aside
+      className="flex h-full w-[262px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none"
+      // Esc toglie la selezione multipla, a meno che non serva a chiudere un menu o un campo.
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && !event.defaultPrevented && pick.ids.length > 0 && !(event.target instanceof HTMLInputElement)) pick.clear()
+      }}
+    >
       {/* Barra del titolo: lo spazio a sinistra lascia posto ai semafori di macOS. */}
       <div className="drag flex h-11 shrink-0 items-center gap-0.5 pr-2 pl-[82px]">
-        <IconButton icon={PanelLeft} label={t('Hide sidebar')} shortcut="⌘B" onClick={toggleSidebar} />
-        <IconButton icon={Search} label={t('Search')} shortcut="⌘K" onClick={() => setPaletteOpen(true)} />
+        <IconButton icon={PanelLeft} label={t('Hide sidebar')} shortcut={shortcutLabel('sidebar.toggle')} onClick={toggleSidebar} />
+        <IconButton icon={Search} label={t('Search')} shortcut={shortcutLabel('palette.toggle')} onClick={() => setPaletteOpen(true)} />
         <span className="flex-1" />
-        <HistoryButton icon={ChevronLeft} label={t('Back')} shortcut="⌘[" disabled={!canBack} onClick={() => navigate(-1)} />
-        <HistoryButton icon={ChevronRight} label={t('Forward')} shortcut="⌘]" disabled={!canForward} onClick={() => navigate(1)} />
+        <HistoryButton icon={ChevronLeft} label={t('Back')} shortcut={shortcutLabel('nav.back')} disabled={!canBack} onClick={() => navigate(-1)} />
+        <HistoryButton icon={ChevronRight} label={t('Forward')} shortcut={shortcutLabel('nav.forward')} disabled={!canForward} onClick={() => navigate(1)} />
       </div>
 
       <nav className="flex flex-col gap-px px-2 pt-1" aria-label={t('Actions')}>
         <SidebarAction
           icon={SquarePen}
           label={t('New chat')}
-          trailing={<Kbd className="text-muted-foreground">⌘N</Kbd>}
+          trailing={<Kbd className="text-muted-foreground">{shortcutLabel('chat.new')}</Kbd>}
           active={selection.kind === 'new'}
           onClick={() => select({ kind: 'new', projectId: selection.projectId ?? projects[0]?.id ?? null })}
         />
@@ -156,11 +282,27 @@ export function AppSidebar() {
 
       <div className="flex items-center justify-between pt-5 pr-3 pb-1 pl-4 text-xs text-muted-foreground">
         <span>{t('Projects')}</span>
-        <IconButton icon={FolderPlus} label={t('Add project')} className="size-6" onClick={() => void addProjectFromDialog()} />
+        <span className="flex items-center">
+          <IconButton icon={ListPlus} label={t('New section')} className="size-6" onClick={() => void createProjectGroup()} />
+          <IconButton icon={FolderPlus} label={t('Add project')} className="size-6" onClick={() => void addProjectFromDialog()} />
+        </span>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea data-project-list className="min-h-0 flex-1">
         <div className="flex flex-col gap-1.5 px-2 pb-3">
+          {sidebarNotice && (
+            <div role={sidebarNoticeTone === 'error' ? 'alert' : 'status'} className={cn('flex min-h-7 items-center rounded-md bg-sidebar-accent/45 pr-1 pl-2.5 text-xs', sidebarNoticeTone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>
+              <span className="min-w-0 flex-1 py-1">{sidebarNotice}</span>
+              <button
+                type="button"
+                aria-label={t('Dismiss')}
+                onClick={clearSidebarNotice}
+                className="grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          )}
           {projects.length === 0 && (
             <button
               type="button"
@@ -170,80 +312,18 @@ export function AppSidebar() {
               {t('Add a project folder to get started.')}
             </button>
           )}
-          {projects.map((project) => {
-            // Si apre solo il progetto selezionato: le righe sotto sono sempre quelle delle tab in alto.
-            const open = project.id === selection.projectId
-            const all = byProject.get(project.id) ?? []
-            const attention = projectAttention(all)
-            const FolderIcon = open ? FolderOpen : Folder
-            const isSelected = (id: string) => selection.kind === 'session' && selection.sessionId === id
-            const groups = ui[project.id]?.groups ?? []
-            const groupOf = ui[project.id]?.groupOf ?? {}
-            const inGroup = (id: string) => all.filter((s) => groupOf[s.id] === id)
-            const free = all.filter((s) => !groups.some((g) => g.id === groupOf[s.id]))
-            const list = open ? sidebarSessions(free, (s) => isSelected(s.id) || s.id === renaming || Boolean(drafts[s.id]?.trim())) : []
-            return (
-              <div key={project.id} className="flex flex-col gap-1">
-                <div className="group/project relative">
-                  <ContextMenu>
-                    <ContextMenuTrigger
-                      render={<button type="button" />}
-                      aria-expanded={open}
-                      aria-current={open ? 'true' : undefined}
-                      onClick={(event) => {
-                        // Un clic sul simbolo di stato di un altro progetto apre la sessione che lo ha generato.
-                        if (!open && attention.target && (event.target as HTMLElement).closest('[data-attention]')) {
-                          useApp.getState().openSessionAt(attention.target.id, attention.target.request?.id ?? null)
-                          return
-                        }
-                        if (!open) selectProject(project.id)
-                      }}
-                      title={project.path}
-                      className={cn(
-                        'flex min-h-[30px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none',
-                        'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-sidebar-accent/60',
-                        open && 'bg-sidebar-accent/50 font-medium text-sidebar-accent-foreground'
-                      )}
-                    >
-                      <FolderIcon className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
-                      <span className="truncate">{project.name}</span>
-                      <span className="ml-auto flex items-center group-hover/project:invisible group-has-[:focus-visible]/project:invisible">
-                        {open ? attention.running && <RunningRing /> : <ProjectBadges attention={attention} />}
-                      </span>
-                    </ContextMenuTrigger>
-                    <ProjectMenuContent project={project} onRemove={() => setRemoving(project)} />
-                  </ContextMenu>
-                  <IconButton
-                    icon={Plus}
-                    label={t('New chat in {project}', { project: project.name })}
-                    onClick={() => select({ kind: 'new', projectId: project.id })}
-                    className="absolute top-[3px] right-[3px] size-6 opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
-                  />
-                </div>
-
-                {open && away[project.id] && <AwayRow projectId={project.id} summary={away[project.id]} />}
-
-                {open && groups.map((group) => <SessionGroup key={group.id} project={project} group={group} sessions={inGroup(group.id)} isSelected={isSelected} />)}
-
-                {list.map((session) => (
-                  <SessionRow key={session.id} session={session} project={project} selected={isSelected(session.id)} hasDraft={Boolean(drafts[session.id]?.trim())} />
-                ))}
-
-                {open && all.length === 0 && <p className="ml-5 py-1 pl-2.5 text-xs text-faint">{t('No sessions. Press ⌘N to start.')}</p>}
-
-                {open && list.length < free.length && <AllSessionsButton project={project} count={all.length} />}
-              </div>
-            )
-          })}
+          <ProjectLists layout={layout} renderProject={renderProject} attentionOf={attentionOf} selectedId={selection.projectId} />
         </div>
       </ScrollArea>
 
       <footer className="flex items-center gap-1 border-t border-sidebar-border p-2">
         <AccountButton />
-        <IconButton icon={Settings} label={t('Settings')} shortcut="⌘," onClick={() => useSettings.getState().setSettingsOpen(true)} />
+        <IconButton icon={Settings} label={t('Settings')} shortcut={shortcutLabel('app.openSettings')} onClick={() => useSettings.getState().setSettingsOpen(true)} />
       </footer>
 
       <RemoveProjectDialog project={removing} onClose={() => setRemoving(null)} />
+      <SessionDragGhost />
+      <ProjectDragGhost />
     </aside>
   )
 }
@@ -255,20 +335,26 @@ interface SessionRowProps {
   hasDraft: boolean
   /** Dentro un gruppo: un livello più a destra. */
   nested?: boolean
+  /** Righe visibili del progetto, per la selezione con ⇧. */
+  order: string[]
+  /** Sessioni del progetto selezionate con ⌘ e ⇧ clic. */
+  picked: string[]
 }
 
 /** Gruppo di chat creato da te: si apre e si chiude, e da chiuso mostra quello che ti aspetta. */
-function SessionGroup({ project, group, sessions, isSelected }: { project: Project; group: { id: string; name: string; collapsed?: boolean }; sessions: SessionSummary[]; isSelected: (id: string) => boolean }) {
+function SessionGroup({ project, group, sessions, isSelected, order, picked }: { project: Project; group: { id: string; name: string; collapsed?: boolean }; sessions: SessionSummary[]; isSelected: (id: string) => boolean; order: string[]; picked: string[] }) {
   const toggleGroup = useApp((s) => s.toggleGroup)
   const renameGroup = useApp((s) => s.renameGroup)
   const stopRenameGroup = useApp((s) => s.stopRenameGroup)
   const startRenameGroup = useApp((s) => s.startRenameGroup)
   const renaming = useApp((s) => s.renamingGroup === group.id)
   const drafts = useApp((s) => s.drafts)
+  const dropping = useSessionDrag((s) => s.active !== null && s.over === group.id)
   // La sessione aperta resta sempre visibile, anche in un gruppo chiuso.
   const open = !group.collapsed || sessions.some((s) => isSelected(s.id))
   return (
-    <div className="flex flex-col gap-1">
+    // Anche da chiuso il gruppo accetta le sessioni trascinate: la riga si apre da sola al rilascio.
+    <div data-drop-group={group.id} data-drop-project={project.id} className={cn('flex flex-col gap-1 rounded-md', dropping && 'bg-sidebar-accent/60 ring-1 ring-ring/50')}>
       <ContextMenu disabled={renaming}>
         <ContextMenuTrigger className="ml-5 rounded-md">
           {renaming ? (
@@ -296,13 +382,252 @@ function SessionGroup({ project, group, sessions, isSelected }: { project: Proje
         </ContextMenuTrigger>
         <GroupMenuContent projectId={project.id} groupId={group.id} />
       </ContextMenu>
-      {open && sessions.map((session) => <SessionRow key={session.id} session={session} project={project} selected={isSelected(session.id)} hasDraft={Boolean(drafts[session.id]?.trim())} nested />)}
+      {open && sessions.map((session) => <SessionRow key={session.id} session={session} project={project} selected={isSelected(session.id)} hasDraft={Boolean(drafts[session.id]?.trim())} nested order={order} picked={picked} />)}
+    </div>
+  )
+}
+
+/** Con più sessioni selezionate: quante sono e dove spostarle. Esc o la × tolgono la selezione. */
+function PickBar({ project, ids, groups, groupOf }: { project: Project; ids: string[]; groups: { id: string; name: string }[]; groupOf: Record<string, string> }) {
+  const clear = usePick((s) => s.clear)
+  const createGroup = useApp((s) => s.createGroup)
+  const moveSessionsToGroup = useApp((s) => s.moveSessionsToGroup)
+  const move = (groupId: string | null) => {
+    moveSessionsToGroup(project.id, ids, groupId)
+    clear()
+  }
+  return (
+    <div role="group" aria-label={t('{n} selected', { n: ids.length })} className="ml-5 flex min-h-7 items-center gap-1 rounded-md bg-sidebar-accent/45 pr-1 pl-2.5 text-xs text-muted-foreground">
+      <span className="min-w-0 flex-1 truncate tabular-nums">{t('{n} selected', { n: ids.length })}</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger className="flex h-6 items-center gap-1 rounded px-1.5 text-xs text-foreground outline-none hover:bg-background/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-background/60">
+          <FolderInput aria-hidden className="size-3" />
+          {t('Move to group')}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-auto min-w-52">
+          {groups.map((group) => (
+            <DropdownMenuItem key={group.id} className="gap-2 py-[5px] text-sm" onClick={() => move(group.id)}>
+              <Check className={ids.every((id) => groupOf[id] === group.id) ? undefined : 'opacity-0'} />
+              {group.name}
+            </DropdownMenuItem>
+          ))}
+          {groups.length > 0 && <DropdownMenuSeparator />}
+          <DropdownMenuItem
+            className="gap-2 py-[5px] text-sm"
+            onClick={() => {
+              createGroup(project.id, ids)
+              clear()
+            }}
+          >
+            <FolderPlus />
+            {t('New group')}
+          </DropdownMenuItem>
+          {ids.some((id) => groupOf[id]) && (
+            <DropdownMenuItem className="gap-2 py-[5px] text-sm" onClick={() => move(null)}>
+              <FolderMinus />
+              {t('Remove from group')}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <button
+        type="button"
+        aria-label={t('Clear selection')}
+        onClick={clear}
+        className="grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <X className="size-3" />
+      </button>
+    </div>
+  )
+}
+
+/** Etichetta che segue il puntatore mentre si trascina. Decorativa: lo spostamento da tastiera passa dai menu. */
+function DragGhost({ label, x, y }: { label: string; x: number; y: number }) {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed top-0 left-0 z-50 max-w-[220px] truncate rounded-md bg-popover px-2 py-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      style={{ transform: `translate3d(${x + 12}px, ${y + 12}px, 0)` }}
+    >
+      {label}
+    </div>
+  )
+}
+
+function SessionDragGhost() {
+  const drag = useSessionDrag()
+  return drag.active ? <DragGhost label={drag.active.label} x={drag.x} y={drag.y} /> : null
+}
+
+function ProjectDragGhost() {
+  const drag = useProjectDrag()
+  return drag.active ? <DragGhost label={drag.active.label} x={drag.x} y={drag.y} /> : null
+}
+
+/** Linea sottile che dice dove cadrebbe l'elemento trascinato. Non sposta le righe. */
+function DropLine({ position }: { position: 'before' | 'after' }) {
+  return <span aria-hidden className={cn('pointer-events-none absolute inset-x-2.5 z-10 h-0.5 rounded-full bg-ring', position === 'before' ? '-top-1' : '-bottom-1')} />
+}
+
+type Slot = 'before' | 'after' | null
+
+interface ProjectListsProps {
+  layout: ProjectLayout
+  renderProject: (project: Project, slot: Slot) => ReactNode
+  attentionOf: (projects: Project[]) => ReturnType<typeof projectAttention>
+  selectedId: string | null
+}
+
+/** Progetti senza sezione in alto, poi le sezioni. Senza sezioni è la lista di sempre. */
+function ProjectLists({ layout, renderProject, attentionOf, selectedId }: ProjectListsProps) {
+  // Selettori separati: x e y cambiano a ogni pointermove e servono solo al ghost.
+  const draggingProject = useProjectDrag((s) => (s.active?.kind === 'project' ? s.active.id : null))
+  const draggingSection = useProjectDrag((s) => (s.active?.kind === 'section' ? s.active.id : null))
+  const dragTarget = useProjectDrag(useShallow((s) => (s.active ? s.target : null)))
+  const target = draggingProject ? dragTarget : null
+
+  /** Righe di una zona, ognuna con la linea di rilascio se è lì che cadrebbe il progetto trascinato. */
+  const rows = (zone: string, list: Project[]) => {
+    const others = list.filter((p) => p.id !== draggingProject)
+    const here = target && target.zone === zone && !target.collapsed ? target.index : -1
+    return list.map((project) => {
+      const at = others.indexOf(project)
+      const slot: Slot = at < 0 ? null : at === here ? 'before' : here === others.length && at === others.length - 1 ? 'after' : null
+      return renderProject(project, slot)
+    })
+  }
+
+  const sectionIds = layout.sections.map((s) => s.group.id).filter((id) => id !== draggingSection)
+  const sectionSlot = (id: string): Slot => {
+    if (!draggingSection || !dragTarget) return null
+    const at = sectionIds.indexOf(id)
+    if (at < 0) return null
+    return at === dragTarget.index ? 'before' : dragTarget.index === sectionIds.length && at === sectionIds.length - 1 ? 'after' : null
+  }
+
+  return (
+    <>
+      {(layout.ungrouped.length > 0 || (layout.sections.length > 0 && draggingProject)) && (
+        <div data-project-zone={NO_SECTION} className="flex flex-col gap-1.5">
+          {layout.ungrouped.length > 0 ? (
+            rows(NO_SECTION, layout.ungrouped)
+          ) : (
+            <p className={cn('rounded-md border border-dashed border-sidebar-border px-2.5 py-1.5 text-xs text-faint', target?.zone === NO_SECTION && 'bg-sidebar-accent/60 ring-1 ring-ring/50')}>{t('No section')}</p>
+          )}
+        </div>
+      )}
+      {layout.sections.map(({ group, projects }) => (
+        <ProjectSection
+          key={group.id}
+          group={group}
+          count={projects.length}
+          attention={attentionOf(group.collapsed ? projects.filter((p) => p.id !== selectedId) : projects)}
+          containsSelected={projects.some((p) => p.id === selectedId)}
+          dropping={target?.zone === group.id && (target.collapsed || projects.length === 0)}
+          dragged={draggingSection === group.id}
+          slot={sectionSlot(group.id)}
+        >
+          {rows(
+            group.id,
+            projects.filter((p) => !group.collapsed || p.id === selectedId)
+          )}
+          {projects.length === 0 && !group.collapsed && <p className="py-1 pl-2.5 text-xs text-faint">{t('No projects. Drag one here.')}</p>}
+        </ProjectSection>
+      ))}
+    </>
+  )
+}
+
+interface ProjectSectionProps {
+  group: ProjectGroup
+  count: number
+  attention: ReturnType<typeof projectAttention>
+  containsSelected: boolean
+  dropping: boolean
+  dragged: boolean
+  slot: Slot
+  children: ReactNode
+}
+
+/** Sezione di progetti creata da te: si apre e si chiude, si rinomina e si trascina; da chiusa mostra quello che ti aspetta. */
+function ProjectSection({ group, count, attention, containsSelected, dropping, dragged, slot, children }: ProjectSectionProps) {
+  const toggle = useApp((s) => s.toggleProjectGroup)
+  const rename = useApp((s) => s.renameProjectGroup)
+  const startRename = useApp((s) => s.startRenameProjectGroup)
+  const stopRename = useApp((s) => s.stopRenameProjectGroup)
+  const renaming = useApp((s) => s.renamingProjectGroup === group.id)
+  // La sezione è aperta o chiusa solo per `collapsed`; il progetto selezionato resta visibile anche in una chiusa.
+  const open = !group.collapsed
+  const showChildren = open || containsSelected
+  return (
+    <div
+      data-section={group.id}
+      data-project-zone={group.id}
+      data-collapsed={group.collapsed}
+      className={cn('relative mt-1 flex flex-col gap-1.5 rounded-md', dragged && 'opacity-50', dropping && 'bg-sidebar-accent/60 ring-1 ring-ring/50')}
+    >
+      {slot && <DropLine position={slot} />}
+      <div className="group/section relative">
+        <ContextMenu disabled={renaming}>
+          <ContextMenuTrigger className="rounded-md">
+            {renaming ? (
+              <GroupNameField
+                name={group.name}
+                label={t('Section name')}
+                onDone={(name) => {
+                  if (name) rename(group.id, name)
+                  stopRename()
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => toggle(group.id)}
+                onDoubleClick={() => startRename(group.id)}
+                onPointerDown={(event) => {
+                  if (event.button !== 0 || event.metaKey || event.shiftKey || event.ctrlKey) return
+                  startSectionDrag({ event, id: group.id, label: group.name })
+                }}
+                className="flex min-h-7 w-full items-center gap-1.5 rounded-md pr-2 pl-2.5 text-left text-xs font-medium text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <ChevronRight aria-hidden className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
+                <span className="truncate">{group.name}</span>
+                <span className="font-normal text-faint tabular-nums">{count}</span>
+                {!open && (
+                  <span className="ml-auto flex items-center group-hover/section:invisible group-has-[:focus-visible]/section:invisible group-has-[[data-popup-open]]/section:invisible">
+                    <ProjectBadges attention={attention} />
+                  </span>
+                )}
+              </button>
+            )}
+          </ContextMenuTrigger>
+          <ProjectGroupMenuContent groupId={group.id} />
+        </ContextMenu>
+        {!renaming && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label={t('Actions for {title}', { title: group.name })}
+              className={cn(
+                'absolute top-0.5 right-1 grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 outline-none',
+                'hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50',
+                'group-hover/section:opacity-100 data-[popup-open]:bg-sidebar-accent data-[popup-open]:opacity-100'
+              )}
+            >
+              <Ellipsis className="size-[15px]" strokeWidth={1.75} />
+            </DropdownMenuTrigger>
+            <ProjectGroupMenuContent variant="dropdown" groupId={group.id} />
+          </DropdownMenu>
+        )}
+      </div>
+      {showChildren && <div className="flex flex-col gap-1.5 pl-2">{children}</div>}
     </div>
   )
 }
 
 /** Nome del gruppo nella riga. Invio o clic altrove salva, Esc lascia quello di prima. */
-function GroupNameField({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {
+function GroupNameField({ name, label = t('Group name'), onDone }: { name: string; label?: string; onDone: (name: string | null) => void }) {
   const [value, setValue] = useState(name)
   const inputRef = useRef<HTMLInputElement>(null)
   const finished = useRef(false)
@@ -322,7 +647,7 @@ function GroupNameField({ name, onDone }: { name: string; onDone: (name: string 
     <input
       ref={inputRef}
       value={value}
-      aria-label={t('Group name')}
+      aria-label={label}
       onChange={(event) => setValue(event.target.value)}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing) return
@@ -339,7 +664,7 @@ function GroupNameField({ name, onDone }: { name: string; onDone: (name: string 
 }
 
 /** Riga di una sessione: clic per aprirla, clic destro o "…" per le azioni, doppio clic per rinominarla. */
-function SessionRow({ session, project, selected, hasDraft, nested }: SessionRowProps) {
+function SessionRow({ session, project, selected, hasDraft, nested, order, picked }: SessionRowProps) {
   const select = useApp((s) => s.select)
   const renaming = useApp((s) => s.renaming === session.id)
   const startRename = useApp((s) => s.startRename)
@@ -352,6 +677,7 @@ function SessionRow({ session, project, selected, hasDraft, nested }: SessionRow
   const [hovered, setHovered] = useState(false)
   // Senza simbolo di stato il titolo si riprende lo spazio a sinistra.
   const hasGlyph = state !== 'idle'
+  const isPicked = picked.includes(session.id)
 
   return (
     <ContextMenu disabled={renaming}>
@@ -376,7 +702,23 @@ function SessionRow({ session, project, selected, hasDraft, nested }: SessionRow
               ref={buttonRef}
               type="button"
               aria-current={selected ? 'page' : undefined}
-              onClick={() => select({ kind: 'session', projectId: project.id, sessionId: session.id })}
+              // Con una selezione in corso la riga si comporta da interruttore.
+              aria-pressed={picked.length > 0 ? isPicked : undefined}
+              onClick={(event) => {
+                // ⌘⌥clic: apre la sessione in una colonna accanto a quella attiva.
+                if (event.metaKey && event.altKey) {
+                  useApp.getState().openSplit(project.id, session.id)
+                  return
+                }
+                if (pickClick(event, project.id, order, session.id)) return
+                select({ kind: 'session', projectId: project.id, sessionId: session.id })
+              }}
+              onPointerDown={(event) => {
+                if (event.button !== 0 || event.metaKey || event.shiftKey || event.ctrlKey) return
+                // Se la riga fa parte della selezione si trascinano tutte, altrimenti solo lei.
+                const ids = isPicked ? picked : [session.id]
+                startSessionDrag({ event, projectId: project.id, ids, label: ids.length > 1 ? plural(ids.length, '{n} session', '{n} sessions') : session.title })
+              }}
               onDoubleClick={() => startRename(session.id)}
               title={[
                 session.title,
@@ -388,15 +730,18 @@ function SessionRow({ session, project, selected, hasDraft, nested }: SessionRow
                 .filter(Boolean)
                 .join(' · ')}
               className={cn(
-                'relative grid w-full items-start gap-x-2 gap-y-1 rounded-lg py-2 pr-2.5 pl-2.5 text-left outline-none',
+                // Densità compatta (prefs.sidebarDensity, data-sidebar-density su <html>): righe più basse, stesso contenuto.
+                'relative grid w-full items-start gap-x-2 gap-y-1 rounded-lg py-2 pr-2.5 pl-2.5 text-left outline-none in-data-[sidebar-density=compact]:gap-y-0.5 in-data-[sidebar-density=compact]:py-1',
                 hasGlyph ? 'grid-cols-[16px_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]',
                 'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
                 // Riga evidenziata mentre il suo menu (clic destro o "…") è aperto.
                 'group-data-[popup-open]/row:bg-sidebar-accent/60 group-has-[[data-popup-open]]/row:bg-sidebar-accent/60',
                 selected &&
                   'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent group-data-[popup-open]/row:bg-sidebar-accent group-has-[[data-popup-open]]/row:bg-sidebar-accent',
+                // Scelta per la selezione multipla ma non aperta: fondo più leggero e filo interno, per non confonderla con quella aperta.
+                isPicked && !selected && 'bg-sidebar-accent/60 text-sidebar-accent-foreground ring-1 ring-ring/50 ring-inset',
                 // Ti aspetta: un fondo appena tinto d'ambra, oltre a icona ed etichetta.
-                waiting && !selected && 'bg-attention/8'
+                waiting && !selected && !isPicked && 'bg-attention/8'
               )}
             >
               {hasGlyph && (
@@ -404,7 +749,7 @@ function SessionRow({ session, project, selected, hasDraft, nested }: SessionRow
                   <SessionGlyph state={state} />
                 </span>
               )}
-              <MarqueeText active={hovered} className={cn('text-sm', state === 'unread' ? 'font-semibold text-sidebar-accent-foreground' : selected && 'font-medium')}>
+              <MarqueeText active={hovered} className={cn('text-sm', isUnreadState(state) ? 'font-semibold text-sidebar-accent-foreground' : selected && 'font-medium', session.titleGenerating && 'animate-pulse motion-reduce:animate-none')}>
                 {session.title}
               </MarqueeText>
               {/* Lascia il posto al pulsante "…" quando la riga è sotto il puntatore o ha il focus. */}
@@ -443,36 +788,105 @@ function SessionRow({ session, project, selected, hasDraft, nested }: SessionRow
   )
 }
 
-/** Seconda riga: chi lavora (segno del provider e modello) e cosa sta facendo, o dove lavora. */
-/** In basso a sinistra: con quale account lavorano gli agenti. Apre Impostazioni → Agenti, dove ci sono tutti. */
-function AccountButton() {
+/** Account del profilo in uso per un agente: stato dell'agente, con il collegamento come riserva (un profilo appena creato non ha ancora lo stato). */
+interface AccountEntry {
+  agent: AgentId
+  name: string
+  profile: string | null
+  account: string | null
+  email: string | null
+}
+
+/**
+ * Profilo in uso per un agente: quello della sessione aperta (se è di quell'agente), altrimenti quello scelto dal progetto.
+ * Il profilo di una sessione non cambia dopo la creazione.
+ */
+function useAccountEntries(): AccountEntry[] {
   const agents = useApp((s) => s.agents)
-  const linked = agents.filter((a) => a.kind === 'native' && (a.account || a.email))
-  const email = linked.find((a) => a.email)?.email ?? null
-  const plans = linked.flatMap((a) => (a.account ? [a.account] : []))
-  const name = email ?? plans[0] ?? t('Accounts')
-  const detail = (email ? plans : plans.slice(1)).join(' · ')
+  const profileAgents = useApp((s) => s.profileAgents)
+  const connections = useApp((s) => s.connections)
+  const profileConnections = useApp((s) => s.profileConnections)
+  const profiles = useApp((s) => s.profiles)
+  const selection = useApp((s) => s.selection)
+  const sessions = useApp((s) => s.sessions)
+  const projects = useApp((s) => s.projects)
+  return useMemo(() => {
+    const session = selection.kind === 'session' ? sessions[selection.sessionId] : undefined
+    const project = projects.find((p) => p.id === selection.projectId)
+    const entries: AccountEntry[] = []
+    for (const a of agents) {
+      if (a.kind !== 'native') continue
+      let status: AgentStatus | null = a
+      let connection: ConnectionStatus | undefined = isProfileAgent(a.agent) ? connections[a.agent] : undefined
+      let profileName: string | null = null
+      if (isProfileAgent(a.agent)) {
+        const own = profilesOf(profiles, a.agent)
+        // Il profilo della sessione vale solo se è di questo agente: una sessione terminale `codex` ha agente `claude-code` ma un profilo Codex.
+        const sessionProfile = session?.profileId ? (own.some((p) => p.id === session.profileId) ? session.profileId : null) : session?.agent === a.agent ? normalizeProfileId(a.agent, null) : null
+        const id = sessionProfile ?? projectProfileId(project, a.agent, own)
+        if (!isDefaultProfileId(id)) {
+          status = profileAgents[id] ?? null
+          connection = profileConnections[id]
+        }
+        // Il nome del profilo serve solo a chi ne ha più d'uno.
+        if (own.length > 1) profileName = own.find((p) => p.id === id)?.name ?? null
+      }
+      const account = status?.account ?? (connection?.plan ? `${a.name} ${connection.plan}` : null)
+      const email = status?.email ?? connection?.email ?? null
+      if (account || email) entries.push({ agent: a.agent, name: a.name, profile: profileName, account, email })
+    }
+    // L'agente della sessione aperta va per primo: la sua email è quella che si vede.
+    const first = session?.agent
+    return first ? [...entries.filter((e) => e.agent === first), ...entries.filter((e) => e.agent !== first)] : entries
+  }, [agents, profileAgents, connections, profileConnections, profiles, selection, sessions, projects])
+}
+
+/** In basso a sinistra: gli abbonamenti collegati agli agenti, dei profili in uso. Iniziale ed email; piani e account per agente nel tooltip. Apre Impostazioni → Abbonamenti. */
+export function AccountButton() {
+  const linked = useAccountEntries()
+  const emails = [...new Set(linked.flatMap((a) => (a.email ? [a.email] : [])))]
+  const email = emails[0] ?? null
+  const name = email ?? t('Linked subscriptions')
+  const more = emails.length - 1
   return (
-    <button
-      type="button"
-      onClick={() => useSettings.getState().openSection('agents')}
-      title={[email, ...plans].filter(Boolean).join('\n') || undefined}
-      className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-    >
-      <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/10 text-xs font-semibold text-foreground">
-        {email ? email.slice(0, 1).toUpperCase() : <UserRound className="size-3.5" />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{name}</span>
-        {detail && <span className="block truncate text-xs text-muted-foreground">{detail}</span>}
-      </span>
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={<button type="button" />}
+        aria-label={[name, ...linked.map((a) => [a.name, a.profile, a.email, a.account].filter(Boolean).join(', '))].join('. ')}
+        onClick={() => useSettings.getState().openSection('subscriptions')}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+      >
+        <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/10 text-xs font-semibold text-foreground">
+          {email ? email.slice(0, 1).toUpperCase() : <UserRound className="size-3.5" />}
+        </span>
+        <span className="block min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+        {more > 0 && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">+{more}</span>}
+      </TooltipTrigger>
+      <TooltipContent side="top" align="start">
+        {linked.length === 0 ? (
+          t('No subscriptions linked')
+        ) : (
+          <span className="flex flex-col gap-0.5">
+            <span className="font-medium">{t('Linked subscriptions')}</span>
+            {linked.map((a) => (
+              <span key={a.agent}>
+                {a.name}
+                <span className="opacity-70">{[a.profile, a.account, a.email].filter(Boolean).map((v) => ` · ${v}`).join('')}</span>
+              </span>
+            ))}
+          </span>
+        )}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
+/** Seconda riga: chi lavora (segno del provider e modello) e cosa sta facendo, o dove lavora. */
 function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph: boolean }) {
   const { name, model } = useAgentLine(session.agent, session.model)
+  const profile = useSessionProfileName(session)
   const agents = runningSubagents(session)
+  const browsing = useApp((s) => Boolean(s.agentBrowser[session.id]?.action))
   const doing =
     session.queuedReason ??
     (session.run === 'running' || session.run === 'starting' || session.run === 'waiting' ? (session.request?.command ?? session.activity) : null) ??
@@ -483,6 +897,12 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
     <span className={cn('col-span-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground', hasGlyph && 'col-start-2')}>
       {session.mode === 'terminal' ? <SquareTerminal aria-label={t('Terminal session')} className="size-3 shrink-0" /> : <AgentMark agent={session.agent} size={12} />}
       <span className="shrink-0">{session.mode === 'terminal' ? (session.command?.split(' ')[0] ?? 'claude') : (model ?? name)}</span>
+      {profile && session.mode !== 'terminal' && (
+        <>
+          <span aria-hidden className="text-faint">·</span>
+          <span className="max-w-24 shrink-0 truncate" title={t('Account: {name}', { name: profile })}>{profile}</span>
+        </>
+      )}
       {doing && (
         <>
           <span aria-hidden className="text-faint">·</span>
@@ -495,8 +915,10 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
           {plural(agents, '1 agent', '{n} agents')}
         </span>
       )}
+      {browsing && <Globe role="img" aria-label={t('The agent is using the browser')} className="size-3 shrink-0 text-running" strokeWidth={2} />}
       {session.worktree && <GitFork aria-label={`Worktree ${session.worktree.branch}`} className="size-3 shrink-0 text-faint" />}
       {session.pr && <GitPullRequest aria-label={`PR #${session.pr.number}`} className="size-3 shrink-0 text-faint" />}
+      {session.titleGenerating && <Sparkles aria-label={t('Generating title…')} className="size-3 shrink-0 animate-pulse text-faint motion-reduce:animate-none" />}
     </span>
   )
 }
@@ -504,6 +926,8 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
 /** Titolo modificabile nella riga. Invio salva, Esc annulla, uscire dal campo salva. */
 function RenameField({ session, onDone }: { session: SessionSummary; onDone: (viaKeyboard: boolean) => void }) {
   const [value, setValue] = useState(session.title)
+  // Il titolo con cui si è aperto il campo: se nel frattempo ne arriva uno generato, non lo si sovrascrive con quello vecchio.
+  const initial = useRef(session.title)
   const inputRef = useRef<HTMLInputElement>(null)
   const finished = useRef(false)
 
@@ -520,7 +944,7 @@ function RenameField({ session, onDone }: { session: SessionSummary; onDone: (vi
     if (finished.current) return
     finished.current = true
     const title = value.trim()
-    if (save && title && title !== session.title) {
+    if (save && title && title !== initial.current) {
       // Ottimista: il nuovo titolo si vede subito, l'host lo conferma con session.upsert.
       useApp.setState((s) => ({ sessions: { ...s.sessions, [session.id]: { ...s.sessions[session.id], title } } }))
       send({ type: 'session.rename', sessionId: session.id, title })

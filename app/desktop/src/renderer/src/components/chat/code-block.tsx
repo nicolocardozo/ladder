@@ -121,7 +121,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, path, live }: Cod
   const label = lang
 
   return (
-    <div className="overflow-hidden rounded-[9px] border border-border bg-[var(--chat-code-bg)] dark:border-input/70">
+    <div className="chat-wide overflow-hidden rounded-[9px] border border-border bg-[var(--chat-code-bg)] dark:border-input/70">
       <div className="flex h-8 items-center gap-2 border-b border-border bg-[var(--chat-code-head)] pr-1.5 pl-3 font-mono text-xs font-medium text-muted-foreground dark:border-input/70">
         {path ? (
           <button
@@ -153,7 +153,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, path, live }: Cod
           {copied === 'copied' ? t('Code copied') : ''}
         </span>
       </div>
-      <pre className="chat-code-scroll m-0 overflow-x-auto px-3 py-2.5 font-mono text-xs leading-[1.62] text-[var(--shiki-foreground)]">
+      <pre className="m-0 overflow-x-auto px-3 py-2.5 font-[family-name:var(--font-code)] text-xs leading-[1.62] text-[var(--shiki-foreground)]">
         <code ref={codeRef} className="block w-max min-w-full whitespace-pre">
           {tokens ? <Highlighted tokens={tokens} /> : code}
         </code>

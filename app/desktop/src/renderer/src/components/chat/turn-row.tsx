@@ -1,17 +1,18 @@
 // Un turno della conversazione: messaggio dell'utente, passaggi, risposta finale, modifiche.
-import { ChevronRight, CircleStop, CircleX, FileDiff, Info } from 'lucide-react'
+import { Bot, Check, ChevronRight, CirclePause, CircleStop, CircleX, CornerDownRight, FoldVertical, Info, X } from 'lucide-react'
 import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ChatItem, FileChange, RunState } from '@shared/protocol'
 import { localeTag, plural, t } from '@shared/i18n'
 import { isImagePlaceholder } from '@/components/composer/attachments'
 import { cn } from '@/lib/utils'
+import { AgentsFinishedLine } from './agents-lines'
 import { AttachmentChips, NewDivider, Spinner } from './bits'
 import { useChatActions, useNow, useToggle } from './chat-context'
 import { formatDuration, turnSummary } from './format'
 import { Markdown } from './markdown'
 import { RequestCard, ResolvedRequest } from './request-card'
 import { MonoTitle, ToolRow } from './tool-row'
-import type { AssistantItem, NoticeItem, Turn, TurnEndItem, UserItem } from './turns'
+import type { AgentStartItem, AssistantItem, CommandItem, CompactedItem, NoticeItem, Turn, TurnEndItem, UserItem } from './turns'
 
 /** Nei turni in corso un gruppo lungo di strumenti mostra solo gli ultimi. */
 const LIVE_GROUP_LIMIT = 8
@@ -37,7 +38,7 @@ const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
   return (
     <div data-item-id={item.id} className="flex justify-end">
       <div
-        className="w-fit max-w-[82%] min-w-0 rounded-[12px] bg-muted px-3 py-2 text-sm leading-[1.5] text-foreground"
+        className="w-fit max-w-[min(82%,100ch)] min-w-0 rounded-[12px] bg-muted px-3 py-2 font-[family-name:var(--font-chat)] text-[length:var(--chat-size)] leading-[var(--chat-leading)] text-foreground"
         title={new Date(item.at).toLocaleString(localeTag(), { dateStyle: 'short', timeStyle: 'short' })}
       >
         {showText ? (
@@ -62,6 +63,12 @@ const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
           <div className={cn(showText && 'mt-1.5')}>
             <AttachmentChips attachments={attachments} />
           </div>
+        ) : null}
+        {item.steered ? (
+          <p className="mt-1 flex items-center justify-end gap-1 text-xs text-muted-foreground">
+            <CornerDownRight aria-hidden className="size-3" strokeWidth={2} />
+            {t('Sent into the turn')}
+          </p>
         ) : null}
       </div>
     </div>
@@ -96,6 +103,84 @@ const NoticeLine = memo(function NoticeLine({ item }: { item: NoticeItem }) {
   )
 })
 
+/** Comando / eseguito dall'utente: riga di sistema compatta, non un messaggio. Lo stato ha forma ed etichetta. */
+/** Turno aperto dall'agente (non da te): sta al posto del messaggio dell'utente. */
+function AgentStartLine({ item }: { item: AgentStartItem }) {
+  const text =
+    item.reason === 'background-agents'
+      ? item.finished !== null
+        ? plural(item.finished, 'Started by the agent after 1 background agent finished', 'Started by the agent after {n} background agents finished')
+        : t('Started by the agent after background agents finished')
+      : t('Started by the agent')
+  return (
+    <div data-item-id={item.id} className="flex min-w-0 items-start gap-2 text-sm leading-[1.5] text-muted-foreground">
+      <span className="mt-[2px] flex size-[14px] shrink-0 items-center justify-center">
+        <Bot aria-hidden className="size-3.5" strokeWidth={1.8} />
+      </span>
+      <p className="min-w-0 break-words">{text}</p>
+    </div>
+  )
+}
+
+const CommandLine = memo(function CommandLine({ item }: { item: CommandItem }) {
+  return (
+    <div data-item-id={item.id} className="flex min-w-0 items-start gap-2 text-sm leading-[1.5] text-muted-foreground">
+      <span className="mt-[2px] flex size-[14px] shrink-0 items-center justify-center">
+        {item.status === 'running' ? (
+          <Spinner label={t('Running')} />
+        ) : item.status === 'done' ? (
+          <Check role="img" aria-label={t('Completed')} className="size-3.5 text-success" strokeWidth={2.2} />
+        ) : item.status === 'interrupted' ? (
+          <CircleStop role="img" aria-label={t('Interrupted')} className="size-3.5" strokeWidth={1.9} />
+        ) : (
+          <X role="img" aria-label={t('Error')} className="size-3.5 text-destructive" strokeWidth={2.4} />
+        )}
+      </span>
+      <p className="min-w-0 break-words">
+        <code className="font-mono text-xs font-medium text-foreground">/{item.name}</code>
+        {item.args ? (
+          <>
+            {' '}
+            <span className="font-mono text-xs">{item.args}</span>
+          </>
+        ) : null}
+        {item.status === 'running' ? <span> · {t('Running')}</span> : null}
+        {item.status === 'interrupted' ? <span> · {t('Interrupted')}</span> : null}
+        {item.status === 'error' ? (
+          <span className="text-destructive">
+            {' · '}
+            <span className="font-semibold">{t('Error')}</span>
+            {item.error ? <> · {item.error}</> : null}
+          </span>
+        ) : null}
+      </p>
+    </div>
+  )
+})
+
+/** Token in forma compatta: 142k sopra i mille, il numero esatto sotto. */
+const tokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
+
+/** Contesto compattato: con i token prima e dopo se l'agente li ha dati, "auto" se è partito da solo. */
+const CompactedLine = memo(function CompactedLine({ item }: { item: CompactedItem }) {
+  const both = item.preTokens !== null && item.postTokens !== null
+  return (
+    <div data-item-id={item.id} className="flex min-w-0 items-start gap-2 text-sm leading-[1.5] text-muted-foreground">
+      <FoldVertical aria-hidden className="mt-[2px] size-[14px] shrink-0" strokeWidth={1.9} />
+      <p className="min-w-0 break-words">
+        {t('Context compacted')}
+        {item.trigger === 'auto' ? <span> · {t('auto')}</span> : null}
+        {both ? (
+          <>
+            {' · '}
+            <span className="font-mono text-xs">{t('{before} → {after} tokens', { before: tokens(item.preTokens!), after: tokens(item.postTokens!) })}</span>
+          </>
+        ) : null}
+      </p>
+    </div>
+  )
+})
+
 /** Elenco dei passaggi con la linea verticale a sinistra, come nel mockup. */
 function StepsList({
   items,
@@ -113,7 +198,7 @@ function StepsList({
   const shown = hidden > 0 ? items.slice(hidden) : items
   const dividerIndex = dividerBefore ? items.findIndex((i) => i.id === dividerBefore) : -1
   return (
-    <div className="ml-[6px] grid min-w-0 gap-[3px] border-l border-border py-1 pl-[14px] dark:border-input/70">
+    <div className="chat-steps ml-[6px] grid min-w-0 grid-cols-[minmax(0,1fr)] gap-[3px] border-l border-border py-1 pl-[14px] dark:border-input/70">
       {dividerIndex >= 0 && dividerIndex < hidden ? <NewDivider /> : null}
       {hidden > 0 ? (
         <button
@@ -138,6 +223,12 @@ function StepsList({
             break
           case 'notice':
             node = <NoticeLine item={item} />
+            break
+          case 'compacted':
+            node = <CompactedLine item={item} />
+            break
+          case 'user':
+            node = <UserMessage item={item} />
             break
         }
         return (
@@ -194,59 +285,107 @@ const STATUS_LABEL: Record<FileChange['status'], string> = {
 
 function ChangesCard({ end }: { end: TurnEndItem }) {
   const { openFile, openDiff } = useChatActions()
+  // Chiusa per default; lo stato resta in memoria per turno.
+  const [open, toggle] = useToggle(`chg:${end.turnId}`)
   const added = end.files.reduce((n, f) => n + f.added, 0)
   const removed = end.files.reduce((n, f) => n + f.removed, 0)
   const count = end.files.length
+  const listId = `chg-${end.turnId}`
   return (
-    <div data-item-id={end.id} className="overflow-hidden rounded-[10px] border border-border dark:border-input/70">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm font-semibold text-foreground dark:border-input/70">
-        <FileDiff aria-hidden className="size-3.5 text-muted-foreground" strokeWidth={1.9} />
-        {plural(count, '{n} file changed', '{n} files changed')}
-        <span className="ml-auto font-mono text-xs font-medium">
-          <span className="text-diff-added">+{added}</span> <span className="text-diff-removed">−{removed}</span>
-        </span>
+    <div data-item-id={end.id} className="grid min-w-0 gap-1">
+      <div className="flex h-[22px] min-w-0 items-center gap-2">
         <button
           type="button"
-          onClick={() => openDiff(end.turnId)}
-          className="-my-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+          onClick={toggle}
+          aria-expanded={open}
+          aria-controls={listId}
+          className="group flex h-[22px] min-w-0 flex-1 items-center gap-[7px] rounded-[5px] text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <ChevronRight
+            aria-hidden
+            className={cn('size-3 shrink-0 transition-transform motion-reduce:transition-none', open && 'rotate-90')}
+            strokeWidth={2.2}
+          />
+          <span className="shrink-0">{plural(count, '{n} file changed', '{n} files changed')}</span>
+          <span aria-hidden>·</span>
+          <span className="shrink-0 font-mono text-xs tabular-nums">
+            <span className="text-diff-added">+{added}</span> <span className="text-diff-removed">−{removed}</span>
+          </span>
+          <span aria-hidden className="h-px min-w-4 flex-1 bg-border dark:bg-input/60" />
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            openDiff(end.turnId)
+          }}
+          className="shrink-0 rounded-[5px] px-1.5 py-0.5 text-xs font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           {t('Review')}
         </button>
       </div>
-      <ul>
-        {end.files.map((file) => {
-          const slash = file.path.lastIndexOf('/')
-          const dir = slash >= 0 ? file.path.slice(0, slash + 1) : ''
-          const base = slash >= 0 ? file.path.slice(slash + 1) : file.path
-          return (
-            <li key={file.path} className="border-b border-border last:border-b-0 dark:border-input/50">
-              <button
-                type="button"
-                onClick={(event) => (event.altKey ? openFile(file.path, undefined, true) : openDiff(end.turnId, file.path))}
-                title={`${t(STATUS_LABEL[file.status])} · ${file.path}\n${t('Click to view the turn diff · ⌥-click to open in editor')}`}
-                className="flex w-full min-w-0 items-center gap-2.5 px-3 py-[5px] text-left font-mono text-xs text-foreground/85 outline-none hover:bg-accent focus-visible:bg-accent"
-              >
-                <span aria-label={t(STATUS_LABEL[file.status])} className="w-3 shrink-0 text-faint">
-                  {file.status}
-                </span>
-                <span className="flex min-w-0 flex-1">
-                  {dir ? <span className="min-w-0 truncate text-muted-foreground">{dir}</span> : null}
-                  <span className="shrink-0">{base}</span>
-                </span>
-                <span className="flex shrink-0 gap-2 tabular-nums">
-                  {file.added > 0 ? <span className="text-diff-added">+{file.added}</span> : null}
-                  {file.removed > 0 ? <span className="text-diff-removed">−{file.removed}</span> : null}
-                </span>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+      {open ? (
+        <ul id={listId} className="overflow-hidden rounded-[10px] border border-border dark:border-input/70">
+          {end.files.map((file) => {
+            const slash = file.path.lastIndexOf('/')
+            const dir = slash >= 0 ? file.path.slice(0, slash + 1) : ''
+            const base = slash >= 0 ? file.path.slice(slash + 1) : file.path
+            return (
+              <li key={file.path} className="border-b border-border last:border-b-0 dark:border-input/50">
+                <button
+                  type="button"
+                  onClick={(event) => (event.altKey ? openFile(file.path, undefined, true) : openDiff(end.turnId, file.path))}
+                  title={`${t(STATUS_LABEL[file.status])} · ${file.path}\n${t('Click to view the turn diff · ⌥-click to open in editor')}`}
+                  className="flex w-full min-w-0 items-center gap-2.5 px-3 py-[5px] text-left font-mono text-xs text-foreground/85 outline-none hover:bg-accent focus-visible:bg-accent"
+                >
+                  <span aria-label={t(STATUS_LABEL[file.status])} className="w-3 shrink-0 text-faint">
+                    {file.status}
+                  </span>
+                  <span className="flex min-w-0 flex-1">
+                    {dir ? <span className="min-w-0 truncate text-muted-foreground">{dir}</span> : null}
+                    <span className="shrink-0">{base}</span>
+                  </span>
+                  <span className="flex shrink-0 gap-2 tabular-nums">
+                    {file.added > 0 ? <span className="text-diff-added">+{file.added}</span> : null}
+                    {file.removed > 0 ? <span className="text-diff-removed">−{file.removed}</span> : null}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+/** Turno finito senza modifiche, comandi, agenti né domande: lo dice, e propone di scrivere "Continue" nel composer (senza inviarlo). */
+function StalledNote({ end, withId }: { end: TurnEndItem; withId: boolean }) {
+  const { prefill } = useChatActions()
+  return (
+    <div data-item-id={withId ? end.id : undefined} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+      <div className="flex min-w-0 items-center gap-2 text-sm leading-[1.5] text-muted-foreground">
+        <CirclePause aria-hidden className="size-[14px] shrink-0" strokeWidth={1.9} />
+        <p className="min-w-0 break-words">
+          {t('Stopped without asking anything')}
+          <span className="text-faint"> · {t('Tell it to keep going')}</span>
+        </p>
+      </div>
+      {prefill ? (
+        <button
+          type="button"
+          onClick={() => prefill(t('Continue'))}
+          className="rounded-[5px] px-1.5 py-0.5 text-xs font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {t('Write “Continue”')}
+        </button>
+      ) : null}
     </div>
   )
 }
 
 function TurnFooter({ end }: { end: TurnEndItem }) {
+  const stalled = end.stalled === true && end.status === 'completed'
   return (
     <>
       {end.files.length > 0 ? <ChangesCard end={end} /> : null}
@@ -270,6 +409,7 @@ function TurnFooter({ end }: { end: TurnEndItem }) {
           {t('Interrupted')}
         </div>
       ) : null}
+      {stalled ? <StalledNote end={end} withId={end.files.length === 0} /> : null}
     </>
   )
 }
@@ -306,17 +446,28 @@ export interface TurnRowProps {
   activity: string | null
   /** Id dell'elemento davanti al quale va il divisore "Nuovo". */
   dividerBefore: string | null
+  /** Seq dell'ultima riga "Started by the agent after background agents finished" (-1 se non c'è): una riga "picked up" prima di lei sarebbe un doppione. */
+  bgStartSeq: number
 }
 
-export const TurnRow = memo(function TurnRow({ turn, live, run, activity, dividerBefore }: TurnRowProps) {
+export const TurnRow = memo(function TurnRow({ turn, live, run, activity, dividerBefore, bgStartSeq }: TurnRowProps) {
   const { end } = turn
+  const { compact } = useChatActions()
   const parts: { key: string; ids: string[]; node: ReactNode }[] = []
 
   if (turn.user) parts.push({ key: turn.user.id, ids: [turn.user.id], node: <UserMessage item={turn.user} /> })
 
+  if (turn.start) parts.push({ key: turn.start.id, ids: [turn.start.id], node: <AgentStartLine item={turn.start} /> })
+
+  for (const command of turn.commands) parts.push({ key: command.id, ids: [command.id], node: <CommandLine item={command} /> })
+
   const summarize = end !== null && turn.toolCount > 0
   if (summarize) {
-    parts.push({ key: 'summary', ids: turn.steps.map((s) => s.id), node: <SummaryRow turn={turn} end={end} /> })
+    // I messaggi inseriti nel turno restano visibili anche con il turno riassunto: dopo il riepilogo, in ordine.
+    const inserted = turn.steps.filter((s): s is UserItem => s.kind === 'user')
+    const summarized = inserted.length ? { ...turn, steps: turn.steps.filter((s) => s.kind !== 'user') } : turn
+    parts.push({ key: 'summary', ids: summarized.steps.map((s) => s.id), node: <SummaryRow turn={summarized} end={end} /> })
+    for (const message of inserted) parts.push({ key: message.id, ids: [message.id], node: <UserMessage item={message} /> })
   } else {
     for (const seg of segment(turn.steps)) {
       if (seg.kind === 'group') {
@@ -339,6 +490,10 @@ export const TurnRow = memo(function TurnRow({ turn, live, run, activity, divide
         parts.push({ key: seg.item.id, ids: [seg.item.id], node: <AssistantMessage item={seg.item} /> })
       } else if (seg.item.kind === 'notice') {
         parts.push({ key: seg.item.id, ids: [seg.item.id], node: <NoticeLine item={seg.item} /> })
+      } else if (seg.item.kind === 'user') {
+        parts.push({ key: seg.item.id, ids: [seg.item.id], node: <UserMessage item={seg.item} /> })
+      } else if (seg.item.kind === 'compacted') {
+        parts.push({ key: seg.item.id, ids: [seg.item.id], node: <CompactedLine item={seg.item} /> })
       }
     }
   }
@@ -356,20 +511,30 @@ export const TurnRow = memo(function TurnRow({ turn, live, run, activity, divide
   }
 
   for (const request of turn.open) parts.push({ key: request.id, ids: [request.id], node: <RequestCard item={request} /> })
-  for (const notice of turn.notices) parts.push({ key: notice.id, ids: [notice.id], node: <NoticeLine item={notice} /> })
+  for (const notice of turn.notices)
+    parts.push({ key: notice.id, ids: [notice.id], node: notice.kind === 'compacted' ? <CompactedLine item={notice} /> : <NoticeLine item={notice} /> })
   if (end) parts.push({ key: end.id, ids: [end.id], node: <TurnFooter end={end} /> })
+  for (const finished of turn.finished) {
+    const node = <AgentsFinishedLine item={finished} hideResumed={finished.seq < bgStartSeq} />
+    if (finished.state === 'dismissed' || (finished.state === 'resumed' && finished.seq < bgStartSeq)) continue
+    parts.push({ key: finished.id, ids: [finished.id], node })
+  }
+
+  if (parts.length === 0) return null
 
   const dividerIndex = dividerBefore ? parts.findIndex((p) => p.ids.includes(dividerBefore)) : -1
 
   return (
-    <div className="mx-auto w-full max-w-[680px] px-6 pb-7">
-      <div className="grid min-w-0 gap-3.5">
-        {parts.map((part, i) => (
-          <Fragment key={part.key}>
-            {i === dividerIndex ? <NewDivider /> : null}
-            {part.node}
-          </Fragment>
-        ))}
+    <div className="chat-col pb-7" data-compact={compact ? '' : undefined}>
+      <div className="chat-text">
+        <div className="chat-reset grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3.5">
+          {parts.map((part, i) => (
+            <Fragment key={part.key}>
+              {i === dividerIndex ? <NewDivider /> : null}
+              {part.node}
+            </Fragment>
+          ))}
+        </div>
       </div>
     </div>
   )

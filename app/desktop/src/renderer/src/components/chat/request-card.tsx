@@ -3,6 +3,7 @@ import { ArrowUpRight, Check, CircleAlert, CircleQuestionMark, Clock, File, X } 
 import { memo, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import type { RequestOption } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
+import { browserToolName, browserToolOf } from '@/lib/browser-agent'
 import { cn } from '@/lib/utils'
 import { Kbd } from './bits'
 import { useChatActions, useNow } from './chat-context'
@@ -35,7 +36,7 @@ function CardFrame({ item, label, icon, frameRef, onKeyDown, children }: FramePr
       aria-label={`${label}: ${item.command ?? item.path ?? item.title}`}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 rounded-xl border border-attention/45 bg-[color-mix(in_oklab,var(--card),var(--attention)_4%)] px-4 py-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      className={cn('grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 rounded-xl border border-attention/45 bg-[color-mix(in_oklab,var(--card),var(--attention)_4%)] px-4 py-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40', (item.command || item.preview) && 'chat-wide')}
     >
       <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-attention">
         {icon}
@@ -194,7 +195,7 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
       {item.preview && !tooLong ? <EditPreview preview={item.preview} /> : null}
       {item.reason ? <p className="text-sm leading-[1.5] text-secondary-foreground">“{item.reason}”</p> : null}
       <p className="text-xs text-muted-foreground">
-        {t('Tool: {name}', { name: item.toolName })}
+        {t('Tool: {name}', { name: browserToolOf(item.toolName) ? browserToolName(browserToolOf(item.toolName)!) : item.toolName })}
         {item.preview ? ` · ${plural(item.preview.lines, '{n} line', '{n} lines')}` : ''}
       </p>
       {tooLong ? (

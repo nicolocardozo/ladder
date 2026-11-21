@@ -6,6 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { request, send } from '@/lib/host-client'
 import { t } from '@shared/i18n'
 import { Kbd } from '@/components/ui/kbd'
+import { useSessionAgentLabel } from '@/lib/profiles'
+import { isSendKey, sendKeyCombos, useSendKey } from '@/lib/send-key'
 
 export interface PromptRequest {
   name: string
@@ -33,6 +35,7 @@ export function PromptDialog({
   prompt: PromptRequest | null
   onClose: () => void
 }) {
+  const sendKey = useSendKey()
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -63,7 +66,7 @@ export function PromptDialog({
     }
   }
 
-  const agent = session?.mode === 'terminal' ? t('{command} in the terminal', { command: session.command ?? 'claude' }) : 'Claude Code'
+  const agent = useSessionAgentLabel(session)
   return (
     <Dialog open={prompt !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="gap-3 sm:max-w-[620px]">
@@ -78,7 +81,7 @@ export function PromptDialog({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && e.metaKey) {
+            if (isSendKey(e, sendKey)) {
               e.preventDefault()
               void submit()
             }
@@ -104,8 +107,8 @@ export function PromptDialog({
             disabled={!session || !text.trim() || busy}
             className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           >
-            {busy ? t('Sending…') : session?.mode === 'terminal' ? t('Paste into terminal') : t('Send to Claude Code')}
-            <Kbd>⌘↵</Kbd>
+            {busy ? t('Sending…') : session?.mode === 'terminal' ? t('Paste into terminal') : t('Send to {agent}', { agent })}
+            <Kbd>{sendKeyCombos(sendKey).send}</Kbd>
           </button>
         </div>
       </DialogContent>

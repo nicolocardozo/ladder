@@ -1,5 +1,5 @@
 // "Pronto per il merge" (⌘⌥4): stato git del branch, PR, CI, commenti di review e cose ancora da fare.
-// I pulsanti mandano all'agente un prompt modificabile; Ladder non fa push né merge da solo.
+// I pulsanti mandano all'agente un prompt modificabile; Ladder non fa push né merge da solo. Il commit lo fa Ladder, dal campo "Commit".
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, CircleDashed, CircleX, ExternalLink, GitBranch, GitMerge, GitPullRequest, MessageSquare, Minus, RefreshCw, TriangleAlert, type LucideIcon } from 'lucide-react'
 import type { MergeCheck, MergeInfo, SessionSummary } from '@shared/protocol'
@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 import { plural, t } from '@shared/i18n'
 import { PanelNote } from './changes-panel'
+import { CommitBox } from './commit-box'
+import { CreatePrDialog } from './create-pr-dialog'
 
 /** "updated 5 min ago", ma "updated just now" e "updated yesterday" dove "ago" non regge. */
 function updatedAgo(at: number): string {
@@ -66,7 +68,10 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [prompt, setPrompt] = useState<PromptRequest | null>(null)
+  const [creatingPr, setCreatingPr] = useState(false)
   const version = useApp((s) => s.fsVersion[root] ?? 0)
+  // GitHub appena collegato o scollegato: si rilegge senza riaprire il pannello.
+  const githubVersion = useApp((s) => s.githubVersion)
   const prKey = session?.pr ? `${session.pr.number}:${session.pr.state}:${session.pr.checks}:${session.pr.mergeable}` : ''
   const latest = useRef(0)
 
@@ -91,7 +96,7 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
     if (!isGit) return
     const timer = window.setTimeout(() => load(false), version === 0 ? 0 : 600)
     return () => window.clearTimeout(timer)
-  }, [isGit, load, version, prKey])
+  }, [isGit, load, version, prKey, githubVersion])
 
   if (!isGit) return <PanelNote>{t('This project isn’t a git repository.')}</PanelNote>
   if (error && !info) return <PanelNote tone="error">{error}</PanelNote>
@@ -146,6 +151,10 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
           )}
         </Block>
 
+        <Block title={t('Commit')}>
+          <CommitBox projectId={projectId} session={session} dirty={info.dirty} />
+        </Block>
+
         <Block title={t('Branch')}>
           <Row label={t('Changes')} value={info.dirty ? t('{n} uncommitted', { n: info.dirty }) : t('all committed')} tone={info.dirty ? 'attention' : undefined} />
           {!info.isDefaultBranch && <Row label={t('Compared to {base}', { base: info.base ?? '' })} value={t('{ahead} ahead · {behind} behind', { ahead: info.ahead, behind: info.behind })} />}
@@ -180,15 +189,16 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
         </Block>
 
         <Block title={t('Pull request')}>
-          {info.gh !== 'ok' ? (
+          {info.gh === 'missing' || info.gh === 'unauthenticated' ? (
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-sm text-muted-foreground">{t('Connect GitHub to see the PR and its checks here.')}</p>
+              <button type="button" onClick={() => useApp.getState().focusConnection('github')} className={actionButton}>
+                {t('Connect GitHub')}
+              </button>
+            </div>
+          ) : info.gh !== 'ok' ? (
             <p className="text-sm text-muted-foreground">
-              {info.gh === 'missing'
-                ? t('PRs and CI need the gh CLI: brew install gh, then gh auth login.')
-                : info.gh === 'unauthenticated'
-                  ? t('gh isn’t signed in. Run gh auth login in the terminal.')
-                  : info.gh === 'no-remote'
-                    ? t('The repository has no GitHub remote.')
-                    : t('gh isn’t responding: {error}', { error: info.ghError ?? '' })}
+              {info.gh === 'no-remote' ? t('The repository has no GitHub remote.') : t('gh isn’t responding: {error}', { error: info.ghError ?? '' })}
             </p>
           ) : info.pr ? (
             <div className="flex flex-col gap-2">
@@ -212,20 +222,12 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
             <div className="flex flex-col items-start gap-2">
               <p className="text-sm text-muted-foreground">{info.isDefaultBranch ? t('No PR from the default branch.') : t('This branch doesn’t have a PR yet.')}</p>
               {!info.isDefaultBranch && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    ask('create_pr', t('Create pull request'), {
-                      branch: info.branch ?? '',
-                      base: info.base ?? 'main',
-                      source: session?.source?.url ? t('In the description, link {ref}: {url}', { ref: session.source.ref, url: session.source.url }) : ''
-                    })
-                  }
-                  className={primaryButton}
-                >
-                  <GitPullRequest aria-hidden className="size-3.5" />
-                  {t('Create PR…')}
-                </button>
+                <div>
+                  <button type="button" onClick={() => setCreatingPr(true)} className={primaryButton}>
+                    <GitPullRequest aria-hidden className="size-3.5" />
+                    {t('Create PR…')}
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -299,6 +301,7 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
         )}
       </div>
 
+      {creatingPr && <CreatePrDialog projectId={projectId} session={session} branch={info.branch ?? ''} base={info.base ?? 'main'} onClose={() => setCreatingPr(false)} />}
       <PromptDialog projectId={projectId} session={session} prompt={prompt} onClose={() => setPrompt(null)} />
     </div>
   )

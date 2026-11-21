@@ -70,6 +70,23 @@ export async function acceptImages(files: File[], current: number, pasted = fals
   return { images, error }
 }
 
+/**
+ * Immagini che arrivano già pronte (screenshot del browser integrato): stessi limiti dei file incollati.
+ * `current` è il numero di immagini già nel messaggio.
+ */
+export function acceptAttachments(list: Attachment[], current: number): { images: PendingImage[]; error: string | null } {
+  const images: PendingImage[] = []
+  const errors: string[] = []
+  for (const item of list) {
+    const size = Math.floor((item.data.length * 3) / 4)
+    if (!(IMAGE_TYPES as readonly string[]).includes(item.mediaType)) errors.push(t('{name}: only PNG, JPEG, GIF or WebP.', { name: item.name }))
+    else if (size > MAX_IMAGE_BYTES) errors.push(t('{name} is {size}: the limit is 5 MB.', { name: item.name, size: formatSize(size) }))
+    else if (current + images.length >= MAX_IMAGES) errors.push(t('Up to {n} images per message.', { n: MAX_IMAGES }))
+    else images.push({ id: `img-${++counter}`, name: item.name, mediaType: item.mediaType, size, url: `data:${item.mediaType};base64,${item.data}` })
+  }
+  return { images, error: errors[0] ?? null }
+}
+
 /** Formato del protocollo: base64 senza il prefisso del data URL. */
 export function toAttachment(image: PendingImage): Attachment {
   return { name: image.name, mediaType: image.mediaType, data: image.url.slice(image.url.indexOf(',') + 1) }

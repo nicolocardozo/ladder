@@ -69,5 +69,8 @@
     "@lezer/highlight": "^1.2.5",
     "node-pty": "1.1.0",
     "zod": "4.6.7"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.319"
   }
 }

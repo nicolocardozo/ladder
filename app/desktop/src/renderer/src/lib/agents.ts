@@ -1,5 +1,5 @@
 // Livelli di permesso del composer: sono comuni a tutti gli agenti, `native` dice a cosa corrispondono per ciascuno.
-import type { AgentId, AgentStatus, PermissionLevel } from '@shared/protocol'
+import type { AgentId, AgentStatus, Effort, PermissionLevel } from '@shared/protocol'
 import { t } from '@shared/i18n'
 
 export type { PermissionLevel }
@@ -48,3 +48,12 @@ export function supportsEffort(agent: AgentId): boolean {
 }
 
 export const FALLBACK_AGENT: AgentStatus = { agent: 'claude-code', name: 'Claude Code', kind: 'native', available: false, version: null, account: null, models: [], error: null }
+
+// Livelli di effort, dal più basso al più alto. Etichette in inglese: si traducono con t() dove si mostrano.
+export const EFFORTS: { id: Effort; label: string }[] = [
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'high', label: 'High' },
+  { id: 'xhigh', label: 'Extra high' },
+  { id: 'max', label: 'Max' }
+]

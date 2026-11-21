@@ -27,7 +27,11 @@ function attach(next: MessagePort): void {
     if (!request) return
     pending.delete(message.rid)
     if (message.ok) request.resolve(message.data)
-    else request.reject(new Error(message.error))
+    else {
+      // Se l'host unisce un `errorCode` al rifiuto (es. `checksum-conflict` di agents.install) lo si lascia sull'errore; il contratto di oggi porta solo il messaggio.
+      const errorCode = (message as { errorCode?: string }).errorCode
+      request.reject(errorCode ? Object.assign(new Error(message.error), { errorCode }) : new Error(message.error))
+    }
   }
   port.start()
   for (const listener of connectListeners) listener()

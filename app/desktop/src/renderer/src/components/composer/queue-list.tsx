@@ -1,12 +1,23 @@
 // Messaggi in coda sopra il composer: un clic li rende modificabili, × li toglie.
 import { useLayoutEffect, useRef, useState } from 'react'
-import { Image as ImageIcon, X } from 'lucide-react'
+import { Clock, Image as ImageIcon, X } from 'lucide-react'
 import type { QueuedMessage } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
+import { isSendKey, sendKeyCombos, useSendKey } from '@/lib/send-key'
 
 interface QueueListProps {
   queue: QueuedMessage[]
   onQueueChange?: (queue: QueuedMessage[]) => void
+  /** L'agente accetta messaggi dentro il turno: solo allora compare "Send into turn". */
+  canSteer?: boolean
+  /** Consegna il messaggio adesso: nel turno in corso ('steer') o interrompendolo ('now'). */
+  onDeliver?: (id: string, how: 'steer' | 'now') => void
+  /** Perché aspetta: "3 agents working" o il motivo dell'attesa per il limite di turni. */
+  reason?: string | null
+  /** Falso a sessione ferma: i messaggi non partono da soli, serve un nuovo invio. */
+  working?: boolean
+  /** Sessione in attesa del limite di turni: parte da sola quando si libera un posto. */
+  waitingSlot?: boolean
   /** Dopo ↵ o Esc il focus torna al composer. */
   onEditEnd?: () => void
 }
@@ -14,7 +25,10 @@ interface QueueListProps {
 const rowButton =
   'grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50'
 
-export function QueueList({ queue, onQueueChange, onEditEnd }: QueueListProps) {
+const deliverButton =
+  'h-5 shrink-0 rounded px-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50'
+
+export function QueueList({ queue, onQueueChange, canSteer = false, onDeliver, reason, working = true, waitingSlot = false, onEditEnd }: QueueListProps) {
   const [editing, setEditing] = useState<string | null>(null)
   // Il messaggio può partire mentre lo si modifica: si salva solo se è ancora in coda.
   const latest = useRef(queue)
@@ -32,6 +46,13 @@ export function QueueList({ queue, onQueueChange, onEditEnd }: QueueListProps) {
 
   return (
     <div className="flex flex-col gap-1">
+      <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
+        <Clock aria-hidden className="size-3.5" strokeWidth={2} />
+        <span>
+          <span className="font-medium text-secondary-foreground">{waitingSlot ? t('Starts when a slot frees up') : working ? t('Sends when the turn ends') : t('Waiting · send a message to continue')}</span>
+          {(working || waitingSlot) && reason ? ` · ${reason}` : ''}
+        </span>
+      </p>
       {queue.map((message, index) => {
         const images = message.attachments?.length ?? 0
         return (
@@ -74,6 +95,30 @@ export function QueueList({ queue, onQueueChange, onEditEnd }: QueueListProps) {
                 {images}
               </span>
             )}
+            {onDeliver && (
+              <>
+                {canSteer && (
+                  <button
+                    type="button"
+                    onClick={() => onDeliver(message.id, 'steer')}
+                    title={t('Adds it to the turn in progress without stopping it')}
+                    aria-label={t('Send into turn: {text}', { text: message.text })}
+                    className={deliverButton}
+                  >
+                    {t('Send into turn')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onDeliver(message.id, 'now')}
+                  title={t('Stops the turn and sends this message first')}
+                  aria-label={t('Send now: {text}', { text: message.text })}
+                  className={deliverButton}
+                >
+                  {t('Send now')}
+                </button>
+              </>
+            )}
             <button
               type="button"
               aria-label={t('Remove from queue')}
@@ -93,6 +138,7 @@ function QueueEditor({ initial, onSave, onCancel }: { initial: string; onSave: (
   const [value, setValue] = useState(initial)
   const ref = useRef<HTMLTextAreaElement>(null)
   const finished = useRef(false)
+  const sendKey = useSendKey()
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -112,11 +158,11 @@ function QueueEditor({ initial, onSave, onCancel }: { initial: string; onSave: (
       ref={ref}
       value={value}
       rows={1}
-      aria-label={t('Edit queued message. Return saves, Esc cancels, empty removes it')}
+      aria-label={sendKey === 'mod-enter' ? t('Edit queued message. {key} saves, Esc cancels, empty removes it', { key: sendKeyCombos(sendKey).send }) : t('Edit queued message. Return saves, Esc cancels, empty removes it')}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing) return
-        if (event.key === 'Enter' && !event.shiftKey) {
+        if (isSendKey(event, sendKey)) {
           event.preventDefault()
           finish(() => onSave(value, true))
         } else if (event.key === 'Escape') {

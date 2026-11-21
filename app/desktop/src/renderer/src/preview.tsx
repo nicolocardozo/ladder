@@ -1,7 +1,13 @@
 // Anteprima della chat senza Electron: pnpm dev:web e poi http://localhost:5199/preview.html
 import { THEMES, applyTheme, useSettings } from '@/hooks/use-theme'
+import '@shared/locales/it'
+import { LOCALES, isLocale, plural, setLocale, type Locale } from '@shared/i18n'
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import '@fontsource-variable/mona-sans/wght.css'
+import '@fontsource/monaspace-neon/400.css'
+import '@fontsource/monaspace-neon/500.css'
+import '@fontsource/monaspace-neon/600.css'
 import './styles/globals.css'
 import type { Attachment, ChatItem, PermissionLevel, QueuedMessage, RequestResponse } from '@shared/protocol'
 import { ChatView, type ChatAnchor } from './components/chat/chat-view'
@@ -9,8 +15,21 @@ import { Composer } from './components/composer'
 import { seedProjectFiles } from './components/composer/file-index'
 import { TooltipProvider } from './components/ui/tooltip'
 import {
+  agentsFixture,
+  PREVIEW_CLAUDE_WORK,
+  PREVIEW_PROFILES,
+  previewProfileAgents,
+  previewProfileConnections,
+  agentsFinishedFixture,
+  agentsNoticeFixture,
+  agentsWaitingFixture,
+  stalledFixture,
+  previewSubagentDetail,
+  busyFixture,
+  commandFixture,
   largeFixture,
   normalFixture,
+  previewCommands,
   previewProjectFiles,
   questionFixture,
   requestFixture,
@@ -18,20 +37,115 @@ import {
   streamingBase,
   type Fixture
 } from './dev/fixtures'
+import { AgentCatalogPreview } from './dev/agent-catalog-preview'
+import { ConnectionsPreview } from './dev/connections-preview'
+import { TerminalsPreview } from './dev/terminals-preview'
+import { installShortcutsHost } from './dev/shortcuts-preview'
+import { emitAutoArchived, installSettingsPreview } from './dev/settings-preview'
 import { cn } from './lib/utils'
+import { onHostConnect, onHostEvent } from '@/lib/host-client'
+import { SessionGlyph } from './components/status'
+import { noteTone, sessionNote, sessionState } from './lib/session-state'
+import { COMPACT_WIDTH, MIN_COLUMN_WIDTH } from '@/lib/use-element-width'
+import { useChatFont, DEFAULT_CHAT_FONT, DEFAULT_CHAT_WIDTH } from './hooks/use-chat-font'
+import { NewChat } from './components/main-views'
+import { SettingsDialog } from './components/settings-dialog'
+import { useApp } from './store/app-store'
+import { allowedLevels } from './lib/agents'
+import { usePermissionChange, type PermissionChangeResult } from './lib/use-permission-change'
+import type { AgentStatus, AppPrefs, ChatFont, Effort, Project, SessionSummary, SubagentInfo } from '@shared/protocol'
+import { SubagentDialog } from './components/subagent-dialog'
+import { countsOf, setSubagentDetailLoader, useSubagentLists } from './lib/subagents'
 
 applyTheme(useSettings.getState().theme)
 
-type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question'
+// Lingua dell'anteprima: ?lang=it (o en); altrimenti inglese, come l'app.
+const initialLang = new URLSearchParams(location.search).get('lang')
+const INITIAL_LOCALE: Locale = isLocale(initialLang) ? initialLang : 'en'
+setLocale(INITIAL_LOCALE)
+document.documentElement.lang = INITIAL_LOCALE
+
+type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question' | 'command' | 'busy' | 'agents' | 'agents-idle' | 'agents-errors' | 'notice-done' | 'notice-failed' | 'agents-waiting' | 'finished-states' | 'stalled'
+
+// Sessione finta con cento sotto-agenti: la board, il popover e il dialogo leggono da qui come nell'app.
+const PREVIEW_SESSION = 'preview-agents'
+setSubagentDetailLoader(
+  (_sessionId, id) =>
+    new Promise((resolve) => window.setTimeout(() => resolve(previewSubagentDetail(useSubagentLists.getState().lists[PREVIEW_SESSION] ?? [], id)), 250))
+)
 
 // Il composer cita i file di questo progetto finto: niente host nell'anteprima.
 const PREVIEW_PROJECT = 'preview'
 seedProjectFiles(PREVIEW_PROJECT, previewProjectFiles())
 
-const PREVIEW_MODELS = [
-  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5' }
+// Il predefinito dell'agente è Opus (isDefault) con effort medium; il bottone "Default Ladder" lo sposta su Sonnet (globale o di progetto) o lo toglie.
+// Tre casi del composer: Claude Code, Codex, e un agente che non dichiara predefiniti (nessun isDefault, nessun defaultEffort, effortEffective assente: resta "Default").
+const CONTEXT_CASES = [
+  { label: 'lontano dalla soglia', value: { used: 64_000, window: 200_000, compactAt: 167_000 } },
+  { label: 'vicino alla soglia', value: { used: 155_000, window: 200_000, compactAt: 167_000 } },
+  { label: 'oltre la soglia', value: { used: 172_000, window: 200_000, compactAt: 167_000 } },
+  { label: 'compattazione off (null)', value: { used: 64_000, window: 200_000, compactAt: null } },
+  { label: 'soglia ignota (assente)', value: { used: 170_000, window: 200_000 } }
 ]
+
+type PreviewCase = 'claude' | 'codex' | 'unknown'
+const PREVIEW_CASES: PreviewCase[] = ['claude', 'codex', 'unknown']
+const stripDefaults = (models: AgentStatus['models']): AgentStatus['models'] => models.map(({ isDefault: _a, defaultEffort: _b, ...m }) => m)
+function previewModels(kind: PreviewCase): AgentStatus['models'] {
+  const claude = PREVIEW_AGENTS[0].models.filter((m) => m.id !== 'claude-haiku-5')
+  return kind === 'codex' ? PREVIEW_AGENTS[1].models : kind === 'unknown' ? stripDefaults(claude) : claude
+}
+
+// Store finto per le impostazioni "New sessions": agenti, progetti, predefiniti (uno non più valido) e tasto di invio.
+const PREVIEW_AGENTS: AgentStatus[] = [
+  {
+    agent: 'claude-code',
+    name: 'Claude Code',
+    kind: 'native',
+    available: true,
+    version: '2.1.0',
+    account: 'Claude Max',
+    email: 'alex@example.com',
+    models: [
+      { id: 'claude-opus-5-5', label: 'Opus 5.5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], isDefault: true, defaultEffort: 'medium' },
+      { id: 'claude-sonnet-5', label: 'Sonnet 5', efforts: ['low', 'medium', 'high'], defaultEffort: 'high' },
+      { id: 'claude-haiku-5', label: 'Haiku 5', efforts: [] }
+    ],
+    error: null
+  },
+  { agent: 'codex', name: 'Codex', kind: 'native', available: true, version: '0.9.0', account: 'ChatGPT Plus', email: 'alex@example.com', models: [
+      { id: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'medium', 'high'], isDefault: true, defaultEffort: 'medium' },
+      { id: 'gpt-5.5-mini', label: 'GPT-5.5 mini', efforts: ['low', 'medium'], defaultEffort: 'low' }
+    ], error: null },
+  { agent: 'acp:gemini', name: 'Gemini CLI', kind: 'acp', available: false, version: null, account: null, models: [], error: 'Command not found' }
+]
+const PREVIEW_PROJECTS: Project[] = [
+  // Il monorepo usa l'account "Work" di Claude per le nuove sessioni; acme-api il predefinito.
+  { id: PREVIEW_PROJECT, name: 'acme-monorepo', path: '/tmp/acme', branch: 'main', isGit: true, addedAt: 1, profiles: { 'claude-code': PREVIEW_CLAUDE_WORK } },
+  { id: 'api', name: 'acme-api', path: '/tmp/api', branch: 'main', isGit: true, addedAt: 2 }
+]
+const PREVIEW_PREFS: AppPrefs = { notifications: true, sound: true, dndUntil: null, maxActive: 3, locale: 'en', defaults: { agent: 'claude-code', models: { 'claude-code': 'claude-sonnet-5' }, permission: 'ask' },
+  // Profili di sessione (LAD-60): uno solo di lettura, uno con account e worktree, uno Codex e uno con l'agente non disponibile (si vede la nota di ripiego).
+  presets: [
+    { id: 'preset-review', name: 'Quick review', note: 'Read only pass over a diff before merging.', agent: 'claude-code', model: 'claude-sonnet-5', effort: 'low', permission: 'plan', worktree: false },
+    { id: 'preset-feature', name: 'Long feature', note: 'Plans first, then works in its own worktree.', agent: 'claude-code', profileId: PREVIEW_CLAUDE_WORK, model: 'claude-opus-5-5', effort: 'high', permission: 'edit', worktree: true, prompt: 'Read the issue, propose a plan and wait for my go before editing.' },
+    { id: 'preset-codex', name: 'Codex fix', agent: 'codex', model: 'gpt-5.5-mini', effort: 'low', permission: 'ask', worktree: false },
+    { id: 'preset-gemini', name: 'Gemini sketch', note: 'Rough ideas, nothing is edited.', agent: 'acp:gemini', permission: 'plan', worktree: false }
+  ],
+  sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-mono', chatWidth: 'comfortable', autonomyHint: true, stallHint: false,
+  chatTextSize: 'default', editorTextSize: 13, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: 'ladder/', autoArchiveDays: null, openAtLogin: false, keepAwake: false, soundName: 'default' }
+const PREVIEW_PROFILE_CONNECTIONS = previewProfileConnections('connected')
+useApp.setState({
+  agents: PREVIEW_AGENTS,
+  // Due account Claude (predefinito e Work) e uno Codex: la sidebar, il composer e le impostazioni mostrano il profilo in uso.
+  profiles: PREVIEW_PROFILES,
+  profileConnections: PREVIEW_PROFILE_CONNECTIONS,
+  profileAgents: previewProfileAgents(PREVIEW_PROFILE_CONNECTIONS),
+  projects: PREVIEW_PROJECTS,
+  prefs: PREVIEW_PREFS,
+  // acme-api ha un modello che l'agente non offre più e un agente non disponibile: si vedono come non validi.
+  ui: { api: { tabs: [], activeTab: null, scroll: {}, defaults: { agent: 'acp:gemini', models: { 'claude-code': 'claude-opus-4-old' }, efforts: { 'claude-code': 'max' } } } }
+})
 
 const INITIAL_QUEUE: QueuedMessage[] = [
   { id: 'q1', text: 'Poi aggiorna anche le storie di Storybook della paginazione.' },
@@ -45,13 +159,57 @@ const INITIAL_QUEUE: QueuedMessage[] = [
   }
 ]
 
+/** Come appare la sessione nella sidebar: simbolo di stato e nota. */
+function NoticeSample() {
+  const session = useApp((s) => s.sessions[PREVIEW_SESSION])
+  if (!session) return null
+  const note = sessionNote(session, false)
+  const tone = noteTone(note.code)
+  return (
+    <span className="ml-auto flex items-center gap-1.5 text-xs">
+      <SessionGlyph state={sessionState(session)} />
+      <span className={cn('text-faint', tone === 'destructive' && 'font-semibold text-destructive')}>{note.text}</span>
+    </span>
+  )
+}
+
+/** Nuova sessione di un progetto git con script di setup: il menu del worktree offre di partire senza aspettarlo (installa l'host finto). */
+function NewSessionPreview() {
+  // L'host finto si installa prima del mount e la nuova chat compare solo quando la porta è arrivata (arriva con postMessage,
+  // in modo asincrono): così la sua prima richiesta delle impostazioni non cade nel vuoto.
+  const [connected, setConnected] = useState(false)
+  useState(() => installSettingsPreview())
+  useEffect(() => onHostConnect(() => setConnected(true)), [])
+  return (
+    <div className="flex h-[640px] w-[900px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_18px_44px_rgb(3_8_20/0.25)]">
+      {connected && <NewChat projectId={PREVIEW_PROJECT} />}
+    </div>
+  )
+}
+
 const MODES: { id: Mode; label: string }[] = [
   { id: 'normal', label: 'Normale' },
   { id: 'large', label: '1000 elementi' },
   { id: 'stream', label: 'Streaming simulato' },
   { id: 'request', label: 'Approvazione' },
-  { id: 'question', label: 'Domanda' }
+  { id: 'question', label: 'Domanda' },
+  { id: 'command', label: 'Comando in corso' },
+  { id: 'busy', label: 'Al lavoro con coda' },
+  { id: 'agents', label: '100 sotto-agenti' },
+  { id: 'agents-idle', label: 'Agenti conclusi' },
+  { id: 'agents-errors', label: 'Solo errori' },
+  { id: 'notice-done', label: 'Avviso: agenti finiti' },
+  { id: 'notice-failed', label: 'Avviso: agente fallito' },
+  { id: 'agents-waiting', label: 'In attesa di 3 agenti' },
+  { id: 'finished-states', label: 'Agenti finiti: stati' },
+  { id: 'stalled', label: 'Turno fermo senza chiedere' }
 ]
+
+/** Avviso dei sotto-agenti sulla sessione di anteprima: stesso stato e nota della riga in sidebar. */
+const NOTICES: Partial<Record<Mode, NonNullable<SessionSummary['agentsNotice']>>> = {
+  'notice-done': { finished: 3, failed: 0, at: Date.now() },
+  'notice-failed': { finished: 3, failed: 1, at: Date.now() }
+}
 
 function load(mode: Mode): Fixture {
   switch (mode) {
@@ -61,6 +219,25 @@ function load(mode: Mode): Fixture {
       return requestFixture()
     case 'question':
       return questionFixture()
+    case 'command':
+      return commandFixture()
+    case 'busy':
+      return busyFixture()
+    case 'agents':
+      return agentsFixture()
+    case 'agents-idle':
+      return agentsFixture('idle')
+    case 'agents-errors':
+      return agentsFixture('errors')
+    case 'notice-done':
+    case 'notice-failed':
+      return agentsNoticeFixture()
+    case 'agents-waiting':
+      return agentsWaitingFixture()
+    case 'finished-states':
+      return agentsFinishedFixture()
+    case 'stalled':
+      return stalledFixture()
     case 'stream':
       return streamingBase().fixture
     default:
@@ -180,29 +357,109 @@ function useStreamingSimulation(enabled: boolean, setFixture: (update: (f: Fixtu
 
 function Preview() {
   const [mode, setMode] = useState<Mode>('normal')
+  // Come in App.tsx: gli eventi dell'host finto (per esempio sessions.autoArchived) arrivano allo store.
+  useEffect(() => onHostEvent(useApp.getState().applyEvent), [])
+  // Chat e composer, oppure collegamenti e primo avvio (stessa pagina di anteprima).
+  const [view, setView] = useState<'chat' | 'connections' | 'agents' | 'new' | 'terminals'>(() => {
+    const param = new URLSearchParams(location.search).get('view')
+    return param === 'connections' || param === 'agents' || param === 'terminals' || param === 'new' ? param : 'chat'
+  })
+  const [locale, setLocaleState] = useState<Locale>(INITIAL_LOCALE)
+  setLocale(locale)
   const [runId, setRunId] = useState(0)
   const [mountId, setMountId] = useState(0)
   const [fixture, setFixtureState] = useState<Fixture>(() => load('normal'))
+  // Colonna stretta: composer e chat in versione compact, per vedere il badge col solo numero.
+  // Larghezza della colonna della chat: stretta (compatta), normale, ultrawide; e quante colonne affiancate.
+  const [colWidth, setColWidth] = useState<'narrow' | 'normal' | 'ultrawide'>('normal')
+  const [twoColumns, setTwoColumns] = useState(false)
+  // La larghezza è quella della finestra; con due colonne ognuna ne ha la metà (min 320, come in app).
+  const windowWidth = { narrow: 380, normal: 900, ultrawide: 1800 }[colWidth]
+  const frameWidth = twoColumns ? Math.max(MIN_COLUMN_WIDTH, Math.floor(windowWidth / 2)) : windowWidth
+  const narrow = frameWidth < COMPACT_WIDTH
+  const [subagents, setSubagents] = useState<SubagentInfo[]>([])
   const [anchor, setAnchor] = useState<ChatAnchor | null>(null)
   const [restoreAnchor, setRestoreAnchor] = useState<ChatAnchor | null>(null)
   const theme = useSettings((s) => s.theme)
   const [last, setLast] = useState('')
   const [queue, setQueue] = useState<QueuedMessage[]>(INITIAL_QUEUE)
-  const [model, setModel] = useState<string | null>(PREVIEW_MODELS[0].id)
+  const [model, setModel] = useState<string | null>(null)
+  const [contextCase, setContextCase] = useState(0)
+  const [previewCase, setPreviewCase] = useState<PreviewCase>('claude')
+  const [effort, setEffort] = useState<Effort | null>(null)
+  const [ladderDefault, setLadderDefault] = useState<'agent' | 'global' | 'project'>('global')
   const [permission, setPermission] = useState<PermissionLevel>('edit')
+  const [permissionNext, setPermissionNext] = useState<PermissionLevel | null>(null)
+  const [permissionError, setPermissionError] = useState<string | null>(null)
+  // Risposta simulata dell'host a session.permission.set (LAD-44).
+  const [permissionHost, setPermissionHost] = useState<'accept' | 'reject' | 'next-turn' | 'approve-card'>('accept')
   const counter = useRef(0)
+  const sendKey = useApp((s) => s.prefs?.sendKey ?? 'enter')
+  const sidebarNotice = useApp((s) => s.sidebarNotice)
+  const busySend = useApp((s) => s.prefs?.busySend ?? 'steer')
+  const chatFont = useApp((s) => s.prefs?.chatFont ?? DEFAULT_CHAT_FONT)
+  const chatWidth = useApp((s) => s.prefs?.chatWidth ?? DEFAULT_CHAT_WIDTH)
+  useChatFont()
+  const fixtureSeq = useRef(10_000)
+  // Agente che accetta messaggi nel turno (Claude, Codex) o no (ACP), e sotto-agenti al lavoro.
+  const [canSteer, setCanSteer] = useState(true)
+  const [agentsWorking, setAgentsWorking] = useState(3)
 
   const setFixture = useCallback((update: (f: Fixture) => Fixture) => setFixtureState(update), [])
+  const applyPermission = useCallback(
+    (target: PermissionLevel) =>
+      new Promise<PermissionChangeResult>((resolve, reject) => {
+        window.setTimeout(() => {
+          if (permissionHost === 'reject') return reject(new Error('Codex non può cambiare i permessi a turno in corso'))
+          if (permissionHost === 'next-turn') {
+            setPermissionNext(target)
+            return resolve({ permission: target, appliesFrom: 'next-turn' })
+          }
+          setPermissionNext(null)
+          setPermission(target)
+          if (permissionHost === 'approve-card' && target === 'full') {
+            setFixtureState((f) => ({
+              ...f,
+              items: f.items.map((i) => (i.kind === 'request' && i.state === 'open' ? { ...i, state: 'resolved' as const, resolution: 'Approvato passando ad Accesso completo' } : i)),
+              run: 'running'
+            }))
+          }
+          resolve({ permission: target, appliesFrom: 'now' })
+        }, 600)
+      }),
+    [permissionHost]
+  )
+  const permissionChange = usePermissionChange({ permission, permissionNext, levels: allowedLevels(null), apply: applyPermission, onError: setPermissionError })
   useStreamingSimulation(mode === 'stream', setFixture, runId)
 
 
   const choose = (next: Mode) => {
     setMode(next)
-    setFixtureState(load(next))
+    const loaded = load(next)
+    const agents = next.startsWith('agents') ? ((loaded as { subagents?: SubagentInfo[] }).subagents ?? []) : []
+    setSubagents(agents)
+    useSubagentLists.getState().set(PREVIEW_SESSION, agents)
+    const { [PREVIEW_SESSION]: _drop, ...others } = useApp.getState().sessions
+    const notice = NOTICES[next] ?? null
+    useApp.setState({
+      sessions: agents.length || notice ? { ...others, [PREVIEW_SESSION]: { id: PREVIEW_SESSION, agent: 'claude-code', model: 'claude-opus-5-5', run: 'idle', unread: false, updatedAt: Date.now(), agentsNotice: notice, subagentCounts: agents.length ? countsOf(agents) : undefined } as unknown as SessionSummary } : others
+    })
+    setFixtureState(loaded)
     setRestoreAnchor(null)
     setAnchor(null)
     setRunId((n) => n + 1)
   }
+
+  // Host finto per session.continue: dopo mezzo secondo la riga passa a "continued"; con la riga "Seconda prova" fallisce.
+  const onContinue = (itemId: string) =>
+    new Promise<void>((resolve, reject) => {
+      window.setTimeout(() => {
+        const item = fixture.items.find((i) => i.id === itemId)
+        if (item?.kind === 'agents-finished' && item.failed > 0) return reject(new Error('The host couldn’t reach the agent'))
+        setFixtureState((f) => ({ ...f, items: f.items.map((i) => (i.id === itemId && i.kind === 'agents-finished' ? { ...i, state: 'continued' as const } : i)) }))
+        resolve()
+      }, 500)
+    })
 
   const onRespond = (requestId: string, response: RequestResponse) => {
     console.log('[chat] onRespond', requestId, response)
@@ -255,14 +512,38 @@ function Preview() {
     setLast(`onOpenFile ${path}${line ? `:${line}` : ''}`)
   }
 
+  const onOpenDiff = (turnId: string, path?: string) => {
+    console.log('[chat] onOpenDiff', turnId, path)
+    setLast(`onOpenDiff ${turnId}${path ? ` ${path}` : ''}`)
+  }
+
   const running = fixture.run === 'running' || fixture.run === 'starting' || fixture.run === 'waiting'
 
   // In corso il messaggio va in coda, altrimenti diventa un turno nuovo con i nomi degli allegati.
-  const onSubmit = (text: string, attachments: Attachment[]) => {
+  const addUser = (id: string, text: string, steered: boolean, attachments: { name: string; mediaType: string }[] = []) =>
+    setFixtureState((f) => {
+      const seq = (f.items[f.items.length - 1]?.seq ?? 0) + 1
+      const item: ChatItem = { id, turnId: f.items[f.items.length - 1]?.turnId ?? `turn-${id}`, seq, at: Date.now(), kind: 'user', text, ...(steered ? { steered: true } : {}), ...(attachments.length ? { attachments } : {}) }
+      return { ...f, items: [...f.items, item] }
+    })
+
+  const onDeliver = (id: string, how: 'steer' | 'now') => {
+    setLast(`onDeliver ${id} ${how}`)
+    const message = queue.find((m) => m.id === id)
+    if (!message) return
+    setQueue((q) => q.filter((m) => m.id !== id))
+    addUser(`deliver-${++counter.current}`, message.text, how === 'steer', message.attachments?.map(({ name, mediaType }) => ({ name, mediaType })))
+  }
+
+  const onSubmit = (text: string, attachments: Attachment[], busy?: 'queue' | 'steer') => {
     const summary = attachments.map((a) => `${a.name} (${a.mediaType}, ${Math.round((a.data.length * 3) / 4 / 1024)} KB)`)
     console.log('[composer] onSubmit', text, summary)
-    setLast(`onSubmit ${JSON.stringify(text)}${summary.length ? ` + ${summary.join(', ')}` : ''}`)
+    setLast(`onSubmit ${JSON.stringify(text)}${busy ? ` busy=${busy}` : ''}${summary.length ? ` + ${summary.join(', ')}` : ''}`)
     const id = `sent-${++counter.current}`
+    if (running && busy === 'steer') {
+      addUser(id, text, true, attachments.map(({ name, mediaType }) => ({ name, mediaType })))
+      return
+    }
     if (running) {
       setQueue((q) => [...q, { id, text, attachments: attachments.length ? attachments : undefined }])
       return
@@ -282,6 +563,28 @@ function Preview() {
     })
   }
 
+  // Comando dell'agente: come farebbe l'host, una riga 'command' (mai 'user') che passa da in corso a fatta.
+  const onCommand = (name: string, args: string) => {
+    console.log('[composer] onCommand', name, args)
+    setLast(`onCommand /${name} ${JSON.stringify(args)}`)
+    const id = `cmd-${++counter.current}`
+    const turnId = `turn-${id}`
+    const add = (item: ChatItem) => setFixtureState((f) => ({ ...f, items: [...f.items, item] }))
+    const next = () => (fixtureSeq.current += 1)
+    add({ id, turnId, seq: next(), at: Date.now(), kind: 'command', name, args, status: 'running', error: null })
+    // Anteprima: un comando con argomento "interrupt" finisce interrotto, per vedere lo stato neutro.
+    const final = args.trim() === 'interrupt' ? ('interrupted' as const) : ('done' as const)
+    window.setTimeout(() => {
+      setFixtureState((f) => ({
+        ...f,
+        items: f.items.map((i) => (i.id === id && i.kind === 'command' ? { ...i, status: final } : i))
+      }))
+      if (name === 'compact') {
+        add({ id: `${id}-c`, turnId, seq: next(), at: Date.now(), kind: 'compacted', trigger: 'manual', preTokens: 64_000, postTokens: 12_000 })
+      }
+    }, 1200)
+  }
+
   const remount = () => {
     setRestoreAnchor(anchor)
     setMountId((n) => n + 1)
@@ -293,7 +596,13 @@ function Preview() {
   return (
     <div className="flex h-full flex-col items-center gap-3 overflow-auto bg-sidebar p-5">
       <div className="flex w-[900px] flex-wrap items-center gap-1.5">
-        {MODES.map((m) => (
+        {(['chat', 'connections', 'agents', 'new', 'terminals'] as const).map((id) => (
+          <button key={id} type="button" aria-pressed={view === id} onClick={() => setView(id)} className={cn(btn, 'font-medium', view === id && 'border-ring/60 bg-accent text-foreground')}>
+            {id === 'chat' ? 'Chat' : id === 'connections' ? 'Abbonamenti' : id === 'agents' ? 'Agenti' : id === 'terminals' ? 'Terminali e servizi' : 'Nuova sessione'}
+          </button>
+        ))}
+        <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+        {view === 'chat' && MODES.map((m) => (
           <button
             key={m.id}
             type="button"
@@ -305,23 +614,191 @@ function Preview() {
           </button>
         ))}
         <span className="flex-1" />
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            const prefs = useApp.getState().prefs!
+            useApp.getState().setPrefs({ ...prefs, sendKey: prefs.sendKey === 'enter' ? 'mod-enter' : 'enter' })
+          }}
+        >
+          Invio: {sendKey === 'enter' ? 'Invio' : '⌘Invio'}
+        </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            installShortcutsHost({ warnings: ['Entry #3 ignored: unknown command “tab.nope”'] })
+            // La porta arriva con postMessage, in modo asincrono: la sezione si apre dopo, così il primo shortcuts.get la trova.
+            window.setTimeout(() => useSettings.getState().openSection('shortcuts'), 50)
+          }}
+        >
+          Shortcuts
+        </button>
+        <button type="button" className={btn} onClick={() => setCanSteer((v) => !v)}>
+          Agente: {canSteer ? 'inserisce nel turno' : 'solo coda (ACP)'}
+        </button>
+        <button type="button" className={btn} onClick={() => setColWidth((w) => (w === 'narrow' ? 'normal' : w === 'normal' ? 'ultrawide' : 'narrow'))}>
+          Colonna: {{ narrow: 'stretta 380', normal: 'normale 900', ultrawide: 'ultrawide 1800' }[colWidth]}
+        </button>
+        <button type="button" className={btn} onClick={() => setContextCase((i) => (i + 1) % CONTEXT_CASES.length)}>
+          Contesto: {CONTEXT_CASES[contextCase].label}
+        </button>
+        <button type="button" className={btn} aria-pressed={twoColumns} onClick={() => setTwoColumns((v) => !v)}>
+          Due colonne: {twoColumns ? 'sì' : 'no'}
+        </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            const prefs = useApp.getState().prefs!
+            const order: AppPrefs['chatWidth'][] = ['comfortable', 'wide', 'full']
+            useApp.getState().setPrefs({ ...prefs, chatWidth: order[(order.indexOf(chatWidth) + 1) % order.length] })
+          }}
+        >
+          Larghezza chat: {chatWidth}
+        </button>
+        <button type="button" className={btn} onClick={() => setAgentsWorking((n) => (n + 1) % 4)}>
+          Sotto-agenti: {agentsWorking}
+        </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            const prefs = useApp.getState().prefs!
+            useApp.getState().setPrefs({ ...prefs, busySend: prefs.busySend === 'steer' ? 'queue' : 'steer' })
+          }}
+        >
+          Invio in turno: {busySend === 'steer' ? 'inserisce' : 'accoda'}
+        </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            const prefs = useApp.getState().prefs!
+            const order: ChatFont[] = ['system-mono', 'system-sans', 'mona-sans', 'monaspace-neon']
+            useApp.getState().setPrefs({ ...prefs, chatFont: order[(order.indexOf(chatFont) + 1) % order.length] })
+          }}
+        >
+          Font chat: {chatFont}
+        </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            const next = ladderDefault === 'global' ? 'project' : ladderDefault === 'project' ? 'agent' : 'global'
+            setLadderDefault(next)
+            const state = useApp.getState()
+            const base = PREVIEW_PREFS.defaults ?? {}
+            state.setPrefs({ ...state.prefs!, defaults: next === 'global' ? { ...base, models: { 'claude-code': 'claude-sonnet-5' } } : { agent: base.agent, permission: base.permission } })
+            const ui = state.ui[PREVIEW_PROJECT] ?? { tabs: [], activeTab: null, scroll: {} }
+            const { defaults: _old, ...rest } = ui
+            state.setUi(PREVIEW_PROJECT, next === 'project' ? { ...rest, defaults: { models: { 'claude-code': 'claude-sonnet-5' }, efforts: { 'claude-code': 'low' } } } : rest)
+          }}
+        >
+          Default Ladder: {ladderDefault}
+        </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            setPreviewCase(PREVIEW_CASES[(PREVIEW_CASES.indexOf(previewCase) + 1) % PREVIEW_CASES.length])
+            setModel(null)
+            setEffort(null)
+          }}
+        >
+          Composer: {previewCase}
+        </button>
+        <button type="button" className={btn} onClick={() => useSettings.getState().openSection('defaults')}>
+          Predefiniti
+        </button>
+        <button type="button" className={btn} onClick={() => useSettings.getState().openSection('appearance')} title="Dimensione del testo, font del codice, densità della sidebar (in fondo alla sezione)">
+          Aspetto
+        </button>
+        {([
+          ['workspace', 'Editor e worktree'],
+          ['system', 'Dati e sistema'],
+          ['notifications', 'Notifiche e suono']
+        ] as const).map(([section, label]) => (
+          <button
+            key={section}
+            type="button"
+            className={btn}
+            onClick={() => {
+              installSettingsPreview()
+              // La porta dell'host finto arriva con postMessage, in modo asincrono: la sezione si apre dopo, così la prima richiesta la trova.
+              window.setTimeout(() => useSettings.getState().openSection(section), 50)
+            }}
+          >
+            {label}
+          </button>
+        ))}
+        <button type="button" className={btn} onClick={() => { installSettingsPreview(); emitAutoArchived() }} title="Evento sessions.autoArchived: l'avviso della sidebar compare qui accanto (la sidebar non fa parte dell'anteprima)">
+          Archiviate in automatico
+        </button>
+        {sidebarNotice && <span role="status" className="text-[12px] text-muted-foreground">Sidebar: {sidebarNotice}</span>}
         <button type="button" className={btn} onClick={remount} title="Smonta e rimonta la chat con l'ultima ancora ricevuta">
           Rimonta con ancora
         </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            const next = LOCALES[(LOCALES.findIndex((l) => l.id === locale) + 1) % LOCALES.length].id
+            setLocale(next)
+            document.documentElement.lang = next
+            setLocaleState(next)
+          }}
+        >
+          Lingua: {LOCALES.find((l) => l.id === locale)?.name}
+        </button>
+        {([
+          ['accept', 'Permessi: accettato'],
+          ['reject', 'Permessi: rifiutato'],
+          ['next-turn', 'Permessi: dal prossimo turno'],
+          ['approve-card', 'Permessi: approva la card (usa Approvazione)']
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={permissionHost === id}
+            className={cn(btn, permissionHost === id && 'bg-accent')}
+            onClick={() => {
+              setPermissionHost(id)
+              setPermissionNext(null)
+              setPermissionError(null)
+            }}
+          >
+            {label}
+          </button>
+        ))}
         <button type="button" className={btn} onClick={() => { const i = THEMES.findIndex((t) => t.id === theme); useSettings.getState().setTheme(THEMES[(i + 1) % THEMES.length].id) }}>
           Tema: {THEMES.find((t) => t.id === theme)?.name}
         </button>
       </div>
-      <div className="flex h-[700px] w-[900px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_18px_44px_rgb(3_8_20/0.25)]">
+      {view === 'new' ? (
+        <NewSessionPreview key={locale} />
+      ) : view === 'terminals' ? (
+        <TerminalsPreview key={locale} />
+      ) : view === 'agents' ? (
+        <AgentCatalogPreview key={locale} />
+      ) : view === 'connections' ? (
+        <ConnectionsPreview key={locale} />
+      ) : (
+      <>
+      <div className="flex shrink-0 gap-4">
+      <div style={{ width: frameWidth }} className="flex h-[700px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_18px_44px_rgb(3_8_20/0.25)]">
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-5">
           <span className="text-[13.5px] font-semibold">Filtri tabella pagamenti</span>
           <span className="text-[12px] text-muted-foreground">
             acme-monorepo · main · Claude Code · {fixture.items.length} elementi · {fixture.run}
           </span>
+          {(NOTICES[mode] || mode === 'agents-waiting') && <NoticeSample />}
         </div>
+        <div className="flex min-h-0 flex-1 flex-col" onKeyDown={permissionChange.onKeyDown}>
         <ChatView
-          key={`${mode}-${runId}-${mountId}`}
-          sessionId={`${mode}-${runId}-${mountId}`}
+          key={`${mode}-${runId}-${mountId}-${locale}`}
+          sessionId={mode.startsWith('agents') ? PREVIEW_SESSION : `${mode}-${runId}-${mountId}`}
           items={fixture.items}
           run={fixture.run}
           activity={fixture.activity}
@@ -330,22 +807,47 @@ function Preview() {
           onAnchorChange={onAnchorChange}
           onRespond={onRespond}
           onOpenFile={onOpenFile}
+          onOpenDiff={onOpenDiff}
+          compact={narrow}
+          waitingAgents={fixture.run === 'idle' ? countsOf(subagents).running : 0}
+          onContinue={onContinue}
+          onPrefill={(text) => useApp.getState().insertIntoComposer('preview', text)}
         />
+        </div>
         {/* Composer vero: @ per i file finti, immagini incollate o trascinate, coda modificabile. */}
-        <div className="flex shrink-0 justify-center px-6 pb-4">
+        <div className="chat-col chat-gutter shrink-0 pb-4" data-compact={narrow ? '' : undefined}>
+          <div className="chat-measure">
+          <div className="chat-reset">
+          {permissionError && <p className="mb-2 w-full text-sm text-destructive">{permissionError}</p>}
           <Composer
-            onEffortChange={() => undefined}
+            profileId={PREVIEW_CLAUDE_WORK}
+            key={locale}
+            onEffortChange={setEffort}
+            onEffortReset={() => setEffort(null)}
+            onModelReset={() => setModel(null)}
+            effortEffective={previewCase === 'unknown' ? undefined : 'medium'}
             draftKey="preview"
+            compact={narrow}
+            sessionId={subagents.length ? PREVIEW_SESSION : undefined}
+            subagentCounts={subagents.length ? countsOf(subagents) : undefined}
             projectId={PREVIEW_PROJECT}
-            agentName="Claude Code"
-            models={PREVIEW_MODELS}
+            agent={previewCase === 'codex' ? 'codex' : 'claude-code'}
+            agentName={previewCase === 'codex' ? 'Codex' : 'Claude Code'}
+            models={previewModels(previewCase)}
             model={model}
             onModelChange={setModel}
-            effort="high"
-            permission={permission}
-            onPermissionChange={setPermission}
+            effort={effort}
+            permission={permissionChange.shown}
+            permissionNext={permissionChange.next}
+            onPermissionChange={permissionChange.change}
             running={running}
+            commands={previewCommands}
+            onCommand={onCommand}
+            onNewSession={(args) => setLast(`onNewSession ${JSON.stringify(args)}`)}
             onSubmit={onSubmit}
+            canSteer={canSteer}
+            onDeliver={onDeliver}
+            queueReason={running && agentsWorking > 0 ? plural(agentsWorking, '{n} agent working', '{n} agents working') : null}
             onStop={() => setFixtureState((f) => ({ ...f, run: 'idle', activity: null }))}
             queue={queue}
             onQueueChange={(next) => {
@@ -353,14 +855,41 @@ function Preview() {
               setLast(`onQueueChange ${next.map((m) => JSON.stringify(m.text)).join(' · ') || '[]'}`)
               setQueue(next)
             }}
-            context={{ used: 64_000, window: 200_000 }}
-            className="max-w-[680px]"
+            context={CONTEXT_CASES[contextCase].value}
           />
+          </div>
+          </div>
         </div>
       </div>
-      <p className="w-[900px] font-mono text-[11px] text-muted-foreground">
+      {twoColumns ? (
+        <div style={{ width: frameWidth }} className="flex h-[700px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_18px_44px_rgb(3_8_20/0.25)]">
+          <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-5">
+            <span className="text-[13.5px] font-semibold">Seconda colonna</span>
+          </div>
+          <ChatView
+            key={`col2-${mode}-${locale}`}
+            sessionId="preview-col2"
+            items={fixture.items}
+            run="idle"
+            activity={null}
+            firstUnreadSeq={null}
+            initialAnchor={null}
+            onAnchorChange={() => undefined}
+            onRespond={() => undefined}
+            onOpenFile={onOpenFile}
+            onOpenDiff={onOpenDiff}
+            compact={narrow}
+          />
+        </div>
+      ) : null}
+      </div>
+      <SettingsDialog />
+      <SubagentDialog sessionId={PREVIEW_SESSION} />
+      <p className="font-mono text-[11px] text-muted-foreground">
         ancora: {anchor ? `${anchor.itemId} +${anchor.offset}px` : '—'} · ultimo evento: {last || '—'}
       </p>
+      </>
+      )}
     </div>
   )
 }

@@ -1,5 +1,7 @@
 // Conversazioni d'esempio per la pagina di anteprima della chat (pnpm dev:web → /preview.html).
-import type { ChatItem, FileChange, Question, RequestOption, ToolKind } from '@shared/protocol'
+import type { AgentStatus, ChatItem, ConnectionId, ConnectionStatus, FileChange, Profile, Question, RequestOption, SlashCommand, SubagentDetail, SubagentInfo, ToolKind, UsageWindow } from '@shared/protocol'
+
+import { t } from '@shared/i18n'
 
 type Kind<K extends ChatItem['kind']> = Extract<ChatItem, { kind: K }>
 type Omitted<K extends ChatItem['kind']> = Omit<Kind<K>, 'id' | 'turnId' | 'seq' | 'at' | 'kind'>
@@ -126,7 +128,8 @@ export class ConversationBuilder {
         counts: fields.counts ?? { commands: 0, edits: 0, reads: 0, searches: 0 },
         files: fields.files ?? [],
         error: fields.error ?? null,
-        costUsd: fields.costUsd ?? null
+        costUsd: fields.costUsd ?? null,
+        ...(fields.stalled ? { stalled: true } : {})
       },
       600
     )
@@ -134,6 +137,25 @@ export class ConversationBuilder {
 
   notice(text: string, tone: 'info' | 'error' = 'info') {
     return this.push('notice', { text, tone }, 2_000)
+  }
+
+  /** Comando / eseguito dall'utente: riga di sistema. */
+  agentStart(reason: Kind<'agent-start'>['reason'], finished: number | null) {
+    return this.push('agent-start', { reason, finished }, 1_000)
+  }
+
+  /** Fine dei sotto-agenti in background con il coordinatore fermo. */
+  agentsFinished(state: Kind<'agents-finished'>['state'], finished: number, failed = 0) {
+    return this.push('agents-finished', { finished, failed, state }, 2_000)
+  }
+
+  command(name: string, args = '', status: Kind<'command'>['status'] = 'done', error: string | null = null) {
+    return this.push('command', { name, args, status, error }, 30_000)
+  }
+
+  /** Contesto compattato, a mano o in automatico. */
+  compacted(trigger: Kind<'compacted'>['trigger'], preTokens: number | null = null, postTokens: number | null = null) {
+    return this.push('compacted', { trigger, preTokens, postTokens }, 4_000)
   }
 }
 
@@ -418,9 +440,15 @@ function e2eError(b: ConversationBuilder) {
   })
 }
 
+/** Comandi / e compattazioni: manuale con i token, automatica senza, un comando fallito. */
 function compacted(b: ConversationBuilder) {
   b.turn()
-  b.notice('Contesto compattato: da 142k a 38k token. Il riassunto resta disponibile all’agente.')
+  b.command('compact', 'solo le decisioni sui filtri')
+  b.compacted('manual', 142_000, 38_000)
+  b.turn()
+  b.compacted('auto')
+  b.turn()
+  b.command('review', '', 'error', 'La sessione sta lavorando: riprova a fine turno.')
 }
 
 function renameInterrupted(b: ConversationBuilder) {
@@ -508,6 +536,60 @@ export function normalFixture(): Fixture {
   b.shiftToNow(4_000)
   return { items: b.items, run: 'running', activity: 'Scrive la risposta', firstUnreadSeq: firstUnread }
 }
+
+/** Sotto-agenti in background finiti a sessione ferma: il coordinatore ha aperto da sé un turno, senza messaggio dell'utente in testa. */
+export function agentsNoticeFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Controlla in parallelo i tre servizi e dimmi dove si duplicano i refresh del token.')
+  b.assistant('Avvio tre agenti in background, uno per servizio. Ti scrivo appena finiscono.', false, 5_000)
+  b.tool('agent', 'Task', 'Audit billing service', 'Look for duplicated token refresh logic.', { ms: 61_000 })
+  b.tool('agent', 'Task', 'Audit auth service', 'Look for duplicated token refresh logic.', { ms: 48_000 })
+  b.tool('agent', 'Task', 'Audit notifications service', 'Look for duplicated token refresh logic.', { status: 'error', ms: 12_000 })
+  b.end({ durationMs: 14_000 })
+  b.turn()
+  b.agentStart('background-agents', 3)
+  b.assistant('I tre agenti hanno finito. Il refresh del token è duplicato in billing e auth, con la stessa logica di retry. Notifiche non è stato analizzato per un errore: lo rilancio?', false, 8_000)
+  b.end({ durationMs: 21_000 })
+  b.shiftToNow(60_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+/** Comando / in corso: la riga con lo spinner, senza messaggio dell'utente. */
+export function commandFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.command('compact', '', 'running')
+  b.shiftToNow(4_000)
+  return { items: b.items, run: 'running', activity: 'Compatta il contesto', firstUnreadSeq: null }
+}
+
+/** Turno in corso con sotto-agenti al lavoro: un messaggio già inserito nel turno (steered) e la coda sopra il composer. */
+export function busyFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Controlla come gestiamo i refresh del token nei tre servizi e dimmi dove si duplicano.')
+  b.assistant('Lancio tre sotto-agenti, uno per servizio, e confronto i risultati.', false, 5_000)
+  const steered = b.user('Includi anche il servizio dei pagamenti, se lo trovi.', 20_000)
+  ;(steered as { steered?: boolean }).steered = true
+  b.assistant('Aggiungo anche i pagamenti all’elenco.', false, 6_000)
+  b.shiftToNow(4_000)
+  return { items: b.items, run: 'running', activity: 'Sta lavorando', firstUnreadSeq: null }
+}
+
+/** Comandi / dell'agente per l'anteprima: come li darebbe Claude Code (builtin, personalizzati, skill). */
+export const previewCommands: SlashCommand[] = [
+  { name: 'compact', description: 'Compact the conversation, keeping a summary', hint: '[instructions]', source: 'builtin' },
+  { name: 'review', description: 'Review a pull request', hint: '[pr]', source: 'builtin' },
+  { name: 'clear', description: 'Clear the conversation history', hint: null, source: 'builtin', aliases: ['reset'] },
+  { name: 'init', description: 'Create a CLAUDE.md for this project', hint: null, source: 'builtin' },
+  { name: 'fix-lint', description: 'Fix every lint error in the changed files', hint: null, source: 'custom' },
+  { name: 'deploy-checklist', description: 'Run the pre-deploy checklist for this repository', hint: '[environment]', source: 'skill' },
+  { name: 'simplify', description: 'Review the changed code for reuse and simplification', hint: null, source: 'skill' }
+]
 
 /** Turno in corso fermo su un'approvazione. */
 export function requestFixture(): Fixture {
@@ -715,4 +797,335 @@ export function previewProjectFiles(synthetic = 20_000): string[] {
     out.push(`${pkg}/src/features/${area}/components/${area}-${comp}-${i}.${ext}`)
   }
   return out
+}
+
+// ── Collegamenti (anteprima di "Collega i tuoi abbonamenti" e di Impostazioni → Abbonamenti) ─────────────
+
+export type ConnectionScenario = 'first-run' | 'connected' | 'multiple' | 'downloading' | 'error'
+export type ConnectionSet = Record<ConnectionId, ConnectionStatus>
+
+const base = (id: ConnectionId): ConnectionStatus => ({ id, state: 'unauthenticated', source: null, version: null, user: null, plan: null, email: null, login: null, error: null })
+
+export const CONNECTION_SCENARIOS: { id: ConnectionScenario; label: string }[] = [
+  { id: 'first-run', label: 'Primo avvio' },
+  { id: 'connected', label: 'Collegati' },
+  { id: 'multiple', label: 'Più email (+N)' },
+  { id: 'downloading', label: 'Download in corso' },
+  { id: 'error', label: 'Errore' }
+]
+
+/** Stati di prova per i tre collegamenti. */
+export function connectionScenario(scenario: ConnectionScenario): ConnectionSet {
+  const claude = base('claude-code')
+  const codex = base('codex')
+  const github = base('github')
+  switch (scenario) {
+    case 'first-run':
+      return { 'claude-code': { ...claude, source: 'bundled', version: '2.1.4' }, codex: { ...codex, state: 'missing' }, github: { ...github, state: 'missing' } }
+    case 'connected':
+      return {
+        'claude-code': { ...claude, state: 'connected', source: 'bundled', version: '2.1.4', plan: 'Max', email: 'alex@example.com' },
+        codex: { ...codex, state: 'connected', source: 'downloaded', version: '0.58.0', plan: 'Plus', email: 'alex@example.com' },
+        github: { ...github, state: 'connected', source: 'system', version: '2.62.0', user: 'alex-dev' }
+      }
+    case 'multiple':
+      return {
+        'claude-code': { ...claude, state: 'connected', source: 'system', version: '2.1.4', plan: 'Max', email: 'alex@example.com' },
+        codex: { ...codex, state: 'connected', source: 'downloaded', version: '0.58.0', plan: 'Pro', email: 'alex@studio-example.it' },
+        github: { ...github, state: 'connected', source: 'downloaded', version: '2.62.0', user: 'alex-dev' }
+      }
+    case 'downloading':
+      return {
+        'claude-code': { ...claude, state: 'connected', source: 'bundled', version: '2.1.4', plan: 'Pro', email: 'alex@example.com' },
+        codex: { ...codex, state: 'missing', login: { stage: 'downloading', progress: 0.34, bytes: 119_000_000, total: 350_000_000, url: null, code: null } },
+        github: { ...github, state: 'missing' }
+      }
+    case 'error':
+      return {
+        'claude-code': { ...claude, source: 'bundled', version: '2.1.4', error: t('Login did not complete.') },
+        codex: { ...codex, state: 'missing', error: t('The download is corrupted (checksum mismatch). Try again.') },
+        github: { ...github, state: 'unauthenticated', source: 'downloaded', version: '2.62.0', login: { stage: 'waiting-browser', progress: null, bytes: null, total: null, url: 'https://github.com/login/device', code: 'ABCD-1234' } }
+      }
+  }
+}
+
+/** Limiti d'uso di prova: finestra di 5 ore e settimanale, la seconda vicina al limite. */
+export function previewUsage(fiveHours: number, weekly: number, now = Date.now()): UsageWindow[] {
+  const seconds = now / 1000
+  return [
+    { key: '5h', minutes: 300, model: null, percent: fiveHours, resetsAt: Math.round(seconds + 2 * 3600), state: fiveHours >= 100 ? 'limited' : 'ok' },
+    { key: '7d', minutes: 10_080, model: null, percent: weekly, resetsAt: Math.round(seconds + 3 * 86_400), state: weekly >= 100 ? 'limited' : weekly >= 80 ? 'warning' : 'ok' }
+  ]
+}
+
+/** Agenti con account ed email, per il pulsante dell'account nella sidebar (più email → "+N"). */
+export function connectionAgents(set: ConnectionSet): AgentStatus[] {
+  const agent = (id: 'claude-code' | 'codex', name: string): AgentStatus => ({
+    agent: id,
+    name,
+    kind: 'native',
+    available: set[id].state === 'connected',
+    version: set[id].version,
+    account: set[id].plan ? `${name} ${set[id].plan}` : null,
+    email: set[id].email,
+    models: [],
+    error: null,
+    usage: set[id].state === 'connected' ? previewUsage(id === 'claude-code' ? 34 : 12, id === 'claude-code' ? 62 : 25) : [],
+    usageAt: Date.now()
+  })
+  return [agent('claude-code', 'Claude Code'), agent('codex', 'Codex')]
+}
+
+// ── Profili (LAD-23): due account Claude (predefinito e "Work") e uno Codex ───────────────────────────
+
+export const PREVIEW_CLAUDE_WORK = 'claude-work'
+export const PREVIEW_PROFILES: Profile[] = [
+  { id: 'default:claude-code', agent: 'claude-code', name: 'Default', configDir: null, isDefault: true, addedAt: 0 },
+  { id: PREVIEW_CLAUDE_WORK, agent: 'claude-code', name: 'Work', configDir: '/Users/dev/Library/Application Support/Ladder/profiles/claude-work', isDefault: false, addedAt: 1 },
+  { id: 'default:codex', agent: 'codex', name: 'Default', configDir: null, isDefault: true, addedAt: 0 }
+]
+
+/** Collegamento del profilo "Work" di Claude: collegato (con un altro piano ed email) o da accedere, secondo lo scenario. */
+export function previewProfileConnections(scenario: ConnectionScenario): Record<string, ConnectionStatus> {
+  const work: ConnectionStatus = { ...base('claude-code'), profileId: PREVIEW_CLAUDE_WORK, source: 'bundled', version: '2.1.4' }
+  const connected = scenario === 'connected' || scenario === 'multiple' || scenario === 'downloading'
+  return { [PREVIEW_CLAUDE_WORK]: connected ? { ...work, state: 'connected', plan: 'Pro', email: 'alex@studio-example.it' } : work }
+}
+
+/** Stato agente dei profili non predefiniti: account, email e limiti propri. */
+export function previewProfileAgents(connections: Record<string, ConnectionStatus>): Record<string, AgentStatus> {
+  const out: Record<string, AgentStatus> = {}
+  for (const [profileId, c] of Object.entries(connections)) {
+    if (c.id === 'github') continue
+    out[profileId] = {
+      agent: c.id,
+      name: c.id === 'codex' ? 'Codex' : 'Claude Code',
+      kind: 'native',
+      available: c.state === 'connected',
+      version: c.version,
+      account: c.plan ? `${c.id === 'codex' ? 'ChatGPT' : 'Claude'} ${c.plan}` : null,
+      profileId,
+      email: c.email,
+      models: [
+        { id: 'claude-opus-5-5', label: 'Opus 5.5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], isDefault: true, defaultEffort: 'medium' },
+        { id: 'claude-sonnet-5', label: 'Sonnet 5', efforts: ['low', 'medium', 'high'] }
+      ],
+      error: null,
+      usage: c.state === 'connected' ? previewUsage(71, 88) : [],
+      usageAt: Date.now()
+    }
+  }
+  return out
+}
+
+
+// Sotto-agenti: cento agenti fra in corso, errori, fermati, completati, annidati e in background senza modello.
+const AGENT_TASKS = [
+  'Explore the auth module',
+  'Map the payment webhooks',
+  'Audit the migration scripts',
+  'Review the pagination hook',
+  'Find the unused exports in shared/',
+  'Trace the token refresh flow',
+  'Check the i18n catalogs for gaps',
+  'Run the table filter tests',
+  'Summarize the CI failures',
+  'List the deprecated API calls',
+  'Compare the two retry strategies',
+  'Read the Stripe client wrapper'
+]
+const AGENT_KINDS = ['Explore', 'general-purpose', 'worker', 'code-reviewer', 'test-runner']
+const AGENT_MODELS = ['claude-sonnet-5', 'claude-haiku-5', 'claude-opus-5-5', null]
+const AGENT_EFFORTS = [null, 'low', 'medium', 'high', null] as const
+
+/** Gli id delle righe di chat che hanno lanciato i primi agenti: la chat li lega con toolId. */
+export function previewSubagents(toolIds: Record<string, string> = {}, now = Date.now()): SubagentInfo[] {
+  let seed = 7
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296
+    return seed / 4294967296
+  }
+  const MIN = 60_000
+  const out: SubagentInfo[] = []
+  const make = (n: number, over: Partial<SubagentInfo>): SubagentInfo => {
+    const startedAt = over.startedAt ?? now - (4 + Math.floor(rand() * 90)) * MIN
+    const status = over.status ?? 'done'
+    const id = `ag-${n}`
+    const agent: SubagentInfo = {
+      id,
+      parentId: null,
+      title: `${AGENT_TASKS[n % AGENT_TASKS.length]}${n >= AGENT_TASKS.length ? ` (${Math.floor(n / AGENT_TASKS.length) + 1})` : ''}`,
+      kind: AGENT_KINDS[n % AGENT_KINDS.length],
+      model: AGENT_MODELS[n % AGENT_MODELS.length],
+      effort: AGENT_EFFORTS[n % AGENT_EFFORTS.length],
+      toolId: toolIds[id] ?? null,
+      status,
+      startedAt,
+      endedAt: status === 'running' ? null : startedAt + (20 + Math.floor(rand() * 400)) * 1000,
+      activity: status === 'running' ? ['Reads src/auth/session.ts', 'Searches for refreshToken', 'Runs pnpm test auth'][n % 3] : null,
+      tokens: 4_000 + Math.floor(rand() * 90_000),
+      toolUses: 2 + Math.floor(rand() * 30),
+      background: false,
+      ...over
+    }
+    out.push(agent)
+    return agent
+  }
+  // Un orchestratore in corso con i suoi figli, uno dei quali ancora al lavoro.
+  make(0, { title: 'Review every service for token refresh duplication', kind: 'general-purpose', status: 'running', startedAt: now - 6 * MIN - 34_000 })
+  make(1, { parentId: 'ag-0', status: 'done', startedAt: now - 6 * MIN })
+  make(2, { parentId: 'ag-0', status: 'running', startedAt: now - 3 * MIN })
+  make(3, { parentId: 'ag-0', status: 'error', startedAt: now - 5 * MIN })
+  make(4, { parentId: 'ag-2', status: 'running', startedAt: now - 70_000, model: null })
+  // Altri in corso: due in background, uno senza modello.
+  make(5, { status: 'running', background: true, model: null, startedAt: now - 12 * MIN })
+  make(6, { status: 'running', background: true, startedAt: now - 2 * MIN })
+  make(7, { status: 'running', startedAt: now - 25_000 })
+  // Errori e fermati.
+  make(8, { status: 'error', startedAt: now - 30 * MIN })
+  make(9, { status: 'error', model: null, startedAt: now - 41 * MIN })
+  make(10, { status: 'stopped', startedAt: now - 20 * MIN })
+  // Un genitore concluso con tre figli conclusi.
+  make(11, { title: 'Split the payments table into features', status: 'done', startedAt: now - 50 * MIN })
+  for (const n of [12, 13, 14]) make(n, { parentId: 'ag-11', status: 'done', startedAt: now - 49 * MIN })
+  // Il resto: completati, alcuni in background e senza modello.
+  for (let n = 15; n < 100; n++) make(n, { status: 'done', background: n % 9 === 0, model: n % 7 === 0 ? null : AGENT_MODELS[n % 3], startedAt: now - (60 + n) * MIN })
+  return out
+}
+
+const PREVIEW_REPORT = `## Findings
+
+The refresh logic exists in **three** places and they disagree on when to retry.
+
+| Service | Retries | Backoff |
+| --- | --- | --- |
+| auth | 3 | linear |
+| payments | 5 | none |
+| reports | 1 | exponential |
+
+Suggested shared helper:
+
+\`\`\`ts
+export async function withRefresh<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    if (!isExpired(error)) throw error
+    await refreshToken()
+    return run()
+  }
+}
+\`\`\`
+
+- Start from \`src/auth/session.ts\`
+- Then update the two callers
+`
+
+/** Dettaglio finto: per gli agenti noti dalla board, per gli altri (turni vecchi) ricostruito dalla riga. */
+export function previewSubagentDetail(agents: SubagentInfo[], id: string): SubagentDetail {
+  const info = agents.find((a) => a.id === id) ?? agents.find((a) => a.toolId === id) ?? null
+  const running = info?.status === 'running'
+  const base = info?.startedAt ?? Date.now() - 10 * 60_000
+  const names = [
+    ['Read', 'Reads src/auth/session.ts'],
+    ['Grep', 'Searches for refreshToken'],
+    ['Read', 'Reads src/payments/client.ts'],
+    ['Bash', 'Runs pnpm test auth'],
+    ['Edit', 'Edits src/auth/session.ts']
+  ]
+  const count = Math.min(info?.toolUses ?? 6, 40)
+  return {
+    info,
+    prompt: `Look at ${info?.title.toLowerCase() ?? 'the auth module'} and report what you find.\n\nFocus on duplicated logic and on places where errors are swallowed. Do not change any file. Answer with a short list and the paths involved.`,
+    report: running ? null : info?.status === 'error' ? null : PREVIEW_REPORT,
+    tools: Array.from({ length: count }, (_, i) => ({
+      name: names[i % names.length][0],
+      title: names[i % names.length][1],
+      status: running && i === count - 1 ? ('running' as const) : i === 3 && info?.status === 'error' ? ('error' as const) : ('done' as const),
+      at: base + i * 7_000
+    }))
+  }
+}
+
+/** Chat con righe di sotto-agenti: legate alla board (toolId), una conclusa senza board (turno vecchio) e una in corso. */
+/** scenario: 'mixed' (in corso, errori, completati), 'idle' (tutti conclusi: icona grigia), 'errors' (nessuno in corso, solo errori: punto rosso). */
+export function agentsFixture(scenario: 'mixed' | 'idle' | 'errors' = 'mixed'): Fixture & { subagents: SubagentInfo[] } {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Controlla come gestiamo i refresh del token nei servizi e dimmi dove si duplicano.')
+  b.assistant('Lancio un agente per servizio e poi confronto i report.', false, 5_000)
+  // Turno vecchio: nessun SubagentInfo, il dialogo si appoggia a subagent.detail con l'id della riga.
+  const old = b.tool('agent', 'Task', 'Explore the legacy billing module', 'Look at the legacy billing module and report what you find.', { output: PREVIEW_REPORT, ms: 94_000 })
+  const toolIds: Record<string, string> = {}
+  for (const n of [0, 2, 5, 8]) {
+    const running = n !== 8
+    const item = b.tool('agent', 'Task', `Agent ${n}`, `Prompt of agent ${n}`, { status: running ? 'running' : 'error', ms: 40_000 })
+    toolIds[`ag-${n}`] = item.id
+  }
+  b.assistant('Aspetto che finiscano e poi riassumo.', false, 3_000)
+  b.shiftToNow(4_000)
+  let subagents = previewSubagents(toolIds)
+  if (scenario !== 'mixed') {
+    subagents = subagents.map((a) => {
+      const keepError = scenario === 'errors' && a.status === 'error'
+      if (a.status === 'running') return { ...a, status: 'done', endedAt: Date.now() - 30_000, activity: null }
+      if (a.status === 'stopped' || (a.status === 'error' && !keepError)) return { ...a, status: 'done' }
+      return a
+    })
+  }
+  void old
+  return { items: b.items, run: 'running', activity: 'Waits for the agents', firstUnreadSeq: null, subagents }
+}
+
+/** Il coordinatore ha lanciato tre agenti in background e ha chiuso il turno: la sessione è ferma e aspetta loro. */
+export function agentsWaitingFixture(): Fixture & { subagents: SubagentInfo[] } {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Controlla in parallelo i tre servizi e dimmi dove si duplicano i refresh del token.')
+  b.assistant('Avvio tre agenti in background, uno per servizio. Ti scrivo appena finiscono.', false, 5_000)
+  const toolIds: Record<string, string> = {}
+  for (const n of [0, 2, 5]) toolIds[`ag-${n}`] = b.tool('agent', 'Task', `Agent ${n}`, `Prompt of agent ${n}`, { status: 'running', ms: 40_000 }).id
+  b.end({ durationMs: 14_000 })
+  b.shiftToNow(4_000)
+  const subagents = previewSubagents(toolIds).filter((a) => a.status === 'running').slice(0, 3)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null, subagents }
+}
+
+/** La riga di fine agenti nei quattro stati, uno per turno: in attesa (con Continue), ripreso (nascosto se c'è già la riga di avvio), continuato, superato. */
+export function agentsFinishedFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  const turn = (text: string, finished: number, failed: number, state: Kind<'agents-finished'>['state']) => {
+    b.turn()
+    b.user(text)
+    b.assistant('Avvio gli agenti in background e ti scrivo appena finiscono.', false, 5_000)
+    b.end({ durationMs: 9_000 })
+    b.agentsFinished(state, finished, failed)
+  }
+  turn('Prima prova: gli agenti finiscono e il coordinatore non riparte.', 3, 0, 'waiting')
+  turn('Seconda prova: con un agente fallito.', 3, 1, 'waiting')
+  turn('Terza prova: il coordinatore è ripartito da solo (riga nascosta, c’è già quella di avvio).', 2, 0, 'resumed')
+  b.turn()
+  b.agentStart('background-agents', 2)
+  b.assistant('Gli agenti hanno finito: ecco il riepilogo.', false, 4_000)
+  b.end({ durationMs: 12_000 })
+  turn('Quarta prova: il coordinatore è ripartito, ma senza riga di avvio.', 1, 0, 'resumed')
+  turn('Quinta prova: hai premuto Continue.', 2, 0, 'continued')
+  turn('Sesta prova: superata da un altro turno (nascosta).', 2, 0, 'dismissed')
+  b.shiftToNow(30_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+/** Turno finito senza modifiche, comandi né domande: avviso "si è fermato senza chiedere nulla". */
+export function stalledFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Migra tutti i componenti della tabella ai nuovi token, poi aggiorna le storie.')
+  b.assistant('Ho guardato il piano: sono quattordici componenti, conviene partire da Pagination e poi passare alle celle.', false, 6_000)
+  b.end({ durationMs: 11_000, stalled: true })
+  b.shiftToNow(30_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
 }

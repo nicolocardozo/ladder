@@ -17,7 +17,9 @@ import {
 import { memo, type ReactNode } from 'react'
 import type { ToolKind } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
+import { browserToolOf, browserToolView } from '@/lib/browser-agent'
 import { cn } from '@/lib/utils'
+import { AgentToolRow } from './agent-row'
 import { Spinner } from './bits'
 import { useToggle } from './chat-context'
 import { formatShortDuration } from './format'
@@ -87,7 +89,7 @@ function ToolOutput({ item }: { item: ToolItem }) {
   ) : null
 
   return (
-    <div className="mt-1 mb-1.5 ml-[21px] overflow-hidden rounded-[7px] border border-border bg-[var(--chat-code-bg)] dark:border-input/60">
+    <div className="chat-wide-sym mt-1 mb-1.5 overflow-hidden rounded-[7px] border border-border bg-[var(--chat-code-bg)] dark:border-input/60">
       {item.detail && (
         <div className="border-b border-border px-2.5 py-1.5 font-mono text-xs leading-[1.5] break-all whitespace-pre-wrap text-foreground/85 last:border-b-0 dark:border-input/60">
           {item.tool === 'command' ? <span className="text-faint select-none">$ </span> : null}
@@ -96,7 +98,7 @@ function ToolOutput({ item }: { item: ToolItem }) {
       )}
       {truncated && tail && !all ? <div className="border-b border-inherit">{more}</div> : null}
       {lines.length > 0 && (
-        <pre className="chat-code-scroll m-0 overflow-x-auto px-2.5 py-2 font-mono text-xs leading-[1.55] text-muted-foreground">
+        <pre className="m-0 overflow-x-auto px-2.5 py-2 font-mono text-xs leading-[1.55] text-muted-foreground">
           {shown.map((line, i) => (
             <span
               key={i}
@@ -117,7 +119,21 @@ function ToolOutput({ item }: { item: ToolItem }) {
   )
 }
 
+/** Un sotto-agente è una riga sola che apre il dettaglio; gli altri strumenti si espandono sul posto. */
 export const ToolRow = memo(function ToolRow({ item }: { item: ToolItem }) {
+  return item.tool === 'agent' ? <AgentToolRow item={item} /> : <PlainToolRow item={item} />
+})
+
+/** Strumenti del browser dell'agente: etichetta leggibile e niente testo digitato (né nel dettaglio né nell'esito). */
+function withBrowserLabel(item: ToolItem): ToolItem {
+  const tool = browserToolOf(item.name)
+  if (!tool) return item
+  const view = browserToolView(tool, item.detail)
+  return { ...item, tool: 'web', title: view.title, detail: view.detail, output: view.hideOutput ? null : item.output }
+}
+
+function PlainToolRow({ item: raw }: { item: ToolItem }) {
+  const item = withBrowserLabel(raw)
   const [open, toggle] = useToggle(`tool:${item.id}`)
   const expandable = Boolean(item.output || (item.detail && item.detail !== item.title))
   const Icon = kindIcon[item.tool] ?? Wrench
@@ -159,4 +175,4 @@ export const ToolRow = memo(function ToolRow({ item }: { item: ToolItem }) {
       {open && expandable ? <ToolOutput item={item} /> : null}
     </div>
   )
-})
+}

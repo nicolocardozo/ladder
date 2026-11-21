@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -8,15 +9,21 @@ import {
   ipcMain,
   Menu,
   MessageChannelMain,
+  powerSaveBlocker,
   shell,
   utilityProcess,
   type UtilityProcess
 } from 'electron'
 import { themeById, type ThemeId } from '@shared/themes.generated'
-import type { AppPrefs, AttentionEvent, HostPrefs, HostToMain, MainToHost, WindowView } from '@shared/protocol'
+import type { AgentId, AppPrefs, AttentionEvent, BrowserAgentResult, CodeFont, EditorAvailability, EditorId, Effort, HostPrefs, HostToMain, MainToHost, PermissionLevel, RequestSound, SendKey, SessionDefaults, SessionPreset, TextSize, WindowView } from '@shared/protocol'
+import { cleanEnv } from '@shared/env'
 import { DEFAULT_LOCALE, isLocale, setLocale, t } from '@shared/i18n'
+import { acceleratorOf, applyShortcutConfig } from '@shared/shortcuts'
+import { cleanBranchPrefix, DEFAULT_BRANCH_PREFIX } from '@shared/worktree-prefs'
 import '@shared/locales/it'
 import { Attention } from './attention'
+import { destroyAgentTabs, destroyWindowTabs, onAgentTabClosed, registerBrowserIpc } from './browser'
+import { runAgentOp } from './browser-agent'
 import { linearIssues, linearStatus, setLinearKey } from './linear'
 
 app.setName('Ladder')
@@ -35,16 +42,106 @@ interface AppSettings extends AppPrefs {
   theme: ThemeId
 }
 // LADDER_LOCALE sceglie la lingua iniziale di un profilo nuovo (le prove automatiche usano l'italiano).
-const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, maxActive: 3, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE }
+const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, maxActive: 3, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE, defaults: {}, presets: [], sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-mono', chatWidth: 'comfortable', autonomyHint: true, stallHint: false, chatTextSize: 'default', editorTextSize: 12, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, openAtLogin: false, keepAwake: false, soundName: 'default', agentBrowser: false }
 const settingsPath = () => join(app.getPath('userData'), 'settings.json')
+const EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
+const PERMISSIONS: readonly string[] = ['plan', 'ask', 'edit', 'full']
+const isAgentId = (v: unknown): v is AgentId => v === 'claude-code' || v === 'codex' || (typeof v === 'string' && v.startsWith('acp:') && v.length > 4)
+// Predefiniti delle nuove sessioni: si tiene solo ciò che è valido, il resto si scarta.
+function cleanDefaults(raw: unknown): SessionDefaults {
+  const out: SessionDefaults = {}
+  if (!raw || typeof raw !== 'object') return out
+  const r = raw as Record<string, unknown>
+  if (isAgentId(r.agent)) out.agent = r.agent
+  const models: Partial<Record<AgentId, string>> = {}
+  if (r.models && typeof r.models === 'object') {
+    for (const [k, v] of Object.entries(r.models)) if (isAgentId(k) && typeof v === 'string' && v) models[k] = v
+  }
+  if (Object.keys(models).length) out.models = models
+  const efforts: Partial<Record<AgentId, Effort>> = {}
+  if (r.efforts && typeof r.efforts === 'object') {
+    for (const [k, v] of Object.entries(r.efforts)) if (isAgentId(k) && typeof v === 'string' && EFFORTS.includes(v)) efforts[k] = v as Effort
+  }
+  if (Object.keys(efforts).length) out.efforts = efforts
+  if (typeof r.permission === 'string' && PERMISSIONS.includes(r.permission)) out.permission = r.permission as PermissionLevel
+  else if (r.permission === null) out.permission = null
+  return out
+}
+// Profili di sessione (LAD-60): si scartano quelli non validi, i nomi doppi e oltre i 50.
+function cleanPresets(raw: unknown): SessionPreset[] {
+  if (!Array.isArray(raw)) return []
+  const out: SessionPreset[] = []
+  const seen = new Set<string>()
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    const name = text(r.name, 40)
+    const id = text(r.id, 64)
+    if (!id || !name || seen.has(id) || !isAgentId(r.agent) || out.some((p) => p.name.toLowerCase() === name.toLowerCase())) continue
+    seen.add(id)
+    const preset: SessionPreset = {
+      id,
+      name,
+      agent: r.agent,
+      permission: typeof r.permission === 'string' && PERMISSIONS.includes(r.permission) ? (r.permission as PermissionLevel) : 'ask',
+      worktree: r.worktree === true
+    }
+    const note = text(r.note, 300)
+    if (note) preset.note = note
+    if (typeof r.profileId === 'string' && r.profileId) preset.profileId = r.profileId.slice(0, 80)
+    if (typeof r.model === 'string' && r.model) preset.model = r.model.slice(0, 120)
+    if (typeof r.effort === 'string' && EFFORTS.includes(r.effort)) preset.effort = r.effort as Effort
+    if (typeof r.prompt === 'string' && r.prompt.trim()) preset.prompt = r.prompt.slice(0, 4000)
+    out.push(preset)
+    if (out.length >= 50) break
+  }
+  return out
+}
+const TEXT_SIZES: readonly string[] = ['small', 'default', 'large', 'xlarge']
+const CODE_FONTS: readonly string[] = ['system-mono', 'monaspace-neon']
+const EDITORS: readonly string[] = ['cursor', 'vscode', 'zed', 'xcode']
+const SOUNDS: readonly string[] = ['default', 'Glass', 'Ping', 'Pop', 'Hero', 'Submarine', 'Funk', 'Tink']
+// Cartella dei worktree: assoluta (con ~ iniziale), altrimenti null = predefinita.
+function cleanWorktreesDir(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  const text = raw.trim()
+  const path = text === '~' ? homedir() : text.startsWith('~/') ? join(homedir(), text.slice(2)) : text
+  return isAbsolute(path) ? resolve(path) : null
+}
 function cleanPrefs(raw: Partial<AppPrefs>): AppPrefs {
   const maxActive = Number(raw.maxActive)
+  const editorTextSize = Number(raw.editorTextSize)
+  const archiveDays = Number(raw.autoArchiveDays)
   return {
     notifications: raw.notifications !== false,
     sound: raw.sound === true,
     dndUntil: typeof raw.dndUntil === 'number' && raw.dndUntil > Date.now() ? raw.dndUntil : null,
     maxActive: Number.isInteger(maxActive) && maxActive >= 1 && maxActive <= 10 ? maxActive : DEFAULT_PREFS.maxActive,
-    locale: isLocale(raw.locale) ? raw.locale : DEFAULT_PREFS.locale
+    locale: isLocale(raw.locale) ? raw.locale : DEFAULT_PREFS.locale,
+    defaults: cleanDefaults(raw.defaults),
+    presets: cleanPresets(raw.presets),
+    sendKey: (raw.sendKey === 'mod-enter' ? 'mod-enter' : 'enter') satisfies SendKey,
+    busySend: raw.busySend === 'queue' ? 'queue' : 'steer',
+    generatedTitles: raw.generatedTitles !== false,
+    generatedText: raw.generatedText !== false,
+    chatFont: raw.chatFont === 'system-sans' || raw.chatFont === 'mona-sans' || raw.chatFont === 'monaspace-neon' ? raw.chatFont : 'system-mono',
+    chatWidth: raw.chatWidth === 'wide' || raw.chatWidth === 'full' ? raw.chatWidth : 'comfortable',
+    autonomyHint: raw.autonomyHint !== false,
+    stallHint: raw.stallHint === true,
+    chatTextSize: TEXT_SIZES.includes(raw.chatTextSize as string) ? (raw.chatTextSize as TextSize) : DEFAULT_PREFS.chatTextSize,
+    editorTextSize: Number.isInteger(editorTextSize) && editorTextSize >= 10 && editorTextSize <= 24 ? editorTextSize : DEFAULT_PREFS.editorTextSize,
+    editorFont: CODE_FONTS.includes(raw.editorFont as string) ? (raw.editorFont as CodeFont) : DEFAULT_PREFS.editorFont,
+    sidebarDensity: raw.sidebarDensity === 'compact' ? 'compact' : 'comfortable',
+    editor: EDITORS.includes(raw.editor as string) ? (raw.editor as EditorId) : DEFAULT_PREFS.editor,
+    worktreesDir: cleanWorktreesDir(raw.worktreesDir),
+    branchPrefix: cleanBranchPrefix(raw.branchPrefix ?? DEFAULT_BRANCH_PREFIX),
+    autoArchiveDays: Number.isInteger(archiveDays) && archiveDays >= 1 && archiveDays <= 365 ? archiveDays : null,
+    openAtLogin: raw.openAtLogin === true,
+    keepAwake: raw.keepAwake === true,
+    soundName: SOUNDS.includes(raw.soundName as string) ? (raw.soundName as RequestSound) : DEFAULT_PREFS.soundName,
+    // LAD-57 parte 2: spento finché non lo accendi (dà all'agente rete e DOM).
+    agentBrowser: raw.agentBrowser === true
   }
 }
 function loadSettings(): AppSettings {
@@ -60,8 +157,12 @@ function saveSettings(settings: AppSettings): void {
   writeFileSync(settingsPath(), JSON.stringify(settings, null, 2))
 }
 let settings: AppSettings = { theme: themeById(null).id, ...DEFAULT_PREFS }
-const prefsOf = (s: AppSettings): AppPrefs => ({ notifications: s.notifications, sound: s.sound, dndUntil: s.dndUntil, maxActive: s.maxActive, locale: s.locale })
-const hostPrefs = (): HostPrefs => ({ maxActive: { 'claude-code': settings.maxActive, codex: settings.maxActive }, locale: settings.locale })
+const prefsOf = (s: AppSettings): AppPrefs => {
+  const { theme, ...prefs } = s
+  void theme
+  return prefs
+}
+const hostPrefs = (): HostPrefs => ({ maxActive: { 'claude-code': settings.maxActive, codex: settings.maxActive }, locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser })
 
 const attention = new Attention(() => prefsOf(settings), (sessionId, itemId) => openSession(sessionId, itemId))
 
@@ -93,21 +194,84 @@ function openUrl(url: string): void {
   }
 }
 
+/** Pagine di login che l'host può far aprire: solo https e solo i siti dei flussi (GitHub, ChatGPT, Claude). */
+const LOGIN_HOSTS = new Set(['github.com', 'auth.openai.com', 'chatgpt.com', 'claude.ai', 'claude.com'])
+
+function isLoginUrl(url: unknown): url is string {
+  try {
+    const parsed = new URL(String(url))
+    return parsed.protocol === 'https:' && LOGIN_HOSTS.has(parsed.hostname)
+  } catch {
+    return false
+  }
+}
+
+/** keybindings.json nell'app di sistema; se non ce n'è una per i .json, lo mostra nel Finder. */
+function openKeybindings(): void {
+  const file = join(app.getPath('userData'), 'keybindings.json')
+  void shell.openPath(file).then((error) => {
+    if (error) shell.showItemInFolder(file)
+  })
+}
+
+// ── Sistema (LAD-22): Mac sveglio mentre un agente lavora e apertura al login ──
+let runningSessions = 0
+let awakeBlocker: number | null = null
+
+/** Tiene il Mac sveglio (lo schermo può spegnersi) finché ci sono sessioni al lavoro e la preferenza è accesa. */
+function applyKeepAwake(): void {
+  const want = settings.keepAwake && runningSessions > 0
+  if (want && awakeBlocker === null) awakeBlocker = powerSaveBlocker.start('prevent-app-suspension')
+  else if (!want && awakeBlocker !== null) {
+    powerSaveBlocker.stop(awakeBlocker)
+    awakeBlocker = null
+  }
+}
+
+/** Nello sviluppo e nei profili di prova il login item punterebbe al binario di Electron: non si registra. */
+const canLaunchAtLogin = () => app.isPackaged && !process.env.LADDER_USER_DATA && process.platform === 'darwin'
+
+function applyLoginItem(): void {
+  if (canLaunchAtLogin()) app.setLoginItemSettings({ openAtLogin: settings.openAtLogin })
+}
+
 /** Avvia l'host delle sessioni. Se cade, lo riavvia e ricollega le finestre. */
 function startHost(): void {
-  host = utilityProcess.fork(join(__dirname, 'host.js'), [], {
-    serviceName: 'Ladder Host',
-    stdio: 'pipe',
-    env: { ...process.env, LADDER_DB_PATH: join(app.getPath('userData'), 'ladder.db'), LADDER_HOST_PREFS: JSON.stringify(hostPrefs()) }
-  })
+  const env: NodeJS.ProcessEnv = { ...process.env, LADDER_DB_PATH: join(app.getPath('userData'), 'ladder.db'), LADDER_HOST_PREFS: JSON.stringify(hostPrefs()) }
+  // Un registro ACP diverso è solo per sviluppo: nelle build pacchettizzate non arriva all'host.
+  if (app.isPackaged) delete env.LADDER_ACP_REGISTRY
+  host = utilityProcess.fork(join(__dirname, 'host.js'), [], { serviceName: 'Ladder Host', stdio: 'pipe', env })
   host.on('message', (message: HostToMain) => {
     if (message?.type === 'attention') attention.handle(message.event)
     else if (message?.type === 'badge') attention.setBadge(message.count)
+    else if (message?.type === 'open-url' && isLoginUrl(message.url)) shell.openExternal(message.url).catch(() => undefined)
+    // Scorciatoie cambiate (file o UI): il menu si ricostruisce con gli acceleratori nuovi.
+    else if (message?.type === 'shortcuts') {
+      applyShortcutConfig({ preset: message.preset, overrides: message.overrides })
+      buildMenu()
+    } else if (message?.type === 'open-keybindings') openKeybindings()
+    else if (message?.type === 'activity') {
+      runningSessions = message.running
+      applyKeepAwake()
+    } else if (message?.type === 'open-path') openDataPath(message.path)
+    // LAD-57 parte 2: operazione sul browser dell'agente; la risposta torna con lo stesso rid, sempre come dati semplici.
+    else if (message?.type === 'browser-agent' && typeof message.rid === 'string') {
+      const rid = message.rid
+      // Un'eccezione non deve lasciare l'host in attesa fino al timeout: risponde comunque, con un errore.
+      void runAgentOp(message.op)
+        .catch((error: unknown): BrowserAgentResult => ({ ok: false, code: 'failed', error: t('The browser action failed: {message}', { message: (error instanceof Error ? error.message : String(error)).slice(0, 200) }) }))
+        .then((result) => host?.postMessage({ type: 'browser-agent-result', rid, result } satisfies MainToHost))
+    }
   })
   host.stdout?.on('data', (chunk) => process.stdout.write(`[host] ${chunk}`))
   host.stderr?.on('data', (chunk) => process.stderr.write(`[host] ${chunk}`))
   host.on('exit', (code) => {
     host = null
+    // Le sessioni al lavoro sono finite con l'host: niente blocco del sonno.
+    runningSessions = 0
+    applyKeepAwake()
+    // Le viste dell'agente non hanno più un host che le governa: si distruggono (il nuovo host riparte senza tab).
+    destroyAgentTabs()
     if (quitting) return
     console.error(`[main] host terminato (codice ${code}), riavvio`)
     setTimeout(() => {
@@ -150,6 +314,7 @@ function createWindow(): void {
   const contentsId = window.webContents.id
   window.on('closed', () => {
     windows.delete(window)
+    destroyWindowTabs(window)
     attention.forget(contentsId)
   })
   window.once('ready-to-show', () => window.show())
@@ -184,40 +349,79 @@ ipcMain.handle('ladder:pick-folder', async (event) => {
   return result.canceled ? null : (result.filePaths[0] ?? null)
 })
 
-type EditorId = 'cursor' | 'vscode'
+/** Come si apre un editor: eseguibile e argomenti per un file (con riga) o una cartella. */
+type EditorLauncher = (path: string, isFile: boolean, line?: number) => { cmd: string; args: string[] }
 
-/** CLI degli editor: le app GUI non vedono il PATH della shell, quindi si cercano dentro i bundle. */
-function editorCli(editor: EditorId): string | null {
-  const bundles =
-    editor === 'cursor'
-      ? ['Cursor.app/Contents/Resources/app/bin/cursor']
-      : ['Visual Studio Code.app/Contents/Resources/app/bin/code']
-  const candidates = bundles.flatMap((b) => [join('/Applications', b), join(app.getPath('home'), 'Applications', b)])
-  return candidates.find((path) => existsSync(path)) ?? null
+const APP_DIRS = () => ['/Applications', join(app.getPath('home'), 'Applications')]
+const inApps = (bundle: string) => APP_DIRS().map((dir) => join(dir, bundle)).find((path) => existsSync(path)) ?? null
+
+/** Gli editor: le app GUI non vedono il PATH della shell, quindi le CLI si cercano dentro i bundle. null = non installato. */
+function editorLauncher(editor: EditorId): EditorLauncher | null {
+  switch (editor) {
+    case 'cursor':
+    case 'vscode': {
+      const cmd = inApps(editor === 'cursor' ? 'Cursor.app/Contents/Resources/app/bin/cursor' : 'Visual Studio Code.app/Contents/Resources/app/bin/code')
+      return cmd ? (path, isFile, line) => ({ cmd, args: isFile ? ['-g', `${path}${line ? `:${line}` : ''}`] : [path] }) : null
+    }
+    case 'zed': {
+      const cmd = inApps('Zed.app/Contents/MacOS/cli')
+      return cmd ? (path, isFile, line) => ({ cmd, args: [isFile && line ? `${path}:${line}` : path] }) : null
+    }
+    case 'xcode':
+      // Xcode apre i file alla riga con xed; per una cartella non c'è modo migliore di `open -a`.
+      return inApps('Xcode.app')
+        ? (path, isFile, line) => (isFile ? { cmd: '/usr/bin/xed', args: line ? ['--line', String(line), path] : [path] } : { cmd: '/usr/bin/open', args: ['-a', 'Xcode', path] })
+        : null
+  }
 }
 
-ipcMain.handle('ladder:editors', () => ({ cursor: Boolean(editorCli('cursor')), vscode: Boolean(editorCli('vscode')) }))
+const EDITOR_ORDER: EditorId[] = ['cursor', 'vscode', 'zed', 'xcode']
+const EDITOR_SCHEMES: Partial<Record<EditorId, string>> = { cursor: 'cursor', vscode: 'vscode', zed: 'zed' }
 
-ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: number, editor?: EditorId) => {
-  // L'editor scelto per il progetto; se non è installato, l'altro.
-  const order: EditorId[] = editor === 'vscode' ? ['vscode', 'cursor'] : ['cursor', 'vscode']
-  const cli = order.map(editorCli).find(Boolean) ?? null
+ipcMain.handle('ladder:editors', (): EditorAvailability => ({ cursor: Boolean(editorLauncher('cursor')), vscode: Boolean(editorLauncher('vscode')), zed: Boolean(editorLauncher('zed')), xcode: Boolean(editorLauncher('xcode')) }))
+
+/** Apre file (alla riga) o cartella; risponde l'editor usato, null se si è ripiegato sull'app predefinita. */
+ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: number, editor?: EditorId): Promise<EditorId | null> => {
+  // L'editor scelto (per il progetto, altrimenti quello delle preferenze); se non è installato, il primo installato.
+  const wanted = EDITORS.includes(editor as string) ? (editor as EditorId) : settings.editor
+  const order = [wanted, ...EDITOR_ORDER.filter((e) => e !== wanted)]
+  const found = order.flatMap((e) => {
+    const launcher = editorLauncher(e)
+    return launcher ? [{ editor: e, launcher }] : []
+  })[0]
   const isFile = existsSync(path) && statSync(path).isFile()
+  const launch = found?.launcher(path, isFile, line)
   // Prove automatiche: si registra il comando invece di aprire l'editor.
   if (process.env.LADDER_EDITOR_TRACE) {
-    appendFileSync(process.env.LADDER_EDITOR_TRACE, `${JSON.stringify({ cli, args: isFile ? ['-g', `${path}${line ? `:${line}` : ''}`] : [path] })}\n`)
-    return
+    appendFileSync(process.env.LADDER_EDITOR_TRACE, `${JSON.stringify({ cli: launch?.cmd ?? null, editor: found?.editor ?? null, args: launch?.args ?? [] })}\n`)
+    return found?.editor ?? null
   }
-  if (cli) {
-    const args = isFile ? ['-g', `${path}${line ? `:${line}` : ''}`] : [path]
-    await new Promise<void>((resolve) => execFile(cli, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } }, () => resolve()))
-    return
+  if (found && launch) {
+    await new Promise<void>((resolve) => execFile(launch.cmd, launch.args, { env: cleanEnv(['ELECTRON_RUN_AS_NODE']) }, () => resolve()))
+    return found.editor
   }
-  // Senza CLI: lo schema dell'editor apre il file alla riga; in ultima istanza l'app predefinita.
-  const scheme = editor === 'vscode' ? 'vscode' : 'cursor'
-  const opened = await shell.openExternal(`${scheme}://file${encodeURI(path)}${line ? `:${line}` : ''}`).then(() => true, () => false)
+  // Senza editor installati: lo schema dell'editor scelto apre il file alla riga; in ultima istanza l'app predefinita.
+  const scheme = EDITOR_SCHEMES[wanted]
+  const opened = scheme ? await shell.openExternal(`${scheme}://file${encodeURI(path)}${line ? `:${line}` : ''}`).then(() => true, () => false) : false
   if (!opened) await shell.openPath(path)
+  return null
 })
+
+/** "Salva con nome" per l'esportazione del database: percorso scelto o null. Il nome predefinito lo propone la UI. */
+ipcMain.handle('ladder:pick-save-path', async (event, defaultName: string) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  const options = { title: t('Export the database'), defaultPath: join(app.getPath('documents'), String(defaultName || 'ladder.db')), buttonLabel: t('Export') }
+  const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+  return result.canceled || !result.filePath ? null : result.filePath
+})
+
+/** Apre un percorso dentro la cartella dati dell'app (la chiede l'host): altrove non si apre niente. */
+function openDataPath(path: string): void {
+  const dir = app.getPath('userData')
+  const target = resolve(path)
+  if (target !== dir && !target.startsWith(dir + sep)) return
+  void shell.openPath(target)
+}
 
 ipcMain.handle('ladder:reveal', (_event, path: string) => shell.showItemInFolder(path))
 
@@ -227,10 +431,14 @@ ipcMain.on('ladder:view', (event, view: WindowView) => attention.setView(event.s
 ipcMain.handle('ladder:prefs', () => prefsOf(settings))
 ipcMain.handle('ladder:set-prefs', (_event, patch: Partial<AppPrefs>) => {
   settings = { ...settings, ...cleanPrefs({ ...prefsOf(settings), ...patch }) }
+  // Fuori dall'app installata non c'è un login item da gestire: la preferenza resta spenta.
+  if (!canLaunchAtLogin()) settings.openAtLogin = false
   setLocale(settings.locale)
   saveSettings(settings)
   host?.postMessage({ type: 'prefs', prefs: hostPrefs() } satisfies MainToHost)
   for (const window of windows) window.webContents.send('ladder:prefs', prefsOf(settings))
+  if ('openAtLogin' in patch) applyLoginItem()
+  applyKeepAwake()
   buildMenu()
   return prefsOf(settings)
 })
@@ -246,11 +454,21 @@ ipcMain.handle('ladder:test-notification', (event) =>
   })
 )
 
+registerBrowserIpc()
+// LAD-57 parte 2: la vista dell'agente è sparita (tab o finestra chiusa): l'host revoca gli strumenti di quella sessione.
+onAgentTabClosed((sessionId) => host?.postMessage({ type: 'browser-agent-closed', sessionId } satisfies MainToHost))
+
 ipcMain.handle('ladder:linear-status', () => linearStatus())
 ipcMain.handle('ladder:linear-set-key', (_event, key: string | null) => setLinearKey(key))
 ipcMain.handle('ladder:linear-issues', (_event, search: string) => linearIssues(search ?? ''))
+// Solo https, riconosciuto dall'URL già interpretato (schema in qualunque combinazione di maiuscole, host presente): il renderer fa lo stesso controllo.
 ipcMain.handle('ladder:open-external', (_event, url: string) => {
-  if (/^https:\/\//.test(url)) void shell.openExternal(url)
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'https:' && parsed.hostname) void shell.openExternal(parsed.href)
+  } catch {
+    // URL non valido: non si apre.
+  }
 })
 
 // Solo per le prove automatiche (LADDER_NOTIFY_TRACE): clic simulato sull'ultima notifica e badge attuale.
@@ -286,7 +504,7 @@ function buildMenu(): void {
         { type: 'separator' },
         {
           label: t('Settings…'),
-          accelerator: 'CmdOrCtrl+,',
+          accelerator: acceleratorOf('app.openSettings'),
           click: () => BrowserWindow.getFocusedWindow()?.webContents.send('ladder:open-settings')
         },
         {
@@ -318,7 +536,7 @@ function buildMenu(): void {
     },
     {
       role: 'windowMenu',
-      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { label: t('Close Window'), accelerator: 'Shift+CmdOrCtrl+W', role: 'close' }]
+      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { label: t('Close Window'), click: () => BrowserWindow.getFocusedWindow()?.close() }]
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -345,6 +563,8 @@ app.whenReady().then(() => {
   if (!primaryInstance) return
   settings = loadSettings()
   setLocale(settings.locale)
+  // Il login item lo può cambiare anche l'utente da Impostazioni di Sistema: vale lo stato reale.
+  settings.openAtLogin = canLaunchAtLogin() && app.getLoginItemSettings().openAtLogin
   // Il protocollo si registra solo nell'app installata: in sviluppo punterebbe al binario di Electron,
   // e un profilo di prova (LADDER_USER_DATA) non deve cambiare l'app che apre i link ladder://.
   if (app.isPackaged && !process.env.LADDER_USER_DATA) app.setAsDefaultProtocolClient('ladder')
@@ -359,7 +579,7 @@ app.whenReady().then(() => {
   }, 30_000)
   // In sviluppo il Dock mostra l'icona Circuit; nella build la dà il bundle.
   if (!app.isPackaged && process.platform === 'darwin') {
-    const icon = join(app.getAppPath(), '../../app-icon/png/circuit/ladder-512.png')
+    const icon = join(app.getAppPath(), '../../brand/app-icon/png/circuit/ladder-512.png')
     if (existsSync(icon)) app.dock?.setIcon(icon)
   }
   buildMenu()
@@ -372,6 +592,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true
+  if (awakeBlocker !== null) powerSaveBlocker.stop(awakeBlocker)
   host?.kill()
 })
 

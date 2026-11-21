@@ -45,6 +45,8 @@ export class CodexRpc {
     private readonly onRequest: (request: ServerRequest) => Promise<ServerReply>
   ) {
     this.proc = spawn(cli, ['app-server'], { stdio: ['pipe', 'pipe', 'pipe'], env })
+    // Se codex si chiude subito la scrittura dà EPIPE: non deve cadere l'host.
+    this.proc.stdin.on('error', () => undefined)
     createInterface({ input: this.proc.stdout }).on('line', (line) => this.onLine(line))
     createInterface({ input: this.proc.stderr }).on('line', (line) => {
       // Log con colori ANSI: si tengono le ultime righe, senza interpretarle.

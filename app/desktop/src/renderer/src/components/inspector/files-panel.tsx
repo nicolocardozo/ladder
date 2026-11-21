@@ -105,6 +105,16 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
   const version = useApp((s) => s.fsVersion[root] ?? 0)
   const touched = useMemo(() => touchedByTurn(items), [items])
   const scroller = useRef<HTMLDivElement>(null)
+  const filterInput = useRef<HTMLInputElement>(null)
+
+  // "Cerca nel progetto" (scorciatoia o palette): il focus va sul filtro, con il testo già scritto selezionato.
+  const focusRequest = useApp((s) => (s.filesFilterFocus?.projectId === projectId ? s.filesFilterFocus : null))
+  useEffect(() => {
+    if (!focusRequest || error) return
+    filterInput.current?.focus()
+    filterInput.current?.select()
+    useApp.getState().consumeFilesFilterFocus(focusRequest.nonce)
+  }, [focusRequest, error])
 
   useEffect(() => {
     setExpanded(expandedByRoot.get(root) ?? new Set())
@@ -192,6 +202,7 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
       <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-1.5">
         <Search className="size-3.5 shrink-0 text-faint" />
         <input
+          ref={filterInput}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           onKeyDown={(e) => e.key === 'Escape' && setFilter('')}

@@ -11,10 +11,12 @@ const TURN_MIN_MS = 60_000
 const GROUP_MS = 120_000
 
 interface Shown {
-  kind: 'request' | 'turn' | 'error'
+  kind: 'request' | 'turn' | 'error' | 'agents'
   sessionId: string
   projectId: string
   itemId: string | null
+  /** Solo per 'agents': un 'done' non sostituisce un 'failed' ancora visibile. */
+  outcome?: 'done' | 'failed'
   notification: Notification | null
   at: number
 }
@@ -84,6 +86,16 @@ export class Attention {
         if (shown) this.groups.set(event.projectId, { count, at: count === 1 ? now : group!.at, shown })
         return
       }
+      case 'agents': {
+        // Stai guardando la sessione (in qualunque colonna): la risposta e l'elenco degli agenti sono già davanti a te.
+        const view = this.focused()
+        if (view && (view.visibleSessionIds?.includes(event.sessionId) ?? view.sessionId === event.sessionId)) return
+        // Una per sessione: il nuovo avviso sostituisce il precedente. Il suono solo se un agente è fallito.
+        if (event.outcome === 'done' && this.shown.some((s) => s.kind === 'agents' && s.outcome === 'failed' && s.sessionId === event.sessionId)) return
+        this.clear((s) => s.kind === 'agents' && s.sessionId === event.sessionId)
+        this.show({ kind: 'agents', sessionId: event.sessionId, projectId: event.projectId, itemId: event.itemId, outcome: event.outcome }, event.title, event.body, event.outcome === 'failed' && this.prefs().sound)
+        return
+      }
       case 'error':
         // Una per sessione: un nuovo errore sostituisce il precedente.
         this.clear((s) => s.kind === 'error' && s.sessionId === event.sessionId)
@@ -102,6 +114,12 @@ export class Attention {
     return this.badge
   }
 
+  /** Suono scelto in Impostazioni (un suono di sistema di macOS); 'default' lascia quello predefinito della notifica. */
+  private soundOption(sound: boolean): { sound?: string } {
+    const name = this.prefs().soundName
+    return sound && name !== 'default' ? { sound: name } : {}
+  }
+
   private muted(): string | null {
     const prefs = this.prefs()
     if (!prefs.notifications) return 'disattivate'
@@ -117,9 +135,9 @@ export class Attention {
     }
     const shown: Shown = { ...target, notification: null, at: Date.now() }
     if (this.trace) {
-      this.write({ action: 'show', ...target, title, body, sound })
+      this.write({ action: 'show', ...target, title, body, sound, ...(sound ? { soundName: this.prefs().soundName } : {}) })
     } else if (Notification.isSupported()) {
-      const notification = new Notification({ title, body, silent: !sound })
+      const notification = new Notification({ title, body, silent: !sound, ...this.soundOption(sound) })
       notification.on('click', () => {
         this.forgetShown(shown)
         this.open(target.sessionId, target.itemId)
@@ -143,7 +161,7 @@ export class Attention {
       return true
     }
     if (!Notification.isSupported()) return false
-    const notification = new Notification({ title: 'Ladder', body: t('Test notification: click to come back here.'), silent: !this.prefs().sound })
+    const notification = new Notification({ title: 'Ladder', body: t('Test notification: click to come back here.'), silent: !this.prefs().sound, ...this.soundOption(this.prefs().sound) })
     const shown: Shown = { kind: 'request', sessionId: '', projectId: '', itemId: null, notification, at: Date.now() }
     notification.on('click', () => {
       this.forgetShown(shown)

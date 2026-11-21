@@ -4,12 +4,13 @@ import { Archive, Check, ChevronDown, ChevronRight, GitFork, Search, X } from 'l
 import type { Project, SessionSummary } from '@shared/protocol'
 import { localeTag, plural, t } from '@shared/i18n'
 import { AgentMark, useAgentLine } from '@/components/agent-mark'
+import { useSessionProfileName } from '@/lib/profiles'
 import { SessionMenuContent } from '@/components/session-menu'
 import { SessionGlyph } from '@/components/status'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { MarqueeText } from '@/components/ui/marquee-text'
-import { lastTouched, noteTone, sessionNote, sessionState } from '@/lib/session-state'
+import { isUnreadState, lastTouched, noteTone, sessionNote, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 
@@ -28,7 +29,7 @@ function matchesStatus(session: SessionSummary, filter: StatusFilter): boolean {
   const state = sessionState(session)
   if (filter === 'attention') return state === 'waiting' || state === 'error'
   if (filter === 'running') return state === 'running' || state === 'queued'
-  if (filter === 'unread') return state === 'unread'
+  if (filter === 'unread') return isUnreadState(state)
   if (filter === 'idle') return state === 'idle'
   return true
 }
@@ -78,6 +79,7 @@ function SessionListRow({ session, project, checked, selecting, onToggle, onOpen
   const current = useApp((s) => s.selection.kind === 'session' && s.selection.sessionId === session.id)
   const hasDraft = useApp((s) => Boolean(s.drafts[session.id]?.trim()))
   const { name, model } = useAgentLine(session.agent, session.model)
+  const profile = useSessionProfileName(session)
   const [hovered, setHovered] = useState(false)
   const state = sessionState(session)
   const note = sessionNote(session, hasDraft)
@@ -109,14 +111,14 @@ function SessionListRow({ session, project, checked, selecting, onToggle, onOpen
             onOpen()
           }}
           title={session.title}
-          className={cn('grid min-w-0 flex-1 items-start gap-x-2 gap-y-1 rounded-md py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50', hasGlyph ? 'grid-cols-[16px_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]')}
+          className={cn('ml-1 grid min-w-0 flex-1 items-start gap-x-2 gap-y-1 rounded-md py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50', hasGlyph ? 'grid-cols-[16px_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]')}
         >
           {hasGlyph && (
             <span className="row-span-2 grid h-[18px] place-items-center">
               <SessionGlyph state={state} />
             </span>
           )}
-          <MarqueeText active={hovered} className={cn('text-sm', state === 'unread' && 'font-semibold')}>
+          <MarqueeText active={hovered} className={cn('text-sm', isUnreadState(state) && 'font-semibold')}>
             {session.title}
           </MarqueeText>
           <span className={cn('text-xs leading-[18px] whitespace-nowrap text-faint tabular-nums', tone === 'attention' && 'font-semibold text-attention', tone === 'destructive' && 'font-semibold text-destructive', tone === 'success' && 'font-medium text-success')}>
@@ -125,6 +127,12 @@ function SessionListRow({ session, project, checked, selecting, onToggle, onOpen
           <span className={cn('col-span-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground', hasGlyph && 'col-start-2')}>
             <AgentMark agent={session.agent} size={12} />
             <span className="shrink-0">{model ?? name}</span>
+            {profile && (
+              <>
+                <span aria-hidden className="text-faint">·</span>
+                <span className="max-w-24 shrink-0 truncate" title={t('Account: {name}', { name: profile })}>{profile}</span>
+              </>
+            )}
             {session.branch && (
               <>
                 <span aria-hidden className="text-faint">·</span>
@@ -221,7 +229,8 @@ function AllSessionsPanel({ project, autoFocus, panelRef, busy, onClose, onPoint
       aria-label={t('All sessions')}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
-      className="no-drag fixed inset-y-0 left-[262px] z-40 flex w-[360px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[0_12px_32px_rgb(0_0_0/.32)] duration-150 animate-in fade-in-0 slide-in-from-left-2 motion-reduce:animate-none"
+      data-native-overlay
+      className="no-drag fixed inset-y-0 left-[262px] z-40 flex w-[320px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[0_12px_32px_rgb(0_0_0/.32)] duration-150 animate-in fade-in-0 slide-in-from-left-2 motion-reduce:animate-none"
     >
       <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">
         <h2 className="text-sm font-semibold">{t('All sessions')}</h2>

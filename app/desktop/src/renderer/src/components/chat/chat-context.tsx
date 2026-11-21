@@ -6,6 +6,8 @@ import type { RequestResponse } from '@shared/protocol'
 export interface ToggleStore {
   has: (key: string) => boolean
   set: (key: string, open: boolean) => void
+  /** Chiude tutte le sezioni le cui chiavi iniziano con uno dei prefissi. */
+  closeAll: (prefixes: string[]) => void
   subscribe: (key: string, listener: () => void) => () => void
 }
 
@@ -19,6 +21,12 @@ export function createToggleStore(): ToggleStore {
       if (value) open.add(key)
       else open.delete(key)
       listeners.get(key)?.forEach((l) => l())
+    },
+    closeAll: (prefixes) => {
+      for (const key of [...open]) if (prefixes.some((p) => key.startsWith(p))) {
+        open.delete(key)
+        listeners.get(key)?.forEach((l) => l())
+      }
     },
     subscribe: (key, listener) => {
       let set = listeners.get(key)
@@ -46,7 +54,15 @@ export interface ChatActions {
   toggles: ToggleStore
   /** "In attesa" mostra le card fuori dalla chat: le modifiche lunghe hanno solo "Apri". */
   surface?: 'chat' | 'inbox'
+  /** Colonna stretta (sotto circa 420 px): margini ridotti e card degli strumenti chiuse. */
+  compact?: boolean
   openSession?: () => void
+  /** "Continue" sulla riga dei sotto-agenti finiti: manda session.continue. Rifiuta con il messaggio dell'host. */
+  continueSession?: (itemId: string) => Promise<unknown>
+  /** Mette il testo nel composer senza inviarlo. */
+  prefill?: (text: string) => void
+  /** Sessione della chat: serve alle righe dei sotto-agenti per trovare i dati e aprire il dettaglio. */
+  sessionId?: string
 }
 
 const noop = () => {}

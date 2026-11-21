@@ -1,14 +1,32 @@
 // Stato visivo di sessioni e progetti, derivato dai riepiloghi dell'host.
 import type { SessionSummary } from '@shared/protocol'
-import { t } from '@shared/i18n'
+import { plural, t } from '@shared/i18n'
 
-export type SessionState = 'idle' | 'running' | 'unread' | 'waiting' | 'error' | 'queued'
+export type SessionState = 'idle' | 'running' | 'unread' | 'agents' | 'agents-failed' | 'agents-running' | 'waiting' | 'error' | 'queued'
+
+/** Sotto-agenti in background finiti a sessione ferma: il coordinatore sta per rispondere (o ha già risposto). */
+export function agentsNotice(session: SessionSummary): { finished: number; failed: number } | null {
+  const notice = session.agentsNotice
+  return notice && notice.finished + notice.failed > 0 ? notice : null
+}
+
+/** Sotto-agenti ancora al lavoro a coordinatore fermo: la sessione aspetta loro, non te. */
+export function agentsRunning(session: SessionSummary): number {
+  return session.run === 'idle' ? (session.subagentCounts?.running ?? 0) : 0
+}
+
+/** Stati che dicono "c'è qualcosa da leggere": risposta non letta o avviso dei sotto-agenti. */
+export const isUnreadState = (state: SessionState) => state === 'unread' || state === 'agents' || state === 'agents-failed'
 
 export function sessionState(session: SessionSummary): SessionState {
   if (session.run === 'waiting') return 'waiting'
   if (session.run === 'error') return 'error'
   if (session.run === 'queued') return 'queued'
   if (session.run === 'running' || session.run === 'starting') return 'running'
+  // Finché dei sotto-agenti lavorano la sessione aspetta loro: vale più dell'avviso di quelli già finiti.
+  if (agentsRunning(session) > 0) return 'agents-running'
+  const notice = agentsNotice(session)
+  if (notice) return notice.failed > 0 ? 'agents-failed' : 'agents'
   if (session.unread) return 'unread'
   return 'idle'
 }
@@ -55,10 +73,10 @@ export function projectAttention(sessions: SessionSummary[]): ProjectAttention {
   const states = sessions.map(sessionState)
   const waiting = sessions.filter((s) => s.run === 'waiting').sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
   const errors = sessions.filter((s) => s.run === 'error')
-  const unread = sessions.filter((s) => sessionState(s) === 'unread').sort((a, b) => b.activityAt - a.activityAt)
+  const unread = sessions.filter((s) => isUnreadState(sessionState(s))).sort((a, b) => b.activityAt - a.activityAt)
   return {
     waiting: waiting.reduce((n, s) => n + Math.max(1, s.openRequests), 0),
-    unread: states.filter((s) => s === 'unread').length,
+    unread: states.filter(isUnreadState).length,
     running: states.includes('running'),
     error: states.includes('error'),
     target: waiting[0] ?? errors[0] ?? unread[0] ?? null
@@ -67,7 +85,7 @@ export function projectAttention(sessions: SessionSummary[]): ProjectAttention {
 
 /** Che cosa dice la nota della riga: il codice serve per il tono, il testo si mostra. */
 export type PrNoteCode = 'merged' | 'pr-closed' | 'conflicts' | 'ci-failed'
-export type SessionNoteCode = 'waiting' | 'error' | 'queued' | 'draft' | 'age' | PrNoteCode
+export type SessionNoteCode = 'waiting' | 'error' | 'queued' | 'agents' | 'agents-failed' | 'agents-running' | 'draft' | 'age' | PrNoteCode
 
 export interface Note<Code extends string> {
   code: Code
@@ -79,6 +97,14 @@ export function sessionNote(session: SessionSummary, hasDraft: boolean, now = Da
   if (session.run === 'waiting') return { code: 'waiting', text: session.waitingLabel ?? t('Needs you') }
   if (session.run === 'error') return { code: 'error', text: t('Error') }
   if (session.run === 'queued') return { code: 'queued', text: t('Queued') }
+  const waiting = agentsRunning(session)
+  if (waiting > 0) return { code: 'agents-running', text: plural(waiting, 'Waiting for 1 agent', 'Waiting for {n} agents') }
+  const notice = agentsNotice(session)
+  if (notice && session.run === 'idle') {
+    return notice.failed > 0
+      ? { code: 'agents-failed', text: plural(notice.failed, '1 subagent failed', '{n} subagents failed') }
+      : { code: 'agents', text: t('Subagents finished') }
+  }
   const pr = prNote(session)
   if (pr && session.run === 'idle') return pr
   if (hasDraft && session.run === 'idle') return { code: 'draft', text: t('draft') }
@@ -103,6 +129,7 @@ export function noteTone(code: SessionNoteCode): 'attention' | 'destructive' | '
     case 'conflicts':
       return 'attention'
     case 'error':
+    case 'agents-failed':
     case 'ci-failed':
     case 'pr-closed':
       return 'destructive'

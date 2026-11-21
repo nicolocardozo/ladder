@@ -11,6 +11,7 @@ import { App } from './App'
 import { request, send } from './lib/host-client'
 import { useApp } from './store/app-store'
 import { useSettings } from './hooks/use-theme'
+import { useChatFont } from './hooks/use-chat-font'
 
 // Accesso per il debug e le prove end-to-end via DevTools: stesso potere della pagina, nessun accesso a Node.
 ;(window as unknown as { __ladder: unknown }).__ladder = { request, send, store: useApp, settings: useSettings }
@@ -22,6 +23,7 @@ function LocaleRoot() {
   const locale: Locale = useApp((s) => s.prefs?.locale) ?? window.ladder?.locale ?? 'en'
   setLocale(locale)
   document.documentElement.lang = locale
+  useChatFont()
   return <App key={locale} />
 }
 

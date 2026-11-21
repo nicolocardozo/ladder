@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { DEFAULT_THEME, THEMES } from '@shared/themes.generated'
-import type { AppPrefs, AttentionEvent, IssueList, WindowView } from '@shared/protocol'
+import type { AppPrefs, Attachment, AttentionEvent, BrowserAction, BrowserBounds, BrowserNavigateResult, BrowserShortcut, BrowserState, EditorAvailability, EditorId, IssueList, WindowView } from '@shared/protocol'
 
 // La porta verso l'host arriva dal processo main e va girata al mondo della pagina:
 // con contextIsolation il renderer non vede ipcRenderer, ma riceve la porta con window.postMessage.
@@ -41,11 +41,13 @@ const api = {
   /** Lingua all'avvio; i cambi arrivano con prefs.onChange. */
   locale: initialLocale as 'en' | 'it',
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('ladder:pick-folder'),
-  /** Apre file e riga nell'editor del progetto; senza `editor` prova Cursor e poi VS Code. */
-  openInEditor: (path: string, line?: number, editor?: 'cursor' | 'vscode'): Promise<void> =>
+  /** "Salva con nome": percorso scelto o null se annulli. `defaultName` è il nome proposto. */
+  pickSavePath: (defaultName: string): Promise<string | null> => ipcRenderer.invoke('ladder:pick-save-path', defaultName),
+  /** Apre file e riga nell'editor indicato (altrimenti quello delle preferenze); risponde l'editor usato, null se è partita l'app predefinita. */
+  openInEditor: (path: string, line?: number, editor?: EditorId): Promise<EditorId | null> =>
     ipcRenderer.invoke('ladder:open-in-editor', path, line, editor),
-  /** Editor installati, per il menu "Apri in…". */
-  editors: (): Promise<{ cursor: boolean; vscode: boolean }> => ipcRenderer.invoke('ladder:editors'),
+  /** Editor installati, per il menu "Apri in…" e per le impostazioni. */
+  editors: (): Promise<EditorAvailability> => ipcRenderer.invoke('ladder:editors'),
   reveal: (path: string): Promise<void> => ipcRenderer.invoke('ladder:reveal', path),
   theme: {
     initial: initialTheme,
@@ -87,6 +89,34 @@ const api = {
     issues: (search: string): Promise<IssueList> => ipcRenderer.invoke('ladder:linear-issues', search)
   },
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('ladder:open-external', url),
+  /** Browser integrato (LAD-57): una vista nativa per tab, posizionata con bounds e nascosta con visible(false). */
+  browser: {
+    /** Crea la vista (nascosta) o restituisce quella esistente; `url` è la prima pagina. */
+    open: (tabId: string, projectId: string, url?: string): Promise<BrowserState | null> => ipcRenderer.invoke('ladder:browser-open', tabId, projectId, url),
+    setBounds: (tabId: string, bounds: BrowserBounds): void => ipcRenderer.send('ladder:browser-bounds', tabId, bounds),
+    setVisible: (tabId: string, visible: boolean): void => ipcRenderer.send('ladder:browser-visible', tabId, visible),
+    navigate: (tabId: string, input: string): Promise<BrowserNavigateResult> => ipcRenderer.invoke('ladder:browser-navigate', tabId, input),
+    action: (tabId: string, action: BrowserAction): Promise<void> => ipcRenderer.invoke('ladder:browser-action', tabId, action),
+    openExternal: (tabId: string): Promise<void> => ipcRenderer.invoke('ladder:browser-open-external', tabId),
+    /** Pagina come allegato immagine (PNG, o JPEG se supera 5 MB); null se non c'è nulla da catturare; rifiuta con un errore tradotto se non entra nel limite. */
+    screenshot: (tabId: string): Promise<Attachment | null> => ipcRenderer.invoke('ladder:browser-screenshot', tabId),
+    selection: (tabId: string): Promise<string> => ipcRenderer.invoke('ladder:browser-selection', tabId),
+    /** Tab chiusa o progetto rimosso; clearData cancella anche cookie e storage del progetto. */
+    destroy: (tabId: string, clearData?: boolean): Promise<void> => ipcRenderer.invoke('ladder:browser-destroy', tabId, clearData),
+    /** Cancella tutti i dati della partizione del progetto (cookie, storage, cache, credenziali) e ne distrugge le viste. */
+    purge: (projectId: string): Promise<void> => ipcRenderer.invoke('ladder:browser-purge', projectId),
+    /** Scorciatoie dell'app premute con il focus nella pagina (la pagina non le riceve). */
+    onShortcut: (listener: (shortcut: BrowserShortcut) => void): (() => void) => {
+      const handler = (_event: unknown, shortcut: BrowserShortcut) => listener(shortcut)
+      ipcRenderer.on('ladder:browser-shortcut', handler)
+      return () => ipcRenderer.off('ladder:browser-shortcut', handler)
+    },
+    onEvent: (listener: (state: BrowserState) => void): (() => void) => {
+      const handler = (_event: unknown, state: BrowserState) => listener(state)
+      ipcRenderer.on('ladder:browser-event', handler)
+      return () => ipcRenderer.off('ladder:browser-event', handler)
+    }
+  },
   debug: {
     clickNotification: (): Promise<boolean> => ipcRenderer.invoke('ladder:debug-click-notification'),
     badge: (): Promise<number> => ipcRenderer.invoke('ladder:debug-badge'),

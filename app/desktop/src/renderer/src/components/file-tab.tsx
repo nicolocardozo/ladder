@@ -1,4 +1,6 @@
 // Un file aperto come tab, accanto alle chat. Il punto delicato è l'agente che scrive lo stesso file: non si sovrascrive mai in silenzio.
+import { shortcutLabel } from '@shared/shortcuts'
+import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ExternalLink, TriangleAlert } from 'lucide-react'
 import type { FileContent } from '@shared/protocol'
@@ -10,6 +12,7 @@ import { TopBar, Workspace } from '@/components/main-views'
 import { TabBar } from '@/components/tab-bar'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { openInEditor } from '@/components/inspector/open-file'
 import { Kbd } from '@/components/ui/kbd'
 import { request, send } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
@@ -32,6 +35,7 @@ function Banner({ tone, children }: { tone: 'info' | 'attention' | 'error'; chil
 const action = 'h-6 shrink-0 rounded-md border border-input px-2 text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50'
 
 export function FileTabView({ projectId, root, path }: { projectId: string; root: string; path: string }) {
+  useShortcutsRevision()
   const project = useApp((s) => s.projects.find((p) => p.id === projectId) ?? null)
   const version = useApp((s) => s.fsVersion[root] ?? 0)
   const id = fileTabId(root, path)
@@ -158,14 +162,14 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
         {dirty && (
           <button type="button" onClick={() => void save()} className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
             {t('Save')}
-            <Kbd>⌘S</Kbd>
+            <Kbd>{shortcutLabel('file.save')}</Kbd>
           </button>
         )}
         <button
           type="button"
           aria-label={t('Open in editor')}
           title={t('Open in editor')}
-          onClick={() => void window.ladder?.openInEditor(`${root}/${path}`)}
+          onClick={() => openInEditor(projectId, `${root}/${path}`)}
           className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <ExternalLink className="size-3.5" />

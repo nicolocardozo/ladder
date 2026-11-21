@@ -1,5 +1,9 @@
+import { DevServerNotice } from '@/components/browser/dev-server-notice'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useShortcutsRevision } from '@/lib/use-shortcuts'
+import { shortcutLabel } from '@shared/shortcuts'
 import {
+  Bookmark,
   Check,
   ChevronDown,
   ExternalLink,
@@ -9,29 +13,37 @@ import {
   GitBranch,
   GitFork,
   HardDrive,
+  Info,
   Play,
   RotateCcw,
   SquareTerminal,
   TriangleAlert,
   X
 } from 'lucide-react'
-import type { AgentId, AgentStatus, Attachment, ChatItem, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentId, AgentStatus, Attachment, ChatItem, EditorAvailability, EditorId, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { allowedLevels, FALLBACK_AGENT, supportsEffort } from '@/lib/agents'
+import { agentsRunning } from '@/lib/session-state'
 import { SOURCE_ICON } from '@/components/new-from'
+import { SignInNotice, useSignInNeeded } from '@/components/connections/sign-in-notice'
+import { CONNECTION_NAME, connectionOfAgent, needsSignIn } from '@/lib/connections'
+import { agentStatusFor, hostProfileId, isDefaultProfileId, isProfileAgent, profilesOf, projectProfileId, useProfiles } from '@/lib/profiles'
 import { AgentMark } from '@/components/agent-mark'
-import { AgentMapChip } from '@/components/agent-map'
+import { runningForegroundSubagents } from '@/components/agent-map'
+import { SubagentDialog } from '@/components/subagent-dialog'
 import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
 import { LadderEngraved } from '@/components/brand/logo'
 import { Composer } from '@/components/composer'
 import { Inspector } from '@/components/inspector/inspector'
-import { EDITOR_NAME, openInEditor } from '@/components/inspector/open-file'
+import { EDITOR_NAME, EDITORS, openInEditor } from '@/components/inspector/open-file'
+import { ColumnHeader, SplitColumns, SplitDropHint } from '@/components/split-view'
 import { TabBar } from '@/components/tab-bar'
 import { TerminalPanel } from '@/components/terminal/terminal-panel'
 import { focusNextTerminal } from '@/lib/terminal-registry'
 import { TerminalView } from '@/components/terminal/terminal-view'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -43,9 +55,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useSettings } from '@/hooks/use-theme'
-import { useApp } from '@/store/app-store'
-import { t } from '@shared/i18n'
+import { liveColumns, useApp } from '@/store/app-store'
+import { COMPACT_WIDTH, useElementWidth } from '@/lib/use-element-width'
+import { plural, t } from '@shared/i18n'
+import { cleanBranchPrefix, DEFAULT_BRANCH_PREFIX } from '@shared/worktree-prefs'
 import { Kbd } from '@/components/ui/kbd'
+import { isSendKey, sendKeyCombos, useSendKey } from '@/lib/send-key'
+import { capPermission, isValidEffort, isValidModel, launchModel, resolveSessionDefaults } from '@/lib/session-defaults'
+import { defaultsToken, useAgentDefaultsMap } from '@/lib/effective-defaults'
+import { applyPreset, presetIssuesNote, type PresetIssue, presetSummary, setProjectDefaultPreset } from '@/lib/session-presets'
+import { usePermissionChange, type PermissionChangeResult } from '@/lib/use-permission-change'
 
 const EMPTY_ITEMS: ChatItem[] = []
 
@@ -145,10 +164,10 @@ function RunButtons({ project, session }: { project: Project; session: SessionSu
 }
 
 function EditorButton({ project, root }: { project: Project; root: string }) {
-  const editor = useApp((s) => s.ui[project.id]?.editor ?? 'cursor')
+  const editor = useApp((s) => s.ui[project.id]?.editor ?? s.prefs?.editor ?? 'cursor')
   const setUi = useApp((s) => s.setUi)
-  const [installed, setInstalled] = useState<{ cursor: boolean; vscode: boolean } | null>(null)
-  const choose = (next: 'cursor' | 'vscode') => {
+  const [installed, setInstalled] = useState<EditorAvailability | null>(null)
+  const choose = (next: EditorId) => {
     const current = useApp.getState().ui[project.id] ?? { tabs: [], activeTab: null, scroll: {} }
     const state = { ...current, editor: next }
     setUi(project.id, state)
@@ -170,7 +189,7 @@ function EditorButton({ project, root }: { project: Project; root: string }) {
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuGroup>
             <DropdownMenuLabel>{t('Editor for {project}', { project: project.name })}</DropdownMenuLabel>
-            {(['cursor', 'vscode'] as const).map((id) => (
+            {EDITORS.map((id) => (
               <DropdownMenuItem key={id} onClick={() => choose(id)}>
                 <Check className={cn('size-3.5', editor === id ? '' : 'opacity-0')} />
                 {EDITOR_NAME[id]}
@@ -187,24 +206,42 @@ function EditorButton({ project, root }: { project: Project; root: string }) {
 }
 
 export function TopBar({ children, project, session, root }: { children?: ReactNode; project: Project | null; session: SessionSummary | null; root: string | null }) {
+  useShortcutsRevision()
   const sidebarOpen = useApp((s) => s.sidebarOpen)
   const filesOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.inspector?.open) && s.ui[project.id]?.inspector?.tab === 'files' : false))
   const terminalOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.terminal?.open) : false))
   const toggleInspector = useApp((s) => s.toggleInspector)
   const setPanel = useApp((s) => s.setTerminalPanel)
+  const quickOpen = useApp((s) => s.quickOpen)
+  const toggleQuickOpen = useApp((s) => s.toggleQuickOpen)
   return (
     // Con la sidebar nascosta i semafori di macOS stanno sopra questa barra: 82px di margine, come nella sidebar.
     <div className={`drag flex h-11 shrink-0 items-center gap-1 pr-2 ${sidebarOpen ? 'pl-3' : 'pl-[82px]'}`}>
       {!sidebarOpen && <ShowSidebarButton />}
       {project && (
         // Dove sei: anche a sidebar chiusa si legge il progetto a cui appartengono le tab.
-        <div className="mr-1 flex max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 text-sm" title={root ?? project.path}>
-          <FolderOpen aria-hidden className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-          <span className="truncate font-medium">{project.name}</span>
+        <div className="mr-1 flex max-w-[220px] min-w-0 shrink-0 items-center gap-1 text-sm">
+          {/* Un clic sul nome apre la ricerca dei file, come ⌘P; un secondo clic (o Esc) la chiude. */}
+          <Tooltip>
+            <TooltipTrigger
+              render={<button type="button" />}
+              aria-label={t('Search files in {project}', { project: project.name })}
+              aria-expanded={quickOpen}
+              aria-haspopup="dialog"
+              onClick={toggleQuickOpen}
+              className="no-drag flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <FolderOpen aria-hidden className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+              <span className="truncate font-medium">{project.name}</span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {t('Search files')} <Kbd className="ml-1">{shortcutLabel('quickOpen.toggle')}</Kbd>
+            </TooltipContent>
+          </Tooltip>
           {(session?.branch ?? project.branch) && (
             <>
               <span aria-hidden className="text-faint">/</span>
-              <span className="truncate text-muted-foreground">{session?.branch ?? project.branch}</span>
+              <span className="truncate text-muted-foreground" title={root ?? project.path}>{session?.branch ?? project.branch}</span>
             </>
           )}
         </div>
@@ -213,7 +250,7 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
       {project && (
         <>
           <RunButtons project={project} session={session} />
-          <BarIcon label={terminalOpen ? t('Hide terminal') : t('Terminal')} shortcut="⌃`" active={terminalOpen} onClick={() => {
+          <BarIcon label={terminalOpen ? t('Hide terminal') : t('Terminal')} shortcut={shortcutLabel('terminal.toggle')} active={terminalOpen} onClick={() => {
               if (!terminalOpen) focusNextTerminal()
               setPanel(project.id, { open: !terminalOpen })
             }}>
@@ -232,7 +269,7 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
               {t('Files')}
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {t('Files of this project')} <Kbd className="ml-1">⌘⌥2</Kbd>
+              {t('Files of this project')} <Kbd className="ml-1">{shortcutLabel('inspector.files')}</Kbd>
             </TooltipContent>
           </Tooltip>
           {root && <EditorButton project={project} root={root} />}
@@ -250,9 +287,12 @@ export function Workspace({ project, session, root, composerKey, children }: { p
   const terminal = terminalOpen ? <TerminalPanel projectId={project.id} sessionId={session?.id ?? null} cwd={root} composerKey={composerKey} /> : null
   return (
     <main className="flex min-w-0 flex-1 bg-background">
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* data-split-area: la vista su cui si trascina una tab per affiancarla (bordo destro o in basso). */}
+      <div data-split-area className="relative flex min-w-0 flex-1 flex-col">
         {children}
         {!terminalRight && terminal}
+        <SplitDropHint />
+        <DevServerNotice projectId={project.id} />
       </div>
       {terminalRight && terminal}
       {inspectorOpen && <Inspector projectId={project.id} root={root} isGit={project.isGit} session={session} composerKey={composerKey} />}
@@ -263,28 +303,31 @@ export function Workspace({ project, session, root, composerKey, children }: { p
 const contextButton =
   'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-50'
 
-function useAgentStatus(agent: AgentId | undefined): AgentStatus | null {
+/** Stato dell'agente, del profilo dato se ne ha uno suo (account, modelli e limiti sono per profilo), altrimenti quello predefinito. */
+function useAgentStatus(agent: AgentId | undefined, profileId?: string | null): AgentStatus | null {
   const agents = useApp((s) => s.agents)
-  return agents.find((a) => a.agent === agent) ?? null
+  const own = useApp((s) => (agent ? agentStatusFor(s, agent, profileId) : null))
+  return own ?? agents.find((a) => a.agent === agent) ?? null
 }
 
 /** Sottotitolo di un agente nei menu: account e versione, oppure il motivo per cui non c'è. */
-function agentDetail(status: AgentStatus, allowed: boolean): string {
+function agentDetail(status: AgentStatus, allowed: boolean, signIn = false): string {
   if (!allowed) return t('Not allowed by the project (.ladder/settings.toml)')
+  if (signIn) return t('Not signed in. Click to sign in.')
   if (!status.available) return status.error ?? t('Not available')
   return [status.kind === 'acp' ? 'ACP' : null, status.account, status.version ? `v${status.version}` : null].filter(Boolean).join(' · ') || t('Ready')
 }
 
 // ── Nuova chat ──────────────────────────────────────────────────────────────
 
-type Launch = { mode: 'chat'; agent: AgentId } | { mode: 'terminal'; command: string }
+type Launch = { mode: 'chat' } | { mode: 'terminal'; command: string }
 
 /** Branch del worktree per una sessione nata da issue, PR o branch. */
-function branchFor(item: IssueItem): { name: string; existing: boolean; pr?: number } {
+function branchFor(item: IssueItem, prefix: string): { name: string; existing: boolean; pr?: number } {
   const number = Number(item.ref.replace(/^#/, ''))
-  if (item.source === 'github-pr') return { name: item.branch ?? `ladder/pr-${number}`, existing: true, pr: number }
+  if (item.source === 'github-pr') return { name: item.branch ?? `${prefix}pr-${number}`, existing: true, pr: number }
   if (item.source === 'branch') return { name: item.branch ?? item.ref, existing: true }
-  if (item.source === 'linear') return { name: item.branch ?? `ladder/${item.ref.toLowerCase()}`, existing: false }
+  if (item.source === 'linear') return { name: item.branch ?? `${prefix}${item.ref.toLowerCase()}`, existing: false }
   const words = item.title
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -294,7 +337,7 @@ function branchFor(item: IssueItem): { name: string; existing: boolean; pr?: num
     .split('-')
     .slice(0, 4)
     .join('-')
-  return { name: `ladder/${number}-${words || 'issue'}`, existing: false }
+  return { name: `${prefix}${number}-${words || 'issue'}`, existing: false }
 }
 
 const TERMINAL_PRESETS = [
@@ -304,50 +347,177 @@ const TERMINAL_PRESETS = [
 
 /** Nuova chat: composer al centro con progetto, branch, cartella e modalità sopra, come nella finestra agenti di Cursor. */
 export function NewChat({ projectId }: { projectId: string | null }) {
+  useShortcutsRevision()
   const projects = useApp((s) => s.projects)
   const select = useApp((s) => s.select)
   const agents = useApp((s) => s.agents)
   const project = projects.find((p) => p.id === projectId) ?? projects[0] ?? null
   const lastAgent = useApp((s) => (project ? s.ui[project.id]?.lastAgent : undefined))
-  const [model, setModel] = useState<string | null>(null)
-  const [effort, setEffort] = useState<Effort | null>(null)
-  const [permission, setPermission] = useState<PermissionLevel>('edit')
-  const [launch, setLaunch] = useState<Launch>({ mode: 'chat', agent: lastAgent ?? 'claude-code' })
+  const projectDefaults = useApp((s) => (project ? s.ui[project.id]?.defaults : undefined))
+  const globalDefaults = useApp((s) => s.prefs?.defaults)
+  // Scelte esplicite dell'utente nel composer: vincono sui predefiniti. undefined = nessuna scelta.
+  const [chosenAgent, setChosenAgent] = useState<AgentId | null>(null)
+  // Modello ed effort scelti valgono solo per l'agente per cui sono stati scelti: se l'agente risolto cambia da solo, si ignorano.
+  const [modelChoice, setModelChoice] = useState<{ agent: AgentId; value: string } | null>(null)
+  const [effortChoice, setEffortChoice] = useState<{ agent: AgentId; value: Effort } | null>(null)
+  const [permissionChoice, setPermissionChoice] = useState<PermissionLevel | undefined>(undefined)
+  // Profilo scelto per questa sessione (il predefinito è `default:<agente>`, mai null: l'host legge null come "nessuna scelta"); vale solo per l'agente per cui è stato scelto. Senza scelta decide il progetto.
+  const [profileChoice, setProfileChoice] = useState<{ agent: AgentId; id: string } | null>(null)
+  // Profilo di sessione (LAD-60): undefined = nessuna scelta (vale quello predefinito del progetto, se c'è), null = "nessun profilo" scelto da te.
+  const [presetChoice, setPresetChoice] = useState<string | null | undefined>(undefined)
+  // Il profilo ha una bozza ma ce n'era già una tua: resta la tua e lo si dice.
+  const [draftKept, setDraftKept] = useState(false)
+  // Ultimo testo messo in bozza da un profilo: se la bozza è ancora uguale è del profilo e si può sostituire, altrimenti è tua.
+  const presetPrompt = useRef<string | null>(null)
+  // Hai cambiato a mano il worktree dopo aver scelto il profilo: la nota di ripiego non lo riguarda più.
+  const [worktreeEdited, setWorktreeEdited] = useState(false)
+  const [launch, setLaunch] = useState<Launch>({ mode: 'chat' })
   const [worktree, setWorktree] = useState(false)
+  // Con lo script di setup: null = come dice il progetto (setupWait), altrimenti la scelta di questa sessione (true = parte subito).
+  const [startNow, setStartNow] = useState<boolean | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const settings = useProjectSettings(project)
+  const branchPrefix = useApp((s) => s.prefs?.branchPrefix)
+  const prefix = branchPrefix === undefined ? DEFAULT_BRANCH_PREFIX : cleanBranchPrefix(branchPrefix)
   const allowedAgents = settings?.agents.allowed ?? []
   const isAllowed = (agent: AgentId) => allowedAgents.length === 0 || allowedAgents.includes(agent)
-  const chatAgent = launch.mode === 'chat' ? launch.agent : 'claude-code'
-  const agentStatus = agents.find((a) => a.agent === chatAgent) ?? FALLBACK_AGENT
   const maxPermission = settings?.agents.permissionsMax ?? null
-  // Agente proposto: quello di default del progetto se ammesso, poi l'ultimo usato, poi Claude Code. Si cambia dal menu.
-  const chose = useRef(false)
-  useEffect(() => {
-    chose.current = false
-  }, [project?.id])
-  useEffect(() => {
-    if (!settings || chose.current) return
-    const candidates = [settings.agents.default, lastAgent, 'claude-code', ...agents.map((a) => a.agent)] as (AgentId | null | undefined)[]
-    const pick = candidates.find((a): a is AgentId => Boolean(a && isAllowed(a) && agents.some((s) => s.agent === a && s.available)))
-    if (pick && launch.mode === 'chat' && pick !== launch.agent) setLaunch({ mode: 'chat', agent: pick })
+  // Predefiniti dell'agente per questo progetto (host): servono a validare l'effort contro il modello che parte davvero.
+  const allProfiles = useApp((s) => s.profiles)
+  const profileAgents = useApp((s) => s.profileAgents)
+  const defaultsTargets = useMemo(
+    () => agents.filter((a) => a.available).map((a) => ({ agent: a.agent, profileId: isProfileAgent(a.agent) ? hostProfileId(projectProfileId(project, a.agent, profilesOf(allProfiles, a.agent))) : undefined, token: defaultsToken(a) })),
+    [agents, allProfiles, project]
+  )
+  const agentDefaultsMap = useAgentDefaultsMap(project?.id, defaultsTargets)
+  const agentModels = useMemo(() => Object.fromEntries(Object.entries(agentDefaultsMap).map(([agent, d]) => [agent, d?.known ? d.model : null])), [agentDefaultsMap])
+  // Profili di sessione salvati e quello in uso: la scelta esplicita, altrimenti il predefinito del progetto; un id che non esiste più si ignora.
+  const presets = useApp((s) => s.prefs?.presets)
+  const projectDefaultPreset = useApp((s) => (project ? s.ui[project.id]?.defaultPreset : undefined))
+  const activePreset = presets?.find((p) => p.id === (presetChoice === undefined ? projectDefaultPreset : presetChoice)) ?? null
+  // Il profilo si rilegge a ogni render contro lo stato di adesso (account, modelli, limiti del progetto): ciò che non vale ricade sui predefiniti.
+  const applied = useMemo(
+    () => (activePreset ? applyPreset(activePreset, { agents, profileAgents, profiles: allProfiles, project, allowed: allowedAgents as AgentId[], maxPermission, agentModels }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, lastAgent, agents.length])
-  // Il livello di permesso non supera quello ammesso dal progetto.
+    [activePreset, agents, profileAgents, allProfiles, project, settings, agentModels]
+  )
+  // Predefiniti: progetto, poi TOML (solo agente), poi globali, poi ultimo agente (lib/session-defaults.ts).
+  const resolved = useMemo(
+    () => resolveSessionDefaults({ agents, project: projectDefaults, global: globalDefaults, tomlAgent: settings?.agents.default as AgentId | null | undefined, lastAgent, allowed: allowedAgents as AgentId[], maxPermission, forceAgent: chosenAgent ?? applied?.agent ?? null, agentModels }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [agents, projectDefaults, globalDefaults, settings, lastAgent, chosenAgent, applied, agentModels]
+  )
+  const chatAgent: AgentId = launch.mode === 'chat' ? (resolved.agent ?? 'claude-code') : 'claude-code'
+  const connections = useApp((s) => s.connections)
+  const profileConnections = useApp((s) => s.profileConnections)
+  const agentProfiles = useProfiles(chatAgent)
+  // Con un solo profilo per agente non c'è niente da scegliere né da mostrare.
+  const multiProfile = launch.mode === 'chat' && agentProfiles.length > 1
+  // La scelta vale solo se il profilo esiste ancora (può essere stato rimosso): una sola verifica per l'interfaccia e per `session.create`.
+  // Il profilo di sessione propone l'account; una tua scelta nel menu vince.
+  const profileOwn = profileChoice ?? (applied?.agent && applied.profileId ? { agent: applied.agent, id: applied.profileId } : null)
+  const chosenProfile = isProfileAgent(chatAgent) && profileOwn?.agent === chatAgent && agentProfiles.some((p) => p.id === profileOwn.id) ? profileOwn.id : null
+  const profileId = isProfileAgent(chatAgent) ? (chosenProfile ?? projectProfileId(project, chatAgent, agentProfiles)) : null
+  const profile = agentProfiles.find((p) => p.id === profileId) ?? null
+  const agentStatus = (isProfileAgent(chatAgent) && !isDefaultProfileId(profileId) ? profileAgents[profileId!] : null) ?? agents.find((a) => a.agent === chatAgent) ?? FALLBACK_AGENT
+  const signInNeeded = useSignInNeeded(chatAgent, profileId)
+  // Scelte esplicite = tue, poi quelle del profilo di sessione: entrambe valgono solo per il loro agente.
+  // Il modello del profilo vale solo per l'account che parte davvero: se scegli un altro account dal menu si ricontrolla contro il suo elenco.
+  const presetModel = applied?.agent && applied.model && (agentStatus.models.length === 0 || isValidModel(agentStatus, applied.model)) ? { agent: applied.agent, value: applied.model } : null
+  const modelOwn = modelChoice ?? presetModel
+  const effortOwn = effortChoice ?? (applied?.agent && applied.effort ? { agent: applied.agent, value: applied.effort } : null)
+  const model = modelOwn?.agent === chatAgent ? modelOwn.value : resolved.model
+  const rawEffort = effortOwn?.agent === chatAgent ? effortOwn.value : resolved.effort
+  // L'effort finale deve valere per il modello finale, altrimenti niente.
+  const effort = isValidEffort(agentStatus, model ?? launchModel(agentStatus, agentModels), rawEffort) ? rawEffort : null
+  const permission = capPermission(permissionChoice ?? applied?.permission ?? resolved.permission, maxPermission)
+  // Il composer riceve solo le scelte esplicite: i predefiniti li risolve da sé (e li marca con il badge Default).
+  const explicitModel = modelOwn?.agent === chatAgent ? modelOwn.value : null
+  const explicitEffort = effortOwn?.agent === chatAgent && isValidEffort(agentStatus, model ?? launchModel(agentStatus, agentModels), effortOwn.value) ? effortOwn.value : null
+  // Cambiando progetto le scelte esplicite decadono: la nuova chat riparte dai predefiniti di quel progetto.
+  // Solo quando il progetto cambia davvero: al montaggio (e nella seconda esecuzione di StrictMode) le scelte sono già vuote,
+  // e azzerarle di nuovo cancellerebbe il profilo appena scelto da ⌘K.
+  const seenProject = useRef(project?.id)
   useEffect(() => {
-    const levels = allowedLevels(maxPermission)
-    if (!levels.includes(permission)) setPermission(levels[levels.length - 1])
-  }, [maxPermission, permission])
+    if (seenProject.current === project?.id) return
+    seenProject.current = project?.id
+    setChosenAgent(null)
+    setModelChoice(null)
+    setEffortChoice(null)
+    setPermissionChoice(undefined)
+    setProfileChoice(null)
+    setPresetChoice(undefined)
+    setDraftKept(false)
+    setWorktreeEdited(false)
+    presetPrompt.current = null
+  }, [project?.id])
+  // Sceglie un profilo: le tue scelte nel composer decadono e il profilo dà i valori; la bozza iniziale, se c'è, non parte da sola.
+  const choosePreset = (id: string | null) => {
+    setPresetChoice(id)
+    setChosenAgent(null)
+    setModelChoice(null)
+    setEffortChoice(null)
+    setPermissionChoice(undefined)
+    setProfileChoice(null)
+    setLaunch({ mode: 'chat' })
+    setDraftKept(false)
+    if (id) setWorktreeEdited(false)
+    if (!project) return
+    const preset = id ? presets?.find((p) => p.id === id) : null
+    const next = preset?.prompt ?? ''
+    const key = `new:${project.id}`
+    const current = useApp.getState().drafts[key] ?? ''
+    // La bozza è del profilo precedente (o vuota): si sostituisce o si svuota. Se l'hai modificata tu resta tua.
+    if (!current.trim() || (presetPrompt.current !== null && current === presetPrompt.current)) {
+      if (current !== next) {
+        // La sostituzione passa da replaceComposerDraft: il composer non segue ogni cambio dello store (uno snapshot dopo il riavvio dell'host sovrascriverebbe il testo), né si rimonta, quindi allegati e cursore restano.
+        useApp.getState().setDraft(key, next)
+        send({ type: 'draft.set', key, text: next })
+        useApp.getState().replaceComposerDraft(key, next)
+      }
+      presetPrompt.current = next || null
+    } else if (next) {
+      setDraftKept(true)
+    }
+  }
+  // "Nuova chat con <profilo>" da ⌘K: si legge una volta e si azzera. Sta dopo il ripristino del progetto, così non lo scavalca.
+  const newPreset = useApp((s) => s.newPreset)
+  const consumedPreset = useRef<typeof newPreset>(null)
+  useEffect(() => {
+    if (!newPreset || !project || newPreset.projectId !== project.id) return
+    // Si consuma una volta sola: lo stesso oggetto non si applica due volte (StrictMode riesegue gli effetti con la stessa chiusura).
+    if (consumedPreset.current === newPreset) return
+    consumedPreset.current = newPreset
+    useApp.getState().setNewPreset(null)
+    choosePreset(newPreset.presetId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newPreset, project?.id])
+  // Il profilo decide anche il worktree (solo in un progetto git); senza profilo resta come lo hai impostato.
+  const hadPreset = useRef(false)
+  const presetWorktree = useRef<boolean | null>(null)
+  useEffect(() => {
+    if (activePreset) {
+      presetWorktree.current = Boolean(activePreset.worktree && project?.isGit)
+      setWorktree(presetWorktree.current)
+    } else if (hadPreset.current) {
+      // Senza profilo si torna al predefinito, ma solo se il valore è ancora quello messo dal profilo (non tuo, non di un'issue).
+      if (!worktreeEdited && !source && worktree === presetWorktree.current) setWorktree(false)
+      setWorktreeEdited(false)
+    }
+    hadPreset.current = Boolean(activePreset)
+    // Solo quando cambia il profilo in uso.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePreset?.id, project?.id])
+  // Cambiare agente ricarica modello ed effort predefiniti di quell'agente; il permesso scelto resta.
   const chooseAgent = (agent: AgentId) => {
-    chose.current = true
-    setLaunch({ mode: 'chat', agent })
-    setModel(null)
-    setEffort(null)
+    setChosenAgent(agent)
+    setLaunch({ mode: 'chat' })
+    setModelChoice(null)
+    setEffortChoice(null)
   }
   // Issue, PR o branch scelti con ⌘⇧N: il prompt diventa la bozza e il worktree si prepara sul branch giusto.
   const source = useApp((s) => (project && s.newSource?.projectId === project.id ? s.newSource.item : null))
-  const [composerRev, setComposerRev] = useState(0)
   const sourceKey = source ? `${source.source}:${source.ref}` : null
   useEffect(() => {
     if (!project || !source) return
@@ -361,7 +531,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
         const key = `new:${project.id}`
         useApp.getState().setDraft(key, text)
         send({ type: 'draft.set', key, text })
-        setComposerRev((n) => n + 1)
+        useApp.getState().replaceComposerDraft(key, text)
       })
       .catch((e: Error) => setError(e.message))
     return () => {
@@ -403,11 +573,14 @@ export function NewChat({ projectId }: { projectId: string | null }) {
         model,
         effort,
         permission,
+        // Solo se l'hai scelto tu: senza, l'host usa il profilo del progetto.
+        ...(launch.mode === 'chat' && chosenProfile ? { profileId: chosenProfile } : {}),
         attachments: attachments.length > 0 ? attachments : undefined,
         mode: launch.mode,
         command: launch.mode === 'terminal' ? launch.command : undefined,
         worktree,
-        branch: source && worktree ? branchFor(source) : null,
+        ...(worktree && settings?.worktree.setup && startNow !== null ? { setupWait: !startNow } : {}),
+        branch: source && worktree ? branchFor(source, prefix) : null,
         source: source ? { kind: source.source, ref: source.ref, title: source.title, url: source.url } : null,
         title: source ? (source.source === 'branch' ? source.ref : source.title) : undefined
       })
@@ -428,8 +601,14 @@ export function NewChat({ projectId }: { projectId: string | null }) {
     }
   }
 
+  // Ciò che hai già corretto a mano non si segnala più.
+  // Scegliere un altro agente rende superflui anche i problemi di account, modello ed effort: erano del vecchio agente.
+  const agentChanged = chosenAgent !== null && chosenAgent !== applied?.agent
+  const corrected: Record<PresetIssue, boolean> = { agent: chosenAgent !== null, account: profileChoice !== null || agentChanged, model: modelChoice !== null || agentChanged, effort: effortChoice !== null || agentChanged, permission: permissionChoice !== undefined, worktree: worktreeEdited }
+  const shownIssues = (applied?.issues ?? []).filter((issue) => !corrected[issue])
+
   const launchLabel =
-    launch.mode === 'chat' ? t('Chat · {agent}', { agent: agentStatus.name }) : t('Terminal · {command}', { command: launch.command.split(' ')[0] || t('command') })
+    launch.mode === 'chat' ? t('Chat · {agent}', { agent: multiProfile && profile ? `${agentStatus.name} · ${profile.name}` : agentStatus.name }) : t('Terminal · {command}', { command: launch.command.split(' ')[0] || t('command') })
 
   return (
     <Workspace project={project} session={null} root={project.path} composerKey={`new:${project.id}`}>
@@ -455,27 +634,38 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               <DropdownMenuContent className="w-80">
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>{t('Where the session works')}</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => setWorktree(false)} className="items-start">
+                  <DropdownMenuItem onClick={() => { setWorktree(false); setWorktreeEdited(true) }} className="items-start">
                     <Check className={cn('mt-0.5 size-3.5', worktree && 'opacity-0')} />
                     <span className="flex flex-col">
                       {t('Main checkout')}
                       <span className="text-xs text-muted-foreground">{t('The dev server you already have open sees the changes')}</span>
                     </span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setWorktree(true)} className="items-start">
+                  <DropdownMenuItem onClick={() => { setWorktree(true); setWorktreeEdited(true) }} className="items-start">
                     <Check className={cn('mt-0.5 size-3.5', !worktree && 'opacity-0')} />
                     <span className="flex flex-col">
                       {t('New worktree')}
                       <span className="text-xs text-muted-foreground">
                         {source
-                          ? t(branchFor(source).existing ? 'Branch {branch} (existing)' : 'Branch {branch}', { branch: branchFor(source).name })
-                          : t('Branch ladder/… from {base}', { base: project.branch ?? 'HEAD' })}
+                          ? t(branchFor(source, prefix).existing ? 'Branch {branch} (existing)' : 'Branch {branch}', { branch: branchFor(source, prefix).name })
+                          : t('Branch {prefix}… from {base}', { prefix, base: project.branch ?? 'HEAD' })}
                         {settings?.worktree.setup ? t(', then “{setup}”', { setup: settings.worktree.setup }) : ''}
                         {settings?.worktree.copy.length ? t(', copies {files}', { files: settings.worktree.copy.join(', ') }) : ''}
                       </span>
                     </span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
+                {worktree && settings?.worktree.setup && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuCheckboxItem checked={startNow ?? !settings.worktree.setupWait} onCheckedChange={(value) => setStartNow(value)} className="items-start">
+                      <span className="flex flex-col">
+                        {t('Start without waiting for the setup script')}
+                        <span className="text-xs text-muted-foreground">{t('The first message goes out right away and “{setup}” runs alongside.', { setup: settings.worktree.setup })}</span>
+                      </span>
+                    </DropdownMenuCheckboxItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <DropdownMenu>
@@ -489,13 +679,16 @@ export function NewChat({ projectId }: { projectId: string | null }) {
                   <DropdownMenuLabel>{t('In chat, with Ladder approvals')}</DropdownMenuLabel>
                   {agents.map((status) => {
                     const allowed = isAllowed(status.agent)
+                    // Un agente senza login si può scegliere: il clic porta alla sua riga in Impostazioni → Abbonamenti.
+                    const connection = connectionOfAgent(status.agent)
+                    const signIn = connection !== null && needsSignIn(connections[connection])
                     return (
-                      <DropdownMenuItem key={status.agent} disabled={!allowed || !status.available} onClick={() => chooseAgent(status.agent)} className="items-start">
-                        <Check className={cn('mt-0.5 size-3.5', !(launch.mode === 'chat' && launch.agent === status.agent) && 'opacity-0')} />
+                      <DropdownMenuItem key={status.agent} disabled={!allowed || (!status.available && !signIn)} onClick={() => (signIn && connection ? useApp.getState().focusConnection(connection) : chooseAgent(status.agent))} className="items-start">
+                        <Check className={cn('mt-0.5 size-3.5', !(launch.mode === 'chat' && chatAgent === status.agent) && 'opacity-0')} />
                         <AgentMark agent={status.agent} size={14} className="mt-0.5" />
                         <span className="flex min-w-0 flex-col">
                           {status.name}
-                          <span className="truncate text-xs text-muted-foreground">{agentDetail(status, allowed)}</span>
+                          <span className="truncate text-xs text-muted-foreground">{agentDetail(status, allowed, signIn)}</span>
                         </span>
                       </DropdownMenuItem>
                     )
@@ -504,6 +697,29 @@ export function NewChat({ projectId }: { projectId: string | null }) {
                     <span className="pl-[22px] text-xs text-muted-foreground">{t('Add an ACP agent…')}</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
+                {multiProfile && isProfileAgent(chatAgent) && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>{t('Account for {agent}', { agent: agentStatus.name })}</DropdownMenuLabel>
+                      {agentProfiles.map((p) => {
+                        const connection = isDefaultProfileId(p.id) ? connections[chatAgent] : profileConnections[p.id]
+                        const signIn = needsSignIn(connection)
+                        const status = isDefaultProfileId(p.id) ? agents.find((a) => a.agent === chatAgent) : profileAgents[p.id]
+                        const detail = signIn ? t('Not signed in. Click to sign in.') : ([status?.account ?? (connection?.plan ? `${agentStatus.name} ${connection.plan}` : null), status?.email ?? connection?.email].filter(Boolean).join(' · ') || t('Ready'))
+                        return (
+                          <DropdownMenuItem key={p.id} onClick={() => (signIn ? useApp.getState().focusConnection(chatAgent, p.isDefault ? null : p.id) : setProfileChoice({ agent: chatAgent, id: p.id }))} className="items-start">
+                            <Check className={cn('mt-0.5 size-3.5', p.id !== profileId && 'opacity-0')} />
+                            <span className="flex min-w-0 flex-col">
+                              {p.name}
+                              <span className="truncate text-xs text-muted-foreground">{detail}</span>
+                            </span>
+                          </DropdownMenuItem>
+                        )
+                      })}
+                    </DropdownMenuGroup>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>{t('In the terminal, with the original CLI')}</DropdownMenuLabel>
@@ -529,34 +745,102 @@ export function NewChat({ projectId }: { projectId: string | null }) {
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
+            {presets && presets.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger className={contextButton}>
+                  <Bookmark className="size-3.5" />
+                  {activePreset ? activePreset.name : t('Profile')}
+                  <ChevronDown className="size-3 text-faint" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-80">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>{t('Session profiles')}</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => choosePreset(null)} className="items-start">
+                      <Check className={cn('mt-0.5 size-3.5', activePreset && 'opacity-0')} />
+                      <span className="flex flex-col">
+                        {t('No profile')}
+                        <span className="text-xs text-muted-foreground">{t('Start from your defaults')}</span>
+                      </span>
+                    </DropdownMenuItem>
+                    {presets.map((preset) => {
+                      const summary = presetSummary(preset, agents)
+                      return (
+                        <DropdownMenuItem key={preset.id} onClick={() => choosePreset(preset.id)} className="items-start" title={preset.note ? `${summary}\n${preset.note}` : summary}>
+                          <Check className={cn('mt-0.5 size-3.5', activePreset?.id !== preset.id && 'opacity-0')} />
+                          <AgentMark agent={preset.agent} size={14} className="mt-0.5" />
+                          <span className="flex min-w-0 flex-col">
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="truncate">{preset.name}</span>
+                              {projectDefaultPreset === preset.id && <span className="inline-flex h-4 shrink-0 items-center rounded-sm bg-foreground/10 px-1 text-xs leading-none text-muted-foreground">{t('Project default')}</span>}
+                            </span>
+                            {/* Seconda riga: la nota, se c'è, altrimenti il riepilogo. */}
+                            <span className="truncate text-xs text-muted-foreground">{preset.note ?? summary}</span>
+                          </span>
+                        </DropdownMenuItem>
+                      )
+                    })}
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  {activePreset && (
+                    <DropdownMenuItem onClick={() => setProjectDefaultPreset(project.id, projectDefaultPreset === activePreset.id ? null : activePreset.id)}>
+                      <span className="pl-[22px]">
+                        {projectDefaultPreset === activePreset.id ? t('Stop using it as default for {project}', { project: project.name }) : t('Use as default for {project}', { project: project.name })}
+                      </span>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => useSettings.getState().openSection('defaults')}>
+                    <span className="pl-[22px] text-xs text-muted-foreground">{t('Manage profiles…')}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
           {source && <SourceChip item={source} onClear={() => useApp.getState().setNewSource(null)} />}
           {launch.mode === 'chat' ? (
+            <>
+            <SignInNotice agent={chatAgent} profileId={profileId} className="mb-2" />
             <Composer
-              key={`new:${project.id}:${composerRev}`}
+              key={`new:${project.id}`}
+              profileId={profileId}
               draftKey={`new:${project.id}`}
               projectId={project.id}
               agentName={agentStatus.name}
               agent={chatAgent}
               models={agentStatus.models}
-              model={model}
-              onModelChange={setModel}
-              effort={effort}
-              onEffortChange={setEffort}
+              model={explicitModel}
+              onModelChange={(value) => setModelChoice({ agent: chatAgent, value })}
+              onModelReset={() => setModelChoice(null)}
+              effort={explicitEffort}
+              onEffortChange={(value) => setEffortChoice({ agent: chatAgent, value })}
+              onEffortReset={() => setEffortChoice(null)}
               showEffort={supportsEffort(chatAgent)}
               permission={permission}
-              onPermissionChange={setPermission}
+              onPermissionChange={setPermissionChoice}
               maxPermission={maxPermission}
               onSubmit={(text, attachments) => void create(text, attachments)}
-              disabledReason={pending ? t('Preparing the session…') : !agentStatus.available ? (agentStatus.error ?? t('{agent} is not available.', { agent: agentStatus.name })) : null}
+              disabledReason={pending ? t('Preparing the session…') : signInNeeded ? t('Sign in to {name} to start a session.', { name: CONNECTION_NAME[signInNeeded.id] }) : !agentStatus.available ? (agentStatus.error ?? t('{agent} is not available.', { agent: agentStatus.name })) : null}
               autoFocus
             />
+            </>
           ) : (
             <TerminalLauncher command={launch.command} onCommandChange={(command) => setLaunch({ mode: 'terminal', command })} pending={pending} onLaunch={(prompt) => void create(prompt, [])} />
           )}
+          {/* Nota discreta: ciò che del profilo non vale più qui e ha ripiegato sui predefiniti. Nessun errore. */}
+          {launch.mode === 'chat' && activePreset && shownIssues.length > 0 && (
+            <p role="status" className="mt-2 flex items-start gap-1.5 pl-1 text-xs text-muted-foreground">
+              <Info aria-hidden className="mt-0.5 size-3 shrink-0" />
+              {presetIssuesNote(activePreset.name, shownIssues)}
+            </p>
+          )}
+          {draftKept && activePreset && (
+            <p role="status" className="mt-2 flex items-start gap-1.5 pl-1 text-xs text-muted-foreground">
+              <Info aria-hidden className="mt-0.5 size-3 shrink-0" />
+              {t('Your draft stays as it is; the starting prompt of “{name}” was not added.', { name: activePreset.name })}
+            </p>
+          )}
           {error && <p className="mt-2 pl-1 text-sm text-destructive">{error}</p>}
           <p className="mt-3 pl-1 text-xs text-faint">
-            <Kbd>⌘N</Kbd> {t('new chat')} · <Kbd>⌘P</Kbd> {t('open file')} · <Kbd>⌘K</Kbd> {t('search')}
+            <Kbd>{shortcutLabel('chat.new')}</Kbd> {t('new chat')} · <Kbd>{shortcutLabel('quickOpen.toggle')}</Kbd> {t('open file')} · <Kbd>{shortcutLabel('palette.toggle')}</Kbd> {t('search')}
           </p>
         </div>
       </div>
@@ -589,6 +873,7 @@ function SourceChip({ item, onClear }: { item: IssueItem; onClear: () => void })
 
 function TerminalLauncher({ command, onCommandChange, pending, onLaunch }: { command: string; onCommandChange: (command: string) => void; pending: boolean; onLaunch: (prompt: string) => void }) {
   const [prompt, setPrompt] = useState('')
+  const sendKey = useSendKey()
   const program = command.trim().split(/\s+/)[0]?.split('/').pop() ?? ''
   const agentCli = program === 'claude' || program === 'codex'
   const input = useRef<HTMLInputElement>(null)
@@ -615,14 +900,14 @@ function TerminalLauncher({ command, onCommandChange, pending, onLaunch }: { com
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && e.metaKey) {
+            if (isSendKey(e, sendKey)) {
               e.preventDefault()
               go()
             }
           }}
           rows={2}
           aria-label={t('First message')}
-          placeholder={t('First message (optional): sent when the CLI starts')}
+          placeholder={sendKey === 'mod-enter' ? t('First message (optional): sent when the CLI starts. {key} to start', { key: sendKeyCombos(sendKey).send }) : t('First message (optional): sent when the CLI starts')}
           className="w-full resize-none rounded-md bg-transparent px-1 py-1 text-base outline-none [field-sizing:content] placeholder:text-faint"
         />
       )}
@@ -641,6 +926,7 @@ function TerminalLauncher({ command, onCommandChange, pending, onLaunch }: { com
         >
           <SquareTerminal className="size-4" />
           {pending ? t('Starting…') : t('Start in terminal')}
+          {agentCli && <Kbd className="opacity-70">{sendKeyCombos(sendKey).send}</Kbd>}
         </button>
       </div>
     </div>
@@ -649,8 +935,36 @@ function TerminalLauncher({ command, onCommandChange, pending, onLaunch }: { com
 
 // ── Sessione ────────────────────────────────────────────────────────────────
 
-/** Sessione esistente: conversazione e composer, oppure la CLI nel suo terminale. */
+/**
+ * Sessione aperta: barra con le tab e una colonna, oppure, se nel progetto ci sono sessioni affiancate, tutte le colonne.
+ * Ispettore e terminale sono unici e seguono la sessione attiva (quella selezionata).
+ */
 export function SessionView({ sessionId }: { sessionId: string }) {
+  const session = useApp((s) => s.sessions[sessionId])
+  const project = useApp((s) => s.projects.find((p) => p.id === s.sessions[sessionId]?.projectId) ?? null)
+  // Una stringa: lo store restituisce lo stesso valore finché le colonne non cambiano, anche se le sessioni si aggiornano.
+  const columnsKey = useApp((s) => (session ? liveColumns(s, session.projectId).join('\n') : ''))
+  const columns = useMemo(() => (columnsKey ? columnsKey.split('\n') : []), [columnsKey])
+  if (!session || !project) return <main className="flex-1 bg-background" />
+  const root = session.cwd ?? project.path
+  return (
+    <Workspace project={project} session={session} root={root} composerKey={session.mode === 'terminal' ? null : sessionId}>
+      <TopBar project={project} session={session} root={root}>
+        <TabBar projectId={project.id} activeSessionId={sessionId} />
+      </TopBar>
+      {/* Sempre lo stesso albero, anche con una colonna sola: affiancare o chiudere una colonna non rimonta composer, immagini incollate e card aperte. */}
+      <SplitColumns
+        projectId={project.id}
+        columns={columns.includes(sessionId) ? columns : [sessionId]}
+        activeId={sessionId}
+        renderColumn={(id, column) => <SessionBody key={id} sessionId={id} column={column} />}
+      />
+    </Workspace>
+  )
+}
+
+/** Conversazione e composer di una sessione, oppure la CLI nel suo terminale. In una colonna ha anche l'intestazione con lo stato. */
+function SessionBody({ sessionId, column }: { sessionId: string; column?: { active: boolean; single: boolean; hidden: number; onClose: () => void } }) {
   const session = useApp((s) => s.sessions[sessionId])
   const project = useApp((s) => s.projects.find((p) => p.id === s.sessions[sessionId]?.projectId) ?? null)
   const items = useApp((s) => s.items[sessionId] ?? EMPTY_ITEMS)
@@ -661,11 +975,30 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const openInspector = useApp((s) => s.openInspector)
   const focusTarget = useApp((s) => (s.focusTarget?.sessionId === sessionId ? s.focusTarget : null))
   const consumeFocus = useApp((s) => s.consumeFocus)
-  const agentStatus = useAgentStatus(session?.agent) ?? FALLBACK_AGENT
+  const agentStatus = useAgentStatus(session?.agent, session?.profileId) ?? FALLBACK_AGENT
+  const signInNeeded = useSignInNeeded(session?.agent ?? FALLBACK_AGENT.agent, session?.profileId)
   const sessionSettings = useProjectSettings(project)
   const [error, setError] = useState<string | null>(null)
   const uiTimer = useRef<number | null>(null)
   const isTerminal = session?.mode === 'terminal'
+  // Il livello nuovo si mostra solo quando l'host conferma; un rifiuto dà errore sopra il composer.
+  const permissionLevels = useMemo(() => allowedLevels(sessionSettings?.agents.permissionsMax ?? null), [sessionSettings?.agents.permissionsMax])
+  const applyPermission = useCallback(
+    (permission: PermissionLevel) => request<PermissionChangeResult>({ type: 'session.permission.set', sessionId, permission }),
+    [sessionId]
+  )
+  const permissionChange = usePermissionChange({
+    permission: session?.permission ?? 'ask',
+    permissionNext: session?.permissionNext,
+    levels: permissionLevels,
+    apply: applyPermission,
+    onError: setError
+  })
+  // Una sola colonna è attiva: scorciatoie, focus iniziale e tab attiva seguono lei. Fuori dalle colonne la sessione è sempre attiva.
+  const active = column ? column.active : true
+  // Sotto circa 420 px la colonna passa alla vista compatta (vale anche per una colonna sola, in una finestra stretta).
+  const [measure, width] = useElementWidth()
+  const compact = width > 0 && width < COMPACT_WIDTH
 
   // Nelle sessioni terminale il focus va al terminale stesso: la richiesta è nella TUI.
   useEffect(() => {
@@ -676,10 +1009,20 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     if (!loaded) send({ type: 'session.open', sessionId })
   }, [sessionId, loaded])
 
+  // Comandi / dell'agente: si chiedono all'apertura e a ogni riconnessione; poi arrivano con l'evento.
+  const slashCommands = useApp((s) => s.commands[sessionId])
+  const loadCommands = useApp((s) => s.loadCommands)
+  const connected = useApp((s) => s.connected)
+  useEffect(() => {
+    if (!isTerminal && connected) loadCommands(sessionId)
+  }, [sessionId, isTerminal, connected, loadCommands])
+
   // Segna come letta quando la sessione è visibile, la finestra è attiva e il turno è finito.
   useEffect(() => {
     // "Segna come da leggere" sulla sessione aperta non deve essere annullato subito.
-    if (!session?.unread || useApp.getState().heldUnread === sessionId) return
+    // Lo stesso vale per l'avviso dei sotto-agenti: sulla sessione aperta si azzera con session.read.
+    const pending = session?.unread || !!session?.agentsNotice
+    if (!pending || useApp.getState().heldUnread === sessionId) return
     const mark = () => {
       if (document.hasFocus()) send({ type: 'session.read', sessionId })
     }
@@ -689,7 +1032,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       window.clearTimeout(timer)
       window.removeEventListener('focus', mark)
     }
-  }, [sessionId, session?.unread, items.length])
+  }, [sessionId, session?.unread, session?.agentsNotice?.at, items.length])
 
   const onRespond = useCallback(
     (requestId: string, response: RequestResponse) => {
@@ -722,26 +1065,32 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     (anchor: { itemId: string; offset: number }) => {
       if (!project) return
       const current = useApp.getState().ui[project.id] ?? { tabs: [], activeTab: null, scroll: {} }
-      const next = { ...current, activeTab: sessionId, scroll: { ...current.scroll, [sessionId]: anchor } }
+      const next = { ...current, activeTab: active ? sessionId : current.activeTab, scroll: { ...current.scroll, [sessionId]: anchor } }
       setUi(project.id, next)
       if (uiTimer.current) window.clearTimeout(uiTimer.current)
-      uiTimer.current = window.setTimeout(() => send({ type: 'ui.set', projectId: project.id, state: next }), 400)
+      uiTimer.current = window.setTimeout(() => send({ type: 'ui.set', projectId: project.id, state: useApp.getState().ui[project.id] ?? next }), 400)
     },
-    [project, sessionId, setUi]
+    [project, sessionId, setUi, active]
   )
 
-  if (!session || !project) return <main className="flex-1 bg-background" />
+  if (!session || !project) return <div ref={measure} className="flex-1" />
   const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting' || session.run === 'queued'
+  const runningAgents = runningForegroundSubagents(session)
   const headerNotes = [session.worktree ? 'worktree' : null, session.run !== 'waiting' && isTerminal ? session.activity : null, session.estimated ? t('estimated status') : null].filter(Boolean).join(' · ')
 
   return (
-    <Workspace project={project} session={session} root={root} composerKey={isTerminal ? null : sessionId}>
-      <TopBar project={project} session={session} root={root}>
-        <TabBar projectId={project.id} activeSessionId={sessionId} />
-      </TopBar>
+    <div ref={measure} className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {column && !column.single && <ColumnHeader session={session} active={column.active} hidden={column.hidden} onClose={column.onClose} />}
       {/* Solo note che non stanno altrove: agente e modello di una chat sono già nel composer, il titolo nella tab. */}
-      {(isTerminal || headerNotes || session.run === 'waiting') && (
-        <div className={cn('flex w-full min-w-0 items-center gap-1.5 pb-1 text-xs text-muted-foreground', isTerminal ? 'px-5' : 'mx-auto max-w-[728px] px-6')}>
+      {(isTerminal || headerNotes || (session.run === 'waiting' && !(column && !column.single))) && (
+        <div
+          className={cn('w-full pb-1 text-xs text-muted-foreground', isTerminal ? 'flex min-w-0 items-center gap-1.5 px-5' : 'chat-col chat-gutter')}
+          data-compact={!isTerminal && compact ? '' : undefined}
+        >
+          {/* Nella chat le note stanno sulla stessa colonna del testo. */}
+          <div className={isTerminal ? 'w-full min-w-0' : 'chat-measure'}>
+            <div className={cn(!isTerminal && 'chat-reset')}>
+            <div className="flex min-w-0 items-center gap-1.5 text-xs">
           {isTerminal && (
             <>
               <SquareTerminal aria-hidden className="size-3.5 shrink-0" />
@@ -754,14 +1103,18 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               <span className="min-w-0 truncate">{headerNotes}</span>
             </>
           )}
-          {session.run === 'waiting' && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
+          {session.run === 'waiting' && !(column && !column.single) && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
+            </div>
+            </div>
+          </div>
         </div>
       )}
       {isTerminal ? (
-        <TerminalSessionBody session={session} />
+        <TerminalSessionBody session={session} active={active} />
       ) : (
         <>
-          <div className="flex min-h-0 flex-1 flex-col">
+          {/* ⇧Tab cambia i permessi con il focus sulla card di richiesta aperta. */}
+          <div className="flex min-h-0 flex-1 flex-col" onKeyDown={permissionChange.onKeyDown}>
             <ChatView
               key={sessionId}
               sessionId={sessionId}
@@ -776,18 +1129,25 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               onOpenDiff={onOpenDiff}
               focusRequest={focusTarget ? { itemId: focusTarget.itemId, nonce: focusTarget.nonce } : null}
               onFocusDone={consumeFocus}
+              compact={compact}
+              active={active}
+              waitingAgents={agentsRunning(session)}
+              onContinue={(itemId) => request({ type: 'session.continue', sessionId, itemId })}
+              onPrefill={(text) => useApp.getState().insertIntoComposer(sessionId, text)}
             />
           </div>
-          <div className="flex flex-col items-center px-6 pb-4">
-            {error && <p className="mb-2 w-full max-w-[680px] text-sm text-destructive">{error}</p>}
-            {session.subagents?.length ? (
-              <div className="mb-1.5 flex w-full max-w-[680px] justify-end">
-                <AgentMapChip session={session} />
-              </div>
-            ) : null}
+          {/* Il composer segue la colonna di testo (Impostazioni, Aspetto: larghezza della chat). */}
+          <div className="chat-col chat-gutter pb-4" data-compact={compact ? '' : undefined}>
+            <div className="chat-measure">
+            <div className="chat-reset flex flex-col items-center">
+            {error && <p className="mb-2 w-full text-sm text-destructive">{error}</p>}
+            <SignInNotice agent={session.agent} profileId={session.profileId} className="mb-2 w-full" />
             <Composer
               key={sessionId}
+              profileId={session.profileId}
               draftKey={sessionId}
+              sessionId={sessionId}
+              subagentCounts={session.subagentCounts}
               projectId={session.projectId}
               agentName={agentStatus.name}
               agent={session.agent}
@@ -797,33 +1157,66 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               model={session.model}
               onModelChange={(model) => send({ type: 'session.model.set', sessionId, model })}
               effort={session.effort}
+              effortEffective={session.effortEffective}
+              onModelReset={(model) => send({ type: 'session.model.set', sessionId, model })}
+              onEffortReset={(effort) => send({ type: 'session.effort.set', sessionId, effort })}
               onEffortChange={(effort) => send({ type: 'session.effort.set', sessionId, effort })}
-              permission={session.permission}
-              onPermissionChange={(permission) => send({ type: 'session.permission.set', sessionId, permission })}
+              permission={permissionChange.shown}
+              permissionNext={permissionChange.next}
+              onPermissionChange={permissionChange.change}
               running={running}
-              onSubmit={(text, attachments) =>
-                request({ type: 'session.send', sessionId, text, attachments: attachments.length > 0 ? attachments : undefined }).catch((e: Error) =>
+              onSubmit={(text, attachments, busy) =>
+                request({ type: 'session.send', sessionId, text, attachments: attachments.length > 0 ? attachments : undefined, busy }).catch((e: Error) =>
                   setError(e.message)
                 )
               }
               onStop={() => send({ type: 'session.interrupt', sessionId })}
+              commands={slashCommands}
+              onCommand={(name, args) => {
+                setError(null)
+                return request({ type: 'session.command', sessionId, name, args }).catch((e: Error) => {
+                  setError(e.message)
+                  throw e
+                })
+              }}
+              onNewSession={(args) => {
+                const key = `new:${session.projectId}`
+                if (args) {
+                  // Una bozza già scritta non si sovrascrive: il testo va in coda, su una nuova riga.
+                  const current = useApp.getState().drafts[key] ?? ''
+                  const next = current.trim() ? `${current.replace(/\s+$/, '')}\n${args}` : args
+                  useApp.getState().setDraft(key, next)
+                  send({ type: 'draft.set', key, text: next })
+                }
+                useApp.getState().select({ kind: 'new', projectId: session.projectId })
+              }}
               queue={session.queue}
               onQueueChange={(queue) => send({ type: 'session.queue.set', sessionId, queue })}
+              canSteer={session.canSteer && session.run === 'running' && !items.some((i) => i.kind === 'command' && i.status === 'running')}
+              queueWaitingSlot={session.run === 'queued'}
+              queueWorking={session.run === 'running' || session.run === 'starting' || session.run === 'waiting'}
+              onDeliver={(id, how) =>
+                request({ type: 'session.queue.deliver', sessionId, id, how }).catch((e: Error) => setError(e.message))
+              }
+              queueReason={session.run !== 'queued' && runningAgents > 0 ? plural(runningAgents, '{n} agent working', '{n} agents working') : session.queuedReason}
               context={session.context}
-              disabledReason={!agentStatus.available ? (agentStatus.error ?? t('{agent} is not available.', { agent: agentStatus.name })) : null}
-              autoFocus={!focusTarget}
-              status={session.queuedReason}
-              className="max-w-[680px]"
+              disabledReason={signInNeeded ? t('Sign in to {name} to start a session.', { name: CONNECTION_NAME[signInNeeded.id] }) : !agentStatus.available ? (agentStatus.error ?? t('{agent} is not available.', { agent: agentStatus.name })) : null}
+              autoFocus={active && !focusTarget}
+              compact={compact}
+              status={session.queue.length > 0 ? null : session.queuedReason}
             />
+            </div>
+            </div>
           </div>
+          <SubagentDialog sessionId={sessionId} />
         </>
       )}
-    </Workspace>
+    </div>
   )
 }
 
 /** Sessione terminale: la TUI originale dell'agente a tutta altezza. Ferma dopo un'uscita o un riavvio: "Riprendi". */
-function TerminalSessionBody({ session }: { session: SessionSummary }) {
+function TerminalSessionBody({ session, active }: { session: SessionSummary; active: boolean }) {
   const terminal = useApp((s) => (session.terminalId ? s.terminals[session.terminalId] : undefined))
   const [error, setError] = useState<string | null>(null)
   const stopped = !terminal || terminal.state !== 'running'
@@ -858,7 +1251,7 @@ function TerminalSessionBody({ session }: { session: SessionSummary }) {
         </div>
       )}
       {terminal ? (
-        <TerminalView key={terminal.id} id={terminal.id} composerKey={null} autoFocus className="flex-1 px-3 pt-2" />
+        <TerminalView key={terminal.id} id={terminal.id} composerKey={null} autoFocus={active} className="flex-1 px-3 pt-2" />
       ) : (
         <div className="grid flex-1 place-items-center text-sm text-muted-foreground">{t('Opening the terminal…')}</div>
       )}

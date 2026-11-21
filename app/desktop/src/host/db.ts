@@ -69,6 +69,19 @@ create table if not exists checkpoints (
 );
 create index if not exists checkpoints_by_session on checkpoints (session_id, at);
 create index if not exists checkpoints_by_root on checkpoints (root, at);
+create table if not exists profiles (
+  id text primary key,
+  agent text not null,
+  name text not null,
+  config_dir text not null,
+  added_at integer not null
+);
+create table if not exists project_profiles (
+  project_id text not null,
+  agent text not null,
+  profile_id text not null,
+  primary key (project_id, agent)
+);
 create table if not exists terminals (
   id text primary key,
   project_id text not null,
@@ -92,13 +105,22 @@ const COLUMNS: [table: string, column: string, definition: string][] = [
   ['sessions', 'estimated', 'integer not null default 0'],
   ['sessions', 'agent_ref', 'text'],
   ['sessions', 'activity_at', 'integer not null default 0'],
-  ['sessions', 'source', 'text']
+  ['sessions', 'source', 'text'],
+  // 'provisional' | 'generated' | 'user': le sessioni esistenti diventano 'user' alla migrazione (vedi migrate), nuove partono provvisorie.
+  ['sessions', 'title_source', "text not null default 'provisional'"],
+  // Profilo (account) della sessione, fissato alla creazione; null = predefinito (anche per le sessioni nate prima dei profili).
+  ['sessions', 'profile_id', 'text'],
+  // Livello chiesto a turno in corso che l'agente applica dal turno successivo (Codex).
+  ['sessions', 'permission_next', 'text']
 ]
 
 function migrate(db: DatabaseSync): void {
   for (const [table, column, definition] of COLUMNS) {
     const columns = db.prepare(`pragma table_info(${table})`).all() as { name: string }[]
-    if (!columns.some((c) => c.name === column)) db.exec(`alter table ${table} add column ${column} ${definition}`)
+    if (columns.some((c) => c.name === column)) continue
+    db.exec(`alter table ${table} add column ${column} ${definition}`)
+    // Non si sa quali titoli esistenti siano stati rinominati a mano: tutti si considerano dell'utente, nessuna rigenerazione automatica li tocca.
+    if (column === 'title_source') db.exec("update sessions set title_source = 'user'")
   }
 }
 
@@ -157,6 +179,12 @@ export interface SessionRow {
   activity_at: number
   /** JSON di SessionSource: issue, PR o branch da cui è nata. */
   source: string | null
+  /** TitleSource: chi ha scelto il titolo. */
+  title_source: string
+  /** Profilo non predefinito con cui gira la sessione; null = predefinito. */
+  profile_id: string | null
+  /** Livello di permessi in attesa del turno successivo; null se nessuno. */
+  permission_next: string | null
 }
 
 export interface CheckpointRow {

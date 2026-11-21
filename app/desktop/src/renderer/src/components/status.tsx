@@ -1,4 +1,4 @@
-import { CircleAlert, CircleX, Clock } from 'lucide-react'
+import { Bot, CircleAlert, CircleX, Clock, TriangleAlert } from 'lucide-react'
 import { plural, t } from '@shared/i18n'
 import { cn } from '@/lib/utils'
 import type { ProjectAttention, SessionState } from '@/lib/session-state'
@@ -18,8 +18,8 @@ export function RunningRing({ className }: { className?: string }) {
 }
 
 /** Punto pieno: c'è una risposta da leggere. */
-export function UnreadDot({ className }: { className?: string }) {
-  return <span aria-label={t('Unread')} className={cn('block size-2 rounded-full bg-unread', className)} />
+export function UnreadDot({ className, 'aria-label': label }: { className?: string; 'aria-label'?: string }) {
+  return <span aria-label={label ?? t('Unread')} className={cn('block size-2 rounded-full bg-unread', className)} />
 }
 
 /** Simbolo di stato per una riga di sessione. Ogni stato ha una forma propria, non solo un colore. */
@@ -29,6 +29,12 @@ export function SessionGlyph({ state }: { state: SessionState }) {
       return <RunningRing />
     case 'unread':
       return <UnreadDot />
+    case 'agents':
+      return <UnreadDot aria-label={t('Subagents finished')} />
+    case 'agents-failed':
+      return <TriangleAlert aria-label={t('Subagents failed')} className="size-3 text-destructive" strokeWidth={2.2} />
+    case 'agents-running':
+      return <Bot aria-label={t('Waiting for agents')} className="size-3 text-running" strokeWidth={2.2} />
     case 'waiting':
       return <CircleAlert aria-label={t('Needs you')} className="size-3 text-attention" strokeWidth={2.2} />
     case 'error':

@@ -11,10 +11,12 @@ asar: true
 # node-pty è l'unico modulo nativo: resta fuori dall'asar (lo spawn-helper deve essere un file eseguibile vero).
 asarUnpack:
   - "**/node_modules/node-pty/**"
+  # Il binario di Claude Code dell'SDK deve essere un eseguibile vero, non dentro l'asar.
+  - "**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**"
 npmRebuild: false
 mac:
   target: dir
-  icon: ../../app-icon/macos/ladder-circuit.icns
+  icon: ../../brand/app-icon/macos/ladder-circuit.icns
   category: public.app-category.developer-tools
   identity: "-"
   hardenedRuntime: false

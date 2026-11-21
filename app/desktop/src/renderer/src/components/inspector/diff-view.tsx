@@ -5,6 +5,8 @@ import { MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
 import type { FilePatch } from '@shared/protocol'
 import { cn } from '@/lib/utils'
 import { t } from '@shared/i18n'
+import { Kbd } from '@/components/ui/kbd'
+import { isSendKey, sendKeyCombos, useSendKey } from '@/lib/send-key'
 import { CodeText, useFileTokens } from './code-lines'
 import { lineKey, parsePatch, splitRows, type DiffLine } from './diff-parse'
 import type { LineComment } from './comments'
@@ -189,9 +191,10 @@ function CommentEditor({ initial, onSave, onCancel }: { initial: string; onSave:
   const [text, setText] = useState(initial)
   const ref = useRef<HTMLTextAreaElement>(null)
   const save = () => text.trim() && onSave(text.trim())
+  const sendKey = useSendKey()
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.nativeEvent.isComposing) return
-    if (event.key === 'Enter' && event.metaKey) {
+    if (isSendKey(event, sendKey)) {
       event.preventDefault()
       save()
     } else if (event.key === 'Escape') {
@@ -225,7 +228,9 @@ function CommentEditor({ initial, onSave, onCancel }: { initial: string; onSave:
         <button type="button" onClick={onCancel} className="h-6 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent">
           {t('Cancel')}
         </button>
-        <span className="ml-auto font-mono text-xs text-faint">{t('⌘↵ to add')}</span>
+        <span className="ml-auto flex items-center gap-1 text-xs text-faint">
+          <Kbd>{sendKeyCombos(sendKey).send}</Kbd> {t('to add')}
+        </span>
       </div>
     </div>
   )

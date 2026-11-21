@@ -6,6 +6,7 @@ import { localeTag, t } from '@shared/i18n'
 import { AgentMark } from '@/components/agent-mark'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { request } from '@/lib/host-client'
+import { agentStatusFor, hostProfileId, isProfileAgent, useSessionProfileName } from '@/lib/profiles'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 
@@ -34,13 +35,13 @@ function resetsLabel(resetsAt: number, now: number): string {
   return t('Resets {when} · in {left}', { when, left: duration(resetsAt - now) })
 }
 
-function updatedLabel(at: number | null | undefined, now: number): string {
+export function updatedLabel(at: number | null | undefined, now: number): string {
   if (!at) return t('Not read yet')
   const seconds = now - at / 1000
   return seconds < 60 ? t('Updated just now') : t('Updated {left} ago', { left: duration(seconds) })
 }
 
-function UsageRow({ usage, now }: { usage: UsageWindow; now: number }) {
+export function UsageRow({ usage, now }: { usage: UsageWindow; now: number }) {
   const percent = usage.percent === null ? null : Math.min(100, Math.max(0, usage.percent))
   const tone = usage.state === 'limited' ? 'bg-destructive' : usage.state === 'warning' || (percent !== null && percent >= 80) ? 'bg-attention' : 'bg-primary'
   return (
@@ -64,18 +65,21 @@ function UsageRow({ usage, now }: { usage: UsageWindow; now: number }) {
   )
 }
 
-export function UsageButton({ agent }: { agent: AgentId }) {
-  const status = useApp((s) => s.agents.find((a) => a.agent === agent) ?? null)
+/** Limiti d'uso di un agente (e del suo profilo): lettura dallo store, refresh e finestre ancora valide. */
+export function useUsage(agent: AgentId, profileId?: string | null) {
+  const status = useApp((s) => agentStatusFor(s, agent, profileId))
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
   const [now, setNow] = useState(() => Date.now() / 1000)
-  const native = status?.kind === 'native'
+  // Un profilo senza stato proprio (non ancora letto) si può comunque rileggere.
+  const native = status ? status.kind === 'native' : isProfileAgent(agent)
 
   const refresh = () => {
     if (loading || !native) return
     setLoading(true)
     setFailed(false)
-    request<AgentStatus | null>({ type: 'agents.usage', agent })
+    const profile = hostProfileId(profileId)
+    request<AgentStatus | null>({ type: 'agents.usage', agent, ...(profile ? { profileId: profile } : {}) })
       .then((next) => setFailed(!next?.usageAt))
       .catch(() => setFailed(true))
       .finally(() => {
@@ -83,17 +87,23 @@ export function UsageButton({ agent }: { agent: AgentId }) {
         setNow(Date.now() / 1000)
       })
   }
+  /** All'apertura: l'ora si aggiorna e un dato vecchio si rilegge. */
+  const opened = () => {
+    setNow(Date.now() / 1000)
+    if (!status?.usageAt || Date.now() - status.usageAt > STALE_MS) refresh()
+  }
 
   // Una finestra già azzerata non dice più niente: si aspetta il dato nuovo.
   const windows = (status?.usage ?? []).filter((w) => w.resetsAt === null || w.resetsAt > now)
+  return { status, loading, failed, now, native, windows, refresh, opened }
+}
+
+export function UsageButton({ agent, profileId }: { agent: AgentId; profileId?: string | null }) {
+  const { status, loading, failed, now, native, windows, refresh, opened } = useUsage(agent, profileId)
+  // Il nome del profilo si vede solo se l'agente ne ha più d'uno.
+  const profileName = useSessionProfileName({ agent, profileId })
   return (
-    <Popover
-      onOpenChange={(open) => {
-        if (!open) return
-        setNow(Date.now() / 1000)
-        if (!status?.usageAt || Date.now() - status.usageAt > STALE_MS) refresh()
-      }}
-    >
+    <Popover onOpenChange={(open) => open && opened()}>
       <PopoverTrigger
         aria-label={t('Plan usage')}
         title={t('Plan usage')}
@@ -105,7 +115,7 @@ export function UsageButton({ agent }: { agent: AgentId }) {
         <div className="flex items-start gap-2">
           <AgentMark agent={agent} size={14} className="mt-0.5" />
           <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-sm font-medium">{status?.account ?? status?.name ?? agent}</span>
+            <span className="truncate text-sm font-medium">{[status?.account ?? status?.name ?? agent, profileName].filter(Boolean).join(' · ')}</span>
             <span className="truncate text-xs text-muted-foreground">{loading ? t('Updating…') : failed ? `${t('Update failed')} · ${updatedLabel(status?.usageAt, now)}` : updatedLabel(status?.usageAt, now)}</span>
           </div>
           {native && (

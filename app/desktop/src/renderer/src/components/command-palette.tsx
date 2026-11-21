@@ -1,8 +1,9 @@
 // ⌘K: cerca sessioni (in tutti i progetti), progetti e azioni. Il filtro è nostro, così l'ordine resta quello voluto:
 // prima le sessioni che aspettano l'utente, poi le più recenti.
 import { useEffect, useMemo, useState } from 'react'
+import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { Command as CommandPrimitive } from 'cmdk'
-import { BellOff, CircleAlert, FileDiff, FileSearch, Folder, FolderPlus, FolderTree, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, Search, SquarePen, SquareTerminal } from 'lucide-react'
+import { BellOff, Bookmark, ChevronLeft, ChevronRight, CircleAlert, Columns2, FileDiff, FileSearch, Folder, FolderPlus, FolderSearch, FolderTree, Globe, Keyboard, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, PanelRightClose, Search, Sparkles, SquarePen, SquareTerminal, Undo2 } from 'lucide-react'
 import type { SearchHit } from '@shared/protocol'
 import { localeTag, plural, t } from '@shared/i18n'
 import { openInbox } from '@/components/app-sidebar'
@@ -19,7 +20,9 @@ import { relativeAge, sessionState } from '@/lib/session-state'
 import { newShell } from '@/components/terminal/terminal-panel'
 import { focusNextTerminal } from '@/lib/terminal-registry'
 import { isLiveSession, useApp } from '@/store/app-store'
+import { openSavePreset, presetSummary } from '@/lib/session-presets'
 import { Kbd } from '@/components/ui/kbd'
+import { shortcutLabel, type CommandId } from '@shared/shortcuts'
 
 function inspectorActions(run: (perform: () => void) => void): Action[] {
   const open = (tab: 'changes' | 'files' | 'history' | 'merge') => () =>
@@ -28,10 +31,10 @@ function inspectorActions(run: (perform: () => void) => void): Action[] {
       if (selection.projectId) openInspector(selection.projectId, tab)
     })
   return [
-    { id: 'changes', label: t('Show changes'), icon: FileDiff, keywords: 'changes diff turn session restore comments modifiche turno sessione ripristina commenti', shortcut: '⌘⌥1', perform: open('changes') },
-    { id: 'files', label: t('Show files'), icon: FolderTree, keywords: 'files explorer tree folder viewer file albero cartella', shortcut: '⌘⌥2', perform: open('files') },
-    { id: 'history', label: t('History and checkpoints'), icon: History, keywords: 'history checkpoint commit restore cronologia ripristina', shortcut: '⌘⌥3', perform: open('history') },
-    { id: 'merge', label: t('Ready to merge'), icon: GitMerge, keywords: 'merge pr pull request ci review comments conflicts create pr commenti conflitti crea', shortcut: '⌘⌥4', perform: open('merge') }
+    { id: 'changes', label: t('Show changes'), icon: FileDiff, keywords: 'changes diff turn session restore comments modifiche turno sessione ripristina commenti', command: 'inspector.changes', perform: open('changes') },
+    { id: 'files', label: t('Show files'), icon: FolderTree, keywords: 'files explorer tree folder viewer file albero cartella', command: 'inspector.files', perform: open('files') },
+    { id: 'history', label: t('History and checkpoints'), icon: History, keywords: 'history checkpoint commit restore cronologia ripristina', command: 'inspector.history', perform: open('history') },
+    { id: 'merge', label: t('Ready to merge'), icon: GitMerge, keywords: 'merge pr pull request ci review comments conflicts create pr commenti conflitti crea', command: 'inspector.merge', perform: open('merge') }
   ]
 }
 
@@ -69,17 +72,39 @@ interface Action {
   label: string
   icon: LucideIcon
   keywords: string
-  shortcut?: string
+  /** Comando del registro: la scorciatoia mostrata viene da lì. */
+  command?: CommandId
   hint?: string
+  disabled?: boolean
   perform: () => void
 }
 
 function PaletteBody({ onClose }: { onClose: () => void }) {
+  useShortcutsRevision()
   const themeId = useSettings((s) => s.theme)
   const projects = useApp((s) => s.projects)
   const sessions = useApp((s) => s.sessions)
   const sidebarOpen = useApp((s) => s.sidebarOpen)
   const prefs = useApp((s) => s.prefs)
+  // La sessione aperta, se è una chat di Claude Code o Codex: "Rigenera titolo" agisce su di lei (gli agenti ACP rispondono sempre con un errore).
+  const activeChat = useApp((s) => {
+    const sel = s.selection
+    const session = sel.kind === 'session' ? s.sessions[sel.sessionId] : undefined
+    return session?.mode === 'chat' && (session.agent === 'claude-code' || session.agent === 'codex') ? session : null
+  })
+  // La sessione aperta se è una chat (non un terminale): "Salva come profilo" parte dai suoi valori.
+  const activeChatId = useApp((s) => {
+    const sel = s.selection
+    const session = sel.kind === 'session' ? s.sessions[sel.sessionId] : undefined
+    return session?.mode === 'chat' ? session.id : null
+  })
+  // Sessione aperta con il browser dell'agente fermato (stop esplicito o tab chiusa): si può riattivare da qui.
+  const stoppedAgentBrowserId = useApp((s) => {
+    const sel = s.selection
+    const state = sel.kind === 'session' ? s.agentBrowser[sel.sessionId] : undefined
+    return state && state.enabled && !state.closed && state.stopped ? state.sessionId : null
+  })
+  const agents = useApp((s) => s.agents)
   const dndOn = Boolean(prefs?.dndUntil && prefs.dndUntil > Date.now())
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
@@ -132,24 +157,148 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     perform()
   }
 
+  /** Azione sul progetto selezionato; senza progetto non fa nulla. */
+  const inProject = (act: (state: ReturnType<typeof useApp.getState>, projectId: string) => unknown) => () =>
+    run(() => {
+      const state = useApp.getState()
+      if (state.selection.projectId) act(state, state.selection.projectId)
+    })
+
+  const presetActions: Action[] = (prefs?.presets ?? [])
+    .map((preset) => ({
+      id: `preset:${preset.id}`,
+      label: t('New chat with {profile}', { profile: preset.name }),
+      icon: Bookmark,
+      keywords: `new chat session profile preset nuova sessione profilo ${preset.name} ${preset.note ?? ''}`,
+      hint: presetSummary(preset, agents),
+      perform: () =>
+        run(() => {
+          const { selection, select, setNewPreset } = useApp.getState()
+          const projectId = selection.projectId ?? projects[0]?.id ?? null
+          if (projectId) setNewPreset({ projectId, presetId: preset.id })
+          select({ kind: 'new', projectId })
+        })
+    }))
+    // Senza ricerca non invadono l'elenco: i primi cinque; cercando si trovano tutti.
+    .filter((action, index) => searching || index < 5)
+
   const actions: Action[] = [
     {
       id: 'new-chat',
       label: t('New chat'),
       icon: SquarePen,
       keywords: 'new chat session create nuova sessione crea',
-      shortcut: '⌘N',
+      command: 'chat.new',
       perform: () =>
         run(() => {
           const { selection, select } = useApp.getState()
           select({ kind: 'new', projectId: selection.projectId ?? projects[0]?.id ?? null })
         })
     },
+    // Profili di sessione: "Nuova chat con <profilo>" apre la nuova chat del progetto selezionato con il profilo già applicato.
+    ...presetActions,
+    ...(activeChatId
+      ? [
+          {
+            id: 'save-preset',
+            label: t('Save session as profile…'),
+            icon: Bookmark,
+            keywords: 'save session profile preset agent model effort permissions salva sessione profilo agente modello permessi',
+            perform: () => run(() => openSavePreset(activeChatId))
+          }
+        ]
+      : []),
+    {
+      id: 'split',
+      label: t('Open side by side'),
+      icon: Columns2,
+      keywords: 'split side by side column columns tile affianca colonna colonne',
+      command: 'chat.split',
+      perform: () => run(() => useApp.getState().splitActive())
+    },
+    {
+      id: 'close-column',
+      label: t('Close this column'),
+      icon: PanelRightClose,
+      keywords: 'close column split side by side chiudi colonna affianca',
+      perform: () =>
+        run(() => {
+          const { selection, closeColumn } = useApp.getState()
+          if (selection.kind === 'session') closeColumn(selection.projectId, selection.sessionId)
+        })
+    },
+    {
+      id: 'next-tab',
+      label: t('Next tab'),
+      icon: ChevronRight,
+      keywords: 'next tab switch cycle chat file prossima scheda tab cambia',
+      command: 'tab.next',
+      perform: inProject((state, projectId) => state.cycleTab(projectId, 1))
+    },
+    {
+      id: 'previous-tab',
+      label: t('Previous tab'),
+      icon: ChevronLeft,
+      keywords: 'previous tab switch cycle chat file precedente scheda tab cambia',
+      command: 'tab.previous',
+      perform: inProject((state, projectId) => state.cycleTab(projectId, -1))
+    },
+    {
+      id: 'reopen-tab',
+      label: t('Reopen closed tab'),
+      icon: Undo2,
+      keywords: 'reopen closed tab restore undo close riapri chiusa scheda tab ripristina annulla',
+      command: 'tab.reopenClosed',
+      perform: inProject((state, projectId) => state.reopenClosedTab(projectId))
+    },
+    ...(window.ladder?.browser
+      ? [
+          {
+            id: 'open-browser',
+            label: t('Open browser'),
+            icon: Globe,
+            keywords: 'browser web page preview localhost dev server tab open apri pagina anteprima server sviluppo scheda',
+            perform: inProject((state, projectId) => state.openBrowser(projectId))
+          }
+        ]
+      : []),
+    {
+      id: 'search-project',
+      label: t('Search in project'),
+      icon: FolderSearch,
+      keywords: 'search find project files filter folder cerca trova progetto file filtro cartella',
+      command: 'search.project',
+      perform: inProject((state, projectId) => state.searchInProject(projectId))
+    },
+    ...(activeChat
+      ? [
+          {
+            id: 'regenerate-title',
+            label: activeChat.titleGenerating ? t('Generating title…') : t('Regenerate title'),
+            icon: Sparkles,
+            keywords: 'regenerate title rename generate name session rigenera titolo rinomina genera nome sessione',
+            disabled: activeChat.titleGenerating,
+            perform: () => run(() => useApp.getState().regenerateTitle(activeChat.id))
+          }
+        ]
+      : []),
+    ...(stoppedAgentBrowserId
+      ? [
+          {
+            id: 'resume-agent-browser',
+            label: t('Resume the agent’s browser'),
+            icon: Globe,
+            keywords: 'resume agent browser reactivate restart riattiva browser agente riprendi',
+            perform: () => run(() => void useApp.getState().resumeAgentBrowser(stoppedAgentBrowserId).catch(() => undefined))
+          }
+        ]
+      : []),
     {
       id: 'next-waiting',
       label: t('Go to next session waiting for you'),
       icon: CircleAlert,
       keywords: 'next session waiting needs you approval question prossima sessione attesa aspetta richiede approvazione domanda',
+      command: 'session.nextWaiting',
       hint: waitingCount === 0 ? t('none') : t('{n} waiting', { n: waitingCount }),
       perform: () => {
         if (useApp.getState().goToNextWaiting()) onClose()
@@ -169,7 +318,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       label: t('New session from issue, PR or branch…'),
       icon: GitPullRequestCreate,
       keywords: 'new session issue pr pull request branch github linear nuova sessione',
-      shortcut: '⌘⇧N',
+      command: 'chat.newFrom',
       perform: () => run(() => useApp.getState().setNewFromOpen(true))
     },
     {
@@ -185,7 +334,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       label: t('Open file…'),
       icon: FileSearch,
       keywords: 'open file search name path viewer apri cerca nome percorso',
-      shortcut: '⌘P',
+      command: 'quickOpen.toggle',
       perform: () => run(() => useApp.getState().setQuickOpen(true))
     },
     ...inspectorActions(run),
@@ -194,7 +343,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       label: t('Show or hide terminal'),
       icon: SquareTerminal,
       keywords: 'terminal panel shell console terminale pannello',
-      shortcut: '⌃`',
+      command: 'terminal.toggle',
       perform: () =>
         run(() => {
           const state = useApp.getState()
@@ -226,6 +375,13 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       perform: () => run(() => void addProjectFromDialog())
     },
     {
+      id: 'shortcuts',
+      label: t('Keyboard shortcuts'),
+      icon: Keyboard,
+      keywords: 'keyboard shortcuts keybindings keys preset vscode cursor customize tastiera scorciatoie tasti personalizza',
+      perform: () => run(() => useSettings.getState().openSection('shortcuts'))
+    },
+    {
       id: 'theme',
       label: t('Change theme…'),
       icon: Palette,
@@ -238,7 +394,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       label: sidebarOpen ? t('Hide sidebar') : t('Show sidebar'),
       icon: PanelLeft,
       keywords: 'hide show sidebar side bar nascondi mostra barra laterale',
-      shortcut: '⌘B',
+      command: 'sidebar.toggle',
       perform: () => run(() => useApp.getState().toggleSidebar())
     }
   ]
@@ -317,13 +473,13 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         {actionResults.length > 0 && (
           <CommandGroup heading={t('Actions')}>
             {actionResults.map((action) => (
-              <CommandItem key={action.id} value={`action:${action.id}`} className={itemClass} onSelect={action.perform}>
+              <CommandItem key={action.id} value={`action:${action.id}`} className={itemClass} disabled={action.disabled} onSelect={action.perform}>
                 <action.icon className="size-[15px] text-muted-foreground" strokeWidth={1.75} />
                 <span className="min-w-0 flex-1 truncate">{action.label}</span>
-                {(action.shortcut || action.hint) && (
+                {(action.command || action.hint) && (
                   <CommandShortcut className={sideClass}>
                     {action.hint && <span className="text-faint">{action.hint}</span>}
-                    {action.shortcut && <Kbd>{action.shortcut}</Kbd>}
+                    {action.command && shortcutLabel(action.command) && <Kbd>{shortcutLabel(action.command)}</Kbd>}
                   </CommandShortcut>
                 )}
               </CommandItem>
@@ -348,7 +504,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <CommandShortcut className={sideClass}>
                   <span className="truncate text-faint">{shortPath(project.path)}</span>
-                  {index < 9 && <Kbd>⌘{index + 1}</Kbd>}
+                  {index < 9 && <Kbd>{shortcutLabel(`project.select${index + 1}` as CommandId)}</Kbd>}
                 </CommandShortcut>
               </CommandItem>
             ))}

@@ -10,6 +10,7 @@ import { Compartment, EditorState } from '@codemirror/state'
 import { crosshairCursor, drawSelection, dropCursor, EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers, rectangularSelection } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 import { t } from '@shared/i18n'
+import { matchesCommand } from '@shared/shortcuts'
 import { currentDoc, type FileBuffer } from './buffers'
 
 const language = new Compartment()
@@ -42,9 +43,10 @@ const control = {
 }
 
 const theme = EditorView.theme({
-  '&': { height: '100%', fontSize: '12px', backgroundColor: 'var(--background)', color: 'var(--foreground)' },
+  '&': { height: '100%', fontSize: 'var(--editor-size, 12px)', backgroundColor: 'var(--background)', color: 'var(--foreground)' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '20px', overflow: 'auto' },
+  // Corpo e interlinea seguono le preferenze (12/20 per default: l'interlinea è 5/3 del corpo).
+  '.cm-scroller': { fontFamily: 'var(--font-code, var(--font-mono))', lineHeight: 'calc(var(--editor-size, 12px) * 5 / 3)', overflow: 'auto' },
   '.cm-content': { caretColor: 'var(--primary)', padding: '8px 0' },
   '.cm-gutters': { backgroundColor: 'var(--background)', color: 'var(--faint)', border: 'none' },
   '.cm-lineNumbers .cm-gutterElement': { padding: '0 12px 0 16px', fontVariantNumeric: 'tabular-nums' },
@@ -94,15 +96,15 @@ function createState(buffer: FileBuffer): EditorState {
       highlightSelectionMatches(),
       search({ top: true }),
       EditorView.contentAttributes.of({ 'aria-label': t('Text of {file}', { file: buffer.path }) }),
+      // Salva: la scorciatoia si legge dal registro a ogni tasto, così una scorciatoia cambiata vale subito anche negli editor già aperti.
+      EditorView.domEventHandlers({
+        keydown: (event) => {
+          if (!matchesCommand(event, 'file.save')) return false
+          buffer.onSave()
+          return true
+        }
+      }),
       keymap.of([
-        {
-          key: 'Mod-s',
-          preventDefault: true,
-          run: () => {
-            buffer.onSave()
-            return true
-          }
-        },
         ...closeBracketsKeymap,
         ...defaultKeymap,
         ...searchKeymap,

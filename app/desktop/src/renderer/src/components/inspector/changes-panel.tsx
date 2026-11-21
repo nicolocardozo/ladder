@@ -46,7 +46,11 @@ interface TurnOption {
 /** Turni con file modificati, dal più recente, con il messaggio che li ha avviati. */
 function turnOptions(items: ChatItem[]): TurnOption[] {
   const prompts = new Map<string, string>()
-  for (const item of items) if (item.kind === 'user' && !prompts.has(item.turnId)) prompts.set(item.turnId, item.text.split('\n')[0])
+  for (const item of items) {
+    if (prompts.has(item.turnId)) continue
+    if (item.kind === 'user') prompts.set(item.turnId, item.text.split('\n')[0])
+    else if (item.kind === 'command') prompts.set(item.turnId, `/${item.name}`)
+  }
   const ends = items.filter((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end')
   return ends
     .map((end, index) => ({ turnId: end.turnId, label: prompts.get(end.turnId) ?? t('Turn'), files: end.files.length, index: index + 1 }))

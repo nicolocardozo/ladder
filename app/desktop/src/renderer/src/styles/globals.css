@@ -126,6 +126,58 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Font della chat (impostazioni, Aspetto): data-chat-font, su <html> o su un elemento, sceglie la pila; senza attributo vale quella di sistema monospazio.
+   Provato in Electron: né "SF Mono" né ui-monospace né @font-face con local("SF Mono" / "SFMono-Regular" / "SF NS Mono" / ".SF NS Mono") risolvono
+   (SF NS Mono è un font di sistema nascosto a Chromium), mentre local("Menlo-Regular") sì. "SF Mono" resta in testa per chi l'ha installato; altrimenti è Menlo.
+   La dimensione del testo (data-chat-size, prefs.chatTextSize) sposta --chat-step e si somma al corpo del font: il --chat-size di ogni font
+   è dichiarato nella stessa regola, così un elemento con data-chat-font e data-chat-size propri (le anteprime) calcola il suo. */
+:root {
+  --chat-step: 0px;
+}
+[data-chat-size='small'] {
+  --chat-step: -1px;
+}
+[data-chat-size='large'] {
+  --chat-step: 2px;
+}
+[data-chat-size='xlarge'] {
+  --chat-step: 4px;
+}
+:root,
+[data-chat-font='system-mono'] {
+  --font-chat: "SF Mono", "Cascadia Mono", Consolas, Menlo, monospace;
+  --chat-size: calc(14px + var(--chat-step));
+  --chat-leading: 1.65;
+}
+[data-chat-font='system-sans'] {
+  --font-chat: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --chat-size: calc(15px + var(--chat-step));
+  --chat-leading: 1.6;
+}
+[data-chat-font='mona-sans'] {
+  --font-chat: var(--font-sans);
+  --chat-size: calc(15px + var(--chat-step));
+  --chat-leading: 1.6;
+}
+[data-chat-font='monaspace-neon'] {
+  --font-chat: var(--font-mono);
+  --chat-size: calc(14px + var(--chat-step));
+  --chat-leading: 1.65;
+}
+
+/* Font del codice (impostazioni, Aspetto): data-code-font su <html>. Vale per l'editor dei file e i blocchi di codice della chat;
+   --editor-size (px) vale solo per l'editor dei file (i blocchi di codice della chat hanno la loro dimensione); lo scrive use-chat-font dalle preferenze. Diff e terminale restano in --font-mono. */
+:root {
+  --font-code: var(--font-mono);
+  --editor-size: 12px;
+}
+[data-code-font='system-mono'] {
+  --font-code: "SF Mono", "Cascadia Mono", Consolas, Menlo, monospace;
+}
+[data-code-font='monaspace-neon'] {
+  --font-code: var(--font-mono);
+}
+
 /* Zone trascinabili della finestra (barra del titolo nascosta di macOS). */
 @utility drag {
   -webkit-app-region: drag;
@@ -156,6 +208,45 @@
   }
 }
 
+/*
+ * Barra di scorrimento minimale per tutta l'app. Un solo approccio: ::-webkit-scrollbar.
+ * Da Chromium 121 scrollbar-color e scrollbar-width disattivano ::-webkit-scrollbar sull'elemento,
+ * quindi nessun'altra regola dell'app li imposta (tranne no-scrollbar, che nasconde la barra).
+ * Binario trasparente; il pollice è un filo di 6 px (bordo trasparente + background-clip), nel colore del testo.
+ * La ScrollArea della sidebar nasconde la barra nativa con una regola più specifica (.base-ui-disable-scrollbar).
+ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  min-width: 32px;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-color: color-mix(in oklab, var(--foreground) 16%, transparent);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--foreground) 32%, transparent);
+}
+::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in oklab, var(--foreground) 44%, transparent);
+}
+
+/* Scorre ma senza barra: elenchi con le proprie frecce, righe di tab. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Logo inciso negli stati vuoti: tono su tono, ombra interna in alto e filo chiaro sotto. Tutto deriva dal fondo del tema. */
 .ladder-engraved {
   fill: color-mix(in oklab, var(--background) 91%, black);
@@ -175,6 +266,16 @@
 /* Tasti delle scorciatoie: il carattere di sistema disegna ⌘ ⇧ ⌥ ⌃ alla loro grandezza. */
 .kbd-key {
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+/* Riga di caricamento del browser integrato: un tratto che scorre da sinistra a destra. */
+@keyframes browser-load {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
 }
 
 /* Titolo troppo lungo al passaggio del mouse: pausa, scorre fino alla fine, pausa e torna. */

@@ -135,8 +135,10 @@ function Link({ href, children }: ComponentProps<'a'> & ExtraProps) {
 
 function Table({ children }: ComponentProps<'table'> & ExtraProps) {
   return (
-    <div className="chat-md-table">
-      <table>{children}</table>
+    <div className="chat-wide">
+      <div className="chat-md-table">
+        <table>{children}</table>
+      </div>
     </div>
   )
 }
@@ -181,7 +183,7 @@ export const Markdown = memo(function Markdown({ text, streaming, compact, class
     <div
       className={cn(
         'chat-md',
-        compact ? 'chat-md-compact text-sm leading-[1.55]' : 'text-base leading-[1.6] text-foreground',
+        compact ? 'chat-md-compact text-sm leading-[1.55]' : 'text-foreground',
         className
       )}
       data-streaming={streaming ? '' : undefined}

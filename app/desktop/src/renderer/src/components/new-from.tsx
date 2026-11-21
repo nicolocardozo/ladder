@@ -1,6 +1,6 @@
 // ⌘⇧N: nuova sessione da una issue o una PR di GitHub, da una issue di Linear o da un branch.
 // La scelta prepara la nuova chat: prompt già scritto (modificabile), worktree e branch giusti.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
 import { CircleDot, GitBranch, GitPullRequest, Search, SquareKanban, type LucideIcon } from 'lucide-react'
 import type { IssueItem, IssueList } from '@shared/protocol'
@@ -58,6 +58,9 @@ function NewFromBody({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState('')
   const [lists, setLists] = useState<Partial<Record<Source, IssueList | 'loading'>>>({})
   const current = lists[source]
+  // GitHub appena collegato o scollegato: le sue liste si rileggono. `loadedAt` ricorda con quale versione è stata letta ciascuna fonte.
+  const githubVersion = useApp((s) => s.githubVersion)
+  const loadedAt = useRef<Partial<Record<Source, number>>>({})
 
   useEffect(() => {
     try {
@@ -71,7 +74,9 @@ function NewFromBody({ onClose }: { onClose: () => void }) {
   const linearId = source === 'linear' && /^[a-z][a-z0-9]*-\d+$/i.test(query.trim()) ? query.trim() : ''
   useEffect(() => {
     if (!projectId) return
-    if (lists[source] && !(source === 'linear' && linearId)) return
+    const stale = source.startsWith('github') && loadedAt.current[source] !== githubVersion
+    if (lists[source] && !stale && !(source === 'linear' && linearId)) return
+    loadedAt.current[source] = githubVersion
     let cancelled = false
     setLists((l) => ({ ...l, [source]: l[source] && l[source] !== 'loading' ? l[source] : 'loading' }))
     const load =
@@ -88,7 +93,7 @@ function NewFromBody({ onClose }: { onClose: () => void }) {
       window.clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, source, linearId])
+  }, [projectId, source, linearId, githubVersion])
 
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
   const items = useMemo(() => {

@@ -107,6 +107,8 @@ export class ReviewRun {
       activity: () => undefined,
       subagent: () => undefined,
       usage: () => undefined,
+      commands: () => undefined,
+      compacted: () => undefined,
       // In sola lettura non serve approvare nulla: ogni richiesta si rifiuta.
       request: async (request: UserRequest): Promise<RequestResponse> => {
         const deny = request.options.find((o) => o.kind === 'deny')

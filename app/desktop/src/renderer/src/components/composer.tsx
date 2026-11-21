@@ -1,12 +1,16 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, AtSign, ChevronDown, Clock, ImagePlus, Plus, ShieldCheck, Square } from 'lucide-react'
-import type { AgentId, Attachment, Effort, PermissionLevel, QueuedMessage } from '@shared/protocol'
+import { useShortcutsRevision } from '@/lib/use-shortcuts'
+import { matchesCommand, shortcutLabel } from '@shared/shortcuts'
+import { ArrowUp, AtSign, ChevronDown, Clock, ImagePlus, Plus, RotateCcw, ShieldCheck, Square } from 'lucide-react'
+import type { AgentId, Attachment, Effort, PermissionLevel, QueuedMessage, SessionSummary, SlashCommand } from '@shared/protocol'
 import { t } from '@shared/i18n'
+import { formatTokens } from '@/components/subagent-bits'
 import { IconButton } from '@/components/icon-button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -14,16 +18,23 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { allowedLevels, levelHint, levelLabel, levelNative, permissionLevels } from '@/lib/agents'
+import { allowedLevels, EFFORTS, levelHint, levelLabel, levelNative, permissionLevels } from '@/lib/agents'
 import { AgentMark, modelLabel as prettyModel } from '@/components/agent-mark'
+import { AgentBadge } from '@/components/agent-map'
 import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
+import { altSendCombo, isAltSendKey, isSendKey, resolveBusy, sendKeyCombos, useSendKey, type BusyAction } from '@/lib/send-key'
+import { Kbd } from '@/components/ui/kbd'
 import { useApp } from '@/store/app-store'
-import { acceptImages, AttachmentStrip, IMAGE_ACCEPT, imagePlaceholder, MAX_IMAGES, toAttachment, type PendingImage } from '@/components/composer/attachments'
+import { acceptAttachments, acceptImages, AttachmentStrip, IMAGE_ACCEPT, imagePlaceholder, MAX_IMAGES, toAttachment, type PendingImage } from '@/components/composer/attachments'
 import { caretCoordinates } from '@/components/composer/caret'
 import { findMention, mentionToken, rankFiles, refreshProjectFiles, useProjectFiles } from '@/components/composer/file-index'
-import { MentionPicker, optionId, type MentionOption } from '@/components/composer/mention-picker'
-import { EffortSlider, EFFORTS } from '@/components/composer/effort-slider'
+import { MentionPicker, optionId, type PickerOption } from '@/components/composer/mention-picker'
+import { argsAfterToken, findSlash, isLadderCommand, mergeCommands, parseSlash, rankCommands, type CommandEntry } from '@/components/composer/slash-commands'
+import { DefaultBadge } from '@/components/default-badge'
+import { effectiveEffort, defaultsToken, effectiveModel, useAgentDefaults } from '@/lib/effective-defaults'
+import { hostProfileId } from '@/lib/profiles'
+import { EffortSlider } from '@/components/composer/effort-slider'
 import { QueueList } from '@/components/composer/queue-list'
 import { UsageButton } from '@/components/composer/usage-button'
 
@@ -34,20 +45,38 @@ interface ComposerProps {
   /** Progetto da cui prendere i file per le citazioni con @. */
   projectId: string | null
   agentName: string
-  models: { id: string; label: string; efforts?: Effort[] }[]
+  models: { id: string; label: string; efforts?: Effort[]; isDefault?: boolean; defaultEffort?: Effort | null }[]
+  /** Scelta esplicita: null = nessuna, parte il predefinito (di Ladder, poi dell'agente). */
   model: string | null
   onModelChange: (model: string) => void
+  /** Torna al predefinito; senza, la voce "Reset to default" non compare. */
+  onModelReset?: (defaultModel: string) => void
   effort: Effort | null
   onEffortChange: (effort: Effort) => void
+  onEffortReset?: (defaultEffort: Effort) => void
+  /** Effort davvero in uso quando la sessione non ne ha scelto uno (SessionSummary.effortEffective). */
+  effortEffective?: Effort | null
   permission: PermissionLevel
+  /** Livello chiesto che vale dal prossimo turno; il livello attuale resta quello di `permission`. */
+  permissionNext?: PermissionLevel | null
   onPermissionChange: (permission: PermissionLevel) => void
   running?: boolean
   /** Il testo non è mai vuoto: con sole immagini arriva un segnaposto. */
-  onSubmit: (text: string, attachments: Attachment[]) => void
+  onSubmit: (text: string, attachments: Attachment[], busy?: BusyAction) => void
   onStop?: () => void
   queue?: QueuedMessage[]
   onQueueChange?: (queue: QueuedMessage[]) => void
-  context?: { used: number; window: number } | null
+  /** L'agente accetta messaggi dentro il turno (SessionSummary.canSteer). Senza, "inserisci nel turno" ricade sulla coda. */
+  canSteer?: boolean
+  /** Consegna un messaggio in coda adesso: dentro il turno o interrompendolo (session.queue.deliver). */
+  onDeliver?: (id: string, how: 'steer' | 'now') => void
+  /** Perché la coda aspetta ("3 agents working"), mostrato accanto a "Sends when the turn ends". */
+  queueReason?: string | null
+  /** La coda parte da sola a fine turno solo se la sessione lavora; da ferma aspetta un nuovo messaggio. Predefinito: running. */
+  queueWorking?: boolean
+  /** Sessione in coda per il limite di turni: la coda parte da sola quando si libera un posto. */
+  queueWaitingSlot?: boolean
+  context?: { used: number; window: number; compactAt?: number | null } | null
   disabledReason?: string | null
   /** Vale solo all'apertura: il composer prende il focus e rimette il cursore dove l'avevi lasciato. */
   autoFocus?: boolean
@@ -55,17 +84,43 @@ interface ComposerProps {
   status?: string | null
   /** Agente della sessione: dice a cosa corrispondono i livelli di permesso. */
   agent?: AgentId
+  /** Profilo (account) della sessione o scelto per la nuova chat: di lui sono i limiti d'uso. Assente = predefinito. */
+  profileId?: string | null
   /** Falso per gli agenti che scelgono il ragionamento con le loro opzioni (ACP). */
   showEffort?: boolean
+  /** Comandi / dichiarati dall'agente della sessione. Assenti nella nuova chat: restano solo quelli di Ladder. */
+  commands?: SlashCommand[]
+  /** Esegue un comando dell'agente (richiesta 'session.command'). Gli errori li mostra chi lo implementa. */
+  /** Se restituisce una promessa, il testo si svuota solo quando si risolve; se si rifiuta resta dov'è. */
+  onCommand?: (name: string, args: string) => Promise<unknown> | void
+  /** /new: apre una nuova sessione nel progetto, con gli argomenti come testo di partenza. Senza, /new non compare. */
+  onNewSession?: (args: string) => void
   /** Livello massimo ammesso dal progetto ([agents] permissions_max). */
   maxPermission?: PermissionLevel | null
+  /** Colonna stretta: restano icona e modello, il livello di permessi è la sola icona e i pulsanti secondari spariscono. */
+  compact?: boolean
+  /** Sessione e sotto-agenti: se ce ne sono, nella barra in basso compare il badge degli agenti. */
+  sessionId?: string
+  subagentCounts?: SessionSummary['subagentCounts']
   className?: string
 }
 
 /** Cursore per bozza: tornando su una sessione (⌘[) riprendi a scrivere nel punto in cui eri. */
 const carets = new Map<string, [number, number]>()
 
-const NO_OPTIONS: MentionOption[] = []
+const NO_OPTIONS: PickerOption[] = []
+
+/** Modello scelto con /model <testo>: id o nome esatti, poi un solo nome che inizia o contiene il testo. */
+function findModel(models: { id: string; label: string }[], value: string) {
+  const q = value.toLowerCase()
+  const exact = models.find((m) => m.id.toLowerCase() === q || m.label.toLowerCase() === q)
+  if (exact) return exact
+  for (const test of [(m: { id: string; label: string }) => m.id.toLowerCase().startsWith(q) || m.label.toLowerCase().startsWith(q), (m: { id: string; label: string }) => m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q)]) {
+    const hits = models.filter(test)
+    if (hits.length === 1) return hits[0]
+  }
+  return null
+}
 
 /** Token di @terminal nel testo: il titolo senza spazi. */
 const terminalToken = (title: string) => `@terminal:${title.trim().replace(/\s+/g, '-') || t('terminal')}`
@@ -75,9 +130,10 @@ const chip =
   'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-60'
 
 export function Composer(props: ComposerProps) {
-  const { draftKey, projectId, agentName, models, model, onModelChange, effort, onEffortChange, permission, onPermissionChange } = props
-  const { running, onSubmit, onStop, queue = [], onQueueChange, context, disabledReason, autoFocus, status, className } = props
-  const { agent = 'claude-code', showEffort = true, maxPermission = null } = props
+  useShortcutsRevision()
+  const { draftKey, projectId, agentName, models, model, onModelChange, onModelReset, effort, onEffortChange, onEffortReset, effortEffective, permission, permissionNext, onPermissionChange } = props
+  const { running, onSubmit, onStop, queue = [], onQueueChange, canSteer = false, onDeliver, queueReason, queueWorking = running, queueWaitingSlot = false, context, disabledReason, autoFocus, status, className } = props
+  const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession, compact = false } = props
   const levels = allowedLevels(maxPermission)
   const initial = useApp.getState().drafts[draftKey] ?? ''
   const setDraft = useApp((s) => s.setDraft)
@@ -87,48 +143,95 @@ export function Composer(props: ComposerProps) {
   const fileInput = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<number | null>(null)
   const pendingCaret = useRef<number | null>(null)
+  // Comando dell'agente in attesa della risposta dell'host: finché dura, Invio non parte due volte.
+  const commandPending = useRef(false)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const [sendingCommand, setCommandPending] = useState(false)
   const level = permissionLevels.find((p) => p.id === permission) ?? permissionLevels[2]
   // Il modello scelto dice quali livelli di effort esistono; senza informazioni, tutti.
-  const effortLevels: Effort[] = (models.find((m) => m.id === model)?.efforts ?? EFFORTS.map((e) => e.id)).filter((level) => EFFORTS.some((e) => e.id === level))
-  const modelName = models.find((m) => m.id === model)?.label ?? prettyModel(null, model) ?? t('Default model')
+  // Senza scelta parte il predefinito. Alla creazione conta quello di Ladder (progetto, poi globale); poi quello dell'agente per il progetto.
+  // Una sessione già creata ignora i predefiniti di Ladder: vale ciò che l'agente riporta.
+  const isSession = Boolean(props.sessionId)
+  const projectDefaults = useApp((s) => (projectId ? s.ui[projectId]?.defaults : undefined))
+  const globalDefaults = useApp((s) => s.prefs?.defaults)
+  const ladder = useMemo(() => (isSession ? null : { project: projectDefaults, global: globalDefaults }), [isSession, projectDefaults, globalDefaults])
+  const agentDefaults = useAgentDefaults(agent, projectId, hostProfileId(props.profileId), defaultsToken({ agent, profileId: props.profileId ?? undefined, models }))
+  const defaultModel = useMemo(() => effectiveModel(agent, models, ladder, agentDefaults), [agent, models, ladder, agentDefaults])
+  const shownModel = model ?? defaultModel.value
+  const defaultEffort = useMemo(() => effectiveEffort(agent, models, shownModel, ladder, effortEffective, agentDefaults), [agent, models, shownModel, ladder, effortEffective, agentDefaults])
+  const shownEffort = effort ?? defaultEffort.value
+  const effortLevels: Effort[] = (models.find((m) => m.id === shownModel)?.efforts ?? EFFORTS.map((e) => e.id)).filter((level) => EFFORTS.some((e) => e.id === level))
+  const modelName = models.find((m) => m.id === shownModel)?.label ?? prettyModel(null, shownModel) ?? t('Default model')
   const disabled = Boolean(disabledReason)
 
   // Citazioni con @: posizione del cursore (null se c'è una selezione) e citazione chiusa con Esc.
   const [caret, setCaret] = useState<number | null>(null)
   const [focused, setFocused] = useState(false)
   const [dismissed, setDismissed] = useState<number | null>(null)
-  const [active, setActive] = useState<{ query: string; index: number }>({ query: '', index: 0 })
+  const [active, setActive] = useState<{ key: string | null; index: number }>({ key: null, index: 0 })
   const [pickerStyle, setPickerStyle] = useState<{ left: number; bottom: number; width: number } | null>(null)
   const listId = useId()
   const files = useProjectFiles(projectId)
   const allTerminals = useApp((s) => s.terminals)
   const mention = useMemo(() => (caret === null ? null : findMention(text, caret)), [text, caret])
-  const pickerOpen = mention !== null && focused && !disabled && mention.start !== dismissed
-  const query = pickerOpen ? mention.query : null
+  // Comando / a inizio messaggio: stessa struttura della citazione, mai insieme (una comincia con @, l'altro con /).
+  const slash = useMemo(() => (caret === null ? null : findSlash(text, caret)), [text, caret])
+  const trigger = mention ?? slash
+  const mode = mention ? 'mention' : 'command'
+  const commandList = useMemo(
+    () => mergeCommands(onCommand ? agentCommands : undefined, { model: true, effort: showEffort, new: Boolean(onNewSession) }),
+    [agentCommands, onCommand, onNewSession, showEffort]
+  )
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuFromCommand = useRef(false)
+  const pickerOpen = trigger !== null && focused && !disabled && trigger.start !== dismissed
+  const query = pickerOpen ? trigger.query : null
+  const pickerKey = query === null ? null : `${mode}:${query}`
   // Terminali citabili con @terminal: compaiono quando scrivi "te…" o parte del loro nome.
   const terminalRefs = useRef(new Map<string, string>())
-  const results = useMemo<MentionOption[]>(() => {
+  const results = useMemo<PickerOption[]>(() => {
     if (query === null) return NO_OPTIONS
+    if (mode === 'command') {
+      return rankCommands(commandList, query).map((entry) => ({
+        kind: 'command',
+        entry,
+        disabled: running && !isLadderCommand(entry) ? t('Wait for the current turn to finish.') : null
+      }))
+    }
     const lower = query.toLowerCase()
     const explicit = lower.startsWith('terminal:')
     const name = explicit ? lower.slice('terminal:'.length) : lower
     const allOfThem = explicit ? !name : lower.length >= 2 && 'terminal'.startsWith(lower)
-    const terminals: MentionOption[] = Object.values(allTerminals)
+    const terminals: PickerOption[] = Object.values(allTerminals)
       .filter((t) => t.projectId === projectId)
       .filter((t) => allOfThem || (name.length >= 2 && t.title.toLowerCase().includes(name)))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 4)
       .map((t) => ({ kind: 'terminal', id: t.id, title: t.title, detail: t.command ?? t.cwd }))
-    const fileResults: MentionOption[] = explicit ? [] : rankFiles(files, query).map((entry) => ({ kind: 'file', entry }))
+    const fileResults: PickerOption[] = explicit ? [] : rankFiles(files, query).map((entry) => ({ kind: 'file', entry }))
     return [...terminals, ...fileResults]
-  }, [files, query, allTerminals, projectId])
-  const activeIndex = active.query === query ? Math.min(active.index, Math.max(0, results.length - 1)) : 0
+  }, [files, query, mode, commandList, running, allTerminals, projectId])
+  const activeIndex = active.key === pickerKey ? Math.min(active.index, Math.max(0, results.length - 1)) : 0
 
   // Immagini allegate.
   const [images, setImages] = useState<PendingImage[]>([])
   const imageCount = useRef(0)
   imageCount.current = images.length
   const [notice, setNotice] = useState<string | null>(null)
+  // Screenshot dal browser integrato: finiscono qui come le immagini incollate, anche se arrivano a composer smontato.
+  const queuedImages = useApp((s) => s.composerAttachments[draftKey])
+  useEffect(() => {
+    if (!queuedImages?.length) return
+    const { images: added, error } = acceptAttachments(useApp.getState().takeComposerAttachments(draftKey), imageCount.current)
+    if (added.length) setImages((current) => [...current, ...added].slice(0, MAX_IMAGES))
+    setNotice(error)
+  }, [queuedImages, draftKey])
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
 
@@ -158,13 +261,13 @@ export function Composer(props: ComposerProps) {
   )
 
   useEffect(() => {
-    if (pickerOpen && projectId) refreshProjectFiles(projectId)
-  }, [pickerOpen, projectId])
+    if (pickerOpen && mode === 'mention' && projectId) refreshProjectFiles(projectId)
+  }, [pickerOpen, mode, projectId])
 
-  // Una @ cancellata e riscritta nello stesso punto riapre il selettore.
+  // Una @ (o una /) cancellata e riscritta nello stesso punto riapre il selettore.
   useEffect(() => {
-    if (!mention && dismissed !== null) setDismissed(null)
-  }, [mention, dismissed])
+    if (!trigger && dismissed !== null) setDismissed(null)
+  }, [trigger, dismissed])
 
   useEffect(() => {
     if (!notice) return
@@ -183,7 +286,7 @@ export function Composer(props: ComposerProps) {
   }, [text])
 
   // Il selettore si apre sopra la riga della @, allineato al carattere.
-  const anchor = pickerOpen ? mention.start : null
+  const anchor = pickerOpen ? trigger.start : null
   useLayoutEffect(() => {
     const el = textarea.current
     const container = box.current
@@ -192,18 +295,18 @@ export function Composer(props: ComposerProps) {
       return
     }
     const point = caretCoordinates(el, anchor)
-    const width = Math.min(460, container.clientWidth - 12)
+    const width = Math.min(mode === 'command' ? 560 : 460, container.clientWidth - 12)
     const top = el.offsetTop + Math.min(Math.max(point.top, 0), el.clientHeight - point.height)
     const left = Math.min(Math.max(el.offsetLeft + point.left - 12, 6), container.clientWidth - width - 6)
     setPickerStyle({ left, width, bottom: container.clientHeight - top + 6 })
-  }, [anchor, text, images.length])
+  }, [anchor, mode, text, images.length])
 
   // La bozza si salva 500 ms dopo l'ultima battuta e sopravvive al riavvio.
   const updateText = (value: string) => {
     setText(value)
     setDraft(draftKey, value)
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
-    saveTimer.current = window.setTimeout(() => send({ type: 'draft.set', key: draftKey, text: value }), 500)
+    saveTimer.current = window.setTimeout(() => send({ type: 'draft.set', key: draftKey, text: latestText.current }), 500)
   }
 
   const syncCaret = () => {
@@ -213,7 +316,8 @@ export function Composer(props: ComposerProps) {
     setCaret(el.selectionStart === el.selectionEnd ? el.selectionStart : null)
   }
 
-  const insertMention = (option: MentionOption) => {
+  const insertMention = (option: PickerOption) => {
+    if (option.kind === 'command') return
     if (!mention || caret === null) return
     let token: string
     if (option.kind === 'terminal') {
@@ -224,6 +328,98 @@ export function Composer(props: ComposerProps) {
     const spaced = /^\s/.test(after)
     pendingCaret.current = mention.start + token.length + 1
     updateText(text.slice(0, mention.start) + token + (spaced ? '' : ' ') + after)
+  }
+
+  /** Azzera testo e bozza subito: se il comando cambia sessione, lo smontaggio non deve risalvare "/comando". */
+  const clearDraft = () => {
+    if (saveTimer.current) window.clearTimeout(saveTimer.current)
+    saveTimer.current = null
+    latestText.current = ''
+    setText('')
+    setDraft(draftKey, '')
+    send({ type: 'draft.set', key: draftKey, text: '' })
+  }
+
+  const openModelMenu = () => {
+    menuFromCommand.current = true
+    setMenuOpen(true)
+  }
+
+  /** Tab: scrive "/nome " al posto del primo token e lascia gli argomenti dove sono. */
+  const completeCommand = (entry: CommandEntry) => {
+    if (!slash) return
+    const token = `/${entry.name}`
+    const after = text.slice(slash.end)
+    pendingCaret.current = token.length + 1
+    updateText(token + (/^\s/.test(after) ? '' : ' ') + after)
+  }
+
+  /** Esegue un comando: quelli di Ladder qui, quelli dell'agente con onCommand. Il testo si svuota solo se è partito (per l'agente, se la richiesta all'host riesce). */
+  const runCommand = (entry: CommandEntry, args: string) => {
+    if (!isLadderCommand(entry)) {
+      if (running) {
+        setNotice(t('/{name} can run once the current turn finishes.', { name: entry.name }))
+        return
+      }
+      if (commandPending.current) return // un secondo Invio mentre la richiesta è in attesa non fa niente
+      setNotice(null)
+      const sent = latestText.current
+      commandPending.current = true
+      setCommandPending(true)
+      void Promise.resolve(onCommand?.(entry.name, args))
+        .then(
+          () => {
+            if (mounted.current) {
+              // Se nel frattempo l'utente ha scritto altro, non si cancella il suo testo.
+              if (latestText.current === sent) clearDraft()
+            } else if (useApp.getState().drafts[draftKey] === sent) {
+              // Composer smontato (altra sessione): niente setText, e si svuota la bozza salvata solo se è ancora quella del comando.
+              setDraft(draftKey, '')
+              send({ type: 'draft.set', key: draftKey, text: '' })
+            }
+          },
+          () => undefined // l'errore lo mostra chi ha passato onCommand; il testo resta
+        )
+        .finally(() => {
+          commandPending.current = false
+          setCommandPending(false)
+        })
+      return
+    }
+    if (entry.name === 'new') {
+      setNotice(null)
+      clearDraft()
+      onNewSession?.(args)
+      return
+    }
+    if (entry.name === 'model') {
+      if (args) {
+        const found = findModel(models, args)
+        if (!found) {
+          setNotice(models.length ? t('No model matches “{name}”. Available: {models}.', { name: args, models: models.map((m) => m.label).join(', ') }) : t('The model list is not available yet.'))
+          return
+        }
+        onModelChange(found.id)
+      } else openModelMenu()
+    } else if (args) {
+      const q = args.toLowerCase()
+      const found = effortLevels.find((id) => id === q || t(EFFORTS.find((e) => e.id === id)?.label ?? '').toLowerCase() === q || (EFFORTS.find((e) => e.id === id)?.label ?? '').toLowerCase() === q)
+      if (!found) {
+        setNotice(t('No effort level matches “{name}”. Available: {levels}.', { name: args, levels: effortLevels.map((id) => t(EFFORTS.find((e) => e.id === id)?.label ?? id)).join(', ') }))
+        return
+      }
+      onEffortChange(found)
+    } else openModelMenu()
+    setNotice(null)
+    clearDraft()
+  }
+
+  /** Clic o Invio su una riga: i comandi dell'agente con hint e senza argomenti già scritti si completano, gli altri partono. */
+  const chooseOption = (option: PickerOption) => {
+    if (option.kind !== 'command') return insertMention(option)
+    const args = slash ? argsAfterToken(text, slash) : ''
+    if (option.entry.hint && !args && !isLadderCommand(option.entry) && !option.disabled) completeCommand(option.entry)
+    else runCommand(option.entry, args)
   }
 
   /** Pulsante @: scrive una @ al cursore (con uno spazio davanti se serve) e apre il selettore. */
@@ -287,7 +483,7 @@ export function Composer(props: ComposerProps) {
     void addImages([...event.dataTransfer.files])
   }
 
-  const canSend = !disabled && (text.trim().length > 0 || images.length > 0)
+  const canSend = !disabled && !sendingCommand && (text.trim().length > 0 || images.length > 0)
   const idle = !text.trim() && images.length === 0
 
   /** @terminal:nome diventa un riferimento nel testo, e l'output del terminale va in fondo al messaggio. */
@@ -310,14 +506,32 @@ export function Composer(props: ComposerProps) {
     return blocks.length ? `${body}\n\n${blocks.join('\n\n')}` : body
   }
 
-  const submit = () => {
-    if (!canSend) return
+  const sendKey = useSendKey()
+  const sendCombo = sendKeyCombos(sendKey).send
+  const altCombo = altSendCombo(sendKey)
+  // Durante un turno il tasto di invio fa ciò che dice AppPrefs.busySend; con ⌥ l'altra azione.
+  const prefBusy = useApp((s) => s.prefs?.busySend ?? 'steer')
+  const otherBusy: BusyAction = prefBusy === 'steer' ? 'queue' : 'steer'
+  const mainBusy = resolveBusy(prefBusy, canSteer)
+  // Se "inserisci" non è possibile le due azioni coincidono: il suggerimento mostra solo la coda.
+  const altBusy = resolveBusy(otherBusy, canSteer)
+  const busyLabel = (action: BusyAction) => (action === 'steer' ? t('Send into turn') : t('Queue'))
+  const sendLabel = running ? busyLabel(mainBusy) : t('Send')
+  const submit = (alt = false) => {
+    if (!canSend || commandPending.current) return
+    // Un testo che inizia con "/nome" noto è un comando; un "/" sconosciuto parte come messaggio normale.
+    const parsed = images.length === 0 ? parseSlash(text, commandList) : null
+    if (parsed) {
+      runCommand(parsed.entry, parsed.args)
+      return
+    }
     const value = text.trim() || imagePlaceholder(images.length)
     const attachments = images.map(toAttachment)
     updateText('')
     setImages([])
     setNotice(null)
-    void expandTerminals(value).then((expanded) => onSubmit(expanded, attachments))
+    const busy = running ? resolveBusy(alt ? otherBusy : prefBusy, canSteer) : undefined
+    void expandTerminals(value).then((expanded) => onSubmit(expanded, attachments, busy))
   }
 
   // Testo da "Aggiungi alla chat" (viewer, terminale): va al cursore, o in fondo, e il focus torna qui.
@@ -337,48 +551,76 @@ export function Composer(props: ComposerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [insertRequest])
 
+  // Bozza sostituita da fuori (profilo di sessione, ⌘⇧N): chi chiede ha già scritto store e host. Il testo entra qui senza rimontare, così allegati e cursore restano.
+  const replaceRequest = useApp((s) => (s.composerReplace?.key === draftKey ? s.composerReplace : null))
+  const handledReplace = useRef(replaceRequest?.nonce ?? 0)
+  useEffect(() => {
+    if (!replaceRequest || replaceRequest.nonce === handledReplace.current) return
+    handledReplace.current = replaceRequest.nonce
+    // Stesso testo: React non ridisegna e il cursore in attesa resterebbe addosso alla prossima modifica.
+    if (replaceRequest.text === latestText.current) return
+    // Un salvataggio in sospeso porterebbe all'host il testo vecchio.
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current)
+      saveTimer.current = null
+    }
+    latestText.current = replaceRequest.text
+    pendingCaret.current = replaceRequest.text.length
+    setText(replaceRequest.text)
+  }, [replaceRequest])
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return // accenti e tasti morti: non intercettare durante la composizione
     if (pickerOpen) {
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
-        setDismissed(mention.start)
+        setDismissed(trigger.start)
         return
       }
       if (results.length > 0) {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault()
           const step = event.key === 'ArrowDown' ? 1 : -1
-          setActive({ query: mention.query, index: (activeIndex + step + results.length) % results.length })
+          setActive({ key: pickerKey, index: (activeIndex + step + results.length) % results.length })
           return
         }
         if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
           event.preventDefault()
-          insertMention(results[activeIndex])
+          const option = results[activeIndex]
+          if (option.kind === 'command' && event.key === 'Tab') completeCommand(option.entry)
+          else chooseOption(option)
           return
         }
       }
     }
     // ⇧Tab cicla i livelli di permesso, come nel CLI di Claude Code.
-    if (event.key === 'Tab' && event.shiftKey) {
+    if (matchesCommand(event, 'composer.cyclePermission')) {
       event.preventDefault()
-      const index = levels.indexOf(permission)
+      const index = levels.indexOf(permissionNext ?? permission)
       onPermissionChange(levels[(index + 1) % levels.length])
       return
     }
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (running && isAltSendKey(event, sendKey)) {
+      event.preventDefault()
+      submit(true)
+      return
+    }
+    if (isSendKey(event, sendKey)) {
       event.preventDefault()
       submit()
       return
     }
-    if (event.key === 'Escape' && running && onStop && idle) {
+    if (matchesCommand(event, 'composer.stop') && running && onStop && idle) {
       event.preventDefault()
       onStop()
     }
   }
 
   const contextRatio = context && context.window > 0 ? Math.min(1, context.used / context.window) : null
+  // Con la soglia di compattazione nota il colore la segue (attenzione da 90% della soglia); senza, resta 80% della finestra.
+  const compactAt = context?.compactAt && context.compactAt > 0 ? context.compactAt : null
+  const contextWarn = contextRatio !== null && context && (compactAt ? context.used >= compactAt * 0.9 : contextRatio > 0.8)
 
   return (
     <div className={cn('flex w-full flex-col gap-2', className)}>
@@ -388,7 +630,7 @@ export function Composer(props: ComposerProps) {
           {status}
         </p>
       ) : null}
-      {queue.length > 0 && <QueueList queue={queue} onQueueChange={onQueueChange} onEditEnd={() => textarea.current?.focus()} />}
+      {queue.length > 0 && <QueueList queue={queue} onQueueChange={onQueueChange} canSteer={canSteer} onDeliver={onDeliver} reason={queueReason} working={queueWorking} waitingSlot={queueWaitingSlot} onEditEnd={() => textarea.current?.focus()} />}
 
       <div
         ref={box}
@@ -437,13 +679,22 @@ export function Composer(props: ComposerProps) {
           aria-activedescendant={pickerOpen && results.length > 0 ? optionId(listId, activeIndex) : undefined}
           rows={1}
           disabled={disabled}
-          placeholder={disabledReason ?? (running ? t('Type to queue a message for the end of the turn') : t('Ask {agent}. @ to mention a file, / for commands', { agent: agentName }))}
+          placeholder={
+            disabledReason ??
+            (running
+              ? mainBusy === 'steer'
+                ? t('Type to send a message into the turn in progress')
+                : t('Type to queue a message for the end of the turn')
+              : sendKey === 'mod-enter'
+                ? t('Ask {agent}. @ to mention a file, / for commands, {key} to send', { agent: agentName, key: sendCombo })
+                : t('Ask {agent}. @ to mention a file, / for commands', { agent: agentName }))
+          }
           className="block max-h-[40vh] min-h-[48px] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base leading-relaxed outline-none [field-sizing:content] placeholder:text-faint disabled:cursor-not-allowed"
         />
         <div className="flex items-center gap-1 px-2.5 pt-1 pb-2.5">
           <IconButton icon={Plus} label={t('Attach images')} onClick={() => !disabled && fileInput.current?.click()} />
           <IconButton icon={AtSign} label={t('Mention a file')} shortcut="@" onClick={startMention} />
-          <UsageButton agent={agent} />
+          {!compact && <UsageButton agent={agent} profileId={props.profileId} />}
           <input
             ref={fileInput}
             type="file"
@@ -459,6 +710,10 @@ export function Composer(props: ComposerProps) {
           />
           <span className="flex-1" />
 
+          {props.sessionId && props.subagentCounts && props.subagentCounts.total > 0 && (
+            <AgentBadge sessionId={props.sessionId} counts={props.subagentCounts} agent={agent} model={model} compact={compact} />
+          )}
+
           {contextRatio !== null && (
             <Tooltip>
               <TooltipTrigger
@@ -468,47 +723,81 @@ export function Composer(props: ComposerProps) {
                 <span
                   className="block size-3 rounded-full"
                   style={{
-                    background: `conic-gradient(var(${contextRatio > 0.8 ? '--attention' : '--muted-foreground'}) 0 ${contextRatio * 100}%, var(--input) ${contextRatio * 100}% 100%)`
+                    background: `conic-gradient(var(${contextWarn ? '--attention' : '--muted-foreground'}) 0 ${contextRatio * 100}%, var(--input) ${contextRatio * 100}% 100%)`
                   }}
                 />
-                <span className={cn(contextRatio > 0.8 && 'text-attention')}>{Math.round(contextRatio * 100)}%</span>
+                <span className={cn(contextWarn && 'text-attention')}>{Math.round(contextRatio * 100)}%</span>
               </TooltipTrigger>
               <TooltipContent side="top">
-                {t('Context used: {used}k of {window}k tokens', { used: Math.round(context!.used / 1000), window: Math.round(context!.window / 1000) })}
+                {t('{used} of {window} tokens', { used: formatTokens(context!.used), window: formatTokens(context!.window) })}
+                {compactAt || context!.compactAt === null ? ' · ' : ''}
+                {compactAt ? t('compacts automatically at {at}', { at: formatTokens(compactAt) }) : context!.compactAt === null ? t('auto-compact off') : null}
               </TooltipContent>
             </Tooltip>
           )}
 
-          <DropdownMenu>
+          <DropdownMenu
+            open={menuOpen}
+            onOpenChange={(open) => {
+              setMenuOpen(open)
+              // Aperto con /model o /effort: chiudendo si torna a scrivere.
+              if (!open && menuFromCommand.current) {
+                menuFromCommand.current = false
+                window.requestAnimationFrame(() => textarea.current?.focus())
+              }
+            }}
+          >
             <DropdownMenuTrigger className={chip} disabled={disabled}>
               <AgentMark agent={agent} size={13} className="text-foreground" />
-              <span className="font-semibold text-foreground">{agentName}</span>
-              <span className="text-muted-foreground">· {modelName}</span>
-              {effort && showEffort && <span className="text-muted-foreground">· {t(EFFORTS.find((e) => e.id === effort)?.label ?? '').toLowerCase()}</span>}
+              {compact ? <span className="sr-only">{agentName}</span> : <span className="font-semibold text-foreground">{agentName}</span>}
+              <span className={cn('min-w-0 truncate text-muted-foreground', compact && 'max-w-24')}>{compact ? modelName : `· ${modelName}`}</span>
+              {!compact && shownEffort && showEffort && <span className="text-muted-foreground">· {t(EFFORTS.find((e) => e.id === shownEffort)?.label ?? '').toLowerCase()}</span>}
               <ChevronDown className="size-3 text-faint" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" sideOffset={6} className="max-h-[60vh] w-72">
+            <DropdownMenuContent align="end" side="top" sideOffset={6} className="max-h-[60vh] w-80">
               <DropdownMenuGroup>
                 <DropdownMenuLabel>{t('Model')}</DropdownMenuLabel>
                 {models.length === 0 && <p className="px-2 py-1.5 text-xs text-muted-foreground">{t('The list appears after {agent} starts for the first time.', { agent: agentName })}</p>}
-                <DropdownMenuRadioGroup value={model ?? ''} onValueChange={(value) => onModelChange(String(value))}>
+                <DropdownMenuRadioGroup value={shownModel ?? ''} onValueChange={(value) => onModelChange(String(value))}>
                   {models.map((m) => (
                     <DropdownMenuRadioItem key={m.id} value={m.id}>
-                      {m.label}
+                      <span className="min-w-0 truncate">{m.label}</span>
+                      {m.id === defaultModel.value && <DefaultBadge source={defaultModel.source} agentName={agentName} />}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
+                {model && defaultModel.value && model !== defaultModel.value && onModelReset && (
+                  <DropdownMenuItem onClick={() => onModelReset(defaultModel.value!)} className="text-muted-foreground">
+                    <RotateCcw aria-hidden className="size-3.5" />
+                    {t('Reset to default')}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuGroup>
               {showEffort && effortLevels.length > 0 && <DropdownMenuSeparator />}
-              {showEffort && effortLevels.length > 0 && <EffortSlider levels={effortLevels} value={effort} onChange={onEffortChange} />}
+              {showEffort && effortLevels.length > 0 && <EffortSlider levels={effortLevels} value={shownEffort} chosen={Boolean(effort)} defaultLevel={defaultEffort.value} defaultSource={defaultEffort.source} agentName={agentName} onChange={onEffortChange} onReset={effort && defaultEffort.value && effort !== defaultEffort.value && onEffortReset ? () => onEffortReset(defaultEffort.value!) : undefined} />}
               {running && <p className="px-2 pt-1 pb-1.5 text-xs text-muted-foreground">{t('Changes apply from the next message.')}</p>}
             </DropdownMenuContent>
           </DropdownMenu>
 
           <DropdownMenu>
-            <DropdownMenuTrigger className={chip} aria-label={t('Permissions: {level}', { level: levelLabel(level.id) })} disabled={disabled}>
+            <DropdownMenuTrigger
+              className={chip}
+              aria-label={
+                permissionNext
+                  ? `${t('Permissions: {level}', { level: levelLabel(level.id) })}. ${t('{level} from next turn', { level: levelLabel(permissionNext) })}`
+                  : t('Permissions: {level}', { level: levelLabel(level.id) })
+              }
+              disabled={disabled}
+            >
               <ShieldCheck className="size-3.5 text-muted-foreground" />
-              {levelLabel(level.id)}
+              {compact ? null : levelLabel(level.id)}
+              {permissionNext ? (
+                compact ? (
+                  <Clock aria-hidden className="size-3 text-attention" />
+                ) : (
+                  <span className="text-muted-foreground">→ {levelLabel(permissionNext)}</span>
+                )
+              ) : null}
               <ChevronDown className="size-3 text-faint" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={6} className="w-80">
@@ -526,6 +815,7 @@ export function Composer(props: ComposerProps) {
                   ))}
                 </DropdownMenuRadioGroup>
               </DropdownMenuGroup>
+              {permissionNext && <p className="px-2 pt-1 pb-1.5 text-xs text-attention">{t('{level} from next turn', { level: levelLabel(permissionNext) })}</p>}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -539,19 +829,28 @@ export function Composer(props: ComposerProps) {
                 <Square className="size-3 fill-current" />
               </TooltipTrigger>
               <TooltipContent side="top">
-                {t('Stop')} <span className="ml-1 font-mono text-xs opacity-70">⌘.</span>
+                {t('Stop')} <span className="ml-1 font-mono text-xs opacity-70">{shortcutLabel('session.interrupt')}</span>
               </TooltipContent>
             </Tooltip>
           ) : (
-            <button
-              type="button"
-              aria-label={running ? t('Queue') : t('Send')}
-              disabled={!canSend}
-              onClick={submit}
-              className="no-drag ml-1 grid size-7 place-items-center rounded-full bg-primary text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:bg-muted disabled:text-faint"
-            >
-              <ArrowUp className="size-4" strokeWidth={2.2} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger
+                aria-label={sendLabel}
+                disabled={!canSend}
+                onClick={() => submit()}
+                className="no-drag ml-1 grid size-7 place-items-center rounded-full bg-primary text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:bg-muted disabled:text-faint"
+              >
+                <ArrowUp className="size-4" strokeWidth={2.2} />
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {sendLabel} <Kbd className="ml-1 opacity-70">{sendCombo}</Kbd>
+                {running && altBusy !== mainBusy ? (
+                  <span className="mt-0.5 block opacity-80">
+                    {busyLabel(altBusy)} <Kbd className="ml-1 opacity-70">{altCombo}</Kbd>
+                  </span>
+                ) : null}
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
         {pickerOpen && pickerStyle && (
@@ -562,10 +861,11 @@ export function Composer(props: ComposerProps) {
             loading={files.loading || (files.entries === null && !files.error)}
             error={files.error}
             hasProject={projectId !== null}
-            query={mention.query}
+            mode={mode}
+            query={trigger.query}
             style={pickerStyle}
-            onHover={(index) => setActive({ query: mention.query, index })}
-            onChoose={insertMention}
+            onHover={(index) => setActive({ key: pickerKey, index })}
+            onChoose={chooseOption}
           />
         )}
       </div>

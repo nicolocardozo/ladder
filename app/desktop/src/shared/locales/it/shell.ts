@@ -106,6 +106,8 @@ const it: Record<string, string> = {
 
   // Menu di sessioni e progetti
   Rename: 'Rinomina',
+  'Regenerate title': 'Rigenera titolo',
+  'Generating title…': 'Generazione del titolo…',
   'Mark as unread': 'Segna come da leggere',
   'Open in Cursor': 'Apri in Cursor',
   'Show in Finder': 'Mostra nel Finder',

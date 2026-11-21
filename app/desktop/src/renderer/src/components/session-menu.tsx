@@ -1,13 +1,16 @@
 // Menu di sessioni e progetti: le stesse azioni per il clic destro (sidebar e tab) e per il pulsante "…" della riga.
-import { useRef, useState } from 'react'
-import { Archive, Check, CheckCheck, CircleDot, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, Pencil, SquarePen, Trash2 } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { Archive, ArrowDown, ArrowUp, Bookmark, Check, CheckCheck, CircleDot, Columns2, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, ListPlus, Pencil, Sparkles, SquarePen, Trash2 } from 'lucide-react'
 import type { Project, SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
 import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@/components/ui/dropdown-menu'
-import { useApp } from '@/store/app-store'
+import { EDITOR_NAME, editorOf, openInEditor } from '@/components/inspector/open-file'
+import { layoutProjects } from '@/lib/project-groups'
+import { openSavePreset } from '@/lib/session-presets'
+import { liveColumns, useApp } from '@/store/app-store'
 
 type Variant = 'context' | 'dropdown'
 
@@ -19,8 +22,8 @@ const parts = {
 const contentClass = 'w-auto min-w-52'
 const itemClass = 'gap-2 py-[5px] text-sm [&_svg]:size-[15px] [&_svg]:text-muted-foreground'
 
-function openInCursor(path: string): void {
-  void window.ladder?.openInEditor(path)
+function openInEditorOf(project: Project): void {
+  openInEditor(project.id, project.path)
 }
 
 function revealInFinder(path: string): void {
@@ -41,20 +44,39 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
   const createGroup = useApp((s) => s.createGroup)
   const moveToGroup = useApp((s) => s.moveToGroup)
   const startRename = useApp((s) => s.startRename)
+  const regenerateTitle = useApp((s) => s.regenerateTitle)
   const archiveSession = useApp((s) => s.archiveSession)
   const markUnread = useApp((s) => s.markUnread)
   const markRead = useApp((s) => s.markRead)
+  const openSplit = useApp((s) => s.openSplit)
   const sessionId = session.id
+  // Come openSplit: serve una sessione da cui affiancare (la colonna attiva o quella aperta) e questa non deve essere già in colonna.
+  const canSplit = useApp((s) => {
+    const columns = liveColumns(s, session.projectId)
+    if (columns.includes(session.id)) return false
+    if (columns.length > 0) return true
+    return s.selection.kind === 'session' && s.selection.projectId === session.projectId && s.selection.sessionId !== session.id
+  })
 
   return (
     <Content
       className={contentClass}
       align={variant === 'dropdown' ? 'end' : 'start'}
-      finalFocus={() => useApp.getState().renaming !== sessionId && !useApp.getState().renamingGroup}
+      finalFocus={() => useApp.getState().renaming !== sessionId && !useApp.getState().renamingGroup && useApp.getState().presetEditor === null}
     >
       <Item className={itemClass} onClick={() => startRename(sessionId)}>
         <Pencil />
         {t('Rename')}
+      </Item>
+      {session.mode === 'chat' && (session.agent === 'claude-code' || session.agent === 'codex') && (
+        <Item className={itemClass} disabled={session.titleGenerating} onClick={() => regenerateTitle(sessionId)}>
+          <Sparkles />
+          {session.titleGenerating ? t('Generating title…') : t('Regenerate title')}
+        </Item>
+      )}
+      <Item className={itemClass} disabled={!canSplit} onClick={() => openSplit(session.projectId, sessionId)}>
+        <Columns2 />
+        {t('Open side by side')}
       </Item>
       {session.unread ? (
         <Item className={itemClass} onClick={() => markRead(sessionId)}>
@@ -69,15 +91,21 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
       )}
       {project && (
         <>
-          <Item className={itemClass} onClick={() => openInCursor(project.path)}>
+          <Item className={itemClass} onClick={() => openInEditorOf(project)}>
             <ExternalLink />
-            {t('Open in Cursor')}
+            {t('Open in {editor}', { editor: EDITOR_NAME[editorOf(project.id)] })}
           </Item>
           <Item className={itemClass} onClick={() => revealInFinder(project.path)}>
             <FolderSearch />
             {t('Show in Finder')}
           </Item>
         </>
+      )}
+      {session.mode === 'chat' && (
+        <Item className={itemClass} onClick={() => openSavePreset(sessionId)}>
+          <Bookmark />
+          {t('Save as profile…')}
+        </Item>
       )}
       <Sub>
         <SubTrigger className={itemClass}>
@@ -131,26 +159,79 @@ export function GroupMenuContent({ projectId, groupId }: { projectId: string; gr
   )
 }
 
+/** Clic destro o "…" su una sezione di progetti. Toglierla lascia i progetti nella sidebar, in coda a quelli senza sezione. */
+export function ProjectGroupMenuContent({ groupId, variant = 'context' }: { groupId: string; variant?: Variant }) {
+  const { Content, Item, Separator } = parts[variant]
+  const groups = useApp((s) => s.projectGroups?.groups)
+  const startRename = useApp((s) => s.startRenameProjectGroup)
+  const deleteGroup = useApp((s) => s.deleteProjectGroup)
+  const reorder = useApp((s) => s.reorderProjectGroups)
+  const ids = (groups ?? []).map((g) => g.id)
+  const index = ids.indexOf(groupId)
+  const shift = (delta: number) => {
+    const next = [...ids]
+    next.splice(index + delta, 0, ...next.splice(index, 1))
+    reorder(next)
+  }
+  return (
+    <Content className={contentClass} align={variant === 'dropdown' ? 'end' : 'start'} finalFocus={() => !useApp.getState().renamingProjectGroup}>
+      <Item className={itemClass} onClick={() => startRename(groupId)}>
+        <Pencil />
+        {t('Rename')}
+      </Item>
+      <Item className={itemClass} disabled={index <= 0} onClick={() => shift(-1)}>
+        <ArrowUp />
+        {t('Move up')}
+      </Item>
+      <Item className={itemClass} disabled={index < 0 || index >= ids.length - 1} onClick={() => shift(1)}>
+        <ArrowDown />
+        {t('Move down')}
+      </Item>
+      <Separator />
+      <Item className={itemClass} onClick={() => deleteGroup(groupId)}>
+        <FolderMinus />
+        {t('Remove section')}
+      </Item>
+    </Content>
+  )
+}
+
 interface ProjectMenuProps {
   project: Project
   onRemove: () => void
+  variant?: Variant
 }
 
-/** Clic destro su un progetto. "Rimuovi" apre una conferma: il focus va alla finestra di dialogo. */
-export function ProjectMenuContent({ project, onRemove }: ProjectMenuProps) {
+/** Clic destro o "…" su un progetto. "Rimuovi" apre una conferma: il focus va alla finestra di dialogo. */
+export function ProjectMenuContent({ project, onRemove, variant = 'context' }: ProjectMenuProps) {
+  const { Content, Item, Separator, Sub, SubTrigger, SubContent } = parts[variant]
   const select = useApp((s) => s.select)
+  const projects = useApp((s) => s.projects)
+  const projectGroups = useApp((s) => s.projectGroups)
+  const createProjectGroup = useApp((s) => s.createProjectGroup)
+  const moveProject = useApp((s) => s.moveProject)
   const removing = useRef(false)
+  // Dove sta il progetto: la sua sezione (null: fuori da ogni sezione) e il posto tra i vicini.
+  const place = useMemo(() => {
+    const layout = layoutProjects(projects, projectGroups)
+    const sections = layout.sections.map(({ group }) => group)
+    const home = layout.sections.find(({ projects: list }) => list.some((p) => p.id === project.id))
+    const list = home ? home.projects : layout.ungrouped
+    return { sections, groupId: home?.group.id ?? null, index: list.findIndex((p) => p.id === project.id), count: list.length }
+  }, [projects, projectGroups, project.id])
 
   return (
-    <ContextMenuContent
+    <Content
       className={contentClass}
+      align={variant === 'dropdown' ? 'end' : 'start'}
       finalFocus={() => {
-        const restore = !removing.current
+        // Dopo "Nuovo gruppo" il focus va al campo del nome, dopo "Rimuovi" alla finestra di dialogo.
+        const restore = !removing.current && !useApp.getState().renamingGroup && !useApp.getState().renamingProjectGroup
         removing.current = false
         return restore
       }}
     >
-      <ContextMenuItem
+      <Item
         className={itemClass}
         onClick={() => {
           useApp.getState().selectProject(project.id)
@@ -159,21 +240,55 @@ export function ProjectMenuContent({ project, onRemove }: ProjectMenuProps) {
       >
         <FolderPlus />
         {t('New group')}
-      </ContextMenuItem>
-      <ContextMenuItem className={itemClass} onClick={() => select({ kind: 'new', projectId: project.id })}>
+      </Item>
+      <Item className={itemClass} onClick={() => select({ kind: 'new', projectId: project.id })}>
         <SquarePen />
         {t('New chat')}
-      </ContextMenuItem>
-      <ContextMenuItem className={itemClass} onClick={() => openInCursor(project.path)}>
+      </Item>
+      <Item className={itemClass} onClick={() => openInEditorOf(project)}>
         <ExternalLink />
-        {t('Open in Cursor')}
-      </ContextMenuItem>
-      <ContextMenuItem className={itemClass} onClick={() => revealInFinder(project.path)}>
+        {t('Open in {editor}', { editor: EDITOR_NAME[editorOf(project.id)] })}
+      </Item>
+      <Item className={itemClass} onClick={() => revealInFinder(project.path)}>
         <FolderSearch />
         {t('Show in Finder')}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem
+      </Item>
+      <Separator />
+      <Sub>
+        <SubTrigger className={itemClass}>
+          <FolderInput />
+          {t('Move to section')}
+        </SubTrigger>
+        <SubContent className={contentClass}>
+          {place.sections.map((group) => (
+            <Item key={group.id} className={itemClass} onClick={() => group.id !== place.groupId && moveProject(project.id, group.id)}>
+              <Check className={group.id === place.groupId ? undefined : 'opacity-0'} />
+              {group.name}
+            </Item>
+          ))}
+          {place.sections.length > 0 && <Separator />}
+          <Item className={itemClass} onClick={() => void createProjectGroup([project.id])}>
+            <ListPlus />
+            {t('New section')}
+          </Item>
+          {place.groupId && (
+            <Item className={itemClass} onClick={() => moveProject(project.id, null)}>
+              <FolderMinus />
+              {t('Remove from section')}
+            </Item>
+          )}
+        </SubContent>
+      </Sub>
+      <Item className={itemClass} disabled={place.index <= 0} onClick={() => moveProject(project.id, place.groupId, place.index - 1)}>
+        <ArrowUp />
+        {t('Move up')}
+      </Item>
+      <Item className={itemClass} disabled={place.index < 0 || place.index >= place.count - 1} onClick={() => moveProject(project.id, place.groupId, place.index + 1)}>
+        <ArrowDown />
+        {t('Move down')}
+      </Item>
+      <Separator />
+      <Item
         variant="destructive"
         className={itemClass}
         onClick={() => {
@@ -183,8 +298,8 @@ export function ProjectMenuContent({ project, onRemove }: ProjectMenuProps) {
       >
         <Trash2 />
         {t('Remove from Ladder…')}
-      </ContextMenuItem>
-    </ContextMenuContent>
+      </Item>
+    </Content>
   )
 }
 

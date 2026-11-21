@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { t } from '@shared/i18n'
-import type { FileChange, GitStatusCode } from '@shared/protocol'
+import { MAX_COMMIT_SUBJECT, type FileChange, type GitStatusCode } from '@shared/protocol'
+import { cleanEnv, shellPath } from './agents/common'
 
 const run = promisify(execFile)
 
@@ -30,7 +31,7 @@ const BASE_ARGS = ['--no-optional-locks', '-c', 'core.quotePath=false']
 
 export async function git(repo: string, args: string[], env: Record<string, string> = {}): Promise<string> {
   const { stdout } = await run('git', ['-C', repo, ...BASE_ARGS, ...args], {
-    env: { ...process.env, ...env },
+    env: { ...cleanEnv(), ...env },
     maxBuffer: 64 * 1024 * 1024
   })
   return stdout.trimEnd()
@@ -47,7 +48,7 @@ async function gitBuffer(repo: string, args: string[]): Promise<Buffer> {
 /** Come `git`, ma con `input` sullo stdin. */
 function gitInput(repo: string, args: string[], input: string, env: Record<string, string> = {}): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', ['-C', repo, ...BASE_ARGS, ...args], { env: { ...process.env, ...env } })
+    const child = spawn('git', ['-C', repo, ...BASE_ARGS, ...args], { env: { ...cleanEnv(), ...env } })
     let out = ''
     let err = ''
     child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()))
@@ -94,6 +95,28 @@ export async function listFiles(path: string, limit = 20000): Promise<string[]> 
   const out = await git(path, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])
   const files = out.split('\0').filter(Boolean)
   return [...new Set(files)].slice(0, limit)
+}
+
+/**
+ * File non tracciati che corrispondono ai pattern (`--exclude-from` o `--exclude`), nelle sole regole date: non le ignore standard.
+ * `node_modules` (anche annidati) si esclude con un pathspec e non con `--exclude`: così git non vi entra
+ * (su 120mila file, 7 ms invece di 95), mentre un pattern `--exclude=node_modules/` li elencherebbe tutti.
+ */
+export async function matchingUntracked(repo: string, excludeArgs: string[]): Promise<string[]> {
+  const out = await git(repo, ['ls-files', '--others', '--ignored', '-z', ...excludeArgs, '--', '.', ':(exclude,glob)**/node_modules/**'])
+  return out.split('\0').filter(Boolean)
+}
+
+/** Quali di `paths` git ignora (regole standard: .gitignore, info/exclude, globali). */
+export async function ignoredAmong(repo: string, paths: string[]): Promise<string[]> {
+  if (paths.length === 0) return []
+  try {
+    const out = await gitInput(repo, ['check-ignore', '-z', '--stdin'], paths.join('\0') + '\0')
+    return out.split('\0').filter(Boolean)
+  } catch {
+    // check-ignore esce con 1 se nessun percorso è ignorato.
+    return []
+  }
 }
 
 /**
@@ -348,8 +371,8 @@ export async function addWorktreeForBranch(repo: string, path: string, branch: s
   await git(repo, ['worktree', 'add', path, branch])
 }
 
-/** Toglie un worktree solo se è pulito: con modifiche o file non tracciati git si rifiuta, e va bene così. */
-export async function removeWorktree(repo: string, path: string): Promise<void> {
+/** Toglie un worktree solo se è pulito: con modifiche o file non tracciati git si rifiuta, e va bene così. Dall'app si passa da removeWorktree in worktrees.ts (script di pulizia compreso). */
+export async function gitRemoveWorktree(repo: string, path: string): Promise<void> {
   await git(repo, ['worktree', 'remove', path])
 }
 
@@ -393,7 +416,7 @@ export async function unpushedCount(repo: string): Promise<number | null> {
 /** File in conflitto unendo `base` in `head`, calcolati con merge-tree: la cartella di lavoro non cambia. */
 export async function mergeConflicts(repo: string, head: string, base: string): Promise<string[]> {
   try {
-    await run('git', ['-C', repo, ...BASE_ARGS, 'merge-tree', '--write-tree', '--name-only', '--no-messages', head, base], { maxBuffer: 16 * 1024 * 1024 })
+    await run('git', ['-C', repo, ...BASE_ARGS, 'merge-tree', '--write-tree', '--name-only', '--no-messages', head, base], { maxBuffer: 16 * 1024 * 1024, env: cleanEnv() })
     return []
   } catch (error) {
     // Codice 1: unione con conflitti. La prima riga è l'albero, poi i file in conflitto.
@@ -426,3 +449,93 @@ export async function listBranches(repo: string): Promise<BranchInfo[]> {
   }
   return branches
 }
+
+// ── LAD-59 commit ────────────────────────────────────────────────────────────
+
+/** Per ogni chiamata di git del commit: hook lenti (lint, test) hanno tempo, uno bloccato no. */
+export const GIT_COMMIT_TIMEOUT_MS = 5 * 60_000
+
+/**
+ * Esito di un git "grezzo": codice e testo di stdout+stderr insieme (gli hook scrivono su entrambi). Si ferma, con
+ * tutto il gruppo di processi (hook compresi), se non finisce entro `timeoutMs`.
+ */
+async function gitRaw(repo: string, args: string[], input?: string, timeoutMs = GIT_COMMIT_TIMEOUT_MS): Promise<{ code: number; output: string }> {
+  // Gli hook (husky, lint-staged) chiamano pnpm, npx, node: nell'app pacchettizzata servono il PATH della shell di login.
+  const PATH = await shellPath().catch(() => process.env.PATH)
+  return new Promise((resolve, reject) => {
+    // Nessuna identità forzata (autore dalle config dell'utente) e nessuna richiesta interattiva.
+    const child = spawn('git', ['-C', repo, '--literal-pathspecs', '-c', 'core.quotePath=false', ...args], {
+      env: { ...cleanEnv(), PATH, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' },
+      detached: true
+    })
+    let output = ''
+    let timedOut = false
+    const killGroup = (signal: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, signal)
+      } catch {
+        child.kill(signal)
+      }
+    }
+    const timer = setTimeout(() => {
+      timedOut = true
+      killGroup('SIGTERM')
+      setTimeout(() => killGroup('SIGKILL'), 3_000).unref()
+    }, timeoutMs)
+    child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString()))
+    child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString()))
+    child.on('error', (error) => (clearTimeout(timer), reject(error)))
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (timedOut) return reject(new Error(t('git {command} did not finish in {minutes} minutes and was stopped: a hook of the repository may be stuck.', { command: args[0], minutes: String(Math.max(1, Math.round(timeoutMs / 60_000))) })))
+      resolve({ code: code ?? 1, output: output.trim() })
+    })
+    child.stdin.on('error', () => {})
+    child.stdin.end(input ?? '')
+  })
+}
+
+/** Ultime righe dell'output di git, senza colori, per un errore leggibile (gli hook possono scrivere molto). */
+function tailOutput(output: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = output.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+  return clean.length > 4000 ? `…${clean.slice(-4000)}` : clean
+}
+
+/**
+ * Commit nella cartella `repo` con il messaggio dato, senza toccarlo (cleanup verbatim, niente trailer) e senza saltare
+ * gli hook. Se c'è qualcosa in stage si committa quello; altrimenti `paths` ('all' o un elenco) viene messo in stage
+ * prima (git add -A, che rispetta .gitignore). Messaggio dallo stdin: mai interpolato in una shell.
+ */
+export async function commitChanges(repo: string, subject: string, body: string | undefined, paths: string[] | 'all' | undefined, timeoutMs = GIT_COMMIT_TIMEOUT_MS): Promise<{ hash: string; subject: string }> {
+  const title = subject.trim()
+  if (!title) throw new Error(t('The commit needs a subject.'))
+  if (/[\r\n]/.test(title)) throw new Error(t('The commit subject must be a single line.'))
+  if (title.length > MAX_COMMIT_SUBJECT) throw new Error(t('The commit subject is too long ({max} characters at most).', { max: String(MAX_COMMIT_SUBJECT) }))
+  const text = body ? body.replace(/^(\s*\n)+/, '').trimEnd() : ''
+  if (title.includes('\0') || text.includes('\0')) throw new Error(t('The commit message contains invalid characters.'))
+  if (Array.isArray(paths) && paths.some((p) => typeof p !== 'string' || !p || p.includes('\0'))) throw new Error(t('The commit message contains invalid characters.'))
+
+  // Esce 0 = niente in stage, 1 = qualcosa in stage; ogni altro codice (128: non è un repo, indice illeggibile…) è un errore di git.
+  const hasStaged = async (): Promise<boolean> => {
+    const check = await gitRaw(repo, ['diff', '--cached', '--quiet'], undefined, timeoutMs)
+    if (check.code !== 0 && check.code !== 1) throw new Error(t('Could not read the staged changes: {output}', { output: tailOutput(check.output) || `git exit ${check.code}` }))
+    return check.code === 1
+  }
+  if (!(await hasStaged())) {
+    if (paths === 'all' || (Array.isArray(paths) && paths.length > 0)) {
+      const add = await gitRaw(repo, ['add', '-A', ...(paths === 'all' ? [] : ['--', ...(paths as string[])])], undefined, timeoutMs)
+      if (add.code !== 0) throw new Error(t('Could not stage the changes: {output}', { output: tailOutput(add.output) }))
+    }
+    if (!(await hasStaged())) throw new Error(t('Nothing to commit.'))
+  }
+
+  const message = text ? `${title}\n\n${text}\n` : `${title}\n`
+  const commit = await gitRaw(repo, ['commit', '--cleanup=verbatim', '-F', '-'], message, timeoutMs)
+  if (commit.code !== 0) throw new Error(t('Commit failed:\n{output}', { output: tailOutput(commit.output) || `git exit ${commit.code}` }))
+  const head = await gitRaw(repo, ['rev-parse', '--short', 'HEAD'], undefined, timeoutMs)
+  if (head.code !== 0 || !/^[0-9a-f]{4,}$/.test(head.output)) throw new Error(t('The commit was created, but its hash could not be read: {output}', { output: tailOutput(head.output) || `git exit ${head.code}` }))
+  const hash = head.output
+  return { hash, subject: title }
+}
+// ── fine LAD-59 commit ───────────────────────────────────────────────────────

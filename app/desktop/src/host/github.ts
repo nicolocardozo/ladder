@@ -4,25 +4,39 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { t } from '@shared/i18n'
 import type { IssueItem, MergeCheck, PrStatus, ReviewComment } from '@shared/protocol'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { cleanEnv } from './agents/common'
+import { toolDir } from './downloads'
 import { git } from './git'
 
 const run = promisify(execFile)
 
 let ghPath: Promise<string | null> | null = null
 
-/** Percorso di gh: le app GUI non vedono il PATH della shell, quindi lo chiede alla shell di login. */
+/** gh scaricato da Ladder (LAD-11): sta nella cartella dati, dopo quello dell'utente. */
+export const downloadedGhPath = () => join(toolDir('gh'), 'gh')
+
+/** Percorso di gh: le app GUI non vedono il PATH della shell, quindi lo chiede alla shell di login; poi quello scaricato da Ladder. */
 export function findGh(): Promise<string | null> {
   ghPath ??= (async () => {
     if (process.env.LADDER_GH) return process.env.LADDER_GH
     try {
-      const { stdout } = await run(process.env.SHELL || '/bin/zsh', ['-lc', 'command -v gh'], { timeout: 5000 })
+      const { stdout } = await run(process.env.SHELL || '/bin/zsh', ['-lc', 'command -v gh'], { timeout: 5000, env: cleanEnv() })
       const path = stdout.trim().split('\n').pop() ?? ''
-      return path.startsWith('/') ? path : null
+      if (path.startsWith('/')) return path
     } catch {
-      return null
+      // Non è nel PATH dell'utente: si prova quello scaricato.
     }
+    return existsSync(downloadedGhPath()) ? downloadedGhPath() : null
   })()
   return ghPath
+}
+
+/** Dopo un download, un login o un logout: gh va cercato di nuovo e lo stato di accesso riletto. */
+export function resetGh(): void {
+  ghPath = null
+  authCache.clear()
 }
 
 export class GhError extends Error {
@@ -43,7 +57,7 @@ export async function gh(cwd: string, args: string[], timeout = 20000): Promise<
       timeout,
       maxBuffer: 16 * 1024 * 1024,
       // Niente prompt interattivi né colori: l'output deve restare JSON.
-      env: { ...process.env, GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1' }
+      env: { ...cleanEnv(), GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1' }
     })
     return stdout
   } catch (error) {
@@ -63,7 +77,30 @@ export async function hasGithubRemote(cwd: string): Promise<boolean> {
 
 const authCache = new Map<string, { at: number; ok: boolean }>()
 
-export type GhState = 'ok' | 'missing' | 'unauthenticated' | 'no-remote'
+export type GhState = 'ok' | 'missing' | 'unauthenticated' | 'no-remote' | 'error'
+
+/**
+ * Esito di `gh auth status`. Senza rete gh scrive "Failed to log in … The token in keyring is invalid" come per un token
+ * rifiutato davvero: in quel caso si chiede a GitHub (gh api rate_limit) e solo un 401 vale come scollegato.
+ */
+export async function ghAuthCheck(path: string, env: Record<string, string | undefined>, cwd?: string): Promise<'ok' | 'unauthenticated' | 'error'> {
+  const read = async (args: string[]): Promise<{ ok: boolean; text: string }> => {
+    try {
+      const { stdout, stderr } = await run(path, args, { cwd, env, timeout: 10000, maxBuffer: 1024 * 1024 })
+      return { ok: true, text: `${stdout}\n${stderr}` }
+    } catch (error) {
+      const e = error as { stdout?: string; stderr?: string }
+      return { ok: false, text: `${e.stdout ?? ''}\n${e.stderr ?? ''}` }
+    }
+  }
+  const auth = await read(['auth', 'status', '--hostname', 'github.com'])
+  if (auth.ok) return 'ok'
+  if (/not logged into any|no longer valid/i.test(auth.text)) return 'unauthenticated'
+  if (!/Failed to log in/i.test(auth.text)) return 'error'
+  const probe = await read(['api', 'rate_limit'])
+  if (probe.ok) return 'error'
+  return /Bad credentials|HTTP 401/i.test(probe.text) ? 'unauthenticated' : 'error'
+}
 
 export async function ghState(cwd: string): Promise<GhState> {
   if (!(await findGh())) return 'missing'
@@ -71,14 +108,10 @@ export async function ghState(cwd: string): Promise<GhState> {
   const path = (await findGh())!
   const cached = authCache.get(path)
   if (cached && Date.now() - cached.at < 5 * 60_000) return cached.ok ? 'ok' : 'unauthenticated'
-  let ok = true
-  try {
-    await gh(cwd, ['auth', 'status', '--hostname', 'github.com'], 10000)
-  } catch {
-    ok = false
-  }
-  authCache.set(path, { at: Date.now(), ok })
-  return ok ? 'ok' : 'unauthenticated'
+  const result = await ghAuthCheck(path, { ...cleanEnv(), GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1' }, cwd)
+  // Un errore di rete non si ricorda: alla prossima richiesta si riprova.
+  if (result !== 'error') authCache.set(path, { at: Date.now(), ok: result === 'ok' })
+  return result
 }
 
 /** Branch predefinito: origin/HEAD se c'è, altrimenti quello di GitHub, altrimenti main o master. */

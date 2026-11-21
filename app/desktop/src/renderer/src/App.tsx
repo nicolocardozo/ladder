@@ -1,25 +1,32 @@
-import { fileTabId } from '@shared/file-tabs'
-import { getBuffer } from '@/components/editor/buffers'
 import { FileTabView, UnsavedFileDialog } from '@/components/file-tab'
 import { useEffect } from 'react'
+import { X } from 'lucide-react'
 import { AppSidebar } from '@/components/app-sidebar'
+import { BrowserTabView } from '@/components/browser/browser-view'
 import { CommandPalette } from '@/components/command-palette'
 import { NewChat, SessionView } from '@/components/main-views'
+import { Onboarding } from '@/components/connections/onboarding'
 import { NewFromDialog } from '@/components/new-from'
+import { SavePresetDialog } from '@/components/preset-dialog'
 import { QuickOpen } from '@/components/quick-open'
-import { focusNextTerminal } from '@/lib/terminal-registry'
+import { handleGlobalKeydown } from '@/lib/shortcuts'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { useSettings } from '@/hooks/use-theme'
+import { prefsPending } from '@/hooks/use-prefs'
 import { isElectron, onHostConnect, onHostEvent, request, send } from '@/lib/host-client'
-import { useApp } from '@/store/app-store'
-import type { HostEvent } from '@shared/protocol'
+import { hasLinkedAgent, refreshConnections } from '@/lib/connections'
+import { liveColumns, useApp } from '@/store/app-store'
+import type { AgentBrowserState, HostEvent } from '@shared/protocol'
 import { t } from '@shared/i18n'
 
 export function App() {
   const selection = useApp((s) => s.selection)
   const connected = useApp((s) => s.connected)
   const sidebarOpen = useApp((s) => s.sidebarOpen)
+  const sidebarNotice = useApp((s) => s.sidebarNotice)
+  const clearSidebarNotice = useApp((s) => s.clearSidebarNotice)
+  const onboarding = useApp((s) => s.onboarding)
 
   // Tema cambiato da un'altra finestra e "Impostazioni…" dal menu dell'app (⌘,).
   useEffect(() => {
@@ -31,10 +38,28 @@ export function App() {
     }
   }, [])
 
+  // Browser integrato: gli stati delle tab (anche di quelle non aperte) arrivano dal main e vanno nello store.
+  useEffect(() => window.ladder?.browser?.onEvent((state) => useApp.getState().setBrowserState(state)), [])
+
+  // Browser dell'agente: a ogni (ri)connessione si rilegge lo stato di tutte le sessioni (finestra appena aperta o host ripartito);
+  // i cambiamenti arrivano dall'evento `browser.agent`, gestito nello store. Senza app (anteprima web) non c'è nulla da leggere.
+  useEffect(
+    () =>
+      onHostConnect(() => {
+        if (!isElectron) return
+        void request<AgentBrowserState[]>({ type: 'browser.agent.state' })
+          .then((list) => useApp.getState().loadAgentBrowser(Array.isArray(list) ? list : []))
+          .catch(() => undefined)
+      }),
+    []
+  )
+
   // Preferenze (notifiche, limite di sessioni) e clic sulle notifiche o sui link ladder://.
   useEffect(() => {
     void window.ladder?.prefs.get().then((prefs) => useApp.getState().setPrefs(prefs))
-    const offPrefs = window.ladder?.prefs.onChange((prefs) => useApp.getState().setPrefs(prefs))
+    const offPrefs = window.ladder?.prefs.onChange((prefs) => {
+      if (!prefsPending()) useApp.getState().setPrefs(prefs)
+    })
     let waitingOpen: { sessionId: string; itemId: string | null } | null = null
     const tryOpen = () => {
       const target = waitingOpen
@@ -61,14 +86,23 @@ export function App() {
   // Cosa stai guardando: il main non notifica la sessione che hai davanti. Entrare e uscire da un progetto
   // aggiorna "Mentre eri via": se torni dopo più di 30 minuti compare il riepilogo.
   useEffect(() => {
+    let sent = ''
     const report = () => {
-      const { selection } = useApp.getState()
-      window.ladder?.setView({ projectId: selection.projectId, sessionId: selection.kind === 'session' ? selection.sessionId : null })
+      const state = useApp.getState()
+      const { selection } = state
+      const sessionId = selection.kind === 'session' ? selection.sessionId : null
+      // Con le colonne affiancate sono visibili tutte, non solo l'attiva.
+      const columns = selection.projectId && sessionId ? liveColumns(state, selection.projectId) : []
+      const visibleSessionIds = columns.length > 1 && sessionId && columns.includes(sessionId) ? columns : sessionId ? [sessionId] : []
+      const key = JSON.stringify([selection.projectId, sessionId, visibleSessionIds])
+      if (key === sent) return
+      sent = key
+      window.ladder?.setView({ projectId: selection.projectId, sessionId, visibleSessionIds })
     }
     report()
     const offStore = useApp.subscribe((state, prev) => {
+      if (state.ui !== prev.ui || state.sessions !== prev.sessions) report()
       if (state.selection === prev.selection) return
-      report()
       const now = state.selection.projectId
       const before = prev.selection.projectId
       if (now === before) return
@@ -113,6 +147,8 @@ export function App() {
           applyEvent(snapshot)
           // Le sessioni già caricate si ricaricano: l'host potrebbe essere stato riavviato.
           for (const sessionId of Object.keys(useApp.getState().items)) send({ type: 'session.open', sessionId })
+          // Lo snapshot porta già i collegamenti; se mancano (host senza), si chiedono.
+          if (!snapshot.connections) refreshConnections()
         })
         .catch(() => undefined)
     })
@@ -122,107 +158,27 @@ export function App() {
     }
   }, [])
 
-  // Scorciatoie globali: ⌘K comandi, ⌘P file, ⌘B sidebar, ⌘[ ⌘] indietro e avanti, ⌘N nuova chat, ⌘⇧N da issue,
-  // ⌘1…9 progetti, ⌘⌥1…4 ispettore, ⌃` terminale, ⌘W chiude la tab, ⌘. ferma la sessione aperta.
+  // Primo avvio: se nessun agente è collegato compare "Collega i tuoi abbonamenti". Una volta aperta resta finché non si
+  // preme Continua o Salta, anche se nel frattempo un agente si collega; fino al prossimo avvio non ricompare.
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
+    const check = () => {
       const state = useApp.getState()
-      const projectId = state.selection.projectId
-      // ⌃` (il tasto a sinistra dell'1, su qualunque tastiera): pannello terminale del progetto.
-      if (event.ctrlKey && !event.metaKey && event.code === 'Backquote') {
-        event.preventDefault()
-        if (!projectId || state.paletteOpen || state.quickOpen) return
-        const open = Boolean(state.ui[projectId]?.terminal?.open)
-        if (!open) focusNextTerminal()
-        state.setTerminalPanel(projectId, { open: !open })
-        return
-      }
-      if (!event.metaKey || event.ctrlKey) return
-      const { selection: current, select } = state
-      const key = event.key.toLowerCase()
-      const plain = !event.shiftKey && !event.altKey
-
-      if (plain && key === 'k') {
-        event.preventDefault()
-        state.setQuickOpen(false)
-        state.setPaletteOpen(!state.paletteOpen)
-        return
-      }
-      if (plain && key === 'p') {
-        event.preventDefault()
-        state.setPaletteOpen(false)
-        state.setQuickOpen(!state.quickOpen)
-        return
-      }
-      // Con la palette aperta le altre scorciatoie aspettano: agirebbero sotto la finestra di dialogo.
-      if (state.paletteOpen || state.quickOpen) return
-
-      // ⌘⌥1…4: Modifiche, File, Cronologia, Merge. Con ⌥ event.key cambia carattere: conta il tasto fisico.
-      if (event.altKey && !event.shiftKey && projectId && /^Digit[1234]$/.test(event.code)) {
-        event.preventDefault()
-        const tab = (['changes', 'files', 'history', 'merge'] as const)[Number(event.code.slice(5)) - 1]
-        state.toggleInspector(projectId, tab)
-        return
-      }
-
-      if (plain && key === 'b') {
-        event.preventDefault()
-        state.toggleSidebar()
-        return
-      }
-      // Su tastiere dove [ e ] richiedono ⌥ (per esempio quella italiana) event.key resta la parentesi.
-      if (!event.shiftKey && (event.key === '[' || event.key === ']')) {
-        event.preventDefault()
-        state.navigate(event.key === '[' ? -1 : 1)
-        return
-      }
-      const digit = Number(event.key)
-      if (plain && digit >= 1 && digit <= 9) {
-        const project = state.projects[digit - 1]
-        if (project) {
-          event.preventDefault()
-          state.selectProject(project.id)
-        }
-        return
-      }
-      // ⌘⇧A: prossima sessione che ti aspetta, in qualunque progetto.
-      if (event.shiftKey && key === 'a') {
-        event.preventDefault()
-        state.goToNextWaiting()
-        return
-      }
-      if (!event.shiftKey && key === 'w' && current.kind === 'session') {
-        event.preventDefault()
-        state.closeTab(current.projectId, current.sessionId)
-        return
-      }
-      // ⌘S salva anche se il cursore non è nel testo, per esempio dopo un clic su un avviso.
-      if (!event.shiftKey && key === 's' && current.kind === 'file') {
-        event.preventDefault()
-        getBuffer(fileTabId(current.root, current.path))?.onSave()
-        return
-      }
-      if (!event.shiftKey && key === 'w' && current.kind === 'file') {
-        event.preventDefault()
-        state.closeFile(current.projectId, current.root, current.path)
-        return
-      }
-      // ⌘⇧N: nuova sessione da una issue, una PR o un branch.
-      if (event.shiftKey && !event.altKey && key === 'n') {
-        event.preventDefault()
-        if (current.projectId) state.setNewFromOpen(true)
-        return
-      }
-      if (!event.shiftKey && key === 'n') {
-        event.preventDefault()
-        select({ kind: 'new', projectId: current.projectId })
-      } else if (event.key === '.' && current.kind === 'session') {
-        event.preventDefault()
-        send({ type: 'session.interrupt', sessionId: current.sessionId })
-      }
+      if (state.onboarding !== 'idle' || !state.connected || !state.connections['claude-code'] || !state.connections.codex) return
+      state.setOnboarding(hasLinkedAgent() ? 'done' : 'open')
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    check()
+    return useApp.subscribe(check)
+  }, [])
+
+  // Scorciatoie globali: il registro è in shared/shortcuts.ts, le azioni in lib/shortcuts.ts.
+  useEffect(() => {
+    window.addEventListener('keydown', handleGlobalKeydown)
+    // Con il focus nella pagina nativa del browser la tastiera non passa dal renderer: il main inoltra le scorciatoie di app.
+    const offForwarded = window.ladder?.browser?.onShortcut?.((e) => handleGlobalKeydown({ key: e.key, code: e.code, metaKey: e.meta, ctrlKey: e.ctrl, altKey: e.alt, shiftKey: e.shift }))
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeydown)
+      offForwarded?.()
+    }
   }, [])
 
   if (!isElectron) {
@@ -251,6 +207,10 @@ export function App() {
   return (
     <TooltipProvider delay={400}>
       <div className="flex h-full">
+        {onboarding === 'open' ? (
+          <Onboarding onDone={() => useApp.getState().setOnboarding('done')} />
+        ) : (
+          <>
         {sidebarOpen && <AppSidebar />}
         {!connected ? (
           <main className="drag grid flex-1 place-items-center bg-background text-sm text-muted-foreground">{t('Starting Ladder…')}</main>
@@ -258,14 +218,32 @@ export function App() {
           <SessionView sessionId={selection.sessionId} />
         ) : selection.kind === 'file' ? (
           <FileTabView key={`${selection.root}\n${selection.path}`} projectId={selection.projectId} root={selection.root} path={selection.path} />
+        ) : selection.kind === 'browser' ? (
+          <BrowserTabView key={selection.tabId} projectId={selection.projectId} tabId={selection.tabId} />
         ) : (
           <NewChat projectId={selection.projectId} />
         )}
+          </>
+        )}
       </div>
+      {!sidebarOpen && sidebarNotice && (
+        <div role="alert" className="fixed bottom-3 left-3 z-50 flex min-h-7 max-w-80 items-center rounded-md border border-border bg-popover pr-1 pl-2.5 text-xs text-destructive shadow-md">
+          <span className="min-w-0 flex-1 py-1">{sidebarNotice}</span>
+          <button
+            type="button"
+            aria-label={t('Dismiss')}
+            onClick={clearSidebarNotice}
+            className="grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
       <CommandPalette />
       <QuickOpen />
       <NewFromDialog />
       <SettingsDialog />
+      <SavePresetDialog />
       <UnsavedFileDialog />
     </TooltipProvider>
   )

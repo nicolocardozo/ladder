@@ -36,6 +36,15 @@ async function main(): Promise<void> {
       host.setPrefs(message.prefs)
       return
     }
+    // LAD-57 parte 2: risposte e avvisi del main sul browser dell'agente.
+    if (message?.type === 'browser-agent-result') {
+      host.browserAgentResult(message.rid, message.result)
+      return
+    }
+    if (message?.type === 'browser-agent-closed') {
+      host.browserAgentClosed(message.sessionId)
+      return
+    }
     const [port] = event.ports
     if (!port) return
     ports.add(port)

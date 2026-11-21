@@ -1,15 +1,28 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bot, Check, Moon, Palette, Plug, Sun, type LucideIcon } from 'lucide-react'
-import type { AcpAgentSpec, AgentStatus, AppPrefs, RegistryAgent } from '@shared/protocol'
+import { useEffect, useRef, useState } from 'react'
+import { BadgeCheck, Bell, Bot, Check, Database, GitFork, Keyboard, Moon, Palette, Plug, SlidersHorizontal, Sun, type LucideIcon } from 'lucide-react'
+import type { AcpAgentSpec, AgentStatus, AppPrefs, ChatFont } from '@shared/protocol'
 import { request } from '@/lib/host-client'
 import { getLocale, localeTag, LOCALES, plural, t } from '@shared/i18n'
 import { AgentMark } from '@/components/agent-mark'
+import { AgentCatalog } from '@/components/agents/agent-catalog'
+import { liveAgentCatalogActions } from '@/lib/agent-catalog'
+import { ConnectionList } from '@/components/connections/connection-list'
+import { refreshConnections } from '@/lib/connections'
 import { useApp } from '@/store/app-store'
 import type { ThemeInfo } from '@shared/themes.generated'
 import { LadderLockup } from '@/components/brand/logo'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { THEMES, useSettings, type SettingsSection } from '@/hooks/use-theme'
+import { usePrefs } from '@/hooks/use-prefs'
+import { useElementWidth } from '@/lib/use-element-width'
+import { DefaultsSection } from '@/components/settings-defaults'
+import { ShortcutsSection } from '@/components/settings-shortcuts'
+import { Toggle } from '@/components/settings-parts'
+import { ReadingBlocks } from '@/components/settings-reading'
+import { SystemSection } from '@/components/settings-system'
+import { WorkspaceSection } from '@/components/settings-workspace'
+import { REQUEST_SOUNDS, system } from '@/lib/system-bridge'
 import { cn } from '@/lib/utils'
 
 /** Anteprima del tema con i suoi colori: sidebar, messaggio, risposta, richiesta, stati. */
@@ -51,14 +64,14 @@ type Section = SettingsSection
 const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'subscriptions', label: 'Subscriptions', icon: BadgeCheck },
   { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'defaults', label: 'New sessions', icon: SlidersHorizontal },
+  { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
+  { id: 'workspace', label: 'Workspace', icon: GitFork },
+  { id: 'system', label: 'Data and system', icon: Database },
   { id: 'integrations', label: 'Integrations', icon: Plug }
 ]
-
-/** Testo tradotto con elementi React al posto dei segnaposto `{nome}`. */
-function withNodes(text: string, nodes: Record<string, ReactNode>): ReactNode[] {
-  return text.split(/\{(\w+)\}/).map((part, i) => (i % 2 === 1 ? <Fragment key={i}>{nodes[part] ?? `{${part}}`}</Fragment> : part))
-}
 
 export function SettingsDialog() {
   const open = useSettings((s) => s.settingsOpen)
@@ -94,7 +107,12 @@ export function SettingsDialog() {
           <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-8 py-7">
             {section === 'appearance' && <AppearanceSection open={open} />}
             {section === 'notifications' && <NotificationsSection />}
+            {section === 'subscriptions' && <SubscriptionsSection />}
             {section === 'agents' && <AgentsSection />}
+            {section === 'defaults' && <DefaultsSection />}
+            {section === 'shortcuts' && <ShortcutsSection />}
+            {section === 'workspace' && <WorkspaceSection />}
+            {section === 'system' && <SystemSection />}
             {section === 'integrations' && <IntegrationsSection />}
           </div>
         </div>
@@ -155,7 +173,142 @@ function AppearanceSection({ open }: { open: boolean }) {
                 )
               })}
             </div>
+            <ChatFontPicker />
+            <ChatWidthPicker />
+            <ReadingBlocks />
     </>
+  )
+}
+
+const CHAT_FONTS: { id: ChatFont; label: string }[] = [
+  { id: 'system-mono', label: 'System monospace' },
+  { id: 'system-sans', label: 'System sans' },
+  { id: 'mona-sans', label: 'Mona Sans' },
+  { id: 'monaspace-neon', label: 'Monaspace Neon' }
+]
+
+/** Font della chat: solo risposte e messaggi, il resto dell'app non cambia. Ogni voce è resa nel suo font, sotto l'anteprima. */
+function ChatFontPicker() {
+  const [prefs, update] = usePrefs()
+  if (!prefs) return null
+  const current = prefs.chatFont
+  return (
+    <section className="mt-8" aria-labelledby="chat-font-title">
+      <h3 id="chat-font-title" className="text-sm font-semibold">{t('Chat font')}</h3>
+      <p className="mt-1 max-w-[62ch] text-sm text-muted-foreground">{t('Used for replies and your messages in every session. The rest of the app keeps its font.')}</p>
+      <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2" role="radiogroup" aria-label={t('Chat font')}>
+        {CHAT_FONTS.map((font) => {
+          const selected = font.id === current
+          return (
+            <button
+              key={font.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              data-chat-font={font.id}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => update({ chatFont: font.id })}
+              onKeyDown={(e) => {
+                const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+                if (!step) return
+                e.preventDefault()
+                const next = CHAT_FONTS[(CHAT_FONTS.indexOf(font) + step + CHAT_FONTS.length) % CHAT_FONTS.length]
+                update({ chatFont: next.id })
+                e.currentTarget.parentElement?.querySelector<HTMLElement>(`[data-chat-font='${next.id}']`)?.focus()
+              }}
+              className={cn(
+                'flex h-9 items-center gap-2 rounded-md border px-3 text-left font-[family-name:var(--font-chat)] text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
+                selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-input'
+              )}
+            >
+              <span className={selected ? 'font-semibold' : 'font-medium'}>{t(font.label)}</span>
+              {font.id === 'system-mono' && <span className="rounded border border-border px-1 font-sans text-xs text-muted-foreground">{t('default')}</span>}
+              {selected && <Check className="ml-auto size-3.5 text-primary" aria-hidden="true" />}
+            </button>
+          )
+        })}
+      </div>
+      <div data-chat-font={current} aria-label={t('Preview')} role="group" className="mt-3 rounded-lg border border-border p-4">
+        <p className="max-w-[62ch] font-[family-name:var(--font-chat)] text-[length:var(--chat-size)] leading-[var(--chat-leading)] text-foreground">
+          {t('The agent explains what it changed and why, in the font you picked.')}
+        </p>
+        <pre className="mt-3 overflow-x-auto rounded-md border border-border bg-[var(--code-bg)] px-3 py-2 font-mono text-xs leading-5 text-foreground">const total = items.reduce((sum, item) =&gt; sum + item.price, 0)</pre>
+      </div>
+    </section>
+  )
+}
+
+/** Anteprima di una finestra larga 1200 px, rimpicciolita per stare nel dialogo: a scala reale 75, 100 ch e tutta la vista non si distinguerebbero. */
+const PREVIEW_WINDOW = 1200
+function WidthPreview({ width }: { width: AppPrefs['chatWidth'] }) {
+  const [measure, frame] = useElementWidth()
+  const zoom = frame > 0 ? Math.min(1, (frame - 2) / PREVIEW_WINDOW) : 1
+  return (
+    <div ref={measure} data-chat-width={width} aria-label={t('Preview')} role="group" className="mt-3 overflow-hidden rounded-lg border border-border">
+      <div style={{ width: PREVIEW_WINDOW, zoom }} className="px-6 py-4">
+        <div className="chat-measure">
+          <p className="font-[family-name:var(--font-chat)] text-[length:var(--chat-size)] leading-[var(--chat-leading)] text-foreground">
+            {t('Lines end where the width you picked says, so long answers stay easy to read in a narrow window and on a wide monitor alike. Code and tables below can use the whole window.')}
+          </p>
+        </div>
+        <pre className="mt-3 overflow-hidden rounded-md border border-border bg-[var(--code-bg)] px-3 py-2 font-mono text-xs leading-5 text-foreground">const total = items.reduce((sum, item) =&gt; sum + item.price, 0)</pre>
+      </div>
+    </div>
+  )
+}
+
+const CHAT_WIDTHS: { id: AppPrefs['chatWidth']; label: string; hint: string }[] = [
+  { id: 'comfortable', label: 'Comfortable', hint: 'About 75 characters per line' },
+  { id: 'wide', label: 'Wide', hint: 'About 100 characters per line' },
+  { id: 'full', label: 'Full', hint: 'The whole width of the window' }
+]
+
+/** Larghezza della chat: limite del testo in caratteri del font scelto. Codice, tabelle e output dei comandi possono uscirne. */
+function ChatWidthPicker() {
+  const [prefs, update] = usePrefs()
+  if (!prefs) return null
+  const current = prefs.chatWidth
+  return (
+    <section className="mt-8" aria-labelledby="chat-width-title">
+      <h3 id="chat-width-title" className="text-sm font-semibold">{t('Chat width')}</h3>
+      <p className="mt-1 max-w-[62ch] text-sm text-muted-foreground">{t('How wide replies and your messages can get. Code, tables and command output may use more room. The message box follows the same width.')}</p>
+      <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2" role="radiogroup" aria-label={t('Chat width')}>
+        {CHAT_WIDTHS.map((width) => {
+          const selected = width.id === current
+          return (
+            <button
+              key={width.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              data-chat-width-option={width.id}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => update({ chatWidth: width.id })}
+              onKeyDown={(e) => {
+                const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+                if (!step) return
+                e.preventDefault()
+                const next = CHAT_WIDTHS[(CHAT_WIDTHS.indexOf(width) + step + CHAT_WIDTHS.length) % CHAT_WIDTHS.length]
+                update({ chatWidth: next.id })
+                e.currentTarget.parentElement?.querySelector<HTMLElement>(`[data-chat-width-option='${next.id}']`)?.focus()
+              }}
+              className={cn(
+                'flex flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
+                selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-input'
+              )}
+            >
+              <span className="flex w-full items-center gap-2 text-sm">
+                <span className={selected ? 'font-semibold' : 'font-medium'}>{t(width.label)}</span>
+                {width.id === 'comfortable' && <span className="rounded border border-border px-1 text-xs text-muted-foreground">{t('default')}</span>}
+                {selected && <Check className="ml-auto size-3.5 text-primary" aria-hidden="true" />}
+              </span>
+              <span className="text-xs text-muted-foreground">{t(width.hint)}</span>
+            </button>
+          )
+        })}
+      </div>
+      <WidthPreview width={current} />
+    </section>
   )
 }
 
@@ -184,27 +337,6 @@ function LanguagePicker() {
   )
 }
 
-function usePrefs(): [AppPrefs | null, (patch: Partial<AppPrefs>) => void] {
-  const prefs = useApp((s) => s.prefs)
-  const update = (patch: Partial<AppPrefs>) => {
-    if (prefs) useApp.getState().setPrefs({ ...prefs, ...patch })
-    void window.ladder?.prefs.set(patch).then((next) => useApp.getState().setPrefs(next))
-  }
-  return [prefs, update]
-}
-
-function Toggle({ label, description, checked, onChange, disabled }: { label: string; description: ReactNode; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
-  return (
-    <label className={cn('flex items-center justify-between gap-6 px-4 py-3.5', disabled && 'opacity-60')}>
-      <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-sm font-medium">{label}</span>
-        <span className="text-sm text-muted-foreground">{description}</span>
-      </span>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="size-4 shrink-0 accent-primary [color-scheme:light] dark:[color-scheme:dark]" />
-    </label>
-  )
-}
-
 function NotificationsSection() {
   const [prefs, update] = usePrefs()
   if (!prefs) return <p className="text-sm text-muted-foreground">{t('Preferences are available in the app.')}</p>
@@ -218,6 +350,7 @@ function NotificationsSection() {
       <div className="mt-6 flex flex-col divide-y divide-border rounded-lg border border-border">
         <Toggle label={t('macOS notifications')} description={t('Requests still stay in “Waiting” and in the Dock badge.')} checked={prefs.notifications} onChange={(notifications) => update({ notifications })} />
         <Toggle label={t('Sound for approvals and questions')} description={t('Only for what blocks an agent; finished replies stay silent.')} checked={prefs.sound} disabled={!prefs.notifications} onChange={(sound) => update({ sound })} />
+        <SoundRow />
         <Toggle
           label={t('Do Not Disturb for 1 hour')}
           description={
@@ -231,6 +364,49 @@ function NotificationsSection() {
         <TestNotification />
       </div>
     </>
+  )
+}
+
+/** Suono delle richieste: uno dei suoni di sistema di macOS, con prova. Vale quando il suono è acceso. */
+function SoundRow() {
+  const [prefs, update] = usePrefs()
+  const [note, setNote] = useState<string | null>(null)
+  if (!prefs) return null
+  const off = !prefs.notifications || !prefs.sound
+  const play = async () => {
+    setNote(null)
+    if (await system.playSound(prefs.soundName)) return
+    // Il suono predefinito non ha un file da riprodurre, e fuori dall'app installata la pagina può non leggere quelli di sistema:
+    // il banner di prova usa il suono scelto.
+    const sent = await system.testNotification()
+    setNote(sent ? t('Played with a test notification.') : t('This Mac doesn’t accept notifications from Ladder.'))
+  }
+  return (
+    <div className={cn('flex items-center justify-between gap-6 px-4 py-3.5', off && 'opacity-60')}>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-sm font-medium">{t('Sound')}</span>
+        <span role="status" className="text-sm text-muted-foreground">
+          {note ?? t('The sound for approvals and questions. “Default” is the macOS notification sound.')}
+        </span>
+      </span>
+      <div className="flex shrink-0 items-center gap-2">
+        <Select value={prefs.soundName} disabled={off} onValueChange={(value) => update({ soundName: value as AppPrefs['soundName'] })}>
+          <SelectTrigger aria-label={t('Sound')} className="w-[140px]">
+            <SelectValue>{(value: string) => (value === 'default' ? t('Default') : value)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {REQUEST_SOUNDS.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name === 'default' ? t('Default') : name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <button type="button" disabled={off} onClick={() => void play()} className="h-8 shrink-0 rounded-md border border-input px-3 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50">
+          {t('Play')}
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -254,6 +430,23 @@ function TestNotification() {
         {t('Send a test notification')}
       </button>
     </div>
+  )
+}
+
+/** Claude, ChatGPT / Codex e GitHub: stato, account, accesso dal browser, esci e cambia account. Qui si torna dal primo avvio. */
+function SubscriptionsSection() {
+  // Lo stato può essere cambiato fuori da Ladder (logout dal Terminale): all'apertura si rilegge.
+  useEffect(() => refreshConnections(), [])
+  return (
+    <>
+      <DialogTitle className="text-xl font-semibold">{t('Subscriptions')}</DialogTitle>
+      <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
+        {t('Sign in with the plans you already pay for. Ladder opens your browser and you come back connected, without installing anything or using the Terminal.')}
+      </DialogDescription>
+      <div className="mt-6 max-w-[640px]">
+        <ConnectionList showTool manageProfiles />
+      </div>
+    </>
   )
 }
 
@@ -293,6 +486,22 @@ function AgentsSection() {
           </Select>
         </div>
       )}
+      {prefs && (
+        <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
+          <Toggle
+            label={t('Ask agents to keep going on long tasks (Edit and Full access)')}
+            description={t('Adds a short note so agents work through the task instead of stopping to ask. Applies to new sessions.')}
+            checked={prefs.autonomyHint}
+            onChange={(autonomyHint) => update({ autonomyHint })}
+          />
+          <Toggle
+            label={t('Flag turns that stop without asking')}
+            description={t('Experimental. Marks a turn that ends with no changes, commands or questions, and offers to tell the agent to keep going.')}
+            checked={prefs.stallHint}
+            onChange={(stallHint) => update({ stallHint })}
+          />
+        </div>
+      )}
         </div>
       <AddAcpAgent />
       </div>
@@ -318,7 +527,7 @@ function AgentRow({ agent }: { agent: AgentStatus }) {
           {agent.version && <span className="font-mono text-xs text-faint">v{agent.version}</span>}
         </span>
         <span className={cn('text-xs', agent.available ? 'text-muted-foreground' : 'text-destructive')}>
-          {agent.available ? [agent.account, agent.models.length ? plural(agent.models.length, '{n} model', '{n} models') : null, agent.limits].filter(Boolean).join(' · ') || t('Ready') : agent.error}
+          {agent.available ? [agent.account, agent.email, agent.models.length ? plural(agent.models.length, '{n} model', '{n} models') : null, agent.limits].filter(Boolean).join(' · ') || t('Ready') : agent.error}
         </span>
         {agent.path && <span className="truncate font-mono text-xs text-faint">{agent.path}</span>}
       </span>
@@ -334,26 +543,16 @@ function AgentRow({ agent }: { agent: AgentStatus }) {
 /** "Aggiungi un agente": dal registro ufficiale ACP o con un comando scritto a mano. */
 function AddAcpAgent() {
   const [tab, setTab] = useState<'registry' | 'custom'>('registry')
-  const [registry, setRegistry] = useState<RegistryAgent[] | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [commandLine, setCommandLine] = useState('')
-
-  useEffect(() => {
-    if (tab !== 'registry' || registry) return
-    request<RegistryAgent[]>({ type: 'agents.registry' })
-      .then(setRegistry)
-      .catch((e: Error) => setProblem(t('ACP registry unreachable: {error}', { error: e.message })))
-  }, [tab, registry])
 
   const add = async (spec: AcpAgentSpec) => {
     setBusy(spec.id || 'custom')
     setProblem(null)
     try {
       await request({ type: 'agents.add', spec })
-      setRegistry((list) => list?.map((r) => (r.id === spec.id ? { ...r, added: true } : r)) ?? null)
       if (spec.source === 'custom') {
         setName('')
         setCommandLine('')
@@ -365,14 +564,12 @@ function AddAcpAgent() {
     }
   }
 
-  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
-  const shown = (registry ?? []).filter((r) => tokens.every((t) => `${r.name} ${r.id} ${r.description}`.toLowerCase().includes(t)))
   const words = commandLine.trim().split(/\s+/).filter(Boolean)
 
   return (
-    <section className="flex min-w-0 flex-col gap-2">
+    <section className="col-span-full flex min-w-0 max-w-[720px] flex-col gap-2">
       <div className="flex items-center gap-1">
-        <h3 className="mr-2 text-sm font-semibold">{t('Add an ACP agent')}</h3>
+        <h3 className="mr-2 text-sm font-semibold">{t('Add an agent')}</h3>
         {(['registry', 'custom'] as const).map((id) => (
           <button
             key={id}
@@ -381,45 +578,12 @@ function AddAcpAgent() {
             onClick={() => setTab(id)}
             className={cn('h-7 rounded-md px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50', tab === id ? 'bg-accent font-medium' : 'text-muted-foreground hover:bg-accent/60')}
           >
-            {id === 'registry' ? t('From registry') : t('Command')}
+            {id === 'registry' ? t('Catalog') : t('Command')}
           </button>
         ))}
       </div>
       {tab === 'registry' ? (
-        <>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('Search: gemini, opencode, goose…')}
-            aria-label={t('Search the ACP registry')}
-            className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
-          />
-          <div className="max-h-[440px] overflow-y-auto rounded-lg border border-border">
-            {!registry && !problem && <p className="px-3 py-3 text-sm text-muted-foreground">{t('Reading the registry…')}</p>}
-            {shown.map((r) => (
-              <div key={r.id} className="flex items-start gap-3 border-b border-border px-3 py-2 last:border-0">
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-sm font-medium">
-                    {r.name} <span className="font-mono text-xs font-normal text-faint">v{r.version}</span>
-                  </span>
-                  <span className="line-clamp-2 text-xs text-muted-foreground">{r.description}</span>
-                  <span className="truncate font-mono text-xs text-faint">
-                    {r.command} {r.args.join(' ')}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  disabled={r.added || busy === r.id}
-                  onClick={() => void add({ id: r.id, name: r.name, command: r.command, args: r.args, source: 'registry' })}
-                  className="h-7 shrink-0 rounded-md border border-input px-2.5 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
-                >
-                  {r.added ? t('Added') : busy === r.id ? t('Adding…') : t('Add')}
-                </button>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">{t('Agents start with npx or uvx on first use; the agent handles its own login. Those distributed only as binaries will come later.')}</p>
-        </>
+        <AgentCatalog actions={liveAgentCatalogActions} />
       ) : (
         <form
           className="flex flex-col gap-2"
@@ -473,13 +637,14 @@ function IntegrationsSection() {
       <div className="mt-6 grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-4">
         <section className="flex flex-col gap-1 rounded-lg border border-border p-4">
           <h3 className="text-sm font-semibold">GitHub</h3>
-          <p className="text-sm text-muted-foreground">
-            {withNodes(t('Ladder uses the {gh} CLI with its login: issues, PRs, CI and comments are read from there, and Ladder keeps no tokens. If it’s missing: {install}, then {login}.'), {
-              gh: <code className="font-mono">gh</code>,
-              install: <code className="font-mono">brew install gh</code>,
-              login: <code className="font-mono">gh auth login</code>
-            })}
-          </p>
+          <p className="text-sm text-muted-foreground">{t('GitHub is connected from Subscriptions: Ladder signs in with your browser and keeps no tokens of its own.')}</p>
+          <button
+            type="button"
+            onClick={() => useApp.getState().focusConnection('github')}
+            className="mt-1 h-7 self-start rounded-md border border-input px-2.5 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {t('Open Subscriptions')}
+          </button>
         </section>
         <section className="flex flex-col gap-2 rounded-lg border border-border p-4">
           <h3 className="text-sm font-semibold">Linear</h3>

@@ -44,6 +44,13 @@ export function t(text: string, vars?: Vars): string {
   return fill(translated, vars)
 }
 
+/** Il testo inglese e le sue traduzioni in tutti i cataloghi registrati (senza variabili). */
+export function translations(text: string): string[] {
+  const found = new Set([text])
+  for (const catalog of Object.values(catalogs)) if (catalog?.[text]) found.add(catalog[text])
+  return [...found]
+}
+
 /** Singolare o plurale: `plural(n, '{n} file', '{n} files')`. Ogni forma ha la sua voce nel catalogo. */
 export function plural(n: number, one: string, other: string, vars?: Vars): string {
   return t(n === 1 ? one : other, { n, ...vars })
