@@ -4,7 +4,7 @@
 // - codex: notifiche OSC 9 della TUI ("Approval requested: …" e fine turno);
 // - altre CLI: euristiche su output e campanello, con l'etichetta "stato stimato".
 import { randomBytes, randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -15,9 +15,22 @@ import { Terminal as Headless } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { getLocale, t } from '@shared/i18n'
 import type { TerminalInfo } from '@shared/protocol'
+import { cleanEnv } from './agents/common'
 import type { Db } from './db'
 
 const run = promisify(execFile)
+
+/** Sequenze CSI e OSC da togliere prima di cercare indirizzi (Vite mette in grassetto la porta). */
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g
+/** Solo indirizzi del computer: localhost, 127.x.x.x, 0.0.0.0, [::1] e [::]; senza schema serve la porta. */
+const LOCAL_URL = /(?<![\w.-])(https?:\/\/)?(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\])(?![\w.-])(?::(\d{1,5}))?(\/[^\s'"<>)\]\x1b]*)?/gi
+/** Porte di database e broker: non sono mai un sito da aprire. */
+const NOT_WEB_PORTS = new Set([5432, 3306, 6379, 27017, 9200, 5672])
+/** Righe in cui un server dice di essere pronto: servono per accettare un indirizzo senza schema. */
+const READY_LINE = /\b(local:|listening|ready|running at|started server)/i
+/** Eco del comando digitato (con o senza prompt davanti): curl, wget e docker non avviano un sito. */
+const COMMAND_ECHO = /^\s*(?:[^\n]{0,80}?[$%#>❯✗)]\s+)?(?:curl|wget|docker)\s/i
 
 const FLUSH_MS = 16
 const SCROLLBACK = 5000
@@ -65,12 +78,16 @@ interface Live {
   info: TerminalInfo
   options: SpawnOptions
   proc: pty.IPty | null
+  /** Gruppo di processi dell'ultimo avvio: resta anche a shell uscita, per fermare i figli lasciati in background (`cmd &`). */
+  pgid: number | null
   screen: Headless
   serializer: SerializeAddon
   pending: string
   timer: NodeJS.Timeout | null
   token: string
   agent: AgentTracker | null
+  /** Ultimi caratteri di output senza escape, per trovare indirizzi spezzati tra due blocchi. */
+  tail: string
 }
 
 export interface TerminalEvents {
@@ -78,6 +95,8 @@ export interface TerminalEvents {
   removed: (id: string) => void
   data: (id: string, data: string) => void
   agent: (terminal: TerminalInfo, signal: AgentSignal) => void
+  /** Indirizzo locale stampato dall'output (server di sviluppo), una volta per progetto e origine. */
+  devServer: (terminal: TerminalInfo, url: string) => void
 }
 
 interface TerminalRow {
@@ -98,6 +117,7 @@ export class TerminalManager {
   private server: Server | null = null
   private hookUrl = ''
   private loginPath: string | null = null
+  private devServers = new Map<string, Set<string>>()
   private exitWaiters = new Map<string, ((code: number | null) => void)[]>()
 
   constructor(
@@ -175,17 +195,37 @@ export class TerminalManager {
     live.proc?.kill()
     live.proc = null
     live.options = { ...live.options, ...patch }
+    // Il servizio può cambiare porta al riavvio (quella di prima è occupata).
+    if (patch.port !== undefined) live.info = { ...live.info, port: patch.port }
     this.db.prepare('update terminals set command = ?, meta = ? where id = ?').run(live.options.command, JSON.stringify(this.meta(live.options)), id)
-    this.write(live, `\r\n\x1b[2m— ${t('restarted')} —\x1b[0m\r\n`)
+    this.write(live, `\r\n\x1b[2m${t('[restarted]')}\x1b[0m\r\n`)
     this.start(live)
     return live.info
+  }
+
+  /**
+   * Ferma il processo e tutto ciò che ha avviato: il suo gruppo di processi e i discendenti (raccolti prima, per ppid, così
+   * anche chi ha cambiato gruppo o è stato lasciato in background non sopravvive). SIGTERM, poi SIGKILL dopo `graceMs`.
+   * Si risolve quando non resta nessuno, così le porte sono libere. Il terminale resta (stato `exited`).
+   */
+  async stop(id: string, graceMs = 3000): Promise<void> {
+    const live = this.terminals.get(id)
+    const pid = live && treePid(live)
+    if (pid) await stopTree(pid, graceMs)
+    if (live && !live.proc && live.pgid && !groupAlive(live.pgid)) live.pgid = null
+  }
+
+  /** Il terminale ha ancora qualcosa che gira: la shell o, a shell uscita, il suo gruppo di processi (figli in background). */
+  isAlive(id: string): boolean {
+    const live = this.terminals.get(id)
+    return !!live && treePid(live) !== null
   }
 
   /** Stato dello schermo per una UI che si collega. Una shell ferma riparte qui. */
   attach(id: string, cols: number, rows: number): string {
     const live = this.must(id)
     if (live.info.state === 'stopped' && live.info.kind === 'shell') {
-      this.write(live, `\r\n\x1b[2m— ${t('Ladder was restarted: new shell')} —\x1b[0m\r\n`)
+      this.write(live, `\r\n\x1b[2m${t('[Ladder was restarted: new shell]')}\x1b[0m\r\n`)
       this.start(live, cols, rows)
     } else this.resize(id, cols, rows)
     this.flush(live)
@@ -210,13 +250,20 @@ export class TerminalManager {
     }
   }
 
-  close(id: string): void {
+  /**
+   * Chiude il terminale. Per un servizio il processo si ferma davvero (come stop): la promessa si risolve a processi usciti.
+   * Il terminale sparisce subito; per gli altri tipi basta il SIGHUP e la promessa è già risolta.
+   */
+  close(id: string): Promise<void> {
     const live = this.terminals.get(id)
-    if (!live) return
+    if (!live) return Promise.resolve()
     const proc = live.proc
+    const pid = treePid(live)
     // Prima si stacca il processo, così la sua uscita non arriva a un terminale già chiuso.
     live.proc = null
-    proc?.kill()
+    let stopping = Promise.resolve()
+    if (pid && live.info.kind === 'service') stopping = stopTree(pid)
+    else proc?.kill()
     this.resolveExit(id, null)
     live.agent?.dispose()
     live.screen.dispose()
@@ -224,6 +271,7 @@ export class TerminalManager {
     this.terminals.delete(id)
     this.db.prepare('delete from terminals where id = ?').run(id)
     this.events.removed(id)
+    return stopping
   }
 
   /** Testo semplice delle ultime righe, come lo vedi sullo schermo: per @terminal. */
@@ -246,8 +294,13 @@ export class TerminalManager {
     return out.slice(-lines).join('\n')
   }
 
-  /** Comando di `kill` per tutti i processi e scrollback salvato per il prossimo avvio. */
+  /**
+   * Comando di `kill` per tutti i processi e scrollback salvato per il prossimo avvio. I servizi non si fermano con il solo SIGHUP
+   * alla shell (un `nohup` lo ignora): gruppo e discendenti ricevono SIGTERM e, dopo un'attesa breve (al massimo mezzo secondo), SIGKILL.
+   */
   shutdown(): void {
+    const targets: { pid: number; tree: number[] }[] = []
+    const table = [...this.terminals.values()].some((l) => l.info.kind === 'service' && treePid(l)) ? processTableSync() : new Map<number, ProcInfo>()
     const save = this.db.prepare('update terminals set scrollback = ? where id = ?')
     for (const live of this.terminals.values()) {
       this.flush(live)
@@ -258,8 +311,18 @@ export class TerminalManager {
       } catch {
         // Lo scrollback è una comodità.
       }
+      const pid = live.info.kind === 'service' ? treePid(live) : null
+      if (pid) {
+        const tree = descendantsOf([pid], table)
+        targets.push({ pid, tree })
+        signalTree(pid, tree, 'SIGTERM')
+      }
       live.proc?.kill()
     }
+    // Attesa breve e sincrona: l'uscita dell'app non aspetta oltre.
+    const alive = () => targets.some((x) => groupAlive(x.pid) || x.tree.some(pidAlive))
+    for (const end = Date.now() + 500; alive() && Date.now() < end; ) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+    for (const x of targets) signalTree(x.pid, x.tree, 'SIGKILL')
     this.server?.close()
   }
 
@@ -296,12 +359,14 @@ export class TerminalManager {
       },
       options,
       proc: null,
+      pgid: null,
       screen,
       serializer,
       pending: '',
       timer: null,
       token: randomBytes(24).toString('hex'),
-      agent: null
+      agent: null,
+      tail: ''
     }
     if (options.agent) {
       live.agent = new AgentTracker(options.agent.kind, (signal) => this.events.agent(live.info, signal))
@@ -328,7 +393,19 @@ export class TerminalManager {
       args = this.agentArgs(live, options.args ?? [])
     } else if (options.command) {
       file = shell
-      args = ['-l', '-i', '-c', options.command]
+      // Un servizio gira in una shell interattiva (legge .zshrc: nvm, fnm, volta, mise) ma senza controllo dei job: altrimenti
+      // ogni comando composto finirebbe in un gruppo a sé e lo stop (kill del gruppo) non lo raggiungerebbe, e la shell stamperebbe
+      // «[1] 1234» e «Done». zsh accetta +m come opzione di avvio; bash no (resterebbe attivo): lì il comando va in una subshell
+      // dopo `set +m;`, perché una bash interattiva stampa «[1] 1234» per ogni `cmd &` anche senza controllo dei job, una subshell no.
+      // Con altre shell si usa -i come per le altre azioni, e lo stop raggiunge comunque i discendenti.
+      const name = basename(shell)
+      const service = options.kind === 'service'
+      args =
+        service && name === 'zsh'
+          ? ['-l', '-i', '+m', '-c', options.command]
+          : service && name === 'bash'
+            ? ['-l', '-i', '-c', `set +m; (\n${options.command}\n)`]
+            : ['-l', '-i', '-c', options.command]
     } else {
       file = shell
       args = ['-l', '-i']
@@ -352,12 +429,14 @@ export class TerminalManager {
     }
     if (cols && rows && (live.screen.cols !== cols || live.screen.rows !== rows)) live.screen.resize(cols, rows)
     live.proc = proc
+    live.pgid = proc.pid
     live.info = { ...live.info, state: 'running', exitCode: null }
     live.agent?.reset()
     proc.onData((data) => {
       if (live.proc !== proc) return
       this.write(live, data)
       live.agent?.onOutput()
+      this.detectDevServer(live, data)
     })
     proc.onExit(({ exitCode }) => {
       if (live.proc !== proc) return
@@ -435,6 +514,47 @@ export class TerminalManager {
     return { ...env, ...(live.options.env ?? {}) }
   }
 
+  /** Cerca nell'output un indirizzo locale (localhost:5173, http://127.0.0.1:3000/, http://[::1]:8080): le CLI degli agenti sono escluse. */
+  private detectDevServer(live: Live, data: string): void {
+    if (live.info.kind === 'agent') return
+    // La coda resta grezza: una sequenza ANSI spezzata tra due blocchi si toglie solo dopo l'unione.
+    const raw = (live.tail + data).slice(-4096)
+    live.tail = raw.slice(-400)
+    const text = raw.replace(ANSI, '')
+    const lines = text.split(/\r\n|\n|\r/)
+    const incomplete = !/[\r\n\s]$/.test(text)
+    lines.forEach((line, index) => {
+      if (COMMAND_ECHO.test(line)) return
+      const ready = READY_LINE.test(line)
+      const last = incomplete && index === lines.length - 1
+      LOCAL_URL.lastIndex = 0
+      for (let match = LOCAL_URL.exec(line); match; match = LOCAL_URL.exec(line)) {
+        const [, scheme, rawHost, port, path] = match
+        // Senza schema serve la porta e una riga che dica che il server è pronto.
+        if (!scheme && (!port || !ready)) continue
+        const portNumber = port ? Number(port) : null
+        if (portNumber !== null && (portNumber < 1 || portNumber > 65535 || NOT_WEB_PORTS.has(portNumber))) continue
+        const end = match.index + match[0].length
+        // Mappatura di porte (0.0.0.0:5432->5432/tcp): non è un indirizzo da aprire.
+        if (/^\s*->/.test(line.slice(end))) continue
+        // Un indirizzo a fine blocco può essere tagliato: si aspetta il blocco dopo (resta nella coda).
+        if (last && end >= line.length) continue
+        const host = /^(0\.0\.0\.0|\[::\])$/.test(rawHost) ? 'localhost' : rawHost.toLowerCase()
+        const origin = `${scheme?.toLowerCase() ?? 'http://'}${host}${port ? `:${port}` : ''}`
+        const seen = this.devServers.get(live.info.projectId) ?? new Set<string>()
+        if (seen.has(origin)) continue
+        seen.add(origin)
+        this.devServers.set(live.info.projectId, seen)
+        this.events.devServer(live.info, `${origin}${path && path !== '/' ? path : '/'}`)
+      }
+    })
+  }
+
+  /** Progetto rimosso: gli indirizzi già proposti si dimenticano. */
+  forgetProject(projectId: string): void {
+    this.devServers.delete(projectId)
+  }
+
   private write(live: Live, data: string): void {
     live.screen.write(data)
     live.pending += data
@@ -490,11 +610,125 @@ export class TerminalManager {
   }
 }
 
+/** Pid da fermare per un terminale: la shell viva o, a shell uscita, il suo gruppo se ha ancora processi. */
+function treePid(live: Live): number | null {
+  if (live.proc?.pid) return live.proc.pid
+  return live.pgid && groupAlive(live.pgid) ? live.pgid : null
+}
+
+function signalTree(pid: number, tree: number[], sig: NodeJS.Signals): void {
+  for (const target of [-pid, ...tree]) {
+    try {
+      process.kill(target, sig)
+    } catch {
+      // Già uscito.
+    }
+  }
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+interface ProcInfo {
+  ppid: number
+  start: string
+}
+
+/** La tabella dei processi: pid, ppid e istante di avvio (che distingue un pid riusato da quello di prima). */
+async function processTable(): Promise<Map<number, ProcInfo>> {
+  const table = new Map<number, ProcInfo>()
+  try {
+    const { stdout } = await run('ps', ['-Ao', 'pid=,ppid=,lstart='], { timeout: 3000 })
+    for (const line of stdout.split('\n')) {
+      const match = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)
+      if (match) table.set(Number(match[1]), { ppid: Number(match[2]), start: match[3] })
+    }
+  } catch {
+    // Senza tabella si agisce sul solo gruppo.
+  }
+  return table
+}
+
+/** Come processTable, ma sincrona: serve allo shutdown. */
+function processTableSync(): Map<number, ProcInfo> {
+  const table = new Map<number, ProcInfo>()
+  try {
+    const stdout = execFileSync('ps', ['-Ao', 'pid=,ppid=,lstart='], { timeout: 1000, encoding: 'utf8' })
+    for (const line of stdout.split('\n')) {
+      const match = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)
+      if (match) table.set(Number(match[1]), { ppid: Number(match[2]), start: match[3] })
+    }
+  } catch {
+    // Senza tabella si agisce sul solo gruppo.
+  }
+  return table
+}
+
+/** Tutti i discendenti di `roots` (figli, nipoti…) nella tabella, per ppid. */
+function descendantsOf(roots: number[], table: Map<number, ProcInfo>): number[] {
+  const children = new Map<number, number[]>()
+  for (const [pid, info] of table) children.set(info.ppid, [...(children.get(info.ppid) ?? []), pid])
+  const found: number[] = []
+  for (const queue = [...roots]; queue.length; ) for (const child of children.get(queue.shift() as number) ?? []) found.push(child), queue.push(child)
+  return found
+}
+
+/**
+ * SIGTERM al gruppo di `pid` e ai suoi discendenti, poi SIGKILL dopo `graceMs` a chi resta. Prima del SIGKILL l'albero si rilegge:
+ * un pid del primo albero riceve il segnale solo se è ancora lo stesso processo (stesso avvio), così un pid riusato da altri non si tocca;
+ * si aggiungono gli eventuali nuovi discendenti.
+ */
+async function stopTree(pid: number, graceMs = 3000): Promise<void> {
+  const first = await processTable()
+  const tree = descendantsOf([pid], first)
+  const alive = (pids: number[]) => groupAlive(pid) || pids.some(pidAlive)
+  const signal = (sig: NodeJS.Signals, pids: number[]) => {
+    try {
+      process.kill(-pid, sig)
+    } catch {
+      // Gruppo già finito.
+    }
+    for (const child of pids) {
+      try {
+        process.kill(child, sig)
+      } catch {
+        // Già uscito.
+      }
+    }
+  }
+  const waitGone = async (ms: number, pids: number[]) => {
+    for (const end = Date.now() + ms; alive(pids) && Date.now() < end; ) await new Promise((r) => setTimeout(r, 25))
+  }
+  signal('SIGTERM', tree)
+  await waitGone(graceMs, tree)
+  if (!alive(tree)) return
+  const now = await processTable()
+  const same = tree.filter((child) => now.get(child) && now.get(child)?.start === first.get(child)?.start)
+  const targets = [...new Set([...same, ...descendantsOf([pid, ...same], now)])]
+  signal('SIGKILL', targets)
+  await waitGone(1000, targets)
+}
+
 /** PATH della shell di login: un'app avviata dal Finder ne ha uno ridotto. */
 async function loginShellPath(): Promise<string | null> {
   const shell = process.env.SHELL || '/bin/zsh'
   try {
-    const { stdout } = await run(shell, ['-lc', 'printf "%s" "$PATH"'], { timeout: 5000 })
+    const { stdout } = await run(shell, ['-lc', 'printf "%s" "$PATH"'], { timeout: 5000 , env: cleanEnv() })
     return stdout.trim() || null
   } catch {
     return null

@@ -12,7 +12,10 @@ import { t } from '@shared/i18n'
 
 const NO_TERMINALS: TerminalInfo[] = []
 
-/** Terminali del pannello per un progetto: shell e azioni, non le CLI delle sessioni terminale. */
+/** Azioni di avvio e servizi del worktree sono processi lanciati da Ladder: stessa icona, porta e riavvio. */
+const launched = (terminal: TerminalInfo) => terminal.kind === 'run' || terminal.kind === 'service'
+
+/** Terminali del pannello per un progetto: shell, azioni e servizi, non le CLI delle sessioni terminale. */
 export function usePanelTerminals(projectId: string | null): TerminalInfo[] {
   const terminals = useApp((s) => s.terminals)
   return useMemo(() => {
@@ -109,9 +112,9 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
                 title={`${terminal.command ?? terminal.title} · ${terminal.cwd}${terminal.port ? ` · LADDER_PORT ${terminal.port}` : ''}`}
                 className="flex min-w-0 items-center gap-1.5 outline-none focus-visible:underline"
               >
-                {terminal.kind === 'run' ? <Play className="size-3 shrink-0" /> : <SquareTerminal className="size-3 shrink-0" />}
+                {launched(terminal) ? <Play className="size-3 shrink-0" /> : <SquareTerminal className="size-3 shrink-0" />}
                 <span className="truncate">{terminal.title}</span>
-                {terminal.kind === 'run' && terminal.port && <span className="shrink-0 font-mono text-xs text-faint">:{terminal.port}</span>}
+                {launched(terminal) && terminal.port && <span className="shrink-0 font-mono text-xs text-faint">:{terminal.port}</span>}
                 {terminal.state !== 'running' && (
                   <span className={cn('shrink-0 text-xs', terminal.exitCode ? 'text-destructive' : 'text-faint')}>
                     {terminal.state === 'stopped' ? t('stopped') : terminal.exitCode ? t('exited {code}', { code: terminal.exitCode }) : t('done')}
@@ -142,18 +145,18 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
         >
           <Plus className="size-3.5" />
         </button>
-        <div className="ml-auto flex items-center gap-1">
-          {active && active.state !== 'running' && active.kind === 'run' && (
+        <div className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap pl-1">
+          {active && active.state !== 'running' && launched(active) && (
             <button
               type="button"
               onClick={() => send({ type: 'terminal.restart', id: active.id })}
-              className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground"
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <RotateCcw className="size-3" />
               {t('Restart')}
             </button>
           )}
-          {active?.port && <span className="font-mono text-xs text-faint">LADDER_PORT {active.port}</span>}
+          {active?.port && active.kind !== 'service' && <span className="font-mono text-xs text-faint">LADDER_PORT {active.port}</span>}
           <button
             type="button"
             aria-label={right ? t('Move terminal to the bottom') : t('Move terminal to the right')}
