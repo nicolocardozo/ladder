@@ -1,6 +1,7 @@
 // Header fisso: logo senza sfondo a sinistra, nav compatta a destra (pillola bianca sfocata).
 import Link from "next/link"
 import { Logo } from "@/components/brand/logo"
+import { MobileMenu } from "@/components/mobile-menu"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { CTA, SITE } from "@/lib/site"
 
@@ -11,6 +12,10 @@ const LINKS = [
   { href: "/docs", label: "Docs" },
 ]
 
+// Pillola della nav (desktop) e del pulsante del menu (mobile)
+const pill =
+  "pointer-events-auto flex h-[46px] items-center gap-0.5 rounded-[14px] border border-hairline bg-page/75 p-1.5 shadow-[0_1px_2px_rgb(24_20_36/0.04)] backdrop-blur-[14px] backdrop-saturate-150"
+
 const item =
   "inline-flex h-[34px] items-center rounded-[9px] px-3 text-[13.5px] font-medium leading-none transition-colors hover:bg-frame/80"
 
@@ -20,11 +25,8 @@ export function SiteHeader() {
       <Link href="/" aria-label="Ladder, home" className="pointer-events-auto flex items-center text-iris">
         <Logo variant="wordmark" className="h-7 w-auto" decorative />
       </Link>
-      <nav
-        aria-label="Main"
-        className="pointer-events-auto flex h-[46px] items-center gap-0.5 rounded-[14px] border border-hairline bg-page/75 p-1.5 shadow-[0_1px_2px_rgb(24_20_36/0.04)] backdrop-blur-[14px] backdrop-saturate-150"
-      >
-        <div className="hidden items-center gap-0.5 md:flex">
+      <nav aria-label="Main" className={`${pill} hidden md:flex`}>
+        <div className="flex items-center gap-0.5">
           {LINKS.map((l) => (
             <Link key={l.href} href={l.href} className={item}>
               {l.label}
@@ -44,6 +46,7 @@ export function SiteHeader() {
           {CTA.short}
         </a>
       </nav>
+      <MobileMenu links={LINKS} pillClassName={`${pill} md:hidden`} />
     </header>
   )
 }
