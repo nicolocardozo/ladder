@@ -1,7 +1,8 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { Code, CodeBlock, Kbd, PageHeader, PageShell, Prose, Section } from "@/components/page"
-import { CTA, SITE } from "@/lib/site"
+import { DOWNLOADS, SITE } from "@/lib/site"
+import { DownloadLink } from "@/components/download-link"
 
 export const metadata: Metadata = {
   title: "Docs",
@@ -96,9 +97,10 @@ export default function Page() {
           <Section id="start" title="Getting started">
             <Prose className="mt-5">
               <p>
-                Ladder runs on <strong>macOS with Apple Silicon</strong>. It is in early preview:{" "}
-                <a href={CTA.href}>download the latest version</a>, open the disk image and drag Ladder into
-                Applications.
+                Ladder runs on <strong>macOS</strong>, on Apple Silicon and Intel Macs. It is in early preview:{" "}
+                <DownloadLink>download the latest version</DownloadLink> (the link picks the right build for your Mac,
+                or choose <a href={DOWNLOADS.arm64}>Apple Silicon</a> or <a href={DOWNLOADS.x64}>Intel</a>), open the
+                disk image and drag Ladder into Applications.
               </p>
               <ol>
                 <li>

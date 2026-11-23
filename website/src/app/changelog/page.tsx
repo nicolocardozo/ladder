@@ -1,8 +1,8 @@
 import type { Metadata } from "next"
 import { Rss } from "lucide-react"
 import { PageHeader, PageShell } from "@/components/page"
-import { CTA } from "@/lib/site"
 import { ENTRIES, formatDate } from "./entries"
+import { DownloadLink } from "@/components/download-link"
 
 export const metadata: Metadata = {
   title: "Changelog",
@@ -20,9 +20,9 @@ export default function Page() {
         lead={
           <>
             Ladder is in early preview. These are the milestones of its development.{" "}
-            <a href={CTA.href} className="font-medium text-iris hover:underline">
+            <DownloadLink className="font-medium text-iris hover:underline">
               Download the latest version
-            </a>{" "}
+            </DownloadLink>{" "}
             to try it.
           </>
         }

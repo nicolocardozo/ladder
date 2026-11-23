@@ -10,6 +10,7 @@ import { ArrowRight, Moon, Sun } from "lucide-react";
 import { setTheme, useTheme } from "@/lib/theme";
 import { CTA } from "@/lib/site";
 import { cn } from "@/lib/utils";
+import { DownloadLink } from "@/components/download-link";
 
 type NavLink = { href: string; label: string };
 
@@ -166,13 +167,12 @@ export function MobileMenu({
             )}
             {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <a
-            href={CTA.href}
+          <DownloadLink
             onClick={close}
             className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[12px] bg-ink px-4 text-[15px] font-medium text-page transition-colors hover:bg-ink/85"
           >
             {CTA.label}
-          </a>
+          </DownloadLink>
         </div>
       </div>
     </>

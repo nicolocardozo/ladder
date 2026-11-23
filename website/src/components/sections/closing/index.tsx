@@ -1,6 +1,7 @@
 import { ArrowRight } from "lucide-react"
 import { Logo } from "@/components/brand/logo"
-import { CTA } from "@/lib/site"
+import { CTA, DOWNLOADS } from "@/lib/site"
+import { DownloadLink } from "@/components/download-link"
 
 export function Closing() {
   return (
@@ -24,20 +25,29 @@ export function Closing() {
             Stop juggling terminals. <span className="text-c-accent">Start running a team.</span>
           </h2>
           <div className="mt-10 flex items-center gap-3">
-            <a
-              href={CTA.href}
+            <DownloadLink
               className="inline-flex h-12 items-center gap-2 rounded-lg bg-c-text px-6 text-[15px] font-medium text-c-bg transition-colors hover:bg-white"
             >
               {CTA.label}
-            </a>
-            <a
-              href={CTA.href}
+            </DownloadLink>
+            <DownloadLink
               aria-label={CTA.aria}
               className="inline-flex size-12 items-center justify-center rounded-lg border border-c-border text-c-text transition-colors hover:bg-c-selection"
             >
               <ArrowRight aria-hidden className="size-5" />
-            </a>
+            </DownloadLink>
           </div>
+          {/* Il pulsante sceglie da solo il DMG giusto; qui l'alternativa se ha indovinato male */}
+          <p className="mt-5 text-sm text-c-muted">
+            For macOS on{" "}
+            <a href={DOWNLOADS.arm64} className="underline decoration-c-border underline-offset-4 hover:text-c-text">
+              Apple Silicon
+            </a>{" "}
+            and{" "}
+            <a href={DOWNLOADS.x64} className="underline decoration-c-border underline-offset-4 hover:text-c-text">
+              Intel
+            </a>
+          </p>
         </div>
       </div>
     </section>

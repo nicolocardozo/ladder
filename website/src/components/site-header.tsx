@@ -4,6 +4,7 @@ import { Logo } from "@/components/brand/logo"
 import { MobileMenu } from "@/components/mobile-menu"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { CTA, SITE } from "@/lib/site"
+import { DownloadLink } from "@/components/download-link"
 
 const LINKS = [
   { href: "/#features", label: "Product" },
@@ -39,12 +40,11 @@ export function SiteHeader() {
           ) : null}
         </div>
         <ThemeToggle className={`${item} w-[34px] justify-center px-0 text-muted-ink hover:text-ink`} />
-        <a
-          href={CTA.href}
+        <DownloadLink
           className="inline-flex h-[34px] items-center rounded-[9px] bg-ink px-3.5 text-[13.5px] font-medium leading-none text-page shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(24_20_36/0.2)] transition hover:-translate-y-px hover:bg-ink/85"
         >
           {CTA.short}
-        </a>
+        </DownloadLink>
       </nav>
       <MobileMenu links={LINKS} pillClassName={`${pill} md:hidden`} />
     </header>

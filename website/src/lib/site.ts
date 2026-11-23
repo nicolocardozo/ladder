@@ -14,6 +14,13 @@ export const SITE = {
   locale: "en_US",
 } as const
 
+// I DMG pubblicati (redirect in next.config.ts). /download è il predefinito, Apple Silicon.
+export const DOWNLOADS = {
+  auto: "/download",
+  arm64: "/download/apple-silicon",
+  x64: "/download/intel",
+} as const
+
 // Azione principale di tutto il sito (header, hero, chiusura): scarica l'ultima versione per Mac.
 export const CTA = {
   href: "/download",

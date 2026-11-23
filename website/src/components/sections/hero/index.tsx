@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import "./hero.css"
 import { HeroWaves, HeroWindow } from "./hero-lazy"
 import { HeroScroll } from "./hero-scroll"
+import { DownloadLink } from "@/components/download-link"
 
 const LINE1 = "Every agent, every repo,"
 const LINE2 = "one calm window."
@@ -49,19 +50,17 @@ export function Hero() {
           waiting for you, and step in with one keystroke.
         </p>
         <div className="hero-foot hero-foot-r">
-          <a
-            href={CTA.href}
+          <DownloadLink
             className={cn(buttonVariants({ variant: "outline" }), cta, "border-hairline bg-surface hover:bg-surface")}
           >
             {CTA.label}
-          </a>
-          <a
-            href={CTA.href}
+          </DownloadLink>
+          <DownloadLink
             aria-label={CTA.aria}
             className={cn(buttonVariants(), "size-[42px] rounded-[10px] bg-ink text-page hover:bg-ink/85")}
           >
             <ArrowRight className="size-4" aria-hidden />
-          </a>
+          </DownloadLink>
         </div>
 
         {/* hero-win-in: su mobile la finestra è disegnata a larghezza desktop e rimpicciolita (--k) */}
