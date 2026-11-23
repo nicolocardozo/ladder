@@ -1,6 +1,6 @@
 "use client"
 
-// Collega lo scroll alle variabili CSS del hero: --e (claim), --lift (finestra), --fade (testi di base),
+// Apre il hero quando si inizia a scrollare e scrive le variabili CSS: --e (claim), --lift (finestra), --fade (testi di base),
 // --x (riquadro che si allarga a tutto schermo alla fine). Misura anche, per ogni parola del claim,
 // lo spostamento e la scala verso la sua posizione nel claim su una riga (--dx, --dy, --s).
 // Con prefers-reduced-motion lo scroll non anima nulla: il CSS mostra già lo stato finale.
@@ -31,28 +31,62 @@ export function HeroScroll({ targetId }: { targetId: string }) {
       el.setAttribute("data-m", "")
     }
 
+    // Lo scroll non pilota l'animazione, la innesca: superata una piccola soglia l'apertura va avanti
+    // da sola fino in fondo, tornando in cima si richiude. Così non resta mai a metà.
+    const DURATION = 1100 // ms per l'apertura completa
+    let p = 0 // avanzamento 0..1
+    let target = 0
+    let last = 0
     let raf = 0
-    const update = () => {
-      raf = 0
+
+    const paint = () => {
+      const fade = 1 - clamp(p / 0.35)
+      el.style.setProperty("--e", ease(clamp(p / 0.85)).toFixed(4))
+      el.style.setProperty("--lift", ease(clamp((p - 0.1) / 0.8)).toFixed(4))
+      el.style.setProperty("--fade", fade.toFixed(3))
+      // nell'ultimo tratto il riquadro perde il margine bianco e gli angoli
+      el.style.setProperty("--x", ease(clamp((p - 0.72) / 0.28)).toFixed(4))
+      if (fade < 0.2) el.setAttribute("data-open", "")
+      else el.removeAttribute("data-open")
+    }
+
+    const tick = (now: number) => {
+      const dt = last ? now - last : 16
+      last = now
+      const step = dt / DURATION
+      p = target > p ? Math.min(target, p + step) : Math.max(target, p - step)
+      paint()
+      raf = p === target ? 0 : requestAnimationFrame(tick)
+      if (!raf) last = 0
+    }
+
+    // y: quanto si è scrollato dentro l'hero. Si apre oltre la soglia, si richiude solo in cima.
+    const readTarget = () => {
+      const y = -el.getBoundingClientRect().top
+      const open = Math.min(48, window.innerHeight * 0.05)
+      if (y > open) return 1
+      if (y <= 2) return 0
+      return target
+    }
+
+    const onScroll = () => {
       if (mq.matches) {
         for (const v of ["--e", "--lift", "--fade", "--x"]) el.style.removeProperty(v)
         el.removeAttribute("data-open")
         return
       }
-      const span = el.offsetHeight - window.innerHeight
-      const q = clamp(-el.getBoundingClientRect().top / span)
-      const p = clamp(q / 0.8)
-      const fade = 1 - clamp(p / 0.35)
-      el.style.setProperty("--e", ease(p).toFixed(4))
-      el.style.setProperty("--lift", ease(clamp((p - 0.12) / 0.88)).toFixed(4))
-      el.style.setProperty("--fade", fade.toFixed(3))
-      // a finestra aperta il riquadro perde il margine bianco e gli angoli
-      el.style.setProperty("--x", ease(clamp((q - 0.8) / 0.16)).toFixed(4))
-      if (fade < 0.2) el.setAttribute("data-open", "")
-      else el.removeAttribute("data-open")
+      const next = readTarget()
+      if (next === target) return
+      target = next
+      if (!raf) raf = requestAnimationFrame(tick)
     }
-    const onScroll = () => {
-      if (!raf) raf = requestAnimationFrame(update)
+
+    // Pagina aperta già scrollata (ricarica, link a un'ancora): stato finale subito, senza animazione
+    const init = () => {
+      if (mq.matches) return onScroll()
+      target = readTarget()
+      p = target
+      paint()
     }
     const onResize = () => {
       measure()
@@ -60,19 +94,19 @@ export function HeroScroll({ targetId }: { targetId: string }) {
     }
 
     measure()
-    update()
+    init()
     document.fonts?.ready.then(measure)
     const ro = new ResizeObserver(measure)
     if (claim) ro.observe(claim)
     window.addEventListener("scroll", onScroll, { passive: true })
     window.addEventListener("resize", onResize)
-    mq.addEventListener("change", onScroll)
+    mq.addEventListener("change", init)
     return () => {
       if (raf) cancelAnimationFrame(raf)
       ro.disconnect()
       window.removeEventListener("scroll", onScroll)
       window.removeEventListener("resize", onResize)
-      mq.removeEventListener("change", onScroll)
+      mq.removeEventListener("change", init)
     }
   }, [targetId])
   return null
