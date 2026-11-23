@@ -449,6 +449,7 @@ function FileSection(props: FileSectionProps) {
             onAddComment={props.onAddComment}
             onUpdateComment={props.onUpdateComment}
             onDeleteComment={props.onDeleteComment}
+            media={{ root, file, from, to }}
           />
         ) : (
           <p className="px-3 py-2 text-xs text-muted-foreground">{t('Loading diff…')}</p>

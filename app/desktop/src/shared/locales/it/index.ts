@@ -8,6 +8,7 @@ import connections from './connections'
 import editor from './editor'
 import host from './host'
 import inspector from './inspector'
+import media from './media'
 import nav from './nav'
 import presets from './presets'
 import settings from './settings'
@@ -15,4 +16,4 @@ import shell from './shell'
 import shortcuts from './shortcuts'
 import views from './views'
 
-registerCatalog('it', { ...agents, ...agentCatalog, ...browser, ...connections, ...nav, ...editor, ...chat, ...shell, ...views, ...inspector, ...host, ...shortcuts, ...presets, ...settings })
+registerCatalog('it', { ...agents, ...agentCatalog, ...browser, ...connections, ...nav, ...editor, ...chat, ...shell, ...views, ...inspector, ...media, ...host, ...shortcuts, ...presets, ...settings })

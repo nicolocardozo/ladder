@@ -11,7 +11,8 @@ import { useApp, type InspectorRequest } from '@/store/app-store'
 import { plural, t } from '@shared/i18n'
 import { PanelNote, ToolbarButton } from './changes-panel'
 import { CodeText, useFileTokens } from './code-lines'
-import { openInEditor } from './open-file'
+import { EDITOR_NAME, openInEditor, useEditorOf } from './open-file'
+import { BinaryNote, MediaView, PreviewToggle } from '@/components/media-preview'
 
 interface TreeNode {
   name: string
@@ -305,6 +306,9 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
   const [selection, setSelection] = useState<{ from: number; to: number; text: string } | null>(null)
   const insert = useApp((s) => s.insertIntoComposer)
   const scroller = useRef<HTMLDivElement>(null)
+  // SVG: disegnato come immagine, o il suo codice (se la richiesta chiede una riga si parte dal codice).
+  const [svgView, setSvgView] = useState<'preview' | 'code'>(line ? 'code' : 'preview')
+  const editorName = EDITOR_NAME[useEditorOf(projectId)]
 
   useEffect(() => {
     let cancelled = false
@@ -365,13 +369,14 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
         <span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>
           {path}
         </span>
+        {content?.media?.kind === 'svg' && <PreviewToggle value={svgView} onChange={setSvgView} />}
         {content?.text != null && <span className="shrink-0 text-xs text-faint">{plural(lines.length, '{n} line', '{n} lines')}</span>}
         {content?.text != null && (
           <ToolbarButton label={t('Edit file')} onClick={() => useApp.getState().openFile(projectId, root, path)}>
             <Pencil className="size-3.5" />
           </ToolbarButton>
         )}
-        <ToolbarButton label={t('Open in editor')} onClick={() => openInEditor(projectId, `${root}/${path}`, line ?? undefined)}>
+        <ToolbarButton label={t('Open in {editor}', { editor: editorName })} onClick={() => openInEditor(projectId, `${root}/${path}`, line ?? undefined)}>
           <ExternalLink className="size-3.5" />
         </ToolbarButton>
         <ToolbarButton label={t('Close file')} onClick={onClose}>
@@ -397,8 +402,10 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
             <PanelNote tone="error">{error}</PanelNote>
           ) : !content ? (
             <p className="px-3 py-2 text-xs text-muted-foreground">{t('Opening file…')}</p>
+          ) : content.media && (content.binary || (content.media.kind === 'svg' && svgView === 'preview')) ? (
+            <MediaView root={root} path={path} media={content.media} />
           ) : content.binary ? (
-            <PanelNote>{t('Binary file. Open it in the editor or in Finder.')}</PanelNote>
+            <BinaryNote root={root} path={path} size={content.size} />
           ) : content.tooLarge ? (
             <PanelNote>{t('File too large for the viewer ({size} KB). Open it in the editor.', { size: Math.round(content.size / 1024) })}</PanelNote>
           ) : (

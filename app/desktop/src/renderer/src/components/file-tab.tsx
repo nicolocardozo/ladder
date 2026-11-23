@@ -3,7 +3,7 @@ import { shortcutLabel } from '@shared/shortcuts'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ExternalLink, TriangleAlert } from 'lucide-react'
-import type { FileContent } from '@shared/protocol'
+import type { FileContent, FileMedia } from '@shared/protocol'
 import { fileTabId } from '@shared/file-tabs'
 import { t } from '@shared/i18n'
 import { createBuffer, currentDoc, getBuffer, replaceDoc, saveBuffer, toText, type FileBuffer } from '@/components/editor/buffers'
@@ -12,7 +12,8 @@ import { TopBar, Workspace } from '@/components/main-views'
 import { TabBar } from '@/components/tab-bar'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
-import { openInEditor } from '@/components/inspector/open-file'
+import { EDITOR_NAME, openInEditor, useEditorOf } from '@/components/inspector/open-file'
+import { MediaView, PreviewToggle } from '@/components/media-preview'
 import { Kbd } from '@/components/ui/kbd'
 import { request, send } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
@@ -49,6 +50,10 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
   const [comparing, setComparing] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [missing, setMissing] = useState(false)
+  // File non di testo (o SVG): anteprima. Per un SVG si parte dal codice, salvo che non si possa modificare.
+  const [media, setMedia] = useState<FileMedia | null>(null)
+  const [svgView, setSvgView] = useState<'preview' | 'code' | null>(null)
+  const editorName = EDITOR_NAME[useEditorOf(projectId)]
   const latest = useRef({ conflict })
   latest.current = { conflict }
 
@@ -63,7 +68,9 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
       .then((content) => {
         if (cancelled) return
         setMissing(false)
-        if (content.binary) return setUnavailable(t('Binary file: it can’t be edited here.'))
+        setMedia(content.media ?? null)
+        // Senza descrizione dell'host (versione vecchia) resta il messaggio di prima.
+        if (content.binary) return setUnavailable(content.media ? null : t('Binary file: it can’t be edited here.'))
         if (content.tooLarge) return setUnavailable(t('File too large to edit here ({size} KB).', { size: Math.round(content.size / 1024) }))
         // Un byte non valido in UTF-8 si perderebbe al salvataggio.
         if (content.text === null || content.text.includes('�')) return setUnavailable(t('This file isn’t UTF-8: it can’t be edited here.'))
@@ -97,6 +104,7 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
       })
       .catch(() => {
         if (cancelled) return
+        setMedia(null)
         if (getBuffer(id)) setMissing(true)
         else setUnavailable(t('This file no longer exists.'))
       })
@@ -149,6 +157,8 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
     buffer.view?.focus()
   }
 
+  const svgMode = svgView ?? (unavailable ? 'preview' : 'code')
+  const showMedia = media !== null && (media.kind !== 'svg' || svgMode === 'preview')
   if (!project) return null
   return (
     <Workspace project={project} session={null} root={root} composerKey={`new:${project.id}`}>
@@ -165,10 +175,11 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
             <Kbd>{shortcutLabel('file.save')}</Kbd>
           </button>
         )}
+        {media?.kind === 'svg' && <PreviewToggle value={svgMode} onChange={setSvgView} />}
         <button
           type="button"
-          aria-label={t('Open in editor')}
-          title={t('Open in editor')}
+          aria-label={t('Open in {editor}', { editor: editorName })}
+          title={t('Open in {editor}', { editor: editorName })}
           onClick={() => openInEditor(projectId, `${root}/${path}`)}
           className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
         >
@@ -192,7 +203,11 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
           </button>
         </Banner>
       )}
-      {unavailable ? (
+      {showMedia && media ? (
+        <div className="min-h-0 flex-1 bg-code-bg">
+          <MediaView root={root} path={path} media={media} />
+        </div>
+      ) : unavailable ? (
         <p className="m-auto max-w-sm px-6 text-center text-sm text-muted-foreground">{unavailable}</p>
       ) : buffer ? (
         <CodeEditor buffer={buffer} compareWith={comparing && conflict ? conflict.text : null} />

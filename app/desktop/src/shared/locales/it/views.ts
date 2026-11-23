@@ -7,6 +7,7 @@ const it: Record<string, string> = {
   'Choose editor': 'Scegli l’editor',
   'Editor for {project}': 'Editor per {project}',
   'not found': 'non trovato',
+  'n/a': 'n/d',
   '⌥-click a file in the chat to open it here, at the right line.': '⌥clic su un file nella chat lo apre qui, alla riga giusta.',
   'Hide terminal': 'Nascondi il terminale',
   Terminal: 'Terminale',

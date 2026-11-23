@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@/components/ui/dropdown-menu'
-import { EDITOR_NAME, editorOf, openInEditor } from '@/components/inspector/open-file'
+import { chooseEditor, EDITORS, EDITOR_NAME, openInEditor, useEditorOf, useInstalledEditors } from '@/components/inspector/open-file'
 import { layoutProjects } from '@/lib/project-groups'
 import { openSavePreset } from '@/lib/session-presets'
 import { liveColumns, useApp } from '@/store/app-store'
@@ -22,12 +22,33 @@ const parts = {
 const contentClass = 'w-auto min-w-52'
 const itemClass = 'gap-2 py-[5px] text-sm [&_svg]:size-[15px] [&_svg]:text-muted-foreground'
 
-function openInEditorOf(project: Project): void {
-  openInEditor(project.id, project.path)
-}
 
 function revealInFinder(path: string): void {
   void window.ladder?.reveal(path)
+}
+
+/** Scelta dell'editor per il progetto: la barra delle tab non ha più il pulsante, la scelta sta qui e in Impostazioni → Workspace. */
+function EditorSub({ variant, project, itemClass: itemCls }: { variant: Variant; project: Project; itemClass: string }) {
+  const { Item, Sub, SubTrigger, SubContent } = parts[variant]
+  const current = useEditorOf(project.id)
+  const installed = useInstalledEditors()
+  return (
+    <Sub>
+      <SubTrigger className={itemCls}>
+        <ExternalLink />
+        {t('Editor for {project}', { project: project.name })}
+      </SubTrigger>
+      <SubContent className={contentClass}>
+        {EDITORS.map((id) => (
+          <Item key={id} className={itemCls} onClick={() => chooseEditor(project.id, id)}>
+            <Check className={id === current ? undefined : 'opacity-0'} />
+            {EDITOR_NAME[id]}
+            {installed && !installed[id] && <span className="ml-auto pl-3 text-xs text-muted-foreground">{t('not installed')}</span>}
+          </Item>
+        ))}
+      </SubContent>
+    </Sub>
+  )
 }
 
 interface SessionMenuProps {
@@ -50,6 +71,7 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
   const markRead = useApp((s) => s.markRead)
   const openSplit = useApp((s) => s.openSplit)
   const sessionId = session.id
+  const editor = useEditorOf(session.projectId)
   // Come openSplit: serve una sessione da cui affiancare (la colonna attiva o quella aperta) e questa non deve essere già in colonna.
   const canSplit = useApp((s) => {
     const columns = liveColumns(s, session.projectId)
@@ -91,10 +113,12 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
       )}
       {project && (
         <>
-          <Item className={itemClass} onClick={() => openInEditorOf(project)}>
+          {/* La cartella della sessione: il suo worktree se ce l'ha, altrimenti il progetto. */}
+          <Item className={itemClass} onClick={() => openInEditor(project.id, session.cwd || project.path)}>
             <ExternalLink />
-            {t('Open in {editor}', { editor: EDITOR_NAME[editorOf(project.id)] })}
+            {t('Open in {editor}', { editor: EDITOR_NAME[editor] })}
           </Item>
+          <EditorSub variant={variant} project={project} itemClass={itemClass} />
           <Item className={itemClass} onClick={() => revealInFinder(project.path)}>
             <FolderSearch />
             {t('Show in Finder')}
@@ -211,6 +235,7 @@ export function ProjectMenuContent({ project, onRemove, variant = 'context' }: P
   const createProjectGroup = useApp((s) => s.createProjectGroup)
   const moveProject = useApp((s) => s.moveProject)
   const removing = useRef(false)
+  const projectEditor = useEditorOf(project.id)
   // Dove sta il progetto: la sua sezione (null: fuori da ogni sezione) e il posto tra i vicini.
   const place = useMemo(() => {
     const layout = layoutProjects(projects, projectGroups)
@@ -245,10 +270,11 @@ export function ProjectMenuContent({ project, onRemove, variant = 'context' }: P
         <SquarePen />
         {t('New chat')}
       </Item>
-      <Item className={itemClass} onClick={() => openInEditorOf(project)}>
+      <Item className={itemClass} onClick={() => openInEditor(project.id, project.path)}>
         <ExternalLink />
-        {t('Open in {editor}', { editor: EDITOR_NAME[editorOf(project.id)] })}
+        {t('Open in {editor}', { editor: EDITOR_NAME[projectEditor] })}
       </Item>
+      <EditorSub variant={variant} project={project} itemClass={itemClass} />
       <Item className={itemClass} onClick={() => revealInFinder(project.path)}>
         <FolderSearch />
         {t('Show in Finder')}

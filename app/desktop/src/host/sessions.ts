@@ -65,7 +65,8 @@ import { COMMIT_BODY_MAX, PR_BODY_MAX, isTextBlocked } from './text-safety'
 import { codexDefaults } from './codex/environment'
 import { codexText, codexTitle, smallCodexModel } from './codex/title'
 import { clipTitle, inTitleQueue, issueRef, teamPrefixes, titlePrompt, withIssue } from './titles'
-import { listTree, readText, RootWatcher, writeText } from './files'
+import { insideRoot, listTree, mediaInfo, readText, RootWatcher, writeText } from './files'
+import { FileRoots } from './file-roots'
 import { aheadBehind, changedFiles, commitChanges, createCheckpoint, ensureExcluded, fetchRef, git, gitRead, gitStatus, listBranches, listFiles, mergeConflicts, repoInfo, resolveCommit } from './git'
 import { GitStatusTracker } from './git-status'
 import { pushBranch, pushPreview } from './git-push'
@@ -186,6 +187,8 @@ export class Host {
   private subagentFlush = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly terminals: TerminalManager
   private readonly watcher: RootWatcher
+  /** LAD-70: id delle root servite dal protocollo ladder-file del main. */
+  private readonly fileRoots: FileRoots
   /** Stato git per l'intestazione (LAD-68) e le iscrizioni della UI. */
   private readonly gitStatus: GitStatusTracker
   /** Iscrizioni a `git.watch` per connessione (finestra): connessione -> sessione -> cartella. Chiusa la porta, si tolgono tutte. */
@@ -302,6 +305,7 @@ export class Host {
       devServer: (terminal, url) => this.broadcast({ type: 'browser.devserver', projectId: terminal.projectId, terminalId: terminal.id, url })
     })
     this.watcher = new RootWatcher((root) => this.notifyFsChanged(root))
+    this.fileRoots = new FileRoots((message) => this.notify(message), () => [...this.projects.values()].map((p) => p.path).concat([...this.rows.values()].map((r) => this.cwdOf(r))).filter(Boolean))
     this.gitStatus = new GitStatusTracker({
       emit: (status) => this.broadcast({ type: 'git.status', status }),
       isWorktree: (root) => this.isWorktreeRoot(root),
@@ -998,7 +1002,19 @@ export class Host {
       case 'fs.tree':
         return listTree(this.knownRoot(command.root))
       case 'fs.read':
-        return readText(this.knownRoot(command.root), command.path)
+        return readText(this.knownRoot(command.root), command.path, this.fileRoots.idFor(this.knownRoot(command.root)))
+      // ── LAD-70 ──
+      case 'fs.media': {
+        const root = this.knownRoot(command.root)
+        return mediaInfo(root, command.path, this.fileRoots.idFor(root), command.rev ?? null)
+      }
+      case 'fs.reveal': {
+        const root = this.knownRoot(command.root)
+        insideRoot(root, command.path)
+        this.notify({ type: 'reveal-file', id: this.fileRoots.idFor(root), path: command.path })
+        return null
+      }
+      // ── Fine LAD-70 ──
       case 'fs.write':
         return writeText(this.knownRoot(command.root), command.path, command.text, command.baseMtime)
       case 'fs.watch': {

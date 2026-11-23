@@ -2,10 +2,11 @@
 // Le righe aggiunte e tolte hanno sempre anche il segno + o −: si distinguono senza colore (temi Mono).
 import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
-import type { FilePatch } from '@shared/protocol'
+import type { FileChange, FilePatch } from '@shared/protocol'
 import { cn } from '@/lib/utils'
 import { t } from '@shared/i18n'
 import { Kbd } from '@/components/ui/kbd'
+import { MediaCompare } from '@/components/media-preview'
 import { isSendKey, sendKeyCombos, useSendKey } from '@/lib/send-key'
 import { CodeText, useFileTokens } from './code-lines'
 import { lineKey, parsePatch, splitRows, type DiffLine } from './diff-parse'
@@ -21,12 +22,14 @@ interface DiffViewProps {
   onAddComment?: (line: DiffLine, text: string) => void
   onUpdateComment: (id: string, text: string) => void
   onDeleteComment: (id: string) => void
+  /** Per file binari e SVG: root, file e revisioni da cui mostrare prima e dopo. */
+  media?: { root: string; file: FileChange; from: string; to: string }
 }
 
 const ADD_BG = 'bg-[color-mix(in_oklab,var(--color-diff-added)_13%,transparent)]'
 const DEL_BG = 'bg-[color-mix(in_oklab,var(--color-diff-removed)_13%,transparent)]'
 
-export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment, onDeleteComment }: DiffViewProps) {
+export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment, onDeleteComment, media }: DiffViewProps) {
   const hunks = useMemo(() => parsePatch(patch.patch), [patch.patch])
   const oldTokens = useFileTokens(patch.oldText, patch.oldPath ?? patch.path)
   const newTokens = useFileTokens(patch.newText, patch.path)
@@ -42,9 +45,24 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
     return map
   }, [comments])
 
-  if (patch.binary) return <Empty>{t('Binary file. Its contents can’t be compared here.')}</Empty>
-  if (patch.tooLarge) return <Empty>{t('File too large to diff. Open it in the editor.')}</Empty>
-  if (hunks.length === 0) return <Empty>{t('No content differences (only the name or permissions changed).')}</Empty>
+  // Immagini, PDF e media: prima e dopo al posto del testo. Un SVG è testo: ha il confronto e, sotto, il diff del codice.
+  const compare = media ? <MediaCompare root={media.root} file={media.file} from={media.from} to={media.to} /> : null
+  if (patch.binary) return compare ?? <Empty>{t('Binary file. Its contents can’t be compared here.')}</Empty>
+  const lead = compare && /\.svg$/i.test(patch.path) ? compare : null
+  if (patch.tooLarge)
+    return (
+      <>
+        {lead}
+        <Empty>{t('File too large to diff. Open it in the editor.')}</Empty>
+      </>
+    )
+  if (hunks.length === 0)
+    return (
+      <>
+        {lead}
+        <Empty>{t('No content differences (only the name or permissions changed).')}</Empty>
+      </>
+    )
 
   const tokensFor = (line: DiffLine) => (line.kind === 'del' ? oldTokens?.[(line.oldNo ?? 1) - 1] : newTokens?.[(line.newNo ?? 1) - 1])
 
@@ -171,6 +189,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
 
   return (
     <div className="overflow-x-auto">
+      {lead}
       <table className="w-full border-collapse font-mono text-xs leading-[19px]">
         <tbody>{body}</tbody>
       </table>

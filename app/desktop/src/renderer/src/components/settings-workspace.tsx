@@ -51,7 +51,7 @@ function EditorBlock() {
   const missing = installed && !installed[prefs.editor]
   const firstInstalled = installed ? EDITORS.find((id) => installed[id]) : undefined
   return (
-    <SettingsBlock id="editor-title" title={t('External editor')} description={t('Used by “Open in editor” for files and project folders. A project can pick its own from the Open in menu in the top bar.')}>
+    <SettingsBlock id="editor-title" title={t('External editor')} description={t('Used by “Open in editor” for files and project folders. A project can pick its own from its menu in the sidebar.')}>
       <ChoiceGroup label={t('External editor')} value={prefs.editor} choices={choices} onChange={(editor) => update({ editor })} minWidth={150} />
       {missing && (
         <p role="status" className="mt-2 text-xs text-muted-foreground">

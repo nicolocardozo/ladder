@@ -446,6 +446,9 @@ const it: Record<string, string> = {
   'That element cannot take text.': 'Questo elemento non accetta testo.',
   'The browser did not understand the request.': 'Il browser non ha capito la richiesta.',
   'No Ladder window is open.': 'Nessuna finestra di Ladder è aperta.',
+  // Anteprima di immagini, PDF e media (LAD-70).
+  'Unknown revision.': 'Revisione sconosciuta.',
+  'The file doesn’t exist in that revision.': 'Il file non esiste in quella revisione.',
   // Push, merge e archivia dal pannello merge (LAD-69).
   'Another push or merge is already running on this repository: wait for it to finish.': 'Un altro push o merge è già in corso su questo repository: aspetta che finisca.',
   'HEAD is detached: switch to a branch before pushing.': 'HEAD è staccato: passa a un branch prima di inviare.',

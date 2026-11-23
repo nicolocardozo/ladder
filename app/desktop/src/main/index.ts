@@ -24,9 +24,12 @@ import '@shared/locales/it'
 import { Attention } from './attention'
 import { destroyAgentTabs, destroyWindowTabs, onAgentTabClosed, registerBrowserIpc } from './browser'
 import { runAgentOp } from './browser-agent'
+import { registerFileProtocol, registerFileScheme, revealFile, setFileRoots } from './file-protocol'
 import { linearIssues, linearStatus, setLinearKey } from './linear'
 
 app.setName('Ladder')
+// LAD-70: lo schema ladder-file va dichiarato privilegiato prima di app.ready.
+registerFileScheme()
 // Cartella dati alternativa per prove automatiche o profili separati.
 if (process.env.LADDER_USER_DATA) app.setPath('userData', process.env.LADDER_USER_DATA)
 // Un profilo, una sola istanza: due processi sullo stesso database si contenderebbero sessioni e agenti.
@@ -254,6 +257,9 @@ function startHost(): void {
       runningSessions = message.running
       applyKeepAwake()
     } else if (message?.type === 'open-path') openDataPath(message.path)
+    // LAD-70: root servibili dal protocollo ladder-file, e "mostra nel Finder" per un file di una di esse.
+    else if (message?.type === 'file-roots' && Array.isArray(message.roots)) setFileRoots(message.roots)
+    else if (message?.type === 'reveal-file') void revealFile(message.id, message.path)
     // LAD-57 parte 2: operazione sul browser dell'agente; la risposta torna con lo stesso rid, sempre come dati semplici.
     else if (message?.type === 'browser-agent' && typeof message.rid === 'string') {
       const rid = message.rid
@@ -267,6 +273,7 @@ function startHost(): void {
   host.stderr?.on('data', (chunk) => process.stderr.write(`[host] ${chunk}`))
   host.on('exit', (code) => {
     host = null
+    setFileRoots([])
     // Le sessioni al lavoro sono finite con l'host: niente blocco del sonno.
     runningSessions = 0
     applyKeepAwake()
@@ -583,6 +590,7 @@ app.whenReady().then(() => {
     if (existsSync(icon)) app.dock?.setIcon(icon)
   }
   buildMenu()
+  registerFileProtocol()
   startHost()
   createWindow()
   app.on('activate', () => {

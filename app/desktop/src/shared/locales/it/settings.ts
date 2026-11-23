@@ -33,8 +33,8 @@ const it: Record<string, string> = {
   'Where files open outside Ladder and where sessions that work in their own copy of the project keep it.':
     'Dove si aprono i file fuori da Ladder e dove le sessioni che lavorano in una copia propria del progetto la tengono.',
   'External editor': 'Editor esterno',
-  'Used by “Open in editor” for files and project folders. A project can pick its own from the Open in menu in the top bar.':
-    'Lo usa “Apri nell’editor” per file e cartelle dei progetti. Un progetto può sceglierne uno suo dal menu Apri in della barra in alto.',
+  'Used by “Open in editor” for files and project folders. A project can pick its own from its menu in the sidebar.':
+    'Lo usa “Apri nell’editor” per file e cartelle dei progetti. Un progetto può sceglierne uno suo dal proprio menu nella sidebar.',
   'not installed': 'non installato',
   '{editor} isn’t installed: Ladder opens {other} instead.': '{editor} non è installato: Ladder apre {other}.',
   'None of these editors is installed: Ladder opens files with the app macOS picks.': 'Nessuno di questi editor è installato: Ladder apre i file con l’app scelta da macOS.',

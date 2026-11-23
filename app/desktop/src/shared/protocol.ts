@@ -1,3 +1,4 @@
+import type { FileKind } from './file-type'
 import type { Locale } from './i18n'
 import type { Keybinding, ShortcutPreset } from './shortcuts'
 // Tipi condivisi tra host delle sessioni, processo main e renderer.
@@ -720,9 +721,36 @@ export interface FileContent {
   text: string | null
   /** Ora di modifica su disco: al salvataggio dice se nel frattempo qualcuno ha scritto il file. */
   mtimeMs: number
+  /** LAD-70: per i file binari, tipo, dimensioni e URL per l'anteprima (vedi FileMedia). */
+  media?: FileMedia | null
 }
 
 export type FileWriteResult = { ok: true; mtimeMs: number } | { ok: false; text: string; mtimeMs: number }
+
+// ── LAD-70: anteprima di immagini, PDF e media ───────────────────────────
+// I byte non passano dalla MessagePort: la UI li carica da un URL `ladder-file://<id>/<percorso>[?rev=<rev>]` (img, video, audio, iframe),
+// servito dal main solo per le root note (progetto o worktree di sessione). `<id>` è l'id opaco che l'host dà con FileMedia.url;
+// `rev` è HEAD o uno sha completo di git (checkpoint, commit): serve la versione di quella revisione invece del file su disco.
+// Vedi shared/file-type.ts (fileUrl per costruire gli URL, isKnownRev) e main/file-protocol.ts.
+
+export type { FileKind }
+
+/** Descrizione di un file non di testo, per il viewer e il diff. */
+export interface FileMedia {
+  /** image: png, jpg, gif, webp, ico, avif, bmp; svg: da mostrare solo con <img>; other: fuori whitelist, niente anteprima. */
+  kind: FileKind
+  /** Tipo reale (dai primi byte), `application/octet-stream` per 'other'. */
+  mime: string
+  size: number
+  /** Solo per le immagini raster che si leggono dall'intestazione (non avif, non svg): altrimenti null e la UI legge naturalWidth dall'<img>. */
+  width: number | null
+  height: number | null
+  /** Ora di modifica del file su disco; null per una revisione di git. */
+  mtimeMs: number | null
+  /** URL ladder-file pronto per <img>/<video>/<audio>/<iframe>; null per 'other' (si può solo mostrare nel Finder). */
+  url: string | null
+}
+// ── Fine LAD-70 ──────────────────────────────────────────────────────────
 
 /** Ambito del pannello Modifiche. */
 export type DiffScope =
@@ -1185,6 +1213,12 @@ export type HostCommand =
   /** `baseMtime` null: scrive comunque. Altrimenti, se il file è cambiato, non scrive e rimanda il testo su disco. */
   | { type: 'fs.write'; root: string; path: string; text: string; baseMtime: number | null }
   | { type: 'fs.watch'; root: string; on: boolean }
+  // ── LAD-70 ──
+  /** Descrive un file non di testo della root, o la sua versione alla revisione `rev` (HEAD o sha completo di git). Risponde FileMedia. */
+  | { type: 'fs.media'; root: string; path: string; rev?: string | null }
+  /** Mostra il file nel Finder: solo dentro la root. Risponde null. */
+  | { type: 'fs.reveal'; root: string; path: string }
+  // ── Fine LAD-70 ──
   | { type: 'diff.files'; root: string; scope: DiffScope }
   | { type: 'diff.file'; root: string; from: string; to: string; path: string; oldPath?: string | null }
   /** Riporta i file allo stato di `to`. Restituisce il checkpoint per annullare. */
@@ -1525,6 +1559,12 @@ export type HostToMain =
   /** Operazione sul browser dell'agente: il main la esegue e risponde con `browser-agent-result` (stesso `rid`). */
   | { type: 'browser-agent'; rid: string; op: BrowserAgentOp }
   // ── Fine LAD-57 parte 2 ──
+  // ── LAD-70 ──
+  /** Root da cui il main può servire file (ladder-file://<id>/…): elenco completo a ogni cambio, ciò che manca smette di funzionare. */
+  | { type: 'file-roots'; roots: { id: string; root: string }[] }
+  /** Mostra nel Finder un file della root `id`: il main ricontrolla che sia dentro la root. */
+  | { type: 'reveal-file'; id: string; path: string }
+  // ── Fine LAD-70 ──
 
 export interface HostPrefs {
   /** Turni attivi insieme per agente; gli altri aspettano "In coda". */

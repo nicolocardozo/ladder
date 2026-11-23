@@ -6,7 +6,6 @@ import {
   Bookmark,
   Check,
   ChevronDown,
-  ExternalLink,
   FolderOpen,
   FolderTree,
   FolderPlus,
@@ -20,7 +19,7 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import type { AgentId, AgentStatus, Attachment, ChatItem, EditorAvailability, EditorId, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentId, AgentStatus, Attachment, ChatItem, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { allowedLevels, FALLBACK_AGENT, supportsEffort } from '@/lib/agents'
 import { agentsRunning } from '@/lib/session-state'
 import { SOURCE_ICON } from '@/components/new-from'
@@ -30,13 +29,13 @@ import { agentStatusFor, hostProfileId, isDefaultProfileId, isProfileAgent, prof
 import { AgentMark } from '@/components/agent-mark'
 import { runningForegroundSubagents } from '@/components/agent-map'
 import { SubagentDialog } from '@/components/subagent-dialog'
+import { openInEditor } from '@/components/inspector/open-file'
 import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sidebar'
 import { ChatView } from '@/components/chat/chat-view'
 import { LadderEngraved } from '@/components/brand/logo'
 import { Composer } from '@/components/composer'
 import { GitChangesPill, GitStatusChip, useFirstChangeFlash, useGitStatus } from '@/components/git-status-chip'
 import { Inspector } from '@/components/inspector/inspector'
-import { EDITOR_NAME, EDITORS, openInEditor } from '@/components/inspector/open-file'
 import { ColumnHeader, SplitColumns, SplitDropHint } from '@/components/split-view'
 import { TabBar } from '@/components/tab-bar'
 import { TerminalPanel } from '@/components/terminal/terminal-panel'
@@ -180,48 +179,6 @@ function SessionGit({ project, session, root }: { project: Project; session: Ses
   )
 }
 
-function EditorButton({ project, root }: { project: Project; root: string }) {
-  const editor = useApp((s) => s.ui[project.id]?.editor ?? s.prefs?.editor ?? 'cursor')
-  const setUi = useApp((s) => s.setUi)
-  const [installed, setInstalled] = useState<EditorAvailability | null>(null)
-  const choose = (next: EditorId) => {
-    const current = useApp.getState().ui[project.id] ?? { tabs: [], activeTab: null, scroll: {} }
-    const state = { ...current, editor: next }
-    setUi(project.id, state)
-    send({ type: 'ui.set', projectId: project.id, state })
-  }
-  return (
-    <div className="no-drag flex items-center">
-      {/* Compatto: il nome dell'editor sta nel suggerimento, la barra resta alle tab. */}
-      <Tooltip>
-        <TooltipTrigger render={<button type="button" />} onClick={() => openInEditor(project.id, root)} aria-label={t('Open in {editor}', { editor: EDITOR_NAME[editor] })} className={cn(barButton, 'rounded-r-none pr-1')}>
-          <ExternalLink className="size-3.5" />
-        </TooltipTrigger>
-        <TooltipContent side="bottom">{t('Open in {editor}', { editor: EDITOR_NAME[editor] })}</TooltipContent>
-      </Tooltip>
-      <DropdownMenu onOpenChange={(open) => open && !installed && void window.ladder?.editors().then(setInstalled)}>
-        <DropdownMenuTrigger aria-label={t('Choose editor')} className={cn(barButton, 'rounded-l-none px-1')}>
-          <ChevronDown className="size-3" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>{t('Editor for {project}', { project: project.name })}</DropdownMenuLabel>
-            {EDITORS.map((id) => (
-              <DropdownMenuItem key={id} onClick={() => choose(id)}>
-                <Check className={cn('size-3.5', editor === id ? '' : 'opacity-0')} />
-                {EDITOR_NAME[id]}
-                {installed && !installed[id] && <span className="ml-auto text-xs text-faint">{t('not found')}</span>}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuGroup>
-          <DropdownMenuSeparator />
-          <p className="px-2 py-1 text-xs text-muted-foreground">{t('⌥-click a file in the chat to open it here, at the right line.')}</p>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  )
-}
-
 export function TopBar({ children, project, session, root }: { children?: ReactNode; project: Project | null; session: SessionSummary | null; root: string | null }) {
   useShortcutsRevision()
   const sidebarOpen = useApp((s) => s.sidebarOpen)
@@ -290,7 +247,6 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
               {t('Files of this project')} <Kbd className="ml-1">{shortcutLabel('inspector.files')}</Kbd>
             </TooltipContent>
           </Tooltip>
-          {root && <EditorButton project={project} root={root} />}
         </>
       )}
     </div>

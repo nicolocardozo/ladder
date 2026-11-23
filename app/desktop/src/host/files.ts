@@ -1,10 +1,13 @@
 // File delle cartelle di lavoro: albero con stato git, lettura per il viewer e osservazione dei cambiamenti.
+import { spawn } from 'node:child_process'
 import { watch, type FSWatcher } from 'node:fs'
 import { open, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { t } from '@shared/i18n'
-import type { FileContent, FileTree, FileWriteResult } from '@shared/protocol'
-import { isBinary, listFiles, MAX_TEXT_BYTES, repoInfo, statusMap } from './git'
+import { cleanEnv } from '@shared/env'
+import { fileUrl, imageSize, isKnownRev, isTextExtension, SNIFF_BYTES, sniffType } from '@shared/file-type'
+import type { FileContent, FileMedia, FileTree, FileWriteResult } from '@shared/protocol'
+import { git, isBinary, listFiles, MAX_TEXT_BYTES, repoInfo, statusMap } from './git'
 
 const MAX_FILES = 20000
 /** Cartelle saltate nelle cartelle senza git, dove non c'è un .gitignore da seguire. */
@@ -45,19 +48,85 @@ export async function listTree(root: string): Promise<FileTree> {
   return { root, isGit: false, files: files.slice(0, MAX_FILES), status: {}, truncated: files.length > MAX_FILES }
 }
 
-export async function readText(root: string, rel: string): Promise<FileContent> {
+/** Metadati di un file non di testo (o dell'SVG) a partire dai primi byte; `rootId` null: niente URL. */
+function mediaFrom(head: Buffer, rel: string, size: number, mtimeMs: number | null, rootId: string | null, rev: string | null): FileMedia {
+  const type = sniffType(head, rel)
+  if (!type) return { kind: 'other', mime: 'application/octet-stream', size, width: null, height: null, mtimeMs, url: null }
+  const dims = type.kind === 'image' ? imageSize(head, type.mime) : null
+  return { kind: type.kind, mime: type.mime, size, width: dims?.width ?? null, height: dims?.height ?? null, mtimeMs, url: rootId ? fileUrl(rootId, rel, rev) : null }
+}
+
+/** `rootId`: id ladder-file della root (LAD-70); senza, il file binario si descrive senza URL. */
+export async function readText(root: string, rel: string, rootId: string | null = null): Promise<FileContent> {
   const absolute = insideRoot(root, rel)
   const info = await stat(absolute)
   if (!info.isFile()) throw new Error(t('Not a file.'))
-  if (info.size > MAX_TEXT_BYTES) return { path: rel, size: info.size, binary: false, tooLarge: true, text: null, mtimeMs: info.mtimeMs }
   const handle = await open(absolute, 'r')
   try {
+    // Prima solo l'intestazione: un video da 500 MB o uno zip non si leggono per intero.
+    const head = Buffer.alloc(Math.min(SNIFF_BYTES, info.size))
+    if (head.length) await handle.read(head, 0, head.length, 0)
+    const type = sniffType(head, rel)
+    const media = () => mediaFrom(head, rel, info.size, info.mtimeMs, rootId, null)
+    // Un file con estensione di testo e senza NUL è testo anche se i primi byte somigliano a un formato (un .md che cita `%PDF-1.7`).
+    const textLike = isTextExtension(rel) && !isBinary(head)
+    if ((type && type.kind !== 'svg' && !textLike) || (info.size > MAX_TEXT_BYTES && isBinary(head))) return { path: rel, size: info.size, binary: true, tooLarge: false, text: null, mtimeMs: info.mtimeMs, media: media() }
+    if (info.size > MAX_TEXT_BYTES) return { path: rel, size: info.size, binary: false, tooLarge: true, text: null, mtimeMs: info.mtimeMs, media: type ? media() : null }
     const buffer = await handle.readFile()
-    if (isBinary(buffer)) return { path: rel, size: info.size, binary: true, tooLarge: false, text: null, mtimeMs: info.mtimeMs }
-    return { path: rel, size: info.size, binary: false, tooLarge: false, text: buffer.toString('utf8'), mtimeMs: info.mtimeMs }
+    if (isBinary(buffer)) return { path: rel, size: info.size, binary: true, tooLarge: false, text: null, mtimeMs: info.mtimeMs, media: media() }
+    // L'SVG è anche testo: il viewer mostra l'anteprima (con <img>) e il codice.
+    return { path: rel, size: info.size, binary: false, tooLarge: false, text: buffer.toString('utf8'), mtimeMs: info.mtimeMs, media: type && !textLike ? media() : null }
   } finally {
     await handle.close()
   }
+}
+
+/** Primi byte di un blob di git, senza leggerlo tutto. */
+function blobHead(root: string, spec: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', ['-C', root, '--no-optional-locks', 'cat-file', 'blob', spec], { env: cleanEnv(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']), stdio: ['ignore', 'pipe', 'ignore'] })
+    const chunks: Buffer[] = []
+    let length = 0
+    let done = false
+    const finish = (error?: Error) => {
+      if (done) return
+      done = true
+      child.kill()
+      if (error) reject(error)
+      else resolve(Buffer.concat(chunks).subarray(0, SNIFF_BYTES))
+    }
+    child.stdout.on('data', (chunk: Buffer) => {
+      chunks.push(chunk)
+      length += chunk.length
+      if (length >= SNIFF_BYTES) finish()
+    })
+    child.on('error', finish)
+    child.on('close', () => finish())
+  })
+}
+
+/** Descrive un file della root, su disco o a una revisione di git (HEAD o sha completo: mai altro, la rev va a git come argomento). */
+export async function mediaInfo(root: string, rel: string, rootId: string, rev: string | null): Promise<FileMedia> {
+  const absolute = insideRoot(root, rel)
+  if (rev === null) {
+    const info = await stat(absolute)
+    if (!info.isFile()) throw new Error(t('Not a file.'))
+    const handle = await open(absolute, 'r')
+    try {
+      const head = Buffer.alloc(Math.min(SNIFF_BYTES, info.size))
+      if (head.length) await handle.read(head, 0, head.length, 0)
+      return mediaFrom(head, rel, info.size, info.mtimeMs, rootId, null)
+    } finally {
+      await handle.close()
+    }
+  }
+  if (!isKnownRev(rev)) throw new Error(t('Unknown revision.'))
+  const spec = `${rev}:./${rel}`
+  const [kind, size] = await Promise.all([git(root, ['cat-file', '-t', spec]), git(root, ['cat-file', '-s', spec])]).catch(() => {
+    throw new Error(t('The file doesn’t exist in that revision.'))
+  })
+  if (kind !== 'blob') throw new Error(t('Not a file.'))
+  return mediaFrom(await blobHead(root, spec), rel, Number(size), null, rootId, rev)
 }
 
 /** Scrive un file della cartella. Se è cambiato dopo l'ultima lettura non scrive: decide chi sta modificando. */
