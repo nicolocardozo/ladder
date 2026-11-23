@@ -9,6 +9,8 @@ export const SITE = {
   githubUrl: null as string | null,
   // Link al file dell'app per i dati strutturati: null finché non c'è una release pubblica
   downloadUrl: null as string | null,
+  // Indirizzo di contatto per privacy e domande (va attivato su Cloudflare Email Routing)
+  email: "hello@itsladder.dev",
   locale: "en_US",
 } as const
 
