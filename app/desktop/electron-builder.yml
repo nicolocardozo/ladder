@@ -7,6 +7,8 @@ directories:
 files:
   - out/**/*
   - package.json
+  # Del binario di Claude dell'Agent SDK entra solo quello dell'architettura che si sta costruendo.
+  - "!**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-!(${arch})/**"
 asar: true
 # node-pty è l'unico modulo nativo: resta fuori dall'asar (lo spawn-helper deve essere un file eseguibile vero).
 asarUnpack:

@@ -1,6 +1,10 @@
 packages:
   - "app/desktop"
   - "website"
+# Installa anche i pacchetti per Mac Intel (binario di Claude dell'Agent SDK), così da qui si costruiscono entrambi i DMG.
+supportedArchitectures:
+  os: [current]
+  cpu: [current, x64]
 allowBuilds:
   electron-winstaller: false
   # Il prebuild N-API incluso basta: niente node-gyp. Lo spawn-helper diventa eseguibile nel postinstall.

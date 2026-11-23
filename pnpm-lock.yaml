@@ -266,6 +266,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk-darwin-arm64':
         specifier: 0.3.319
         version: 0.3.319
+      '@anthropic-ai/claude-agent-sdk-darwin-x64':
+        specifier: 0.3.319
+        version: 0.3.319
 
   website:
     dependencies:

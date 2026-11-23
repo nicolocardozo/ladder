@@ -24,19 +24,31 @@ const run = (command, args) => {
   const result = spawnSync(command, args, { stdio: 'inherit', env })
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
-// --dmg-only: rifà solo firma e notarizzazione del DMG già costruito.
+// Un DMG per Apple Silicon e uno per Intel. --arch=arm64 o --arch=x64 ne costruisce uno solo.
+const only = process.argv.find((a) => a.startsWith('--arch='))?.slice('--arch='.length)
+const archs = only ? [only] : ['arm64', 'x64']
+if (archs.some((a) => a !== 'arm64' && a !== 'x64')) fail(`Architettura sconosciuta: ${only}. Usa arm64 o x64.`)
+
+// --dmg-only: rifà solo firma e notarizzazione dei DMG già costruiti.
 if (!process.argv.includes('--dmg-only')) {
   run('npx', ['electron-vite', 'build'])
-  // Electron è già in node_modules: niente download, che ogni tanto fallisce.
-  run('npx', ['electron-builder', '--mac', '-c', 'electron-builder.release.yml', `-c.mac.identity=${identity}`, '-c.electronDist=node_modules/electron/dist'])
+  for (const arch of archs) {
+    // Electron arm64 è già in node_modules: niente download, che ogni tanto fallisce. Quello Intel lo scarica electron-builder (poi resta in cache).
+    const dist = arch === 'arm64' ? ['-c.electronDist=node_modules/electron/dist'] : []
+    run('npx', ['electron-builder', '--mac', `--${arch}`, '-c', 'electron-builder.release.yml', `-c.mac.identity=${identity}`, ...dist])
+  }
 }
 
 // electron-builder notarizza l'app ma lascia il DMG senza firma: firmo, notarizzo e graffo anche quello,
 // così il file scaricato passa Gatekeeper senza avvisi.
 const { version } = JSON.parse(readFileSync('package.json', 'utf8'))
-const dmg = `dist/release/Ladder-${version}-arm64.dmg`
-if (!existsSync(dmg)) fail(`Non trovo ${dmg}.`)
-run('codesign', ['--force', '--timestamp', '--sign', `Developer ID Application: ${identity}`, dmg])
-run('xcrun', ['notarytool', 'submit', dmg, '--keychain-profile', PROFILE, '--wait'])
-run('xcrun', ['stapler', 'staple', dmg])
-console.log(`\nPronto: ${dmg}`)
+const ready = []
+for (const arch of archs) {
+  const dmg = `dist/release/Ladder-${version}-${arch}.dmg`
+  if (!existsSync(dmg)) fail(`Non trovo ${dmg}.`)
+  run('codesign', ['--force', '--timestamp', '--sign', `Developer ID Application: ${identity}`, dmg])
+  run('xcrun', ['notarytool', 'submit', dmg, '--keychain-profile', PROFILE, '--wait'])
+  run('xcrun', ['stapler', 'staple', dmg])
+  ready.push(dmg)
+}
+console.log(`\nPronti:\n${ready.join('\n')}`)

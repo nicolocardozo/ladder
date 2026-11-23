@@ -4,9 +4,8 @@ directories:
   output: dist/release
   buildResources: resources
 mac:
-  target:
-    - target: dmg
-      arch: arm64
+  # L'architettura (arm64 o x64) la sceglie scripts/release-mac.mjs, che costruisce un DMG per ciascuna.
+  target: dmg
   hardenedRuntime: true
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
@@ -14,6 +13,8 @@ mac:
 # Finestra del DMG: sfondo chiaro Circuit (sorgente e note in resources/dmg/background.svg), l'app a sinistra e Applicazioni a destra.
 dmg:
   title: Ladder
+  # Sempre con l'architettura nel nome: Ladder-0.1.0-arm64.dmg e Ladder-0.1.0-x64.dmg
+  artifactName: ${productName}-${version}-${arch}.${ext}
   background: resources/dmg/background.png
   iconSize: 112
   window:
