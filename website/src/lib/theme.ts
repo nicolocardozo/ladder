@@ -1,6 +1,6 @@
 "use client"
 
-// Tema del sito: chiaro di default, scuro solo se scelto (salvato in localStorage).
+// Tema del sito: segue il sistema finché l'utente non sceglie con l'interruttore (scelta salvata in localStorage).
 // La classe "dark" su <html> la mette lo script inline del layout prima del primo paint.
 import { useSyncExternalStore } from "react"
 
@@ -17,6 +17,26 @@ const read = (): Theme => (document.documentElement.classList.contains("dark") ?
 /** Tema corrente; sul server vale sempre "light". */
 export function useTheme(): Theme {
   return useSyncExternalStore(subscribe, read, () => "light")
+}
+
+/** Scelta salvata dall'utente, o null se il sito segue il sistema. */
+function stored(): Theme | null {
+  try {
+    const t = localStorage.getItem(THEME_KEY)
+    return t === "dark" || t === "light" ? t : null
+  } catch {
+    return null
+  }
+}
+
+/** Finché non c'è una scelta salvata, segue i cambi di tema del sistema mentre la pagina è aperta. */
+export function followSystem() {
+  const mq = window.matchMedia("(prefers-color-scheme: dark)")
+  const apply = () => {
+    if (!stored()) document.documentElement.classList.toggle("dark", mq.matches)
+  }
+  mq.addEventListener("change", apply)
+  return () => mq.removeEventListener("change", apply)
 }
 
 export function setTheme(theme: Theme) {

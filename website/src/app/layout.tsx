@@ -43,11 +43,14 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#ffffff",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d0a14" },
+  ],
 }
 
-// Applica il tema salvato prima del primo paint (default chiaro)
-const themeScript = `try{if(localStorage.getItem("ladder-theme")==="dark")document.documentElement.classList.add("dark")}catch(e){}`
+// Applica il tema prima del primo paint: la scelta salvata se c'è, altrimenti quello del sistema
+const themeScript = `(function(){var t;try{t=localStorage.getItem("ladder-theme")}catch(e){}var d=t?t==="dark":matchMedia("(prefers-color-scheme: dark)").matches;if(d)document.documentElement.classList.add("dark")})()`
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

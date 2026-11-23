@@ -1,7 +1,7 @@
 "use client"
 
 // Apre il hero quando si inizia a scrollare e scrive le variabili CSS: --e (claim), --lift (finestra), --fade (testi di base),
-// --x (riquadro che si allarga a tutto schermo alla fine). Misura anche, per ogni parola del claim,
+// --x (riquadro che si allarga a tutto schermo alla fine dell'apertura). Misura anche, per ogni parola del claim,
 // lo spostamento e la scala verso la sua posizione nel claim su una riga (--dx, --dy, --s).
 // Con prefers-reduced-motion lo scroll non anima nulla: il CSS mostra già lo stato finale.
 import { useEffect } from "react"
@@ -50,7 +50,7 @@ export function HeroScroll({ targetId }: { targetId: string }) {
       el.style.setProperty("--e", ease(clamp(p / 0.85)).toFixed(4))
       el.style.setProperty("--lift", ease(clamp((p - 0.1) / 0.8)).toFixed(4))
       el.style.setProperty("--fade", fade.toFixed(3))
-      // nell'ultimo tratto il riquadro perde il margine bianco e gli angoli
+      // nell'ultimo tratto dell'apertura il riquadro perde il margine bianco e gli angoli
       el.style.setProperty("--x", ease(clamp((p - 0.72) / 0.28)).toFixed(4))
       if (fade < 0.2) el.setAttribute("data-open", "")
       else el.removeAttribute("data-open")
@@ -67,15 +67,52 @@ export function HeroScroll({ targetId }: { targetId: string }) {
     }
 
     // y: quanto si è scrollato dentro l'hero. Si apre oltre la soglia, si richiude solo in cima.
+    const threshold = () => Math.min(48, window.innerHeight * 0.05)
     const readTarget = () => {
       const y = -el.getBoundingClientRect().top
-      const open = Math.min(48, window.innerHeight * 0.05)
-      if (y > open) return 1
+      if (y > threshold()) return 1
       if (y <= 2) return 0
       return target
     }
 
+    // Blocco dello scroll durante l'apertura: il primo gesto (con la sua inerzia) si ferma sullo stato
+    // aperto invece di portare la pagina oltre l'hero. Dura quanto l'animazione e finché arrivano ancora
+    // eventi di rotella ravvicinati (la coda dell'inerzia del trackpad), poi lo scroll torna libero.
+    let lockY = -1
+    let lockEnd = 0
+    let lastInput = 0
+    const locked = () => {
+      if (lockY < 0) return false
+      const now = performance.now()
+      // la coda dell'inerzia si assorbe al massimo per 500ms dopo l'animazione, così un nuovo gesto
+      // fatto subito dopo non va a vuoto
+      if (now < lockEnd || (now - lastInput < 120 && now < lockEnd + 500)) return true
+      lockY = -1
+      return false
+    }
+    const lock = () => {
+      // fermo appena oltre la soglia: il riquadro sticky è identico in tutto il tratto, e così dopo
+      // l'apertura resta intero il tratto in cui la finestra aperta resta ferma prima della sezione dopo
+      lockY = Math.round(el.offsetTop + threshold() + 1)
+      lockEnd = performance.now() + DURATION
+      lastInput = performance.now()
+      if (window.scrollY !== lockY) window.scrollTo({ top: lockY, behavior: "instant" })
+    }
+    const swallow = (e: Event) => {
+      if (!locked()) return
+      lastInput = performance.now()
+      if (e.cancelable) e.preventDefault()
+    }
+    const KEYS = new Set([" ", "PageDown", "PageUp", "ArrowDown", "ArrowUp", "End", "Home"])
+    const onKey = (e: KeyboardEvent) => {
+      if (KEYS.has(e.key)) swallow(e)
+    }
+
     const onScroll = () => {
+      if (locked()) {
+        if (Math.abs(window.scrollY - lockY) > 1) window.scrollTo({ top: lockY, behavior: "instant" })
+        return
+      }
       if (still()) {
         for (const v of ["--e", "--lift", "--fade", "--x"]) el.style.removeProperty(v)
         el.removeAttribute("data-open")
@@ -84,6 +121,7 @@ export function HeroScroll({ targetId }: { targetId: string }) {
       const next = readTarget()
       if (next === target) return
       target = next
+      if (target === 1 && p === 0) lock()
       if (!raf) raf = requestAnimationFrame(tick)
     }
 
@@ -106,6 +144,9 @@ export function HeroScroll({ targetId }: { targetId: string }) {
     if (claim) ro.observe(claim)
     if (win) ro.observe(win)
     window.addEventListener("scroll", onScroll, { passive: true })
+    window.addEventListener("wheel", swallow, { passive: false })
+    window.addEventListener("touchmove", swallow, { passive: false })
+    window.addEventListener("keydown", onKey)
     window.addEventListener("resize", onResize)
     mq.addEventListener("change", init)
     mobile.addEventListener("change", init)
@@ -113,6 +154,9 @@ export function HeroScroll({ targetId }: { targetId: string }) {
       if (raf) cancelAnimationFrame(raf)
       ro.disconnect()
       window.removeEventListener("scroll", onScroll)
+      window.removeEventListener("wheel", swallow)
+      window.removeEventListener("touchmove", swallow)
+      window.removeEventListener("keydown", onKey)
       window.removeEventListener("resize", onResize)
       mq.removeEventListener("change", init)
       mobile.removeEventListener("change", init)

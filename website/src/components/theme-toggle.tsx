@@ -1,11 +1,13 @@
 "use client"
 
+import { useEffect } from "react"
 import { Moon, Sun } from "lucide-react"
-import { setTheme, useTheme } from "@/lib/theme"
+import { followSystem, setTheme, useTheme } from "@/lib/theme"
 
 // Interruttore chiaro/scuro nella nav
 export function ThemeToggle({ className }: { className?: string }) {
   const theme = useTheme()
+  useEffect(followSystem, [])
   const next = theme === "dark" ? "light" : "dark"
   return (
     <button
