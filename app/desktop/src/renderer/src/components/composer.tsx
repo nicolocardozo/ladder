@@ -37,6 +37,7 @@ import { hostProfileId } from '@/lib/profiles'
 import { EffortSlider } from '@/components/composer/effort-slider'
 import { QueueList } from '@/components/composer/queue-list'
 import { UsageButton } from '@/components/composer/usage-button'
+import { UsageBanner } from '@/components/composer/usage-banner'
 
 
 interface ComposerProps {
@@ -74,14 +75,10 @@ interface ComposerProps {
   queueReason?: string | null
   /** La coda parte da sola a fine turno solo se la sessione lavora; da ferma aspetta un nuovo messaggio. Predefinito: running. */
   queueWorking?: boolean
-  /** Sessione in coda per il limite di turni: la coda parte da sola quando si libera un posto. */
-  queueWaitingSlot?: boolean
   context?: { used: number; window: number; compactAt?: number | null } | null
   disabledReason?: string | null
   /** Vale solo all'apertura: il composer prende il focus e rimette il cursore dove l'avevi lasciato. */
   autoFocus?: boolean
-  /** Riga sopra il composer: "In coda: 3 sessioni Claude Code attive". */
-  status?: string | null
   /** Agente della sessione: dice a cosa corrispondono i livelli di permesso. */
   agent?: AgentId
   /** Profilo (account) della sessione o scelto per la nuova chat: di lui sono i limiti d'uso. Assente = predefinito. */
@@ -132,7 +129,7 @@ const chip =
 export function Composer(props: ComposerProps) {
   useShortcutsRevision()
   const { draftKey, projectId, agentName, models, model, onModelChange, onModelReset, effort, onEffortChange, onEffortReset, effortEffective, permission, permissionNext, onPermissionChange } = props
-  const { running, onSubmit, onStop, queue = [], onQueueChange, canSteer = false, onDeliver, queueReason, queueWorking = running, queueWaitingSlot = false, context, disabledReason, autoFocus, status, className } = props
+  const { running, onSubmit, onStop, queue = [], onQueueChange, canSteer = false, onDeliver, queueReason, queueWorking = running, context, disabledReason, autoFocus, className } = props
   const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession, compact = false } = props
   const levels = allowedLevels(maxPermission)
   const initial = useApp.getState().drafts[draftKey] ?? ''
@@ -624,13 +621,8 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className={cn('flex w-full flex-col gap-2', className)}>
-      {status ? (
-        <p role="status" className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
-          <Clock aria-hidden className="size-3.5" strokeWidth={2} />
-          {status}
-        </p>
-      ) : null}
-      {queue.length > 0 && <QueueList queue={queue} onQueueChange={onQueueChange} canSteer={canSteer} onDeliver={onDeliver} reason={queueReason} working={queueWorking} waitingSlot={queueWaitingSlot} onEditEnd={() => textarea.current?.focus()} />}
+      <UsageBanner agent={agent} profileId={props.profileId} />
+      {queue.length > 0 && <QueueList queue={queue} onQueueChange={onQueueChange} canSteer={canSteer} onDeliver={onDeliver} reason={queueReason} working={queueWorking} onEditEnd={() => textarea.current?.focus()} />}
 
       <div
         ref={box}

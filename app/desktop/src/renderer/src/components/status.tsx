@@ -1,4 +1,4 @@
-import { Bot, CircleAlert, CircleX, Clock, TriangleAlert } from 'lucide-react'
+import { Bot, CircleAlert, CircleX, TriangleAlert } from 'lucide-react'
 import { plural, t } from '@shared/i18n'
 import { cn } from '@/lib/utils'
 import type { ProjectAttention, SessionState } from '@/lib/session-state'
@@ -39,8 +39,6 @@ export function SessionGlyph({ state }: { state: SessionState }) {
       return <CircleAlert aria-label={t('Needs you')} className="size-3 text-attention" strokeWidth={2.2} />
     case 'error':
       return <CircleX aria-label={t('Error')} className="size-3 text-destructive" strokeWidth={2.2} />
-    case 'queued':
-      return <Clock aria-label={t('Queued')} className="size-3 text-muted-foreground" strokeWidth={2.2} />
     default:
       return null
   }

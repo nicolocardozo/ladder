@@ -467,26 +467,6 @@ function AgentsSection() {
         ))}
       </div>
       {prefs && (
-        <div className="flex items-center gap-3">
-          <span className="flex flex-col">
-            <span className="text-sm font-medium">{t('Concurrent sessions per agent')}</span>
-            <span className="text-xs text-muted-foreground">{t('Beyond the limit, sessions wait as “Queued” and start on their own. Terminal sessions don’t count.')}</span>
-          </span>
-          <Select value={prefs.maxActive} onValueChange={(value) => update({ maxActive: Number(value) })}>
-            <SelectTrigger aria-label={t('Concurrent sessions per agent')} className="ml-auto w-[68px] shrink-0">
-              <SelectValue className="tabular-nums" />
-            </SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                <SelectItem key={n} value={n}>
-                  {n}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-      {prefs && (
         <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
           <Toggle
             label={t('Ask agents to keep going on long tasks (Edit and Full access)')}

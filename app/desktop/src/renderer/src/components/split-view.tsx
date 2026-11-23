@@ -51,8 +51,8 @@ export function SplitDropHint() {
 /** Intestazione di una colonna: stato della sessione (in esecuzione, in attesa), titolo e chiusura. */
 export function ColumnHeader({ session, active, hidden, onClose }: { session: SessionSummary; active: boolean; hidden: number; onClose: () => void }) {
   const state = sessionState(session)
-  // Stato in parole solo quando c'è qualcosa da dire (in attesa, errore, in coda); in esecuzione e da leggere basta il simbolo.
-  const note = state === 'waiting' || state === 'error' || state === 'queued' || state === 'agents' || state === 'agents-failed' || state === 'agents-running' ? sessionNote(session, false) : null
+  // Stato in parole solo quando c'è qualcosa da dire (in attesa, errore); in esecuzione e da leggere basta il simbolo.
+  const note = state === 'waiting' || state === 'error' || state === 'agents' || state === 'agents-failed' || state === 'agents-running' ? sessionNote(session, false) : null
   const tone = note ? noteTone(note.code) : null
   const label = state === 'running' ? t('Running') : state === 'unread' ? t('Unread') : null
   return (

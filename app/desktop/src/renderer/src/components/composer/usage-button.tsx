@@ -1,6 +1,6 @@
 // Limiti d'uso del piano, a portata di clic nel composer: quanto hai consumato, quando si azzera, e un refresh.
-import { useState } from 'react'
-import { ChartNoAxesColumn, RotateCw } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChartNoAxesColumn, RotateCw, TriangleAlert } from 'lucide-react'
 import type { AgentId, AgentStatus, UsageWindow } from '@shared/protocol'
 import { localeTag, t } from '@shared/i18n'
 import { AgentMark } from '@/components/agent-mark'
@@ -13,7 +13,7 @@ import { useApp } from '@/store/app-store'
 /** Dati più vecchi di così si rileggono da soli quando si apre il pannello. */
 const STALE_MS = 60_000
 
-function windowName(usage: UsageWindow): string {
+export function windowName(usage: UsageWindow): string {
   if (usage.label) return usage.label
   const base = usage.minutes >= 7 * 24 * 60 ? t('Weekly') : usage.minutes >= 60 ? t('{hours}-hour window', { hours: Math.round(usage.minutes / 60) }) : t('{minutes}-minute window', { minutes: usage.minutes })
   return usage.model ? `${base} · ${usage.model}` : base
@@ -27,12 +27,55 @@ function duration(seconds: number): string {
   return t('{d} d {h} h', { d: Math.floor(hours / 24), h: hours % 24 })
 }
 
-function resetsLabel(resetsAt: number, now: number): string {
+/** Ora locale del reset: solo l'ora se è oggi, altrimenti anche il giorno della settimana. */
+export function resetsWhen(resetsAt: number, now: number): string {
   const date = new Date(resetsAt * 1000)
   const sameDay = date.toDateString() === new Date(now * 1000).toDateString()
   const time = date.toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' })
-  const when = sameDay ? time : `${date.toLocaleDateString(localeTag(), { weekday: 'short' })} ${time}`
-  return t('Resets {when} · in {left}', { when, left: duration(resetsAt - now) })
+  return sameDay ? time : `${date.toLocaleDateString(localeTag(), { weekday: 'short' })} ${time}`
+}
+
+function resetsLabel(resetsAt: number, now: number): string {
+  return t('Resets {when} · in {left}', { when: resetsWhen(resetsAt, now), left: duration(resetsAt - now) })
+}
+
+/** Da quanto una finestra merita un avviso sull'icona (e nel popover); il bannerino sopra il composer parte più in alto. */
+export const USAGE_WARN_AT = 80
+export const USAGE_BANNER_AT = 95
+
+/** Gravità di una finestra: 0 niente, 1 vicina al limite, 2 limite esaurito. */
+function usageSeverity(usage: UsageWindow, threshold: number): 0 | 1 | 2 {
+  if (usage.state === 'limited') return 2
+  if (threshold === USAGE_BANNER_AT) return usage.percent !== null && usage.percent >= threshold ? 1 : 0
+  return usage.percent === null ? (usage.state === 'warning' ? 1 : 0) : usage.percent >= threshold ? 1 : 0
+}
+
+/** Uso extra e simili: spesa opzionale senza reset, non è un limite del piano che si azzera. */
+function isSpend(usage: UsageWindow): boolean {
+  return usage.key === 'extra_usage' || (usage.resetsAt === null && !!usage.label)
+}
+
+/** La finestra più vicina al limite fra quelle sopra soglia, o null: sotto soglia non c'è niente da dire. */
+export function usageAlert(windows: UsageWindow[], threshold = USAGE_WARN_AT): { usage: UsageWindow; limited: boolean } | null {
+  let best: UsageWindow | null = null
+  let bestScore = 0
+  for (const usage of windows) {
+    if (isSpend(usage)) continue
+    const severity = usageSeverity(usage, threshold)
+    if (!severity) continue
+    const score = severity * 1000 + (usage.percent ?? 0)
+    if (score > bestScore) [best, bestScore] = [usage, score]
+  }
+  return best ? { usage: best, limited: best.state === 'limited' } : null
+}
+
+/** "Weekly: close to the limit (88% used)." e "Resets Mon 09:00.", già tradotti. */
+export function usageAlertText(alert: { usage: UsageWindow; limited: boolean }, now: number): { what: string; reset: string | null } {
+  const { usage, limited } = alert
+  const window = windowName(usage)
+  const percent = usage.percent === null ? null : Math.round(Math.min(100, Math.max(0, usage.percent)))
+  const what = limited ? t('{window}: limit reached.', { window }) : percent === null ? t('{window}: close to the limit.', { window }) : t('{window}: close to the limit ({percent}% used).', { window, percent })
+  return { what, reset: usage.resetsAt === null ? null : t('Resets {when}.', { when: resetsWhen(usage.resetsAt, now) }) }
 }
 
 export function updatedLabel(at: number | null | undefined, now: number): string {
@@ -95,6 +138,14 @@ export function useUsage(agent: AgentId, profileId?: string | null) {
 
   // Una finestra già azzerata non dice più niente: si aspetta il dato nuovo.
   const windows = (status?.usage ?? []).filter((w) => w.resetsAt === null || w.resetsAt > now)
+  // Al prossimo reset (o ogni minuto) l'ora si aggiorna: le finestre azzerate spariscono anche a popover chiuso.
+  const usage = status?.usage
+  useEffect(() => {
+    const next = (usage ?? []).map((w) => w.resetsAt).filter((at): at is number => at !== null && at > now)
+    const wait = Math.min(60_000, next.length ? (Math.min(...next) - now) * 1000 + 500 : 60_000)
+    const timer = window.setTimeout(() => setNow(Date.now() / 1000), Math.max(500, wait))
+    return () => window.clearTimeout(timer)
+  }, [usage, now])
   return { status, loading, failed, now, native, windows, refresh, opened }
 }
 
@@ -102,14 +153,18 @@ export function UsageButton({ agent, profileId }: { agent: AgentId; profileId?: 
   const { status, loading, failed, now, native, windows, refresh, opened } = useUsage(agent, profileId)
   // Il nome del profilo si vede solo se l'agente ne ha più d'uno.
   const profileName = useSessionProfileName({ agent, profileId })
+  const alert = usageAlert(windows)
+  const alertText = alert ? usageAlertText(alert, now) : null
+  const label = alertText ? `${t('Plan usage')}: ${alertText.what}` : t('Plan usage')
+  const Icon = alert ? TriangleAlert : ChartNoAxesColumn
   return (
     <Popover onOpenChange={(open) => open && opened()}>
       <PopoverTrigger
-        aria-label={t('Plan usage')}
-        title={t('Plan usage')}
-        className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-popup-open:bg-sidebar-accent data-popup-open:text-foreground"
+        aria-label={label}
+        title={label}
+        className={cn('grid size-7 place-items-center rounded-md transition-colors', alert ? (alert.limited ? 'text-destructive' : 'text-attention') : 'text-muted-foreground', ' outline-none hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-popup-open:bg-sidebar-accent data-popup-open:text-foreground')}
       >
-        <ChartNoAxesColumn className="size-[15px]" strokeWidth={1.75} />
+        <Icon className="size-[15px]" strokeWidth={1.75} />
       </PopoverTrigger>
       <PopoverContent side="top" align="start" sideOffset={6} className="w-72 gap-3 p-3" data-usage-panel>
         <div className="flex items-start gap-2">
@@ -131,6 +186,15 @@ export function UsageButton({ agent, profileId }: { agent: AgentId; profileId?: 
             </button>
           )}
         </div>
+        {alert && alertText && (
+          <p role="status" className={cn('flex items-start gap-2 rounded-md px-2 py-1.5 text-xs', alert.limited ? 'bg-destructive/10' : 'bg-attention/10')}>
+            <TriangleAlert aria-hidden className={cn('mt-px size-3.5 shrink-0', alert.limited ? 'text-destructive' : 'text-attention')} strokeWidth={2} />
+            <span className="min-w-0">
+              <span className="font-medium">{alertText.what}</span>
+              {alertText.reset ? ` ${alertText.reset}` : ''}
+            </span>
+          </p>
+        )}
         {windows.length > 0 ? (
           windows.map((usage) => <UsageRow key={usage.key} usage={usage} now={now} />)
         ) : (

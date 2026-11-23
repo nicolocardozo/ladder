@@ -1048,7 +1048,7 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
   )
 
   if (!session || !project) return <div ref={measure} className="flex-1" />
-  const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting' || session.run === 'queued'
+  const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting'
   const runningAgents = runningForegroundSubagents(session)
   const headerNotes = [session.worktree ? 'worktree' : null, session.run !== 'waiting' && isTerminal ? session.activity : null, session.estimated ? t('estimated status') : null].filter(Boolean).join(' · ')
 
@@ -1167,17 +1167,15 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
               queue={session.queue}
               onQueueChange={(queue) => send({ type: 'session.queue.set', sessionId, queue })}
               canSteer={session.canSteer && session.run === 'running' && !items.some((i) => i.kind === 'command' && i.status === 'running')}
-              queueWaitingSlot={session.run === 'queued'}
               queueWorking={session.run === 'running' || session.run === 'starting' || session.run === 'waiting'}
               onDeliver={(id, how) =>
                 request({ type: 'session.queue.deliver', sessionId, id, how }).catch((e: Error) => setError(e.message))
               }
-              queueReason={session.run !== 'queued' && runningAgents > 0 ? plural(runningAgents, '{n} agent working', '{n} agents working') : session.queuedReason}
+              queueReason={runningAgents > 0 ? plural(runningAgents, '{n} agent working', '{n} agents working') : null}
               context={session.context}
               disabledReason={signInNeeded ? t('Sign in to {name} to start a session.', { name: CONNECTION_NAME[signInNeeded.id] }) : !agentStatus.available ? (agentStatus.error ?? t('{agent} is not available.', { agent: agentStatus.name })) : null}
               autoFocus={active && !focusTarget}
               compact={compact}
-              status={session.queue.length > 0 ? null : session.queuedReason}
             />
             </div>
             </div>

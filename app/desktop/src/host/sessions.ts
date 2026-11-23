@@ -207,7 +207,7 @@ export class Host {
   /** Sessioni che aspettano lo script di setup del worktree prima di partire. */
   private preparing = new Set<string>()
   private stopped = false
-  private prefs: HostPrefs = { maxActive: { 'claude-code': 3, codex: 3 }, generatedTitles: true, generatedText: true, autonomyHint: true, stallHint: false, worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null }
+  private prefs: HostPrefs = { generatedTitles: true, generatedText: true, autonomyHint: true, stallHint: false, worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null }
   /** Sessioni con un titolo in generazione: un solo tentativo alla volta. */
   private titling = new Set<string>()
   /** LAD-57 parte 2: browser per l'agente (server MCP, stato, canale verso il main). */
@@ -227,8 +227,6 @@ export class Host {
   private initEffort = new Map<string, Effort>()
   /** Sessioni per cui il tentativo automatico di titolo è già partito (in memoria: una volta per avvio). */
   private titleTried = new Set<string>()
-  /** Sessioni "In coda" per il limite di turni attivi, con l'istante in cui ci sono entrate. */
-  private queuedAt = new Map<string, number>()
   private badge = -1
   /** Ultimo numero di sessioni al lavoro comunicato al main. */
   private running = 0
@@ -342,7 +340,7 @@ export class Host {
     for (const row of this.db.prepare('select * from sessions').all() as unknown as SessionRow[]) this.rows.set(row.id, row)
     // I checkout principali prendono i primi blocchi di porte (4100, …), prima di qualunque worktree.
     for (const project of this.projects.values()) this.ports.allocate(project.path)
-    this.recoverInterrupted()
+    const resumeQueued = this.recoverInterrupted()
     this.dismissStaleAgentsRows()
     await this.terminals.init()
     // Installazioni di agenti interrotte (app chiusa a metà): si ripristina o si pulisce prima di leggere gli agenti.
@@ -355,7 +353,8 @@ export class Host {
     }
     await recoverInstalls((id) => registered.get(id) ?? null).catch(() => undefined)
     await this.initAgents()
-    this.drainQueued()
+    // Sessioni che erano "In coda" prima di questa versione: il primo messaggio in coda parte, una volta sola.
+    for (const id of resumeQueued) this.startFirstQueued(id)
     this.updateBadge()
     this.shortcuts.start()
     this.prTimer = setTimeout(() => void this.pollPrs(), 4000)
@@ -752,22 +751,22 @@ export class Host {
     this.browserAgent.onClosed(sessionId)
   }
 
-  /** Preferenze dal processo main: per ora il limite di turni attivi per agente. */
+  /** Preferenze dal processo main. */
   setPrefs(prefs: HostPrefs): void {
     if (prefs.locale) setLocale(prefs.locale)
-    this.prefs = { maxActive: { ...this.prefs.maxActive, ...prefs.maxActive }, generatedTitles: prefs.generatedTitles ?? this.prefs.generatedTitles, generatedText: prefs.generatedText ?? this.prefs.generatedText, autonomyHint: prefs.autonomyHint ?? this.prefs.autonomyHint, stallHint: prefs.stallHint ?? this.prefs.stallHint, worktreesDir: prefs.worktreesDir !== undefined ? prefs.worktreesDir : this.prefs.worktreesDir, branchPrefix: prefs.branchPrefix !== undefined ? cleanBranchPrefix(prefs.branchPrefix) : this.prefs.branchPrefix, autoArchiveDays: prefs.autoArchiveDays !== undefined ? prefs.autoArchiveDays : this.prefs.autoArchiveDays, agentBrowser: prefs.agentBrowser ?? this.prefs.agentBrowser }
+    this.prefs = { generatedTitles: prefs.generatedTitles ?? this.prefs.generatedTitles, generatedText: prefs.generatedText ?? this.prefs.generatedText, autonomyHint: prefs.autonomyHint ?? this.prefs.autonomyHint, stallHint: prefs.stallHint ?? this.prefs.stallHint, worktreesDir: prefs.worktreesDir !== undefined ? prefs.worktreesDir : this.prefs.worktreesDir, branchPrefix: prefs.branchPrefix !== undefined ? cleanBranchPrefix(prefs.branchPrefix) : this.prefs.branchPrefix, autoArchiveDays: prefs.autoArchiveDays !== undefined ? prefs.autoArchiveDays : this.prefs.autoArchiveDays, agentBrowser: prefs.agentBrowser ?? this.prefs.agentBrowser }
     this.browserAgent.sync()
     void this.autoArchive()
-    for (const id of this.queuedAt.keys()) this.emitSummary(id)
-    this.drainQueued()
   }
 
   /** Sessioni che lavoravano quando Ladder è stato chiuso: tornano ferme, con una nota e le richieste scadute. */
-  private recoverInterrupted(): void {
+  private recoverInterrupted(): string[] {
+    const resume: { id: string; at: number }[] = []
     for (const row of this.rows.values()) {
-      if (row.run_state === 'queued' && !row.archived) {
-        // Il turno non era ancora partito: resta in coda, nello stesso ordine.
-        this.queuedAt.set(row.id, row.updated_at)
+      // Stato 'queued' di versioni precedenti (limite di turni, ora tolto): torna ferma, i messaggi restano in coda e il primo riparte.
+      if ((row.run_state as string) === 'queued') {
+        this.updateRow(row.id, { run_state: 'idle' })
+        if (!row.archived && (JSON.parse(row.queue) as QueuedMessage[]).length) resume.push({ id: row.id, at: row.updated_at })
         continue
       }
       if (row.run_state === 'idle' || row.run_state === 'error') continue
@@ -795,6 +794,28 @@ export class Host {
         this.updateRow(row.id, { run_state: 'idle' })
       })
     }
+    return resume.sort((a, b) => a.at - b.at).map((r) => r.id)
+  }
+
+  /** Fa partire il primo messaggio in coda di una sessione ferma (migrazione dallo stato 'queued'). */
+  private startFirstQueued(sessionId: string): void {
+    const row = this.rows.get(sessionId)
+    if (!row || row.archived || row.run_state !== 'idle') return
+    const queue = JSON.parse(row.queue) as QueuedMessage[]
+    const next = queue.shift()
+    if (!next) return
+    this.updateRow(sessionId, { queue: JSON.stringify(queue) })
+    void this.startTurn(sessionId, next.text, next.attachments ?? []).catch((e: Error) => {
+      // Il messaggio torna in testa alla coda e il runtime si chiude, come nella ripartenza dopo exit.
+      const current = JSON.parse(this.rows.get(sessionId)?.queue ?? '[]') as QueuedMessage[]
+      current.unshift(next)
+      this.browserAgent.revoke(sessionId)
+      this.runtimes.get(sessionId)?.adapter.close()
+      this.runtimes.delete(sessionId)
+      this.updateRow(sessionId, { queue: JSON.stringify(current), run_state: 'idle' })
+      this.noticeError(sessionId, e.message)
+      this.emitSummary(sessionId)
+    })
   }
 
   /** Righe 'agents-finished' rimaste 'waiting' da prima del riavvio: superate se la sessione ha avuto turni dopo, altrimenti restano (un turno futuro le chiude). */
@@ -1548,7 +1569,7 @@ export class Host {
           const next = queue.shift()
           this.updateRow(row.id, { queue: JSON.stringify(queue) })
           this.emitSummary(row.id)
-          if (next) await this.startOrQueue(row.id, next.text, next.attachments ?? []).catch((e: Error) => this.noticeError(row.id, e.message))
+          if (next) await this.startTurn(row.id, next.text, next.attachments ?? []).catch((e: Error) => this.noticeError(row.id, e.message))
         } else {
           this.emitSummary(row.id)
           await begin()
@@ -1754,7 +1775,6 @@ export class Host {
     }
     this.emitSummary(sessionId)
     this.attention({ kind: 'resolved', sessionId, itemId: null })
-    this.drainQueued()
     // Comando di chiusura del worktree (per esempio docker compose down), in processo e con timeout. Il worktree resta: lo toglie archiveMerged.
     if (project && script) {
       const cwd = this.cwdOf(row)
@@ -1787,7 +1807,6 @@ export class Host {
     await this.stopServices(this.cwdOf(row))
     await Promise.all(this.terminals.bySession(sessionId).map((terminal) => this.terminals.close(terminal.id)))
     this.termStatus.delete(sessionId)
-    this.queuedAt.delete(sessionId)
     this.updateRow(sessionId, { archived: 1, run_state: 'idle' })
   }
 
@@ -1989,15 +2008,15 @@ export class Host {
         return
       }
     }
-    await this.startOrQueue(sessionId, text, attachments)
+    await this.startTurn(sessionId, text, attachments)
   }
 
-  /** La sessione non può avviare un turno adesso: sta lavorando, aspetta una risposta, un posto in coda o il setup. */
+  /** La sessione non può avviare un turno adesso: sta lavorando, aspetta una risposta o il setup. */
   private isBusy(sessionId: string): boolean {
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
     // Il turno host resta aperto finché onTurnEnd non ha finito: un invio in quel tempo va in coda e lo prende lo svuotamento finale.
-    return !!runtime?.adapter.isRunning || !!runtime?.turnId || (runtime?.closing ?? 0) > 0 || !!runtime?.exited || row.run_state === 'waiting' || row.run_state === 'queued' || this.preparing.has(sessionId)
+    return !!runtime?.adapter.isRunning || !!runtime?.turnId || (runtime?.closing ?? 0) > 0 || !!runtime?.exited || row.run_state === 'waiting' || this.preparing.has(sessionId)
   }
 
   /** L'agente accetta messaggi dentro il turno in corso (Claude e Codex; gli agenti ACP no). */
@@ -2027,7 +2046,7 @@ export class Host {
 
   /**
    * Consegna un messaggio della coda. 'steer': entra nel turno in corso. 'now': interrompe il turno e parte
-   * questo davanti al resto della coda. Da fermo parte come un messaggio normale (nel rispetto del limite di turni).
+   * questo davanti al resto della coda. Da fermo parte come un messaggio normale.
    */
   private async deliverQueued(sessionId: string, id: string, how: 'steer' | 'now'): Promise<void> {
     const row = this.mustRow(sessionId)
@@ -2044,7 +2063,7 @@ export class Host {
       // Da fermo: nessun turno da cui entrare o da interrompere, parte come un messaggio normale.
       this.updateRow(sessionId, { queue: JSON.stringify(queue) })
       this.emitSummary(sessionId)
-      await this.startOrQueue(sessionId, message.text, attachments)
+      await this.startTurn(sessionId, message.text, attachments)
       return
     }
     if (how === 'steer') {
@@ -2058,7 +2077,7 @@ export class Host {
       // Il turno è finito mentre inserivamo e la sessione è libera: il messaggio parte come uno normale.
       if (!this.isBusy(sessionId)) {
         this.emitSummary(sessionId)
-        await this.startOrQueue(sessionId, message.text, attachments)
+        await this.startTurn(sessionId, message.text, attachments)
         return
       }
       // Il turno non accetta messaggi: il messaggio torna al suo posto.
@@ -2093,61 +2112,7 @@ export class Host {
     queue.unshift(message)
     this.updateRow(sessionId, { queue: JSON.stringify(queue) })
     this.emitSummary(sessionId)
-    // In coda per il limite di turni non c'è un turno da interrompere, e il limite vale anche qui: resta in testa.
     if (working) await this.interrupt(sessionId, false)
-  }
-
-  // ── Limite di turni attivi per agente ──────────────────────────────────────
-
-  /** Turni in corso (anche in attesa di una tua risposta) delle sessioni chat di un agente. */
-  private activeTurns(agent: string): number {
-    let count = 0
-    for (const [id, runtime] of this.runtimes) if (runtime.turnId && this.rows.get(id)?.agent === agent) count++
-    return count
-  }
-
-  private limitFor(agent: string): number {
-    return Math.max(1, Math.round(this.prefs.maxActive[agent as AgentId] ?? this.prefs.maxActive['claude-code'] ?? 3))
-  }
-
-  /** Parte subito se c'è posto; altrimenti il messaggio va in testa alla coda e la sessione aspetta "In coda". */
-  private async startOrQueue(sessionId: string, text: string, attachments: Attachment[]): Promise<void> {
-    const row = this.mustRow(sessionId)
-    if (this.isGone(sessionId)) return
-    if (this.activeTurns(row.agent) >= this.limitFor(row.agent)) {
-      const queue = JSON.parse(row.queue) as QueuedMessage[]
-      queue.unshift({ id: randomUUID(), text, ...(attachments.length ? { attachments } : {}) })
-      this.updateRow(sessionId, { queue: JSON.stringify(queue), run_state: 'queued' })
-      this.queuedAt.set(sessionId, Date.now())
-      this.emitSummary(sessionId)
-      return
-    }
-    await this.startTurn(sessionId, text, attachments)
-  }
-
-  /** Fa partire le sessioni in coda, dalla più vecchia, finché c'è posto. */
-  private drainQueued(): void {
-    for (const [sessionId] of [...this.queuedAt.entries()].sort((a, b) => a[1] - b[1])) {
-      const row = this.rows.get(sessionId)
-      if (!row || row.archived || row.run_state !== 'queued') {
-        this.queuedAt.delete(sessionId)
-        continue
-      }
-      if (this.activeTurns(row.agent) >= this.limitFor(row.agent)) continue
-      const queue = JSON.parse(row.queue) as QueuedMessage[]
-      const next = queue.shift()
-      this.queuedAt.delete(sessionId)
-      this.updateRow(sessionId, { queue: JSON.stringify(queue), run_state: 'idle' })
-      if (!next) {
-        this.emitSummary(sessionId)
-        continue
-      }
-      void this.startTurn(sessionId, next.text, next.attachments ?? []).catch((e: Error) => {
-        this.updateRow(sessionId, { run_state: 'idle' })
-        this.noticeError(sessionId, e.message)
-        this.emitSummary(sessionId)
-      })
-    }
   }
 
   /**
@@ -2169,7 +2134,6 @@ export class Host {
     if (row.mode === 'terminal') throw new Error(t('A terminal session is used from its terminal.'))
     if (this.isBusy(sessionId) || (row.run_state !== 'idle' && row.run_state !== 'error')) throw new Error(t('Wait for the session to finish before running a command.'))
     if (!this.commandsFor(sessionId).some((c) => c.name === name)) throw new Error(t('Unknown command: /{name}', { name }))
-    if (this.activeTurns(row.agent) >= this.limitFor(row.agent)) throw new Error(t('Too many turns are running for this agent. Try again in a moment.'))
     await this.startTurn(sessionId, `/${name} ${args}`.trim(), [], { name, args })
   }
 
@@ -2294,7 +2258,6 @@ export class Host {
   /**
    * Un messaggio inserito che ha superato un'interruzione gira come turno a sé: l'host lo apre qui, così l'output
    * non va perso. Le sue righe 'user' (già create all'inserimento, id = uuid) passano al nuovo turno senza "steered".
-   * Il turno conta tra quelli attivi come uno normale; non si può rifiutare, quindi può superare il limite per agente.
    */
   private async openImplicitTurn(sessionId: string, uuids: string[]): Promise<void> {
     const runtime = this.runtimes.get(sessionId)
@@ -2704,7 +2667,7 @@ export class Host {
           const next = this.rows.get(sessionId)?.run_state === 'idle' && !error && !this.stopped && !byCommand && !early ? queue.shift() : undefined
           if (next) {
             this.updateRow(sessionId, { queue: JSON.stringify(queue) })
-            void this.startOrQueue(sessionId, next.text, next.attachments ?? []).catch((e: Error) => {
+            void this.startTurn(sessionId, next.text, next.attachments ?? []).catch((e: Error) => {
               const current = JSON.parse(this.rows.get(sessionId)?.queue ?? '[]') as QueuedMessage[]
               current.unshift(next)
               this.browserAgent.revoke(sessionId)
@@ -2715,7 +2678,6 @@ export class Host {
               this.emitSummary(sessionId)
             })
           }
-          this.drainQueued()
         })
       }
     }
@@ -3010,7 +2972,6 @@ export class Host {
         this.noticeError(sessionId, (error as Error).message)
       }
     }
-    this.drainQueued()
   }
 
   /** Ultimo testo dell'assistente nel turno ('' se non ha scritto nulla). */
@@ -3024,14 +2985,6 @@ export class Host {
 
   /** `all`: Stop (ferma anche i messaggi inseriti non ancora uniti); false per "invia ora", che li unisce al messaggio nuovo. */
   private async interrupt(sessionId: string, all = true): Promise<void> {
-    const row = this.rows.get(sessionId)
-    if (row?.run_state === 'queued') {
-      // Esce dalla coda; i messaggi restano sopra il composer, da modificare o inviare.
-      this.queuedAt.delete(sessionId)
-      this.updateRow(sessionId, { run_state: 'idle' })
-      this.emitSummary(sessionId)
-      return
-    }
     const runtime = this.runtimes.get(sessionId)
     if (!runtime) return
     for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
@@ -3224,7 +3177,6 @@ export class Host {
     } else if (run === 'waiting') {
       waitingLabel = term?.label ?? t('Needs you')
     }
-    const limit = this.limitFor(row.agent)
     const effortEffective = row.effort ? null : this.effectiveEffort(row)
     return {
       id: row.id,
@@ -3263,7 +3215,6 @@ export class Host {
       openRequests: run === 'waiting' ? Math.max(1, open.length) : 0,
       activityAt: row.activity_at || row.updated_at,
       canSteer: this.canSteer(row),
-      queuedReason: run === 'queued' ? plural(limit, 'Queued: {n} {agent} session active', 'Queued: {n} {agent} sessions active', { agent: this.agentName(row.agent) }) : null,
       branch: this.branchOf(row),
       pr: this.prOf(row),
       source: row.source ? (JSON.parse(row.source) as SessionSource) : null,

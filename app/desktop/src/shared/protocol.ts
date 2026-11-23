@@ -214,8 +214,8 @@ export interface Profile {
   addedAt: number
 }
 
-/** Stato dell'esecuzione: deriva dall'agente, non dalla UI. `queued`: il turno aspetta un posto libero (limite di sessioni attive). */
-export type RunState = 'idle' | 'starting' | 'running' | 'waiting' | 'error' | 'queued'
+/** Stato dell'esecuzione: deriva dall'agente, non dalla UI. Nessun limite di sessioni attive (LAD-67): un turno parte sempre subito. */
+export type RunState = 'idle' | 'starting' | 'running' | 'waiting' | 'error'
 
 /** Allegato inviato all'agente. Per ora solo immagini, in base64. */
 export interface Attachment {
@@ -292,8 +292,6 @@ export interface SessionSummary {
   openRequests: number
   /** Ultima attività dell'agente (fine turno, errore): decide "Concluse" e "Mentre eri via". */
   activityAt: number
-  /** Motivo dell'attesa in coda: "In coda: 3 sessioni Claude Code attive". */
-  queuedReason: string | null
   /**
    * L'agente accetta messaggi dentro il turno in corso (Claude: messaggio nello stream
    * di input, inserito tra un giro di strumenti e l'altro; Codex: turn/steer). ACP: false.
@@ -1567,8 +1565,6 @@ export type HostToMain =
   // ── Fine LAD-70 ──
 
 export interface HostPrefs {
-  /** Turni attivi insieme per agente; gli altri aspettano "In coda". */
-  maxActive: Record<AgentId, number>
   /** Lingua di avvisi, errori, notifiche e prompt predefiniti. */
   locale?: Locale
   /** Titoli generati da un modello piccolo dopo il primo turno. Predefinito true. */
@@ -1607,7 +1603,6 @@ export interface AppPrefs {
   sound: boolean
   /** "Non disturbare" fino a questo istante: niente notifiche; "In attesa" e badge restano. */
   dndUntil: number | null
-  maxActive: number
   /** Lingua dell'interfaccia: inglese per default, italiano a scelta. */
   locale: Locale
   /** Predefiniti globali delle nuove sessioni. */

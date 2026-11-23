@@ -142,7 +142,6 @@ const it: Record<string, string> = {
   'Adds it to the turn in progress without stopping it': 'Lo aggiunge al turno in corso senza fermarlo',
   'Stops the turn and sends this message first': 'Ferma il turno e invia prima questo messaggio',
   'Sends when the turn ends': 'Parte a fine turno',
-  'Starts when a slot frees up': 'Parte quando si libera un posto',
   'Waiting · send a message to continue': 'In attesa · invia un messaggio per continuare',
   '{n} agent working': '{n} agente al lavoro',
   '{n} agents working': '{n} agenti al lavoro',

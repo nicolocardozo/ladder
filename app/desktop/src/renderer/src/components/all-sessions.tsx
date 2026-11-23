@@ -28,7 +28,7 @@ const STATUS: { id: StatusFilter; label: string }[] = [
 function matchesStatus(session: SessionSummary, filter: StatusFilter): boolean {
   const state = sessionState(session)
   if (filter === 'attention') return state === 'waiting' || state === 'error'
-  if (filter === 'running') return state === 'running' || state === 'queued'
+  if (filter === 'running') return state === 'running'
   if (filter === 'unread') return isUnreadState(state)
   if (filter === 'idle') return state === 'idle'
   return true

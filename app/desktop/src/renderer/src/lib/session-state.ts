@@ -2,7 +2,7 @@
 import type { SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 
-export type SessionState = 'idle' | 'running' | 'unread' | 'agents' | 'agents-failed' | 'agents-running' | 'waiting' | 'error' | 'queued'
+export type SessionState = 'idle' | 'running' | 'unread' | 'agents' | 'agents-failed' | 'agents-running' | 'waiting' | 'error'
 
 /** Sotto-agenti in background finiti a sessione ferma: il coordinatore sta per rispondere (o ha già risposto). */
 export function agentsNotice(session: SessionSummary): { finished: number; failed: number } | null {
@@ -21,7 +21,6 @@ export const isUnreadState = (state: SessionState) => state === 'unread' || stat
 export function sessionState(session: SessionSummary): SessionState {
   if (session.run === 'waiting') return 'waiting'
   if (session.run === 'error') return 'error'
-  if (session.run === 'queued') return 'queued'
   if (session.run === 'running' || session.run === 'starting') return 'running'
   // Finché dei sotto-agenti lavorano la sessione aspetta loro: vale più dell'avviso di quelli già finiti.
   if (agentsRunning(session) > 0) return 'agents-running'
@@ -85,7 +84,7 @@ export function projectAttention(sessions: SessionSummary[]): ProjectAttention {
 
 /** Che cosa dice la nota della riga: il codice serve per il tono, il testo si mostra. */
 export type PrNoteCode = 'merged' | 'pr-closed' | 'conflicts' | 'ci-failed'
-export type SessionNoteCode = 'waiting' | 'error' | 'queued' | 'agents' | 'agents-failed' | 'agents-running' | 'draft' | 'age' | PrNoteCode
+export type SessionNoteCode = 'waiting' | 'error' | 'agents' | 'agents-failed' | 'agents-running' | 'draft' | 'age' | PrNoteCode
 
 export interface Note<Code extends string> {
   code: Code
@@ -96,7 +95,6 @@ export interface Note<Code extends string> {
 export function sessionNote(session: SessionSummary, hasDraft: boolean, now = Date.now()): Note<SessionNoteCode> {
   if (session.run === 'waiting') return { code: 'waiting', text: session.waitingLabel ?? t('Needs you') }
   if (session.run === 'error') return { code: 'error', text: t('Error') }
-  if (session.run === 'queued') return { code: 'queued', text: t('Queued') }
   const waiting = agentsRunning(session)
   if (waiting > 0) return { code: 'agents-running', text: plural(waiting, 'Waiting for 1 agent', 'Waiting for {n} agents') }
   const notice = agentsNotice(session)

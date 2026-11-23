@@ -173,9 +173,6 @@ const it: Record<string, string> = {
   // settings-dialog.tsx: agenti
   'Claude Code and Codex have a native adapter. Other agents speak ACP, the open protocol between editors and agents: to add one, all you need is the command that starts it.':
     'Claude Code e Codex hanno un adapter nativo. Gli altri agenti parlano ACP, il protocollo aperto tra editor e agenti: per aggiungerne uno basta il comando che lo avvia.',
-  'Concurrent sessions per agent': 'Sessioni attive insieme per agente',
-  'Beyond the limit, sessions wait as “Queued” and start on their own. Terminal sessions don’t count.':
-    'Oltre il limite le sessioni aspettano “In coda” e partono da sole. Le sessioni nel terminale non contano.',
   'not available': 'non disponibile',
   native: 'nativo',
   '{n} model': '{n} modello',

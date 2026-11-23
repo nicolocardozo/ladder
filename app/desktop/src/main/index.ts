@@ -45,7 +45,7 @@ interface AppSettings extends AppPrefs {
   theme: ThemeId
 }
 // LADDER_LOCALE sceglie la lingua iniziale di un profilo nuovo (le prove automatiche usano l'italiano).
-const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, maxActive: 3, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE, defaults: {}, presets: [], sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-mono', chatWidth: 'comfortable', autonomyHint: true, stallHint: false, chatTextSize: 'default', editorTextSize: 12, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, openAtLogin: false, keepAwake: false, soundName: 'default', agentBrowser: false }
+const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE, defaults: {}, presets: [], sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-mono', chatWidth: 'comfortable', autonomyHint: true, stallHint: false, chatTextSize: 'default', editorTextSize: 12, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, openAtLogin: false, keepAwake: false, soundName: 'default', agentBrowser: false }
 const settingsPath = () => join(app.getPath('userData'), 'settings.json')
 const EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
 const PERMISSIONS: readonly string[] = ['plan', 'ask', 'edit', 'full']
@@ -113,14 +113,12 @@ function cleanWorktreesDir(raw: unknown): string | null {
   return isAbsolute(path) ? resolve(path) : null
 }
 function cleanPrefs(raw: Partial<AppPrefs>): AppPrefs {
-  const maxActive = Number(raw.maxActive)
   const editorTextSize = Number(raw.editorTextSize)
   const archiveDays = Number(raw.autoArchiveDays)
   return {
     notifications: raw.notifications !== false,
     sound: raw.sound === true,
     dndUntil: typeof raw.dndUntil === 'number' && raw.dndUntil > Date.now() ? raw.dndUntil : null,
-    maxActive: Number.isInteger(maxActive) && maxActive >= 1 && maxActive <= 10 ? maxActive : DEFAULT_PREFS.maxActive,
     locale: isLocale(raw.locale) ? raw.locale : DEFAULT_PREFS.locale,
     defaults: cleanDefaults(raw.defaults),
     presets: cleanPresets(raw.presets),
@@ -165,7 +163,7 @@ const prefsOf = (s: AppSettings): AppPrefs => {
   void theme
   return prefs
 }
-const hostPrefs = (): HostPrefs => ({ maxActive: { 'claude-code': settings.maxActive, codex: settings.maxActive }, locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser })
+const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser })
 
 const attention = new Attention(() => prefsOf(settings), (sessionId, itemId) => openSession(sessionId, itemId))
 

@@ -722,7 +722,7 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
               onDoubleClick={() => startRename(session.id)}
               title={[
                 session.title,
-                session.queuedReason ?? session.activity,
+                session.activity,
                 session.estimated ? t('estimated status') : null,
                 session.worktree?.branch,
                 session.pr ? `PR #${session.pr.number}${prNote(session) ? ` · ${prNote(session)!.text}` : ''}` : null
@@ -888,7 +888,6 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
   const agents = runningSubagents(session)
   const browsing = useApp((s) => Boolean(s.agentBrowser[session.id]?.action))
   const doing =
-    session.queuedReason ??
     (session.run === 'running' || session.run === 'starting' || session.run === 'waiting' ? (session.request?.command ?? session.activity) : null) ??
     (session.mode === 'terminal' ? t('Terminal · {command}', { command: session.command ?? 'claude' }) : null) ??
     session.worktree?.branch ??

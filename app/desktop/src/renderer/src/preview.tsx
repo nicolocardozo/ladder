@@ -18,6 +18,7 @@ import {
   agentsFixture,
   PREVIEW_CLAUDE_WORK,
   PREVIEW_PROFILES,
+  previewUsage,
   previewProfileAgents,
   previewProfileConnections,
   agentsFinishedFixture,
@@ -90,6 +91,10 @@ const CONTEXT_CASES = [
 
 type PreviewCase = 'claude' | 'codex' | 'unknown'
 const PREVIEW_CASES: PreviewCase[] = ['claude', 'codex', 'unknown']
+// Limiti d'uso (LAD-67): sotto soglia niente, 85% avviso sull'icona, 96% anche il bannerino, limite esaurito. Il profilo Work segue il caso, il predefinito resta basso.
+type UsageCase = 'below' | '85%' | '96%' | 'limited'
+const USAGE_CASES: UsageCase[] = ['below', '85%', '96%', 'limited']
+const USAGE_PERCENTS: Record<UsageCase, [number, number]> = { below: [34, 62], '85%': [85, 62], '96%': [40, 96], limited: [100, 71] }
 const stripDefaults = (models: AgentStatus['models']): AgentStatus['models'] => models.map(({ isDefault: _a, defaultEffort: _b, ...m }) => m)
 function previewModels(kind: PreviewCase): AgentStatus['models'] {
   const claude = PREVIEW_AGENTS[0].models.filter((m) => m.id !== 'claude-haiku-5')
@@ -124,7 +129,7 @@ const PREVIEW_PROJECTS: Project[] = [
   { id: PREVIEW_PROJECT, name: 'acme-monorepo', path: '/tmp/acme', branch: 'main', isGit: true, addedAt: 1, profiles: { 'claude-code': PREVIEW_CLAUDE_WORK } },
   { id: 'api', name: 'acme-api', path: '/tmp/api', branch: 'main', isGit: true, addedAt: 2 }
 ]
-const PREVIEW_PREFS: AppPrefs = { notifications: true, sound: true, dndUntil: null, maxActive: 3, locale: 'en', defaults: { agent: 'claude-code', models: { 'claude-code': 'claude-sonnet-5' }, permission: 'ask' },
+const PREVIEW_PREFS: AppPrefs = { notifications: true, sound: true, dndUntil: null, locale: 'en', defaults: { agent: 'claude-code', models: { 'claude-code': 'claude-sonnet-5' }, permission: 'ask' },
   // Profili di sessione (LAD-60): uno solo di lettura, uno con account e worktree, uno Codex e uno con l'agente non disponibile (si vede la nota di ripiego).
   presets: [
     { id: 'preset-review', name: 'Quick review', note: 'Read only pass over a diff before merging.', agent: 'claude-code', model: 'claude-sonnet-5', effort: 'low', permission: 'plan', worktree: false },
@@ -386,6 +391,16 @@ function Preview() {
   const [model, setModel] = useState<string | null>(null)
   const [contextCase, setContextCase] = useState(0)
   const [previewCase, setPreviewCase] = useState<PreviewCase>('claude')
+  const [usageCase, setUsageCase] = useState<UsageCase>('below')
+  const [usageProfile, setUsageProfile] = useState<'work' | 'default'>('work')
+  useEffect(() => {
+    const [five, weekly] = USAGE_PERCENTS[usageCase]
+    const state = useApp.getState()
+    useApp.setState({
+      agents: state.agents.map((a) => (a.agent === 'claude-code' ? { ...a, usage: previewUsage(40, 55), usageAt: Date.now() } : a.agent === 'codex' ? { ...a, usage: previewUsage(five, weekly), usageAt: Date.now() } : a)),
+      profileAgents: Object.fromEntries(Object.entries(state.profileAgents).map(([id, a]) => [id, a.agent === 'claude-code' ? { ...a, usage: previewUsage(five, weekly), usageAt: Date.now() } : a]))
+    })
+  }, [usageCase])
   const [effort, setEffort] = useState<Effort | null>(null)
   const [ladderDefault, setLadderDefault] = useState<'agent' | 'global' | 'project'>('global')
   const [permission, setPermission] = useState<PermissionLevel>('edit')
@@ -709,6 +724,12 @@ function Preview() {
         >
           Composer: {previewCase}
         </button>
+        <button type="button" className={btn} onClick={() => setUsageCase((c) => USAGE_CASES[(USAGE_CASES.indexOf(c) + 1) % USAGE_CASES.length])}>
+          Usage: {usageCase}
+        </button>
+        <button type="button" className={btn} onClick={() => setUsageProfile((p) => (p === 'work' ? 'default' : 'work'))}>
+          Profile: {usageProfile}
+        </button>
         <button type="button" className={btn} onClick={() => useSettings.getState().openSection('defaults')}>
           Predefiniti
         </button>
@@ -820,7 +841,7 @@ function Preview() {
           <div className="chat-reset">
           {permissionError && <p className="mb-2 w-full text-sm text-destructive">{permissionError}</p>}
           <Composer
-            profileId={PREVIEW_CLAUDE_WORK}
+            profileId={previewCase === 'codex' || usageProfile === 'default' ? undefined : PREVIEW_CLAUDE_WORK}
             key={locale}
             onEffortChange={setEffort}
             onEffortReset={() => setEffort(null)}

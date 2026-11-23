@@ -54,7 +54,7 @@ export function App() {
     []
   )
 
-  // Preferenze (notifiche, limite di sessioni) e clic sulle notifiche o sui link ladder://.
+  // Preferenze (notifiche) e clic sulle notifiche o sui link ladder://.
   useEffect(() => {
     void window.ladder?.prefs.get().then((prefs) => useApp.getState().setPrefs(prefs))
     const offPrefs = window.ladder?.prefs.onChange((prefs) => {

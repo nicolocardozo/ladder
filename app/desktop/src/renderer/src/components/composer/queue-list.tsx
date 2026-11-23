@@ -12,12 +12,10 @@ interface QueueListProps {
   canSteer?: boolean
   /** Consegna il messaggio adesso: nel turno in corso ('steer') o interrompendolo ('now'). */
   onDeliver?: (id: string, how: 'steer' | 'now') => void
-  /** Perché aspetta: "3 agents working" o il motivo dell'attesa per il limite di turni. */
+  /** Perché aspetta: "3 agents working". */
   reason?: string | null
   /** Falso a sessione ferma: i messaggi non partono da soli, serve un nuovo invio. */
   working?: boolean
-  /** Sessione in attesa del limite di turni: parte da sola quando si libera un posto. */
-  waitingSlot?: boolean
   /** Dopo ↵ o Esc il focus torna al composer. */
   onEditEnd?: () => void
 }
@@ -28,7 +26,7 @@ const rowButton =
 const deliverButton =
   'h-5 shrink-0 rounded px-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50'
 
-export function QueueList({ queue, onQueueChange, canSteer = false, onDeliver, reason, working = true, waitingSlot = false, onEditEnd }: QueueListProps) {
+export function QueueList({ queue, onQueueChange, canSteer = false, onDeliver, reason, working = true, onEditEnd }: QueueListProps) {
   const [editing, setEditing] = useState<string | null>(null)
   // Il messaggio può partire mentre lo si modifica: si salva solo se è ancora in coda.
   const latest = useRef(queue)
@@ -49,8 +47,8 @@ export function QueueList({ queue, onQueueChange, canSteer = false, onDeliver, r
       <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
         <Clock aria-hidden className="size-3.5" strokeWidth={2} />
         <span>
-          <span className="font-medium text-secondary-foreground">{waitingSlot ? t('Starts when a slot frees up') : working ? t('Sends when the turn ends') : t('Waiting · send a message to continue')}</span>
-          {(working || waitingSlot) && reason ? ` · ${reason}` : ''}
+          <span className="font-medium text-secondary-foreground">{working ? t('Sends when the turn ends') : t('Waiting · send a message to continue')}</span>
+          {working && reason ? ` · ${reason}` : ''}
         </span>
       </p>
       {queue.map((message, index) => {
