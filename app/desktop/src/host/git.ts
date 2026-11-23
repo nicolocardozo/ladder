@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { t } from '@shared/i18n'
-import { MAX_COMMIT_SUBJECT, type FileChange, type GitStatusCode } from '@shared/protocol'
+import { MAX_COMMIT_SUBJECT, type FileChange, type GitStatus, type GitStatusCode } from '@shared/protocol'
 import { cleanEnv, shellPath } from './agents/common'
 
 const run = promisify(execFile)
@@ -26,8 +26,15 @@ const IDENTITY = {
   GIT_COMMITTER_EMAIL: 'ladder@localhost'
 }
 
-/** `--no-optional-locks`: le letture non riscrivono l'indice, quindi non si scontrano con git dell'utente o dell'agente. */
-const BASE_ARGS = ['--no-optional-locks', '-c', 'core.quotePath=false']
+/**
+ * `--no-optional-locks`: le letture non riscrivono l'indice, quindi non si scontrano con git dell'utente o dell'agente.
+ * `core.fsmonitor=false`: con un .git/config ostile `core.fsmonitor` è un comando che git esegue a ogni `status`/`diff`; le
+ * letture automatiche (intestazione, albero, checkpoint) non lo lanciano mai. Costo: su repo enormi niente accelerazione di fsmonitor.
+ * Resta fuori dalla difesa (non si può disattivare senza rompere config legittime): `filter.*.clean`/`process` dichiarati in
+ * .git/config e usati da .gitattributes, `core.sshCommand` e `credential.helper` (ci passa solo il fetch/push), `remote.*.uploadpack`
+ * con un remote locale. Aprire un progetto non fidato in Ladder equivale a fidarsi della sua .git/config come nel terminale.
+ */
+const BASE_ARGS = ['--no-optional-locks', '-c', 'core.quotePath=false', '-c', 'core.fsmonitor=false']
 
 export async function git(repo: string, args: string[], env: Record<string, string> = {}): Promise<string> {
   const { stdout } = await run('git', ['-C', repo, ...BASE_ARGS, ...args], {
@@ -411,6 +418,130 @@ export async function unpushedCount(repo: string): Promise<number | null> {
   } catch {
     return null
   }
+}
+
+// ── LAD-68 stato per l'intestazione ──────────────────────────────────────────
+
+/** Tempo massimo di una lettura di stato: un repo su un disco di rete lento non deve bloccare l'intestazione. */
+const GIT_READ_TIMEOUT_MS = 20_000
+
+/**
+ * Lettura git per lo stato: pathspec letterali, niente prompt, PATH della shell di login, timeout (il processo si ferma).
+ * Come `git`, ma con un limite di tempo; lancia se git esce con errore.
+ */
+export async function gitRead(repo: string, args: string[], timeoutMs = GIT_READ_TIMEOUT_MS): Promise<string> {
+  const PATH = await shellPath().catch(() => process.env.PATH)
+  const { stdout } = await run('git', ['-C', repo, '--literal-pathspecs', ...BASE_ARGS, ...args], {
+    env: { ...cleanEnv(), PATH, GIT_TERMINAL_PROMPT: '0' },
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL'
+  })
+  return stdout
+}
+
+/** Commit dell'upstream che HEAD non ha ancora (da scaricare); null se il branch non ha upstream. */
+export async function behindCount(repo: string): Promise<number | null> {
+  try {
+    return Number((await gitRead(repo, ['rev-list', '--count', 'HEAD..@{upstream}'])).trim()) || 0
+  } catch {
+    return null
+  }
+}
+
+/** Righe dei file non tracciati contate al massimo su questi file/byte: oltre, il conteggio è per difetto. */
+const MAX_UNTRACKED_FILES = 200
+const MAX_UNTRACKED_TOTAL_BYTES = 8 * 1024 * 1024
+/** Righe già contate per file non tracciato, valide finché mtime e dimensione non cambiano (il tracker rilegge di continuo durante un turno). */
+const untrackedLines = new Map<string, { mtimeMs: number; size: number; lines: number | null }>()
+const UNTRACKED_CACHE_MAX = 2000
+
+/**
+ * Righe aggiunte e tolte dalle modifiche non committate: stage e cartella di lavoro insieme (diff contro HEAD, o contro
+ * l'albero vuoto se non ci sono commit). I file non tracciati (non ignorati) contano come interamente aggiunti, con righe
+ * contate leggendoli (testo, max 1 MB l'uno e 8 MB in tutto, binari esclusi): così un file nuovo creato dall'agente accende
+ * la pillola. I binari tracciati non aggiungono righe.
+ */
+export async function diffStats(repo: string): Promise<{ added: number; removed: number }> {
+  let added = 0
+  let removed = 0
+  const base = (await resolveCommit(repo, 'HEAD')) ? 'HEAD' : EMPTY_TREE
+  try {
+    const out = await gitRead(repo, ['diff', '--numstat', '-z', '--no-renames', '--no-ext-diff', '--no-color', base])
+    for (const record of out.split('\0')) {
+      const m = /^(\d+|-)\t(\d+|-)\t/.exec(record)
+      if (m && m[1] !== '-') {
+        added += Number(m[1])
+        removed += Number(m[2])
+      }
+    }
+  } catch {
+    // Diff illeggibile (repo in uno stato strano): le righe restano a zero.
+  }
+  try {
+    const untracked = (await gitRead(repo, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean).slice(0, MAX_UNTRACKED_FILES)
+    let budget = MAX_UNTRACKED_TOTAL_BYTES
+    for (const path of untracked) {
+      const absolute = join(repo, path)
+      const info = await lstat(absolute).catch(() => null)
+      if (!info?.isFile() || info.size > MAX_TEXT_BYTES || info.size > budget) continue
+      budget -= info.size
+      const cached = untrackedLines.get(absolute)
+      if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
+        added += cached.lines ?? 0
+        continue
+      }
+      const data = await readFile(absolute).catch(() => null)
+      if (!data) continue
+      // Binario (o vuoto): zero righe. Si ricorda anche questo, per non rileggerlo.
+      const lines = data.includes(0) || data.length === 0 ? 0 : data.toString('utf8').split('\n').length - (data[data.length - 1] === 0x0a ? 1 : 0)
+      if (untrackedLines.size >= UNTRACKED_CACHE_MAX) untrackedLines.clear()
+      untrackedLines.set(absolute, { mtimeMs: info.mtimeMs, size: info.size, lines })
+      added += lines
+    }
+  } catch {
+    // Elenco dei non tracciati non disponibile: si contano solo i tracciati.
+  }
+  return { added, removed }
+}
+
+/** Stato leggero di una cartella per l'intestazione della sessione (`git.status`); la stessa funzione alimenta `merge.info` (che passa `withLines` true: riporta anche added/removed; `archive` lo passa false). */
+export async function gitStatus(repo: string, isWorktree: boolean, withLines = true): Promise<GitStatus | null> {
+  try {
+    if ((await gitRead(repo, ['rev-parse', '--is-inside-work-tree'])).trim() !== 'true') return null
+  } catch {
+    return null
+  }
+  const branch = (await gitRead(repo, ['symbolic-ref', '--short', '-q', 'HEAD']).catch(() => '')).trim() || null
+  // Senza upstream (mai pubblicato, o upstream non più presente tra i riferimenti remoti) `@{upstream}` non si risolve.
+  const upstream = branch ? (await gitRead(repo, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']).catch(() => '')).trim() || null : null
+  let ahead = 0
+  let behind = 0
+  if (upstream) {
+    try {
+      const [a, b] = (await gitRead(repo, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'])).trim().split(/\s+/).map(Number)
+      ahead = a || 0
+      behind = b || 0
+    } catch {
+      // Upstream sparito tra i due comandi: si legge come "non pubblicato" al prossimo giro.
+    }
+  }
+  const dirty = await gitRead(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']).then(countPorcelain, () => 0)
+  const { added, removed } = dirty > 0 && withLines ? await diffStats(repo) : { added: 0, removed: 0 }
+  return { root: repo, branch, upstream, hasUpstream: upstream !== null, ahead, behind, dirty, added, removed, isWorktree }
+}
+
+/** Voci di `git status --porcelain=v1 -z`: una per file, con le rinomine che portano l'origine nella voce successiva. */
+function countPorcelain(out: string): number {
+  const entries = out.split('\0')
+  let count = 0
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+    if (entry.length < 4) continue
+    count++
+    if (entry[0] === 'R' || entry[0] === 'C') i++
+  }
+  return count
 }
 
 /** File in conflitto unendo `base` in `head`, calcolati con merge-tree: la cartella di lavoro non cambia. */

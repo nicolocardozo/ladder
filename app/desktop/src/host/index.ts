@@ -7,12 +7,19 @@ import { openDb } from './db'
 import { Host } from './sessions'
 
 const ports = new Set<MessagePortMain>()
+let hostRef: Host | null = null
+
+/** Porta chiusa o non più raggiungibile: via dall'elenco e via le sue iscrizioni (git.watch, fs.watch), che l'host non ricorda per finestra. */
+function dropPort(port: MessagePortMain): void {
+  ports.delete(port)
+  hostRef?.connectionClosed(port)
+}
 
 function post(port: MessagePortMain, message: FromHost): void {
   try {
     port.postMessage(message)
   } catch {
-    ports.delete(port)
+    dropPort(port)
   }
 }
 
@@ -26,6 +33,7 @@ async function main(): Promise<void> {
   // Notifiche e badge li mostra il main: qui partono solo gli eventi.
   const toMain = (message: HostToMain) => process.parentPort.postMessage(message)
   const host = new Host(openDb(dbPath), broadcast, toMain)
+  hostRef = host
   // Le preferenze arrivano prima dell'avvio (variabile d'ambiente) e poi a ogni cambio.
   if (process.env.LADDER_HOST_PREFS) host.setPrefs(JSON.parse(process.env.LADDER_HOST_PREFS))
   await host.init()
@@ -51,7 +59,7 @@ async function main(): Promise<void> {
     port.on('message', async ({ data }) => {
       const { rid, command } = data as ToHost
       try {
-        const result = await host.handle(command)
+        const result = await host.handle(command, port)
         if (rid) post(port, { kind: 'result', rid, ok: true, data: result })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -59,7 +67,7 @@ async function main(): Promise<void> {
         if (rid) post(port, { kind: 'result', rid, ok: false, error: message })
       }
     })
-    port.on('close', () => ports.delete(port))
+    port.on('close', () => dropPort(port))
     port.start()
   })
 

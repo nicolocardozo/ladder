@@ -1342,6 +1342,21 @@ export type HostCommand =
    * descrizione oltre MAX_PR_BODY; byte NUL. Non invia nulla alla sessione: lo fa la UI con `session.send`.
    */
   | { type: 'pr.prepare'; sessionId: string; projectId: string; branch: string; base: string; title: string; body: string }
+  // ── LAD-68 ──
+  /**
+   * Stato git leggero della cartella della sessione (worktree se c'è) per l'intestazione. Risponde GitStatus, o null se la
+   * cartella non è un repository git. Non chiama gh: per il pannello merge resta `merge.info`.
+   */
+  | { type: 'git.status'; sessionId: string }
+  /**
+   * Iscrive (on) o toglie (off) la UI agli aggiornamenti `git.status` della cartella della sessione. Le iscrizioni sono per
+   * connessione (finestra) e per sessione: un secondo `on` della stessa finestra non fa nulla, l'`off` di una finestra non toglie
+   * l'iscrizione di un'altra, e la chiusura di una finestra toglie tutte le sue iscrizioni. Finché c'è un iscritto l'host osserva la cartella, rilegge lo stato
+   * a ogni cambio e fa un `git fetch` in background (all'apertura e ogni ~5 minuti, mai mentre un turno lavora lì).
+   * Risponde null; la sessione archiviata o un progetto rimosso tolgono da soli le iscrizioni.
+   */
+  | { type: 'git.watch'; sessionId: string; on: boolean }
+  // ── fine LAD-68 ──
   // ── fine LAD-59 commit ──
   // ── fine LAD-59 ──
 
@@ -1397,6 +1412,10 @@ export type HostEvent =
   // ── Fine LAD-57 parte 2 ──
   /** Qualcosa è cambiato nella cartella: albero, stato git e diff "attuali" vanno riletti. */
   | { type: 'fs.changed'; root: string }
+  // ── LAD-68 ──
+  /** Stato git di una cartella cambiato (modifiche, commit, fetch, cambio branch): intero, solo se è diverso dall'ultimo mandato. */
+  | { type: 'git.status'; status: GitStatus }
+  // ── fine LAD-68 ──
   /** Un collegamento è cambiato: avanza il download o il login, o è finito (anche con errore). */
   | { type: 'connection.update'; status: ConnectionStatus }
 
@@ -1753,6 +1772,32 @@ export interface GitCommitResult {
   subject: string
 }
 // ── fine LAD-59 commit ──
+
+// ── LAD-68 ──
+/**
+ * Stato git di una cartella per l'intestazione della sessione. Stessa fonte dei campi comuni di `MergeInfo`
+ * (`dirty`, `unpushed` = `ahead` se `hasUpstream`, `hasUpstream`).
+ */
+export interface GitStatus {
+  /** Cartella di lavoro (worktree se la sessione ne ha uno): chiave per abbinare l'evento `git.status`. */
+  root: string
+  /** Branch corrente; null con HEAD staccato. */
+  branch: string | null
+  /** Upstream del branch, per esempio "origin/main"; null se non pubblicato (o HEAD staccato). */
+  upstream: string | null
+  hasUpstream: boolean
+  /** Commit da inviare (HEAD ha, l'upstream no): la freccia ↑. 0 se non c'è upstream (leggi `hasUpstream`). */
+  ahead: number
+  /** Commit da scaricare (l'upstream ha, HEAD no): la freccia ↓, aggiornata dal fetch in background. */
+  behind: number
+  /** File con modifiche non committate (stage, cartella di lavoro e non tracciati non ignorati). */
+  dirty: number
+  /** Righe aggiunte/tolte dalle modifiche non committate (stage + cartella di lavoro vs HEAD; i file nuovi contano per intero). 0 se dirty è 0. */
+  added: number
+  removed: number
+  isWorktree: boolean
+}
+// ── fine LAD-68 ──
 
 /** Risposta di `text.pr`. `body` include già il collegamento all'issue (riga "Closes …") se c'è. */
 export interface GeneratedPr {

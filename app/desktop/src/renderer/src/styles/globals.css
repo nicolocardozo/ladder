@@ -278,6 +278,30 @@
   }
 }
 
+/* Pillola delle modifiche accesa per un momento quando l'agente tocca il primo file: solo opacity e transform. */
+@keyframes git-pill-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.git-pill-flash {
+  animation: git-pill-flash 700ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .git-pill-flash {
+    animation: none;
+  }
+}
+
 /* Titolo troppo lungo al passaggio del mouse: pausa, scorre fino alla fine, pausa e torna. */
 @keyframes marquee-title {
   0%,

@@ -34,6 +34,7 @@ import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sideba
 import { ChatView } from '@/components/chat/chat-view'
 import { LadderEngraved } from '@/components/brand/logo'
 import { Composer } from '@/components/composer'
+import { GitChangesPill, GitStatusChip, useFirstChangeFlash, useGitStatus } from '@/components/git-status-chip'
 import { Inspector } from '@/components/inspector/inspector'
 import { EDITOR_NAME, EDITORS, openInEditor } from '@/components/inspector/open-file'
 import { ColumnHeader, SplitColumns, SplitDropHint } from '@/components/split-view'
@@ -163,6 +164,22 @@ function RunButtons({ project, session }: { project: Project; session: SessionSu
   )
 }
 
+/** Chip del branch e pillola delle modifiche: aprono il pannello di destra su Merge e su Modifiche. */
+function SessionGit({ project, session, root }: { project: Project; session: SessionSummary; root: string | null }) {
+  const status = useGitStatus(session.id)
+  const flash = useFirstChangeFlash(status)
+  const toggleInspector = useApp((s) => s.toggleInspector)
+  const openTab = useApp((s) => (s.ui[project.id]?.inspector?.open ? s.ui[project.id]?.inspector?.tab : null))
+  const mergeOpen = openTab === 'merge'
+  const changesOpen = openTab === 'changes'
+  return (
+    <div className="mr-1 flex min-w-0 shrink items-center gap-0.5">
+      <GitStatusChip status={status} fallbackBranch={session.branch ?? project.branch ?? null} title={root ?? project.path} active={mergeOpen} onClick={() => toggleInspector(project.id, 'merge')} />
+      {status && <GitChangesPill status={status} active={changesOpen} flash={flash} onClick={() => toggleInspector(project.id, 'changes')} />}
+    </div>
+  )
+}
+
 function EditorButton({ project, root }: { project: Project; root: string }) {
   const editor = useApp((s) => s.ui[project.id]?.editor ?? s.prefs?.editor ?? 'cursor')
   const setUi = useApp((s) => s.setUi)
@@ -238,14 +255,15 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
               {t('Search files')} <Kbd className="ml-1">{shortcutLabel('quickOpen.toggle')}</Kbd>
             </TooltipContent>
           </Tooltip>
-          {(session?.branch ?? project.branch) && (
+          {!session && project.branch && (
             <>
               <span aria-hidden className="text-faint">/</span>
-              <span className="truncate text-muted-foreground" title={root ?? project.path}>{session?.branch ?? project.branch}</span>
+              <span className="truncate text-muted-foreground" title={root ?? project.path}>{project.branch}</span>
             </>
           )}
         </div>
       )}
+      {project && session && <SessionGit key={session.id} project={project} session={session} root={root} />}
       <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
       {project && (
         <>

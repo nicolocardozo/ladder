@@ -1,8 +1,8 @@
 // Stato del renderer: copia di ciò che l'host pubblica più lo stato dell'interfaccia (selezione, cartelle aperte).
 import { create } from 'zustand'
-import { isElectron, request, send } from '@/lib/host-client'
+import { isElectron, onHostConnect, request, send } from '@/lib/host-client'
 import { applyProjectGroupOp, normalizeProjectGroups, type ProjectGroupOp } from '@/lib/project-groups'
-import type { AgentBrowserState, AgentStatus, AppPrefs, Attachment, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, Profile, ReviewState, SlashCommand, DiffScope, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentBrowserState, AgentStatus, AppPrefs, Attachment, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalData } from '@/lib/terminal-registry'
 import { disposeBuffer } from '@/components/editor/buffers'
@@ -87,6 +87,16 @@ interface AppState {
   terminals: Record<string, TerminalInfo>
   /** Contatore per cartella: cresce quando l'host segnala un cambiamento, e le viste rileggono. */
   fsVersion: Record<string, number>
+  // ── LAD-68 ──
+  /** Stato git leggero per cartella (chiave `GitStatus.root`), solo per le sessioni osservate con `watchGit`. */
+  gitStatus: Record<string, GitStatus>
+  /** Cartella git di ogni sessione osservata, nota dopo il primo `git.status`. */
+  gitRoot: Record<string, string>
+  /** Iscrive la sessione agli aggiornamenti git dell'intestazione (idempotente) e legge lo stato iniziale. */
+  watchGit: (sessionId: string) => void
+  /** Toglie l'iscrizione (idempotente). */
+  unwatchGit: (sessionId: string) => void
+  // ── fine LAD-68 ──
   /** Ultima richiesta di apertura dell'ispettore: un file nel viewer o un ambito del diff. */
   inspectorRequest: InspectorRequest | null
   /** Testo da inserire nel composer con la chiave indicata (Aggiungi alla chat, @terminal). */
@@ -369,6 +379,39 @@ const omitKey = (record: Record<string, string>, key: string): Record<string, st
 }
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let nonce = 0
+
+// ── LAD-68: sessioni di cui l'intestazione osserva lo stato git ──
+const gitWatched = new Set<string>()
+/** Legge lo stato git della sessione osservata; ignora la risposta se nel frattempo non è più osservata. */
+function loadGitStatus(sessionId: string): void {
+  request<GitStatus | null>({ type: 'git.status', sessionId })
+    .then((status) => {
+      // Tolta nel frattempo, o non è un repository: niente da mostrare.
+      if (!status || !gitWatched.has(sessionId)) return
+      useApp.setState((state) => ({ gitStatus: { ...state.gitStatus, [status.root]: status }, gitRoot: { ...state.gitRoot, [sessionId]: status.root } }))
+    })
+    .catch(() => {})
+}
+// Nuova connessione con l'host (riavvio o porta arrivata dopo): le iscrizioni dell'host vivono per porta e la porta è nuova, quindi la UI le rifà.
+onHostConnect(() => {
+  for (const sessionId of gitWatched) {
+    send({ type: 'git.watch', sessionId, on: true })
+    loadGitStatus(sessionId)
+  }
+})
+/** Toglie lo stato git della sessione; quello della cartella resta finché un'altra sessione osservata la usa. */
+function dropGit(sessionId: string): void {
+  useApp.setState((state) => {
+    const root = state.gitRoot[sessionId]
+    if (root === undefined) return {}
+    const gitRoot = { ...state.gitRoot }
+    delete gitRoot[sessionId]
+    if (Object.values(gitRoot).includes(root)) return { gitRoot }
+    const gitStatus = { ...state.gitStatus }
+    delete gitStatus[root]
+    return { gitRoot, gitStatus }
+  })
+}
 
 function readSidebarOpen(): boolean {
   try {
@@ -657,6 +700,8 @@ export const useApp = create<AppState>((set, get) => ({
   historyIndex: -1,
   terminals: {},
   fsVersion: {},
+  gitStatus: {},
+  gitRoot: {},
   inspectorRequest: null,
   composerInsert: null,
   composerReplace: null,
@@ -742,6 +787,7 @@ export const useApp = create<AppState>((set, get) => ({
         case 'project.removed': {
           const projects = state.projects.filter((p) => p.id !== event.projectId)
           purgeProjectBrowser(event.projectId)
+          for (const s of Object.values(state.sessions)) if (s.projectId === event.projectId && gitWatched.delete(s.id)) queueMicrotask(() => dropGit(s.id))
           // I comandi delle sessioni del progetto rimosso non servono più.
           const commands = { ...state.commands }
           for (const s of Object.values(state.sessions)) if (s.projectId === event.projectId) delete commands[s.id]
@@ -776,6 +822,8 @@ export const useApp = create<AppState>((set, get) => ({
               useApp.getState().closeTab(event.session.projectId, event.session.id)
             })
           }
+          // L'host toglie da solo il watch della sessione archiviata: qui si pulisce lo stato.
+          if (event.session.archived && gitWatched.delete(event.session.id)) queueMicrotask(() => dropGit(event.session.id))
           return { sessions: { ...state.sessions, [event.session.id]: event.session } }
         }
         case 'session.items':
@@ -842,6 +890,11 @@ export const useApp = create<AppState>((set, get) => ({
           // GitHub appena collegato (o scollegato): le viste che lo leggono si rinnovano. Il primo stato letto all'avvio non è una transizione.
           const github = event.status.id === 'github' && before !== undefined && linked(before) !== linked(event.status)
           return { connections: { ...state.connections, [event.status.id]: event.status }, ...(github ? { githubVersion: state.githubVersion + 1 } : {}) }
+        }
+        case 'git.status': {
+          // Un evento in ritardo, dopo l'ultimo `unwatchGit`, non rimette in vita lo stato.
+          if (gitWatched.size === 0) return {}
+          return { gitStatus: { ...state.gitStatus, [event.status.root]: event.status } }
         }
         case 'fs.changed':
           return { fsVersion: { ...state.fsVersion, [event.root]: (state.fsVersion[event.root] ?? 0) + 1 } }
@@ -1382,6 +1435,19 @@ export const useApp = create<AppState>((set, get) => ({
     const current = selection.kind === 'session' ? waiting.findIndex((s) => s.id === selection.sessionId) : -1
     const next = waiting[(current + 1) % waiting.length]
     return state.openSessionAt(next.id, next.request?.id ?? null)
+  },
+
+  watchGit: (sessionId) => {
+    if (gitWatched.has(sessionId)) return
+    gitWatched.add(sessionId)
+    send({ type: 'git.watch', sessionId, on: true })
+    loadGitStatus(sessionId)
+  },
+
+  unwatchGit: (sessionId) => {
+    if (!gitWatched.delete(sessionId)) return
+    send({ type: 'git.watch', sessionId, on: false })
+    dropGit(sessionId)
   },
 
   markUnread: (sessionId) => {

@@ -65,7 +65,8 @@ import { codexDefaults } from './codex/environment'
 import { codexText, codexTitle, smallCodexModel } from './codex/title'
 import { clipTitle, inTitleQueue, issueRef, teamPrefixes, titlePrompt, withIssue } from './titles'
 import { listTree, readText, RootWatcher, writeText } from './files'
-import { aheadBehind, changedFiles, commitChanges, createCheckpoint, dirtyCount, ensureExcluded, fetchRef, git, listBranches, listFiles, mergeConflicts, repoInfo, resolveCommit, unpushedCount } from './git'
+import { aheadBehind, changedFiles, commitChanges, createCheckpoint, ensureExcluded, fetchRef, git, listBranches, listFiles, mergeConflicts, repoInfo, resolveCommit } from './git'
+import { GitStatusTracker } from './git-status'
 import { Connections } from './connections'
 import { customProfileId, isDefaultProfileId, isProfileAgent, Profiles } from './profiles'
 import { defaultBranch, ghState, listGithubIssues, listGithubPrs, prForBranch, type PrDetails } from './github'
@@ -180,6 +181,12 @@ export class Host {
   private subagentFlush = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly terminals: TerminalManager
   private readonly watcher: RootWatcher
+  /** Stato git per l'intestazione (LAD-68) e le iscrizioni della UI. */
+  private readonly gitStatus: GitStatusTracker
+  /** Iscrizioni a `git.watch` per connessione (finestra): connessione -> sessione -> cartella. Chiusa la porta, si tolgono tutte. */
+  private readonly gitSubs = new Map<object, Map<string, string>>()
+  /** `fs.watch` per connessione: connessione -> cartella -> iscrizioni (un `off` non toglie quelle di un'altra finestra). */
+  private readonly fsSubs = new Map<object, Map<string, number>>()
   private readonly ports: Ports
   /** Avvio dei servizi in corso, per sessione: archive() lo aspetta. */
   private readonly servicesStarting = new Map<string, Promise<void>>()
@@ -289,7 +296,12 @@ export class Host {
       agent: (terminal, signal) => this.onAgentSignal(terminal, signal),
       devServer: (terminal, url) => this.broadcast({ type: 'browser.devserver', projectId: terminal.projectId, terminalId: terminal.id, url })
     })
-    this.watcher = new RootWatcher((root) => this.broadcast({ type: 'fs.changed', root }))
+    this.watcher = new RootWatcher((root) => this.notifyFsChanged(root))
+    this.gitStatus = new GitStatusTracker({
+      emit: (status) => this.broadcast({ type: 'git.status', status }),
+      isWorktree: (root) => this.isWorktreeRoot(root),
+      busy: (root) => this.busySession(root) !== null
+    })
     this.ports = new Ports(db)
     this.projectGroups = new ProjectGroups(
       db,
@@ -827,7 +839,8 @@ export class Host {
 
   // ── Comandi dalla UI ─────────────────────────────────────────────────────
 
-  async handle(command: HostCommand): Promise<unknown> {
+  /** `origin`: la connessione (porta) da cui arriva il comando; serve alle iscrizioni, che spariscono con lei (`connectionClosed`). */
+  async handle(command: HostCommand, origin: object = LOCAL_ORIGIN): Promise<unknown> {
     switch (command.type) {
       case 'hello':
         return this.snapshot()
@@ -839,6 +852,7 @@ export class Host {
         this.db.prepare('delete from projects where id = ?').run(command.projectId)
         this.profiles.dropProject(command.projectId)
         this.projects.delete(command.projectId)
+        for (const row of this.rows.values()) if (row.project_id === command.projectId) this.unsubscribeGit(row.id)
         this.terminals.forgetProject(command.projectId)
         for (const terminal of this.terminals.list()) if (terminal.projectId === command.projectId) this.terminals.close(terminal.id)
         for (const row of this.rows.values()) if (row.project_id === command.projectId) this.commandLists.delete(row.id)
@@ -982,10 +996,25 @@ export class Host {
         return readText(this.knownRoot(command.root), command.path)
       case 'fs.write':
         return writeText(this.knownRoot(command.root), command.path, command.text, command.baseMtime)
-      case 'fs.watch':
-        if (command.on) this.watcher.watch(this.knownRoot(command.root))
-        else this.watcher.unwatch(command.root)
+      case 'fs.watch': {
+        const subs = this.fsSubs.get(origin) ?? new Map<string, number>()
+        if (command.on) {
+          const root = this.knownRoot(command.root)
+          this.watcher.watch(root)
+          subs.set(root, (subs.get(root) ?? 0) + 1)
+          this.fsSubs.set(origin, subs)
+        } else {
+          // Si toglie solo ciò che questa connessione ha iscritto.
+          const root = command.root.replace(/\/+$/, '')
+          const count = subs.get(root) ?? 0
+          if (count > 0) {
+            this.watcher.unwatch(root)
+            if (count === 1) subs.delete(root)
+            else subs.set(root, count - 1)
+          }
+        }
         return null
+      }
       case 'diff.files':
         return diffFiles(this.db, this.knownRoot(command.root), command.scope)
       case 'diff.file':
@@ -996,7 +1025,7 @@ export class Host {
         if (busy) throw new Error(t('“{title}” is working in this folder: stop it before restoring.', { title: busy.title }))
         const sessionId = [...this.rows.values()].find((r) => this.cwdOf(r) === root && !r.archived)?.id ?? null
         const result = await restore(this.db, root, command.to, command.paths, command.label, sessionId)
-        this.broadcast({ type: 'fs.changed', root })
+        this.notifyFsChanged(root)
         return result
       }
       case 'history.list':
@@ -1136,8 +1165,17 @@ export class Host {
       case 'git.commit': {
         const root = this.cwdOf(this.mustRow(command.sessionId))
         const result = await commitChanges(root, command.subject, command.body, command.paths)
-        this.broadcast({ type: 'fs.changed', root })
+        this.notifyFsChanged(root)
         return result
+      }
+      case 'git.status': {
+        const row = this.mustRow(command.sessionId)
+        return this.gitStatus.read(this.mustCwd(row))
+      }
+      case 'git.watch': {
+        if (command.on) this.subscribeGit(origin, command.sessionId, this.mustCwd(this.mustRow(command.sessionId)))
+        else this.unsubscribeGit(command.sessionId, origin)
+        return null
       }
       case 'pr.prepare': {
         const project = this.mustProject(command.projectId)
@@ -1168,12 +1206,69 @@ export class Host {
     return row.cwd ?? this.projects.get(row.project_id)?.path ?? ''
   }
 
+  /** Cartella di lavoro della sessione, o errore se non c'è più (progetto rimosso): con '' git lavorerebbe nella cartella corrente dell'host. */
+  private mustCwd(row: SessionRow): string {
+    const cwd = this.cwdOf(row)
+    if (!cwd) throw new Error(t('Folder unknown to Ladder.'))
+    return cwd
+  }
+
   /** Solo le cartelle di progetti e sessioni: la UI non può chiedere file da altre parti del disco. */
   private knownRoot(root: string): string {
     const normalized = root.replace(/\/+$/, '')
     for (const project of this.projects.values()) if (project.path === normalized) return normalized
     for (const row of this.rows.values()) if (this.cwdOf(row) === normalized) return normalized
     throw new Error(t('Folder unknown to Ladder.'))
+  }
+
+  /** Cambio nella cartella: la UI rilegge albero e diff, e lo stato git dell'intestazione si aggiorna subito. */
+  private notifyFsChanged(root: string): void {
+    this.broadcast({ type: 'fs.changed', root })
+    this.gitStatus.refresh(root)
+  }
+
+  /** Iscrive la connessione agli aggiornamenti git della cartella della sessione (una volta sola per connessione e sessione). */
+  private subscribeGit(origin: object, sessionId: string, root: string): void {
+    const subs = this.gitSubs.get(origin) ?? new Map<string, string>()
+    if (subs.has(sessionId) || !root) return
+    subs.set(sessionId, root)
+    this.gitSubs.set(origin, subs)
+    this.watcher.watch(root)
+    this.gitStatus.track(root)
+  }
+
+  /** Toglie l'iscrizione di una connessione; senza `origin` (sessione archiviata, progetto rimosso) quelle di tutte. */
+  private unsubscribeGit(sessionId: string, origin?: object): void {
+    for (const [conn, subs] of this.gitSubs) {
+      if (origin && conn !== origin) continue
+      const root = subs.get(sessionId)
+      if (!root) continue
+      subs.delete(sessionId)
+      this.watcher.unwatch(root)
+      this.gitStatus.untrack(root)
+    }
+  }
+
+  /** Una connessione (finestra) si è chiusa: le sue iscrizioni a git e ai file spariscono con lei. */
+  connectionClosed(origin: object): void {
+    const git = this.gitSubs.get(origin)
+    this.gitSubs.delete(origin)
+    for (const root of git?.values() ?? []) {
+      this.watcher.unwatch(root)
+      this.gitStatus.untrack(root)
+    }
+    const files = this.fsSubs.get(origin)
+    this.fsSubs.delete(origin)
+    for (const [root, count] of files ?? []) for (let i = 0; i < count; i++) this.watcher.unwatch(root)
+  }
+
+  /** Iscrizioni attive (per i test): git e fs. */
+  subscriptionCount(): { git: number; fs: number } {
+    let git = 0
+    let fs = 0
+    for (const subs of this.gitSubs.values()) git += subs.size
+    for (const subs of this.fsSubs.values()) for (const n of subs.values()) fs += n
+    return { git, fs }
   }
 
   /** Una sessione che sta scrivendo in `root`, se c'è. */
@@ -1611,6 +1706,7 @@ export class Host {
     this.browserAgent.revoke(sessionId)
     this.runtimes.get(sessionId)?.adapter.close()
     this.runtimes.delete(sessionId)
+    this.unsubscribeGit(sessionId)
     this.initEffort.delete(sessionId)
     this.commandLists.delete(sessionId)
     this.contextAt.delete(sessionId)
@@ -2819,7 +2915,7 @@ export class Host {
     if (!superseded && this.agentsIdle.has(sessionId)) this.armAgentsFinished(sessionId)
     // Riga già a riposo: solo ora il livello chiesto a turno in corso diventa quello della sessione.
     if (!superseded) await this.applyNextPermission(sessionId, runtime)
-    if (files.length > 0) this.broadcast({ type: 'fs.changed', root: cwd })
+    if (files.length > 0) this.notifyFsChanged(cwd)
     // L'avviso dei sotto-agenti rimandato a fine turno si unisce alla notifica del turno, senza doppioni.
     if (result.status === 'error') this.agentsPending.delete(sessionId)
     const merged = result.status !== 'error' && !superseded && this.flushAgentsDone(sessionId, end.id)
@@ -2988,6 +3084,8 @@ export class Host {
   private updateRow(sessionId: string, patch: Partial<SessionRow>): void {
     const row = this.mustRow(sessionId)
     Object.assign(row, patch, { updated_at: Date.now() })
+    // Fine turno: l'agente può aver fatto commit o push, e il fetch può ripartire.
+    if (patch.run_state === 'idle') this.gitStatus.refresh(this.cwdOf(row))
     const keys = Object.keys(patch).concat('updated_at')
     const sql = `update sessions set ${keys.map((k) => `${k} = ?`).join(', ')} where id = ?`
     this.db.prepare(sql).run(...keys.map((k) => (row as unknown as Record<string, string | number | null>)[k]), sessionId)
@@ -3413,13 +3511,16 @@ export class Host {
     if (fetch) await fetchRef(root, base).catch(() => undefined)
     const baseRef = (await resolveCommit(root, `refs/remotes/origin/${base}`)) ? `origin/${base}` : base
     const counts = branch && branch !== base ? await aheadBehind(root, 'HEAD', baseRef) : null
-    const unpushed = await unpushedCount(root)
+    // Stessa fonte dell'intestazione (git.status) per i campi comuni: le due viste coincidono sempre. Se il tracker ha una lettura
+    // senza cambi da allora (al massimo 5 s) vale quella: `merge.info` parte a ogni `fs.changed` e non rifà ~7 processi git.
+    const local = await this.gitStatus.recent(root)
+    const unpushed = local?.hasUpstream ? local.ahead : null
     return {
       root,
       branch,
       base,
       isDefaultBranch: branch === base,
-      dirty: await dirtyCount(root),
+      dirty: local?.dirty ?? 0,
       ahead: counts?.ahead ?? 0,
       behind: counts?.behind ?? 0,
       unpushed,
@@ -3431,6 +3532,11 @@ export class Host {
       checks: details?.checks ?? [],
       comments: details?.comments ?? []
     }
+  }
+
+  /** La cartella è il worktree di una sessione non archiviata (stesso criterio per l'intestazione e per `merge.info`). */
+  private isWorktreeRoot(root: string): boolean {
+    return [...this.rows.values()].some((r) => !r.archived && !!r.worktree && this.cwdOf(r) === root)
   }
 
   private storePr(root: string, branch: string, details: PrDetails | null): void {
@@ -3515,6 +3621,7 @@ export class Host {
     this.shortcuts.close()
     this.terminals.shutdown()
     this.prFiles.shutdown()
+    this.gitStatus.shutdown()
     this.watcher.close()
   }
 }
@@ -3585,6 +3692,9 @@ const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'apply
 
 /** Richieste che un cambio di livello non approva mai: l'approvazione del piano è una scelta dell'utente. */
 const NEVER_AUTO = new Set(['ExitPlanMode'])
+
+/** Origine dei comandi che non arrivano da una porta (nessuna finestra): un'unica connessione fittizia. */
+const LOCAL_ORIGIN = {}
 
 /** Il percorso (anche di un file non ancora creato) sta dentro la cartella, risolti i symlink? */
 async function insideDir(dir: string, path: string): Promise<boolean> {
