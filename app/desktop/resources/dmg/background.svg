@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="760" height="450" viewBox="0 0 760 450">
+  <!-- Sorgente dello sfondo del DMG. Rigenera i PNG con:
+       rsvg-convert -w 760 -h 450 background.svg -o background.png
+       rsvg-convert -w 1520 -h 900 background.svg -o background@2x.png
+       Fondo chiaro: il Finder scrive i nomi delle icone in nero.
+       La finestra prende la misura dello sfondo e le barre del Finder ne coprono circa 50 pt in basso:
+       tutto quello che conta sta nei primi 400 pt. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FBFAFF"/>
+      <stop offset="1" stop-color="#F1EDFB"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.12" cy="-0.1" r="0.8">
+      <stop offset="0" stop-color="#5525CF" stop-opacity="0.16"/>
+      <stop offset="0.6" stop-color="#5525CF" stop-opacity="0.03"/>
+      <stop offset="1" stop-color="#5525CF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="citron" cx="0.95" cy="1.05" r="0.55">
+      <stop offset="0" stop-color="#ECFC7F" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ECFC7F" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="760" height="450" fill="url(#bg)"/>
+  <rect width="760" height="450" fill="url(#glow)"/>
+  <rect width="760" height="450" fill="url(#citron)"/>
+  <!-- Il segno in grande come filigrana, in basso a destra -->
+  <g transform="translate(566 268) scale(1.05)" opacity="0.06">
+    <path fill="#5525CF" fill-rule="evenodd" d="M68 0L161 0Q166 0 169.34 3.72L198.66 36.28Q202 40 207 40L263 40Q268 40 268 45L268 75Q268 80 263 80L190 80Q185 80 181.66 76.28L152.34 43.72Q149 40 144 40L68 40Q63 40 63 35L63 5Q63 0 68 0ZM39 68L132 68Q137 68 140.34 71.72L168.66 103.28Q172 107 177 107L270 107Q275 107 275 112L275 142Q275 147 270 147L160 147Q155 147 151.66 143.28L123.34 111.72Q120 108 115 108L39 108Q34 108 34 103L34 73Q34 68 39 68ZM5 136L104 136Q109 136 112.35 139.71L141.48 171.99A3 3 0 0 1 139.25 177L5 177Q0 177 0 172L0 141Q0 136 5 136Z"/>
+  </g>
+  <image xlink:href="logo.svg" x="44" y="38" width="122" height="27"/>
+  <!-- Freccia dall'app ad Applicazioni -->
+  <line x1="322" y1="194" x2="426" y2="194" stroke="#5525CF" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 11" stroke-opacity="0.85"/>
+  <path d="M426 184 L438 194 L426 204" fill="none" stroke="#5525CF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="380" y="352" text-anchor="middle" font-family="Helvetica Neue" font-size="14" letter-spacing="0.1" fill="#22123C" fill-opacity="0.6">Drag Ladder into Applications to install</text>
+</svg>
