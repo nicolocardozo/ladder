@@ -8,9 +8,7 @@ export function PageShell({ children, className }: { children: ReactNode; classN
   return (
     <>
       <main className={cn("mx-auto w-full max-w-5xl px-4 pt-32 pb-24 sm:px-8 sm:pt-40", className)}>{children}</main>
-      <div className="px-3">
-        <SiteFooter />
-      </div>
+      <SiteFooter />
     </>
   )
 }

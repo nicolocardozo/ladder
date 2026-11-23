@@ -64,8 +64,11 @@ export function Hero() {
           </a>
         </div>
 
+        {/* hero-win-in: su mobile la finestra è disegnata a larghezza desktop e rimpicciolita (--k) */}
         <div className="hero-win">
-          <HeroWindow />
+          <div className="hero-win-in">
+            <HeroWindow />
+          </div>
         </div>
       </div>
       <HeroScroll targetId="hero" />

@@ -157,6 +157,83 @@
   .hero:not([data-m]) .hero-claim1 { visibility: visible; color: var(--color-ink, #181424); }
 }
 
+.hero-win-in {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  container: lw / inline-size;
+}
+
+/* ---------- Mobile: hero fermo, testo e bottone in alto, finestra intera in miniatura sotto ----------
+   Niente apertura animata né sticky: la finestra è disegnata a 1100x720 (layout desktop completo,
+   con la sidebar) e ridotta a tutta larghezza con --k, scritto da HeroScroll. */
+@media (max-width: 760px) {
+  .hero {
+    --e: 0;
+    --lift: 1;
+    --fade: 1;
+    --x: 0;
+    --k: 0.31;
+    height: auto;
+  }
+  .hero-frame {
+    position: relative;
+    top: 0;
+    height: auto;
+    min-height: calc(100svh - 24px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 22px;
+    padding: 104px 16px 20px;
+  }
+  .hero .hero-frame .hero-claim {
+    position: relative;
+    inset: auto;
+    visibility: visible;
+    text-align: center;
+  }
+  .hero-claim h1 { text-wrap: balance; }
+  .hero-claim1 { display: none; }
+  .hero-foot {
+    position: relative;
+    inset: auto;
+    opacity: 1;
+    transform: none;
+  }
+  .hero-foot-l {
+    max-width: 34ch;
+    margin: 0 auto;
+    text-align: center;
+    font-size: 15px;
+  }
+  .hero .hero-foot-r {
+    display: flex;
+    justify-content: center;
+    order: 1;
+  }
+  .hero-win {
+    position: relative;
+    order: 2;
+    left: auto;
+    top: auto;
+    bottom: auto;
+    width: 100%;
+    height: calc(720px * var(--k));
+    margin-top: 6px;
+    transform: none;
+    border-radius: 10px;
+  }
+  .hero-win-in {
+    flex: none;
+    width: 1100px;
+    height: 720px;
+    transform: scale(var(--k));
+    transform-origin: 0 0;
+  }
+}
+
 /* ---------- Finestra di Ladder (Circuit) ---------- */
 .lw {
   --c-bg: #181424; --c-side: #1a1427; --c-surf: #211a30; --c-ink: #f7f4ff; --c-mut: #a9a6b2;
@@ -260,7 +337,7 @@
 .lw-note b { font-weight: 600; }
 .lw-note small { float: right; color: #5f5a6e; font-size: 11px; }
 .lw-note code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; }
-@media (max-width: 860px) {
+@container lw (max-width: 860px) {
   .lw-body { grid-template-columns: minmax(0, 1fr); }
   .lw-sb { display: none; }
   .lw-note { width: auto; left: 14px; }

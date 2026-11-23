@@ -14,6 +14,10 @@ export function HeroScroll({ targetId }: { targetId: string }) {
     const el = document.getElementById(targetId)
     if (!el) return
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
+    // Su mobile l'hero è fermo (testo sopra, finestra in miniatura sotto): niente apertura animata
+    const mobile = window.matchMedia("(max-width: 760px)")
+    const still = () => mq.matches || mobile.matches
+    const win = el.querySelector<HTMLElement>(".hero-win")
     const claim = el.querySelector<HTMLElement>(".hero-claim")
     const claim1 = el.querySelector<HTMLElement>(".hero-claim1")
     const from = Array.from(el.querySelectorAll<HTMLElement>(".hero-claim [data-hw]"))
@@ -21,6 +25,8 @@ export function HeroScroll({ targetId }: { targetId: string }) {
 
     // offsetLeft/Top ignorano i transform: le misure non dipendono dallo stato dell'animazione
     const measure = () => {
+      // scala della finestra in miniatura: larghezza disponibile / 1100px disegnati
+      if (win) el.style.setProperty("--k", (win.clientWidth / 1100).toFixed(4))
       if (!claim || !claim1 || from.length !== to.length) return
       from.forEach((w, i) => {
         const t = to[i]
@@ -70,7 +76,7 @@ export function HeroScroll({ targetId }: { targetId: string }) {
     }
 
     const onScroll = () => {
-      if (mq.matches) {
+      if (still()) {
         for (const v of ["--e", "--lift", "--fade", "--x"]) el.style.removeProperty(v)
         el.removeAttribute("data-open")
         return
@@ -83,7 +89,7 @@ export function HeroScroll({ targetId }: { targetId: string }) {
 
     // Pagina aperta già scrollata (ricarica, link a un'ancora): stato finale subito, senza animazione
     const init = () => {
-      if (mq.matches) return onScroll()
+      if (still()) return onScroll()
       target = readTarget()
       p = target
       paint()
@@ -98,15 +104,18 @@ export function HeroScroll({ targetId }: { targetId: string }) {
     document.fonts?.ready.then(measure)
     const ro = new ResizeObserver(measure)
     if (claim) ro.observe(claim)
+    if (win) ro.observe(win)
     window.addEventListener("scroll", onScroll, { passive: true })
     window.addEventListener("resize", onResize)
     mq.addEventListener("change", init)
+    mobile.addEventListener("change", init)
     return () => {
       if (raf) cancelAnimationFrame(raf)
       ro.disconnect()
       window.removeEventListener("scroll", onScroll)
       window.removeEventListener("resize", onResize)
       mq.removeEventListener("change", init)
+      mobile.removeEventListener("change", init)
     }
   }, [targetId])
   return null
