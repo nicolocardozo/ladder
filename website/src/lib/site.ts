@@ -7,20 +7,19 @@ export const SITE = {
   url: "https://itsladder.dev",
   // Link al repo pubblico, se e quando ci sarà: con null header e footer non mostrano GitHub
   githubUrl: null as string | null,
-  // Link al file dell'app per i dati strutturati: null finché non c'è una release pubblica
-  downloadUrl: null as string | null,
+  // Link al file dell'app (dati strutturati): /download rimanda all'ultimo DMG (vedi next.config.ts)
+  downloadUrl: "https://itsladder.dev/download" as string | null,
   // Indirizzo di contatto per privacy e domande (va attivato su Cloudflare Email Routing)
   email: "hello@itsladder.dev",
   locale: "en_US",
 } as const
 
-// Azione principale di tutto il sito (header, hero, chiusura). Per ora è la lista d'attesa via mail;
-// quando l'app sarà scaricabile basta cambiare questo oggetto e impostare SITE.downloadUrl.
+// Azione principale di tutto il sito (header, hero, chiusura): scarica l'ultima versione per Mac.
 export const CTA = {
-  href: "mailto:waitlist@itsladder.dev?subject=Ladder%20waitlist",
-  label: "Join the waitlist",
-  short: "Join waitlist",
-  aria: "Join the Ladder waitlist",
+  href: "/download",
+  label: "Download for Mac",
+  short: "Download",
+  aria: "Download Ladder for macOS",
 } as const
 
 // Pagine del sito, usate da sitemap e footer

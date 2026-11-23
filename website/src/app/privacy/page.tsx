@@ -75,8 +75,8 @@ export default function Page() {
                 third party.
               </li>
               <li>
-                <strong>Waitlist.</strong> Joining the waitlist means sending us an email. We use your address only to tell
-                you when Ladder is available and to answer you, we don&apos;t share it, and we delete it whenever you ask.
+                <strong>Downloads.</strong> The Ladder disk image is served by GitHub, which processes standard request data
+                such as IP address to deliver the file. We don&apos;t receive or keep a list of who downloads it.
               </li>
             </ul>
           </Prose>

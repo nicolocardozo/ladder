@@ -19,9 +19,9 @@ export default function Page() {
         title="What's new"
         lead={
           <>
-            Ladder is in private preview. Until the first public release, these are the milestones of its development.{" "}
+            Ladder is in early preview. These are the milestones of its development.{" "}
             <a href={CTA.href} className="font-medium text-iris hover:underline">
-              Join the waitlist
+              Download the latest version
             </a>{" "}
             to try it.
           </>

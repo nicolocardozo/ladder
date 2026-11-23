@@ -96,8 +96,9 @@ export default function Page() {
           <Section id="start" title="Getting started">
             <Prose className="mt-5">
               <p>
-                Ladder runs on <strong>macOS with Apple Silicon</strong>. It is in private preview:{" "}
-                <a href={CTA.href}>join the waitlist</a> to get the first build.
+                Ladder runs on <strong>macOS with Apple Silicon</strong>. It is in early preview:{" "}
+                <a href={CTA.href}>download the latest version</a>, open the disk image and drag Ladder into
+                Applications.
               </p>
               <ol>
                 <li>
