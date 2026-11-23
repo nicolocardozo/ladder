@@ -20,9 +20,11 @@ export function SiteFooter() {
             {l.label}
           </Link>
         ))}
-        <a href={SITE.githubUrl} className="hover:text-ink">
-          GitHub
-        </a>
+        {SITE.githubUrl ? (
+          <a href={SITE.githubUrl} className="hover:text-ink">
+            GitHub
+          </a>
+        ) : null}
       </nav>
     </footer>
   )

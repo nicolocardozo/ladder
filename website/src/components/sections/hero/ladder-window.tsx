@@ -467,7 +467,7 @@ export default function LadderWindow() {
           <div className="lw-sfoot">
             <span className="lw-av">A</span>
             <span className="n">
-              ada@ladder.dev<small>Claude Max · ChatGPT Plus</small>
+              ada@itsladder.dev<small>Claude Max · ChatGPT Plus</small>
             </span>
           </div>
         </aside>

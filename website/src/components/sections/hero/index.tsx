@@ -1,9 +1,9 @@
 // Hero a riquadro: testi server-rendered (unico h1 della pagina), puntini e finestra animata
 // sono client component caricati dopo. Lo scroll guida claim e finestra via variabili CSS.
 import { Fragment } from "react"
-import { ArrowDown } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
-import { SITE } from "@/lib/site"
+import { CTA } from "@/lib/site"
 import { cn } from "@/lib/utils"
 import "./hero.css"
 import { HeroWaves, HeroWindow } from "./hero-lazy"
@@ -50,17 +50,17 @@ export function Hero() {
         </p>
         <div className="hero-foot hero-foot-r">
           <a
-            href={SITE.downloadUrl}
+            href={CTA.href}
             className={cn(buttonVariants({ variant: "outline" }), cta, "border-hairline bg-surface hover:bg-surface")}
           >
-            Download for macOS
+            {CTA.label}
           </a>
           <a
-            href={SITE.downloadUrl}
-            aria-label="Download Ladder for macOS"
+            href={CTA.href}
+            aria-label={CTA.aria}
             className={cn(buttonVariants(), "size-[42px] rounded-[10px] bg-ink text-page hover:bg-ink/85")}
           >
-            <ArrowDown className="size-4" aria-hidden />
+            <ArrowRight className="size-4" aria-hidden />
           </a>
         </div>
 

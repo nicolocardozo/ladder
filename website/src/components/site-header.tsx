@@ -2,7 +2,7 @@
 import Link from "next/link"
 import { Logo } from "@/components/brand/logo"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { SITE } from "@/lib/site"
+import { CTA, SITE } from "@/lib/site"
 
 const LINKS = [
   { href: "/#features", label: "Product" },
@@ -30,16 +30,18 @@ export function SiteHeader() {
               {l.label}
             </Link>
           ))}
-          <a href={SITE.githubUrl} className={item}>
-            GitHub
-          </a>
+          {SITE.githubUrl ? (
+            <a href={SITE.githubUrl} className={item}>
+              GitHub
+            </a>
+          ) : null}
         </div>
         <ThemeToggle className={`${item} w-[34px] justify-center px-0 text-muted-ink hover:text-ink`} />
         <a
-          href={SITE.downloadUrl}
+          href={CTA.href}
           className="inline-flex h-[34px] items-center rounded-[9px] bg-ink px-3.5 text-[13.5px] font-medium leading-none text-page shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(24_20_36/0.2)] transition hover:-translate-y-px hover:bg-ink/85"
         >
-          Download
+          {CTA.short}
         </a>
       </nav>
     </header>

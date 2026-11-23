@@ -11,7 +11,7 @@ export function JsonLd() {
         name: SITE.name,
         url: SITE.url,
         logo: `${SITE.url}/brand/ladder-mark-black.svg`,
-        sameAs: [SITE.githubUrl],
+        ...(SITE.githubUrl ? { sameAs: [SITE.githubUrl] } : {}),
       },
       {
         "@type": "SoftwareApplication",
@@ -19,7 +19,7 @@ export function JsonLd() {
         name: SITE.name,
         description: SITE.description,
         url: SITE.url,
-        downloadUrl: SITE.downloadUrl,
+        ...(SITE.downloadUrl ? { downloadUrl: SITE.downloadUrl } : {}),
         applicationCategory: "DeveloperApplication",
         operatingSystem: "macOS",
         // TODO: prezzo segnaposto, da confermare

@@ -1,6 +1,6 @@
-import { ArrowDown } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 import { Logo } from "@/components/brand/logo"
-import { SITE } from "@/lib/site"
+import { CTA } from "@/lib/site"
 
 export function Closing() {
   return (
@@ -25,17 +25,17 @@ export function Closing() {
           </h2>
           <div className="mt-10 flex items-center gap-3">
             <a
-              href={SITE.downloadUrl}
+              href={CTA.href}
               className="inline-flex h-12 items-center gap-2 rounded-lg bg-c-text px-6 text-[15px] font-medium text-c-bg transition-colors hover:bg-white"
             >
-              Download for macOS
+              {CTA.label}
             </a>
             <a
-              href={SITE.downloadUrl}
-              aria-label="Download Ladder"
+              href={CTA.href}
+              aria-label={CTA.aria}
               className="inline-flex size-12 items-center justify-center rounded-lg border border-c-border text-c-text transition-colors hover:bg-c-selection"
             >
-              <ArrowDown aria-hidden className="size-5" />
+              <ArrowRight aria-hidden className="size-5" />
             </a>
           </div>
         </div>
