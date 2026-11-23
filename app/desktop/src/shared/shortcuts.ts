@@ -53,6 +53,7 @@ export type CommandId =
   | 'inspector.files'
   | 'inspector.history'
   | 'inspector.merge'
+  | 'inspector.toggle'
   | 'terminal.toggle'
   | 'file.save'
   | 'session.nextWaiting'
@@ -104,6 +105,8 @@ export const COMMANDS: Record<CommandId, CommandSpec> = {
   'inspector.files': spec('cmd+alt+2'),
   'inspector.history': spec('cmd+alt+3'),
   'inspector.merge': spec('cmd+alt+4'),
+  // Apre e chiude il pannello di destra sull'ultima scheda usata (⌘⌥B come la barra laterale secondaria di VS Code).
+  'inspector.toggle': spec('cmd+alt+b'),
   // ⌃` non richiede ⌘ e vale anche con ⇧ o ⌥; il terminale la lascia passare all'app.
   'terminal.toggle': spec('ctrl+`', ['global', 'terminal'], ['shift', 'alt']),
   // ⌘S salva anche se il cursore non è nel testo, per esempio dopo un clic su un avviso.

@@ -1,11 +1,13 @@
 // Ispettore a destra: Modifiche (⌘⌥1), File (⌘⌥2), Cronologia (⌘⌥3), Merge (⌘⌥4) sulla cartella della sessione.
 import { shortcutLabel, type CommandId } from '@shared/shortcuts'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { FolderOpen, FolderSearch, X } from 'lucide-react'
 import { IconButton } from '@/components/icon-button'
 import type { ChatItem, InspectorTab, SessionSummary } from '@shared/protocol'
 import { send } from '@/lib/host-client'
+import { clamp, INSPECTOR_WIDTH, MIN_CONTENT_WIDTH, readSize, writeSize } from '@/lib/panel-size'
+import { ResizeHandle } from '@/components/resize-handle'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 import { t } from '@shared/i18n'
@@ -14,7 +16,6 @@ import { FilesPanel } from './files-panel'
 import { HistoryPanel } from './history-panel'
 import { MergePanel } from './merge-panel'
 
-const WIDTH_KEY = 'ladder.inspector-width'
 const NO_ITEMS: ChatItem[] = []
 
 const TABS: { id: InspectorTab; label: string; command: CommandId }[] = [
@@ -24,14 +25,7 @@ const TABS: { id: InspectorTab; label: string; command: CommandId }[] = [
   { id: 'merge', label: 'Merge', command: 'inspector.merge' }
 ]
 
-function readWidth(): number {
-  try {
-    const value = Number(localStorage.getItem(WIDTH_KEY))
-    return value >= 320 ? value : 460
-  } catch {
-    return 460
-  }
-}
+const readWidth = () => readSize(INSPECTOR_WIDTH.key, INSPECTOR_WIDTH.default, INSPECTOR_WIDTH.min, Infinity)
 
 interface InspectorProps {
   projectId: string
@@ -59,26 +53,20 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
     return () => send({ type: 'fs.watch', root, on: false })
   }, [root])
 
-  const startResize = (event: React.PointerEvent) => {
-    event.preventDefault()
-    const startX = event.clientX
-    const start = width
-    let latest = start
-    const move = (e: PointerEvent) => {
-      latest = Math.min(Math.round(window.innerWidth * 0.62), Math.max(320, start + startX - e.clientX))
-      setWidth(latest)
-    }
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      try {
-        localStorage.setItem(WIDTH_KEY, String(latest))
-      } catch {
-        // Solo una comodità.
-      }
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+  // LAD-75: durante il trascinamento si ritocca il DOM; lo stato e la memoria si aggiornano a fine gesto.
+  const panel = useRef<HTMLElement>(null)
+  const maxWidth = () => {
+    const room = (panel.current?.parentElement?.clientWidth ?? window.innerWidth) - MIN_CONTENT_WIDTH
+    return Math.max(INSPECTOR_WIDTH.min, Math.min(Math.round(window.innerWidth * 0.62), room))
+  }
+  const preview = (value: number) => {
+    if (panel.current) panel.current.style.width = `${Math.round(value)}px`
+  }
+  const commit = (value: number) => {
+    const next = clamp(Math.round(value), INSPECTOR_WIDTH.min, maxWidth())
+    preview(next)
+    writeSize(INSPECTOR_WIDTH.key, next)
+    setWidth(next)
   }
 
   let body: ReactNode
@@ -88,13 +76,18 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
   else body = <MergePanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} />
 
   return (
-    <aside aria-label={t('Inspector')} className="relative flex shrink-0 flex-col border-l border-border bg-background" style={{ width }}>
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t('Resize inspector')}
-        onPointerDown={startResize}
-        className="absolute top-0 bottom-0 -left-1 z-10 w-2 cursor-col-resize"
+    <aside ref={panel} aria-label={t('Inspector')} className="relative flex shrink-0 flex-col border-l border-border bg-background" style={{ width, minWidth: INSPECTOR_WIDTH.min, maxWidth: `calc(100% - ${MIN_CONTENT_WIDTH}px)` }}>
+      <ResizeHandle
+        label={t('Resize inspector')}
+        invert
+        value={width}
+        min={INSPECTOR_WIDTH.min}
+        max={maxWidth()}
+        measure={() => ({ value: panel.current?.getBoundingClientRect().width ?? width, min: INSPECTOR_WIDTH.min, max: maxWidth() })}
+        onPreview={preview}
+        onCommit={commit}
+        onReset={() => commit(INSPECTOR_WIDTH.default)}
+        className="absolute inset-y-0 -left-1"
       />
       <div className="drag flex h-11 shrink-0 items-center gap-0.5 border-b border-border px-2" role="tablist" aria-label={t('Inspector panels')}>
         {TABS.map((item) => (

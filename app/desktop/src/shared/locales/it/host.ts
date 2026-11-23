@@ -506,7 +506,21 @@ const it: Record<string, string> = {
   'GitHub did not report the head commit of pull request #{number}: try again.': 'GitHub non ha indicato il commit di testa della pull request #{number}: riprova.',
   'The pull request changed after you opened the confirmation: reopen it.': 'La pull request è cambiata dopo l’apertura della conferma: riaprila.',
   'The pull request head is not the commit of this branch (local or published): update the branch from the remote and reopen the confirmation.': 'La testa della pull request non è un commit di questo branch (locale o pubblicato): aggiorna il branch dal remote e riapri la conferma.',
-  'No answer from GitHub: check the status of the pull request before trying again (it may have been merged).': 'Nessuna risposta da GitHub: ricontrolla lo stato della pull request prima di riprovare (potrebbe essere stata unita).'
+  'No answer from GitHub: check the status of the pull request before trying again (it may have been merged).': 'Nessuna risposta da GitHub: ricontrolla lo stato della pull request prima di riprovare (potrebbe essere stata unita).',
+  // Altri agenti (LAD-79).
+  'The agent did not answer in time.': 'L’agente non ha risposto in tempo.',
+  'The agent stopped before answering.': 'L’agente si è fermato prima di rispondere.',
+  '{agent} is not installed.': '{agent} non è installato.',
+  '{agent} has no sign-out command.': '{agent} non ha un comando per uscire.',
+  '{agent} already has a sign-in or sign-out open in a terminal. Finish or close it first.': '{agent} ha già un accesso o un’uscita aperti in un terminale. Completali o chiudili prima.',
+  '{agent} has no command to sign in from. Sign in from the agent’s own app or CLI.': '{agent} non ha un comando da cui accedere. Accedi dall’app o dalla CLI dell’agente.',
+  'Sign in to {agent}': 'Accedi a {agent}',
+  'Sign out of {agent}': 'Esci da {agent}',
+  'Open a project first.': 'Apri prima un progetto.',
+  'Gemini CLI has no sign-out command. Open it and use /auth to choose another way to sign in.': 'Gemini CLI non ha un comando per uscire. Aprila e usa /auth per scegliere un altro modo di accedere.',
+  'Open Copilot CLI and type /logout at its prompt. This removes the token stored on this Mac.': 'Apri Copilot CLI e scrivi /logout al suo prompt. Il token salvato su questo Mac viene rimosso.',
+  // Mappa dei branch (LAD-80)
+  'Could not read the branches': 'Impossibile leggere i branch',
 }
 
 export default it

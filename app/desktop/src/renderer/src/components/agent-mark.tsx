@@ -57,7 +57,7 @@ export function AgentMark({ agent, size = 14, className, title }: { agent: Agent
         className={cn('inline-grid shrink-0 place-items-center rounded-[4px] bg-current/15 font-semibold leading-none', className)}
         style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.62)) }}
       >
-        <span className="text-[length:inherit]">{label.slice(0, 1).toUpperCase()}</span>
+        <span className="text-[length:inherit]">{firstGrapheme(label).toUpperCase()}</span>
       </span>
     )
   }
@@ -90,4 +90,32 @@ export function modelLabel(status: AgentStatus | null | undefined, model: string
 export function useAgentLine(agent: AgentId, model: string | null): { name: string; model: string | null } {
   const status = useApp((s) => s.agents.find((a) => a.agent === agent) ?? null)
   return { name: status?.name ?? (agent === 'claude-code' ? 'Claude Code' : agent === 'codex' ? 'Codex' : agent.replace(/^acp:/, '')), model: modelLabel(status, model) }
+}
+
+/** Primo grafema di un testo (un'emoji o una lettera con accento restano intere). */
+export const firstGrapheme = (text: string): string =>
+  typeof Intl.Segmenter === 'function' ? ([...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)][0]?.segment ?? '') : (Array.from(text)[0] ?? '')
+
+/** Segno decorativo di un servizio o di un altro agente (nascosto alle tecnologie assistive: il nome sta accanto). Senza icona, l'iniziale di `name`. */
+export function MaskIcon({ icon, name, size = 14, className }: { icon: string | null; name: string; size?: number; className?: string }) {
+  if (!icon) {
+    return (
+      <span aria-hidden className={cn('inline-grid shrink-0 place-items-center rounded-[4px] bg-current/15 font-semibold leading-none', className)} style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.62)) }}>
+        <span className="text-[length:inherit]">{firstGrapheme(name).toUpperCase()}</span>
+      </span>
+    )
+  }
+  const mask = `url("${icon}")`
+  return (
+    <span
+      aria-hidden
+      className={cn('inline-block shrink-0 bg-current', className)}
+      style={{ width: size, height: size, maskImage: mask, WebkitMaskImage: mask, maskSize: 'contain', WebkitMaskSize: 'contain', maskRepeat: 'no-repeat', WebkitMaskRepeat: 'no-repeat', maskPosition: 'center', WebkitMaskPosition: 'center' }}
+    />
+  )
+}
+
+/** Icona di un altro agente (LAD-79): quella del registro se c'è, poi una nota per nome. */
+export function otherAgentIcon(agent: { id: string; name: string; icon: string | null }): string | null {
+  return agentIcon(`acp:${agent.id}`, { name: agent.name, icon: agent.icon } as AgentStatus)
 }

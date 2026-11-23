@@ -162,8 +162,8 @@ const FONT_METRICS: Record<ChatFont, { size: number; line: number; ch: number; a
 /** Passo in px di ogni dimensione del testo (stesse cifre di --chat-step in globals.css). */
 const TEXT_STEP: Record<TextSize, number> = { small: -1, default: 0, large: 2, xlarge: 4 }
 
-/** Limite del testo in ch per ogni impostazione (stesse cifre di --chat-measure in chat.css). */
-const MEASURE_CH: Record<ChatWidth, number> = { comfortable: 75, wide: 100, full: Infinity }
+/** Limite del testo in px per ogni impostazione (stesse cifre di --chat-measure in chat.css). */
+const MEASURE_PX: Record<ChatWidth, number> = { comfortable: 820, wide: 1100, full: Infinity }
 
 export interface ChatColumn {
   /** Caratteri per riga della risposta e della bolla utente, secondo la larghezza effettiva della colonna di testo. */
@@ -173,7 +173,7 @@ export interface ChatColumn {
 }
 
 /**
- * Colonna di testo effettiva: la vista meno i margini, limitata a N ch del font della chat (tutta con 'full').
+ * Colonna di testo effettiva: la vista meno i margini, limitata a 820 o 1100 px (tutta con 'full'); i caratteri per riga vengono dalle metriche del font.
  * `viewport` è la larghezza della zona che scorre; 0 se non è ancora misurata.
  */
 export function chatColumn(font: ChatFont, width: ChatWidth, viewport: number, compact: boolean, size: TextSize = 'default'): ChatColumn {
@@ -182,14 +182,14 @@ export function chatColumn(font: ChatFont, width: ChatWidth, viewport: number, c
   const body = base.size + TEXT_STEP[size]
   const m = { ...base, size: body, line: base.line * (body / base.size) }
   const room = Math.max(160, (viewport > 0 ? viewport : 900) - (compact ? 24 : 48))
-  const text = Math.min(room, MEASURE_CH[width] * m.ch * m.size)
+  const text = Math.min(room, MEASURE_PX[width])
   // La bolla sta all'82% della colonna, al massimo 100 ch, con 12 px di padding per lato.
   const bubble = Math.min(text * 0.82, 100 * m.ch * m.size) - 24
   const chars = (px: number) => Math.max(12, Math.floor(px / (m.avg * m.size)))
   return { chars: chars(text), userChars: chars(bubble), line: m.line }
 }
 
-const DEFAULT_COLUMN = chatColumn('system-mono', 'comfortable', 0, false)
+const DEFAULT_COLUMN = chatColumn('system-sans', 'comfortable', 0, false)
 
 /** Stima dell'altezza di un turno prima della misura reale: riduce i salti dello scroll. */
 export function estimateTurnHeight(turn: Turn, m: ChatColumn = DEFAULT_COLUMN): number {

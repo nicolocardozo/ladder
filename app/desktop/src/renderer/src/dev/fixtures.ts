@@ -801,7 +801,7 @@ export function previewProjectFiles(synthetic = 20_000): string[] {
 
 // ── Collegamenti (anteprima di "Collega i tuoi abbonamenti" e di Impostazioni → Abbonamenti) ─────────────
 
-export type ConnectionScenario = 'first-run' | 'connected' | 'multiple' | 'downloading' | 'error'
+export type ConnectionScenario = 'first-run' | 'connected' | 'multiple' | 'downloading' | 'error' | 'attention'
 export type ConnectionSet = Record<ConnectionId, ConnectionStatus>
 
 const base = (id: ConnectionId): ConnectionStatus => ({ id, state: 'unauthenticated', source: null, version: null, user: null, plan: null, email: null, login: null, error: null })
@@ -811,7 +811,9 @@ export const CONNECTION_SCENARIOS: { id: ConnectionScenario; label: string }[] =
   { id: 'connected', label: 'Collegati' },
   { id: 'multiple', label: 'Più email (+N)' },
   { id: 'downloading', label: 'Download in corso' },
-  { id: 'error', label: 'Errore' }
+  { id: 'error', label: 'Errore' },
+  // Footer: Claude vicino al limite settimanale, Codex con il login scaduto, GitHub collegato.
+  { id: 'attention', label: 'Login scaduto + vicino al limite' }
 ]
 
 /** Stati di prova per i tre collegamenti. */
@@ -840,6 +842,12 @@ export function connectionScenario(scenario: ConnectionScenario): ConnectionSet 
         codex: { ...codex, state: 'missing', login: { stage: 'downloading', progress: 0.34, bytes: 119_000_000, total: 350_000_000, url: null, code: null } },
         github: { ...github, state: 'missing' }
       }
+    case 'attention':
+      return {
+        'claude-code': { ...claude, state: 'connected', source: 'bundled', version: '2.1.4', plan: 'Max', email: 'alex@example.com' },
+        codex: { ...codex, state: 'unauthenticated', source: 'downloaded', version: '0.58.0' },
+        github: { ...github, state: 'connected', source: 'system', version: '2.62.0', user: 'alex-dev' }
+      }
     case 'error':
       return {
         'claude-code': { ...claude, source: 'bundled', version: '2.1.4', error: t('Login did not complete.') },
@@ -859,7 +867,7 @@ export function previewUsage(fiveHours: number, weekly: number, now = Date.now()
 }
 
 /** Agenti con account ed email, per il pulsante dell'account nella sidebar (più email → "+N"). */
-export function connectionAgents(set: ConnectionSet): AgentStatus[] {
+export function connectionAgents(set: ConnectionSet, claudeWeekly = 62): AgentStatus[] {
   const agent = (id: 'claude-code' | 'codex', name: string): AgentStatus => ({
     agent: id,
     name,
@@ -870,7 +878,7 @@ export function connectionAgents(set: ConnectionSet): AgentStatus[] {
     email: set[id].email,
     models: [],
     error: null,
-    usage: set[id].state === 'connected' ? previewUsage(id === 'claude-code' ? 34 : 12, id === 'claude-code' ? 62 : 25) : [],
+    usage: set[id].state === 'connected' ? previewUsage(id === 'claude-code' ? 34 : 12, id === 'claude-code' ? claudeWeekly : 25) : [],
     usageAt: Date.now()
   })
   return [agent('claude-code', 'Claude Code'), agent('codex', 'Codex')]
@@ -1076,6 +1084,25 @@ export function agentsFixture(scenario: 'mixed' | 'idle' | 'errors' = 'mixed'): 
   }
   void old
   return { items: b.items, run: 'running', activity: 'Waits for the agents', firstUnreadSeq: null, subagents }
+}
+
+/** Sessioni piccole per il grafico: 3 agenti con un figlio (4 in tutto), 12 (limite del grafico predefinito), 45 (oltre i 40, solo lista). */
+export function agentsGraphFixture(size: 'tree' | 'twelve' | 'many'): Fixture & { subagents: SubagentInfo[] } {
+  const base = agentsFixture()
+  const all = previewSubagents()
+  const now = Date.now()
+  let subagents: SubagentInfo[]
+  if (size === 'tree') {
+    // Tre di primo livello (in corso, completato, fermato) e un figlio in errore del primo: quattro agenti, uno per stato.
+    const lead = all[0]
+    subagents = [
+      { ...lead, status: 'running', parentId: null },
+      { ...all[11], title: 'Write the migration notes', parentId: null, status: 'done' },
+      { ...all[10], parentId: null, status: 'stopped' },
+      { ...all[4], parentId: lead.id, status: 'error', endedAt: now - 20_000 }
+    ]
+  } else subagents = all.slice(0, size === 'twelve' ? 12 : 45)
+  return { ...base, subagents }
 }
 
 /** Il coordinatore ha lanciato tre agenti in background e ha chiuso il turno: la sessione è ferma e aspetta loro. */

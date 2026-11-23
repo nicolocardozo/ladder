@@ -2,18 +2,21 @@
 // Con centinaia di agenti resta leggibile: in corso, poi errori, poi i completati in un gruppo chiuso;
 // figli sotto il genitore, ricerca e filtri oltre 15 agenti, lista virtualizzata.
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Bot, ChevronDown, ChevronRight, Search } from 'lucide-react'
+import { Bot, ChevronDown, ChevronRight, Maximize2, Search } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { plural, t } from '@shared/i18n'
 import type { AgentId, SessionSummary, SubagentInfo } from '@shared/protocol'
 import { useNow } from '@/components/chat/chat-context'
 import { formatDuration } from '@/components/chat/format'
+import { AgentGraph, AgentGraphDialog } from '@/components/agent-graph'
 import { effortLabel, formatTokens, StatusMark, useAgentModel } from '@/components/subagent-bits'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { RunningRing } from '@/components/status'
 import { Spinner } from '@/components/chat/bits'
+import { GRAPH_DEFAULT_MAX, GRAPH_MAX } from '@/lib/agent-graph'
 import { agentElapsed, bucketOf, buildForest, orderedAgents, useSubagentDialog, useSubagentList, type AgentNode, type Bucket } from '@/lib/subagents'
 import { cn } from '@/lib/utils'
 
@@ -31,21 +34,34 @@ export function runningForegroundSubagents(session: SessionSummary | null | unde
 const FILTER_FROM = 16
 const ALL = '__all__'
 
+type MapView = 'graph' | 'list'
+const VIEW_KEY = 'ladder.agentMapView'
+
+/** La vista scelta dall'utente, ricordata fra le aperture; senza scelta decide il numero di agenti. */
+function readView(): MapView | null {
+  try {
+    const value = localStorage.getItem(VIEW_KEY)
+    return value === 'graph' || value === 'list' ? value : null
+  } catch {
+    return null
+  }
+}
+
 /** Badge nella barra in basso del composer: c'è solo se la sessione ha avviato sotto-agenti. */
 export function AgentBadge({
   sessionId,
   counts,
   agent,
-  model,
-  compact = false
+  model
 }: {
   sessionId: string
   counts: NonNullable<SessionSummary['subagentCounts']>
   agent: AgentId
   model: string | null
-  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const openDialog = useSubagentDialog((s) => s.open)
   const trigger = useRef<HTMLButtonElement>(null)
   if (!counts.total) return null
   const { running, total } = counts
@@ -59,17 +75,42 @@ export function AgentBadge({
         ref={trigger}
         aria-label={t('Agents: {description}', { description })}
         className={cn(
-          'no-drag inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground tabular-nums outline-none transition-colors',
+          'no-drag inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground tabular-nums outline-none transition-colors',
           'hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent data-[popup-open]:text-foreground'
         )}
       >
         {running ? <RunningRing /> : <Bot aria-hidden className="size-3.5 text-muted-foreground" strokeWidth={1.8} />}
-        <span>{compact ? count : label}</span>
+        {/* Nella barra del composer (container `bar`) la colonna stretta mostra il solo numero; il testo completo resta nell'aria-label. */}
+        <span aria-hidden className="hidden @min-[400px]/bar:inline">{label}</span>
+        <span aria-hidden className="@min-[400px]/bar:hidden">{count}</span>
         {failed > 0 && <span aria-hidden className="size-1.5 rounded-full bg-destructive" />}
       </PopoverTrigger>
       <PopoverContent side="top" align="end" sideOffset={8} className="w-[min(34rem,calc(100vw-2rem))] gap-0 p-0">
-        <AgentMap sessionId={sessionId} agent={agent} model={model} onPick={() => setOpen(false)} returnFocus={() => trigger.current} />
+        <AgentMap
+          sessionId={sessionId}
+          agent={agent}
+          model={model}
+          total={total}
+          onPick={() => setOpen(false)}
+          onExpand={() => {
+            setOpen(false)
+            setExpanded(true)
+          }}
+          returnFocus={() => trigger.current}
+        />
       </PopoverContent>
+      <AgentGraphDialog
+        open={expanded}
+        onOpenChange={setExpanded}
+        sessionId={sessionId}
+        agent={agent}
+        model={model}
+        returnFocus={() => trigger.current}
+        onOpenAgent={(id) => {
+          setExpanded(false)
+          openDialog(sessionId, id, undefined, trigger.current)
+        }}
+      />
     </Popover>
   )
 }
@@ -137,13 +178,18 @@ function AgentMap({
   sessionId,
   agent,
   model,
+  total,
   onPick,
+  onExpand,
   returnFocus
 }: {
   sessionId: string
   agent: AgentId
   model: string | null
+  /** Quanti agenti dice il badge: serve a scegliere la vista prima che l'elenco arrivi. */
+  total: number
   onPick: () => void
+  onExpand: () => void
   returnFocus: () => HTMLElement | null
 }) {
   const openDialog = useSubagentDialog((s) => s.open)
@@ -159,10 +205,24 @@ function AgentMap({
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState(ALL)
   const [status, setStatus] = useState(ALL)
+  // La vista e la possibilità del grafico si decidono una volta, all'apertura del popover: non cambiano sotto il cursore
+  // se gli agenti aumentano. Se superano 40 a popover aperto resta il grafico fino alla prossima apertura.
+  const [chosen, setChosen] = useState<MapView | null>(readView)
+  const [opened] = useState(() => ({ graphAllowed: total <= GRAPH_MAX, view: (total <= GRAPH_DEFAULT_MAX ? 'graph' : 'list') as MapView }))
+  const graphAllowed = opened.graphAllowed
+  const view: MapView = !graphAllowed ? 'list' : (chosen ?? opened.view)
+  const chooseView = (next: MapView) => {
+    setChosen(next)
+    try {
+      localStorage.setItem(VIEW_KEY, next)
+    } catch {
+      /* La scelta vale per questa apertura anche senza archivio. */
+    }
+  }
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [doneOpen, setDoneOpen] = useState(false)
 
-  const canFilter = agents.length >= FILTER_FROM
+  const canFilter = view === 'list' && agents.length >= FILTER_FROM
   const kinds = useMemo(() => [...new Set(agents.map((a) => a.kind).filter((k): k is string => Boolean(k)))].sort(), [agents])
   const needle = query.trim().toLowerCase()
   const filtering = canFilter && (needle !== '' || kind !== ALL || status !== ALL)
@@ -235,12 +295,26 @@ function AgentMap({
 
   return (
     <div data-agent-map onKeyDown={onKeyDown} className="flex min-h-0 flex-col">
-      <div className="flex items-baseline gap-2 px-3.5 pt-3 pb-2">
-        <h3 className="text-sm font-semibold">{t('Agents')}</h3>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {plural(agents.length, '1 agent', '{n} agents')}
-          {summary && ` · ${summary}`}
-        </span>
+      <div className="flex items-center gap-2 px-3.5 pt-3 pb-2">
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <h3 className="text-sm font-semibold">{t('Agents')}</h3>
+          <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">
+            {plural(agents.length, '1 agent', '{n} agents')}
+            {summary && ` · ${summary}`}
+          </span>
+        </div>
+        <ViewSwitch view={view} graphAllowed={graphAllowed} onChange={chooseView} />
+        {view === 'graph' && (
+          <Tooltip>
+            <TooltipTrigger
+              render={<button type="button" aria-label={t('Expand')} onClick={onExpand} />}
+              className="-mr-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <Maximize2 aria-hidden className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipContent side="top">{t('Expand')}</TooltipContent>
+          </Tooltip>
+        )}
       </div>
       {canFilter && (
         <div className="flex items-center gap-1.5 px-2.5 pb-2">
@@ -283,6 +357,18 @@ function AgentMap({
           </Select>
         </div>
       )}
+      {view === 'graph' && list !== undefined ? (
+        <AgentGraph
+          agents={agents}
+          now={now}
+          agent={agent}
+          model={model}
+          onOpen={(id) => {
+            onPick()
+            openDialog(sessionId, id, undefined, returnFocus())
+          }}
+        />
+      ) : (
       <div
         ref={scrollRef}
         role="list"
@@ -339,6 +425,35 @@ function AgentMap({
           </div>
         )}
       </div>
+      )}
+    </div>
+  )
+}
+
+/** Grafico o lista. Oltre 40 agenti il grafico resta visibile ma spento, con la ragione. */
+function ViewSwitch({ view, graphAllowed, onChange }: { view: MapView; graphAllowed: boolean; onChange: (view: MapView) => void }) {
+  const base = 'h-5 rounded px-2 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50'
+  const reason = t('The graph is available up to {n} agents. Use the list.', { n: GRAPH_MAX })
+  return (
+    <div role="group" aria-label={t('Agents view')} className="flex shrink-0 items-center gap-0.5 rounded-md bg-muted p-0.5">
+      {graphAllowed ? (
+        <button type="button" aria-pressed={view === 'graph'} onClick={() => onChange('graph')} className={cn(base, view === 'graph' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+          {t('Graph')}
+        </button>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger
+            render={<button type="button" aria-disabled="true" aria-pressed={false} aria-label={`${t('Graph')}. ${reason}`} />}
+            className={cn(base, 'cursor-not-allowed text-muted-foreground/50')}
+          >
+            {t('Graph')}
+          </TooltipTrigger>
+          <TooltipContent side="top">{reason}</TooltipContent>
+        </Tooltip>
+      )}
+      <button type="button" aria-pressed={view === 'list'} onClick={() => onChange('list')} className={cn(base, view === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+        {t('List')}
+      </button>
     </div>
   )
 }

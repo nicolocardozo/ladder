@@ -4,11 +4,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { changesLabel, describeGit, type GitStatusView } from '@/lib/git-status'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
-import { t } from '@shared/i18n'
+import { plural, t } from '@shared/i18n'
 import type { GitStatus } from '@shared/protocol'
-
-const base =
-  'no-drag inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-xs outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50'
 
 /**
  * Iscrive la sessione agli aggiornamenti git finché l'intestazione la mostra; toglie l'iscrizione quando la lascia.
@@ -25,45 +22,93 @@ export function useGitStatus(sessionId: string | null): GitStatus | null {
   return useApp((s) => (sessionId ? (s.gitStatus[s.gitRoot[sessionId] ?? ''] ?? null) : null))
 }
 
+const zone =
+  'no-drag inline-flex h-full min-w-0 cursor-pointer items-center gap-1.5 px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
+
 /**
- * Chip del branch: icona git, nome (troncato, intero nel tooltip), segno di worktree, ↑ da inviare, ↓ da scaricare,
- * nuvola barrata se non è pubblicato, pallino se ci sono modifiche non committate. Senza `status` mostra solo il nome.
+ * Blocco git della barra: un gruppo con bordo e due zone cliccabili separate da un filetto.
+ * Il branch (con ↑ ↓, worktree, nuvola barrata) apre Merge; i numeri `+N −M` aprono Changes e non compaiono senza modifiche.
+ * Il nome del branch si tronca, i numeri no. Senza `status` mostra solo il nome (prima della risposta dell'host, o senza host).
  */
-export function GitStatusChip({ status, fallbackBranch, title, active, onClick }: { status: GitStatus | null; fallbackBranch: string | null; title?: string; active: boolean; onClick: () => void }) {
+export function GitBlock({
+  status,
+  fallbackBranch,
+  title,
+  mergeActive,
+  changesActive,
+  flash,
+  onOpenMerge,
+  onOpenChanges
+}: {
+  status: GitStatus | null
+  fallbackBranch: string | null
+  title?: string
+  mergeActive: boolean
+  changesActive: boolean
+  flash: boolean
+  onOpenMerge: () => void
+  onOpenChanges: () => void
+}) {
   const view = status ? describeGit(status) : null
   const name = view?.label ?? fallbackBranch
   if (!name) return null
   const aria = view ? view.aria : t('Branch {branch}', { branch: name })
+  const showNumbers = view !== null && view.dirty > 0
+  // Solo modifiche senza righe (binari, file vuoti, rinomine, permessi): la zona resta e mostra i file.
+  const hasLines = view !== null && view.added + view.removed > 0
+  const changes = showNumbers ? changesLabel(view) : ''
   return (
-    <Tooltip>
-      <TooltipTrigger
-        aria-label={aria}
-        aria-pressed={active}
-        onClick={onClick}
-        className={cn(base, 'max-w-[240px] shrink text-muted-foreground', active && 'bg-accent text-foreground')}
-      >
-        <GitBranch aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
-        <span className={cn('truncate', view?.detached && 'italic')}>{name}</span>
-        {view && <GitMarks view={view} />}
-      </TooltipTrigger>
-      <TooltipContent side="bottom" className="max-w-xs">
-        {view ? (
-          <div className="flex flex-col gap-0.5">
-            {view.lines.map((line) => (
-              <span key={line} className="break-words">{line}</span>
-            ))}
-          </div>
-        ) : (
-          <span className="break-all">{title ?? name}</span>
-        )}
-      </TooltipContent>
-    </Tooltip>
+    <div role="group" aria-label={t('Git')} className={cn('mr-1 flex h-7 min-w-0 shrink items-stretch overflow-hidden rounded-md border border-border')}>
+      <Tooltip>
+        <TooltipTrigger
+          aria-label={aria}
+          aria-pressed={mergeActive}
+          onClick={onOpenMerge}
+          className={cn(zone, 'max-w-[240px] shrink', mergeActive && 'bg-accent text-foreground')}
+        >
+          <GitBranch aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
+          <span className={cn('truncate', view?.detached && 'italic')}>{name}</span>
+          {view && <GitMarks view={view} dot={view.dirty > 0 && !showNumbers} />}
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs">
+          {view ? (
+            <div className="flex flex-col gap-0.5">
+              {view.lines.map((line) => (
+                <span key={line} className="break-words">{line}</span>
+              ))}
+            </div>
+          ) : (
+            <span className="break-all">{title ?? name}</span>
+          )}
+        </TooltipContent>
+      </Tooltip>
+      {showNumbers && (
+        <Tooltip>
+          <TooltipTrigger
+            aria-label={changes}
+            aria-pressed={changesActive}
+            onClick={onOpenChanges}
+            className={cn(zone, 'shrink-0 gap-1 border-l border-border tabular-nums', changesActive && 'bg-accent text-foreground', flash && 'git-pill-flash')}
+          >
+            {hasLines ? (
+              <>
+                <span aria-hidden className="text-diff-added">+{view.added}</span>
+                <span aria-hidden className="text-diff-removed">−{view.removed}</span>
+              </>
+            ) : (
+              <span aria-hidden>{plural(view.dirty, '{n} file', '{n} files')}</span>
+            )}
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{changes}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   )
 }
 
 /** Segni dentro il chip: solo forme e numeri, il colore non porta informazione da solo. */
-function GitMarks({ view }: { view: GitStatusView }) {
-  const marks = view.worktree || view.ahead > 0 || view.behind > 0 || view.unpublished || view.dirty > 0
+function GitMarks({ view, dot }: { view: GitStatusView; dot: boolean }) {
+  const marks = view.worktree || view.ahead > 0 || view.behind > 0 || view.unpublished || dot
   if (!marks) return null
   return (
     <span aria-hidden className="flex shrink-0 items-center gap-1.5 tabular-nums animate-in fade-in-0 duration-150 motion-reduce:animate-none">
@@ -81,29 +126,8 @@ function GitMarks({ view }: { view: GitStatusView }) {
         </span>
       )}
       {view.unpublished && <CloudOff className="size-3" strokeWidth={1.75} />}
-      {view.dirty > 0 && <span className="size-1.5 rounded-full bg-attention" />}
+      {dot && <span className="size-1.5 rounded-full bg-attention" />}
     </span>
-  )
-}
-
-/** Pillola `+120 −34` delle modifiche non committate; `flash` la accende per un momento (solo opacity e transform). */
-export function GitChangesPill({ status, active, flash, onClick }: { status: GitStatus; active: boolean; flash: boolean; onClick: () => void }) {
-  const view = describeGit(status)
-  if (view.dirty === 0) return null
-  const label = changesLabel(view)
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        aria-label={label}
-        aria-pressed={active}
-        onClick={onClick}
-        className={cn(base, 'shrink-0 gap-1 tabular-nums text-muted-foreground', active && 'bg-accent text-foreground', flash && 'git-pill-flash')}
-      >
-        <span aria-hidden className="text-diff-added">+{view.added}</span>
-        <span aria-hidden className="text-diff-removed">−{view.removed}</span>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
   )
 }
 

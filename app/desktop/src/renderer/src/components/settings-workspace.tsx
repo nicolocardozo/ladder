@@ -22,8 +22,11 @@ export function WorkspaceSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Where files open outside Ladder and where sessions that work in their own copy of the project keep it.')}
       </DialogDescription>
-      <EditorBlock />
-      <WorktreesBlock />
+      {/* Da 820 px: editor e cartella dei worktree affiancati; le impostazioni del progetto, più alte, restano a tutta larghezza sotto. */}
+      <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
+        <EditorBlock />
+        <WorktreesBlock />
+      </div>
       <ProjectWorktreeBlock />
     </>
   )

@@ -39,6 +39,7 @@ import { plural, t } from '@shared/i18n'
 import { PanelNote } from './changes-panel'
 import { CommitBox } from './commit-box'
 import { CreatePrDialog } from './create-pr-dialog'
+import { BranchMap } from './branch-map'
 import { ArchiveDialog, MergeDialog, PushDialog } from './merge-dialogs'
 
 /** "updated 5 min ago", ma "updated just now" e "updated yesterday" dove "ago" non regge. */
@@ -340,6 +341,8 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
           {pr && <PrChip pr={pr} />}
         </div>
       </div>
+      {/* LAD-80: distanza da main, versione ridotta della mappa dei branch */}
+      {session && <BranchMap projectId={projectId} currentSessionId={session.id} variant="compact" />}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Block title={t('Next step')}>

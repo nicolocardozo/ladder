@@ -20,9 +20,16 @@ export function SystemSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('What Ladder keeps on this Mac, and how it behaves alongside the rest of the system.')}
       </DialogDescription>
-      <ArchiveBlock />
-      <DataBlock />
-      <SystemBlock />
+      {/* Da 820 px: archiviazione e sistema a sinistra, i dati a destra. */}
+      <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
+        <div className="min-w-0">
+          <ArchiveBlock />
+          <SystemBlock />
+        </div>
+        <div className="min-w-0">
+          <DataBlock />
+        </div>
+      </div>
     </>
   )
 }

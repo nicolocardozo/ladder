@@ -45,11 +45,22 @@ interface AppSettings extends AppPrefs {
   theme: ThemeId
 }
 // LADDER_LOCALE sceglie la lingua iniziale di un profilo nuovo (le prove automatiche usano l'italiano).
-const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE, defaults: {}, presets: [], sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-mono', chatWidth: 'comfortable', autonomyHint: true, stallHint: false, chatTextSize: 'default', editorTextSize: 12, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, openAtLogin: false, keepAwake: false, soundName: 'default', agentBrowser: false }
+const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE, defaults: {}, presets: [], sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-sans', chatWidth: 'comfortable', autonomyHint: true, stallHint: false, chatTextSize: 'default', editorTextSize: 12, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, openAtLogin: false, keepAwake: false, soundName: 'default', agentBrowser: false, userName: null }
 const settingsPath = () => join(app.getPath('userData'), 'settings.json')
+// Versione delle prefs salvata in settings.json (chiave interna, non in AppPrefs). 2: il font della chat predefinito passa a system-sans.
+const PREFS_VERSION = 2
+// Versione letta dal file: un downgrade non la abbassa riscrivendo.
+let fileVersion = 0
 const EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
 const PERMISSIONS: readonly string[] = ['plan', 'ask', 'edit', 'full']
 const isAgentId = (v: unknown): v is AgentId => v === 'claude-code' || v === 'codex' || (typeof v === 'string' && v.startsWith('acp:') && v.length > 4)
+// LAD-77: il nome resta in settings.json, solo su questo Mac. Tagliato, al più 80 punti di codice (lo stesso limite di you-block.tsx), senza
+// controlli, caratteri bidi (U+202A-202E, U+2066-2069) e a larghezza zero (U+200B-200D, U+2060, U+FEFF); vuoto = null.
+function cleanUserName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const name = Array.from(raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/[\u200b-\u200d\u2060\ufeff\u202a-\u202e\u2066-\u2069]/g, '').trim()).slice(0, 80).join('').trim()
+  return name || null
+}
 // Predefiniti delle nuove sessioni: si tiene solo ciò che è valido, il resto si scarta.
 function cleanDefaults(raw: unknown): SessionDefaults {
   const out: SessionDefaults = {}
@@ -126,7 +137,7 @@ function cleanPrefs(raw: Partial<AppPrefs>): AppPrefs {
     busySend: raw.busySend === 'queue' ? 'queue' : 'steer',
     generatedTitles: raw.generatedTitles !== false,
     generatedText: raw.generatedText !== false,
-    chatFont: raw.chatFont === 'system-sans' || raw.chatFont === 'mona-sans' || raw.chatFont === 'monaspace-neon' ? raw.chatFont : 'system-mono',
+    chatFont: raw.chatFont === 'system-sans' || raw.chatFont === 'mona-sans' || raw.chatFont === 'monaspace-neon' ? raw.chatFont : 'system-sans',
     chatWidth: raw.chatWidth === 'wide' || raw.chatWidth === 'full' ? raw.chatWidth : 'comfortable',
     autonomyHint: raw.autonomyHint !== false,
     stallHint: raw.stallHint === true,
@@ -142,20 +153,35 @@ function cleanPrefs(raw: Partial<AppPrefs>): AppPrefs {
     keepAwake: raw.keepAwake === true,
     soundName: SOUNDS.includes(raw.soundName as string) ? (raw.soundName as RequestSound) : DEFAULT_PREFS.soundName,
     // LAD-57 parte 2: spento finché non lo accendi (dà all'agente rete e DOM).
-    agentBrowser: raw.agentBrowser === true
+    agentBrowser: raw.agentBrowser === true,
+    userName: cleanUserName(raw.userName)
   }
 }
 function loadSettings(): AppSettings {
   try {
     const raw = JSON.parse(readFileSync(settingsPath(), 'utf8')) as Partial<AppSettings>
-    return { theme: themeById(raw.theme).id, ...cleanPrefs(raw) }
+    const read = Number((raw as { prefsVersion?: unknown }).prefsVersion)
+    const version = Number.isInteger(read) ? read : 0
+    fileVersion = version
+    const outdated = version < PREFS_VERSION
+    // Migrazione una tantum (versioni < 2): il monospazio era solo il vecchio predefinito.
+    if (version < 2 && raw.chatFont === 'system-mono') raw.chatFont = 'system-sans'
+    const loaded: AppSettings = { theme: themeById(raw.theme).id, ...cleanPrefs(raw) }
+    if (outdated) {
+      try {
+        saveSettings(loaded)
+      } catch {
+        // Non scrivibile: la migrazione si ripete al prossimo avvio.
+      }
+    }
+    return loaded
   } catch {
     return { theme: themeById(null).id, ...DEFAULT_PREFS }
   }
 }
 function saveSettings(settings: AppSettings): void {
   mkdirSync(app.getPath('userData'), { recursive: true })
-  writeFileSync(settingsPath(), JSON.stringify(settings, null, 2))
+  writeFileSync(settingsPath(), JSON.stringify({ ...settings, prefsVersion: Math.max(fileVersion, PREFS_VERSION) }, null, 2))
 }
 let settings: AppSettings = { theme: themeById(null).id, ...DEFAULT_PREFS }
 const prefsOf = (s: AppSettings): AppPrefs => {
@@ -323,6 +349,8 @@ function createWindow(): void {
     attention.forget(contentsId)
   })
   window.once('ready-to-show', () => window.show())
+  window.on('enter-full-screen', () => window.webContents.send('ladder:full-screen', true))
+  window.on('leave-full-screen', () => window.webContents.send('ladder:full-screen', false))
   // File con modifiche non salvate: la pagina blocca la chiusura e qui si chiede cosa fare.
   window.webContents.on('will-prevent-unload', (event) => {
     const choice = dialog.showMessageBoxSync(window, { type: 'warning', buttons: [t('Discard changes'), t('Cancel')], defaultId: 1, cancelId: 1, message: t('You have unsaved files.'), detail: t('If you close now, your edits are lost.') })
@@ -346,6 +374,10 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void window.loadFile(join(__dirname, '../renderer/index.html'))
 }
+
+ipcMain.on('ladder:is-full-screen', (event) => {
+  event.returnValue = BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false
+})
 
 ipcMain.handle('ladder:pick-folder', async (event) => {
   const window = BrowserWindow.fromWebContents(event.sender)

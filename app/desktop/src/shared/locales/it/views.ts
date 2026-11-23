@@ -10,6 +10,9 @@ const it: Record<string, string> = {
   'n/a': 'n/d',
   '⌥-click a file in the chat to open it here, at the right line.': '⌥clic su un file nella chat lo apre qui, alla riga giusta.',
   'Hide terminal': 'Nascondi il terminale',
+  Git: 'Git',
+  'Show panel': 'Mostra il pannello',
+  'Hide panel': 'Nascondi il pannello',
   Terminal: 'Terminale',
   // git-status-chip.tsx: branch e modifiche nell'intestazione
   'HEAD detached, not on a branch': 'HEAD staccato, non su un branch',
@@ -124,11 +127,11 @@ const it: Record<string, string> = {
   Comfortable: 'Comoda',
   Wide: 'Ampia',
   Full: 'Piena',
-  'About 75 characters per line': 'Circa 75 caratteri per riga',
-  'About 100 characters per line': 'Circa 100 caratteri per riga',
+  'Up to 820 px': 'Fino a 820 px',
+  'Up to 1100 px': 'Fino a 1100 px',
   'The whole width of the window': 'Tutta la larghezza della finestra',
   'How wide replies and your messages can get. Code, tables and command output may use more room. The message box follows the same width.': 'Quanto possono allargarsi le risposte e i tuoi messaggi. Codice, tabelle e output dei comandi possono usare più spazio. Il campo del messaggio segue la stessa larghezza.',
-  'Lines end where the width you picked says, so long answers stay easy to read in a narrow window and on a wide monitor alike. Code and tables below can use the whole window.': 'Le righe finiscono dove stabilisce la larghezza scelta, così le risposte lunghe restano leggibili sia in una finestra stretta sia su un monitor largo. Codice e tabelle qui sotto possono usare tutta la finestra.',
+  'Lines end where the width you picked says, so long answers stay easy to read in a narrow window and on a wide monitor alike. In a narrow window the text simply takes all the room it has. Code and tables below can use up to 1100 px, or the whole width with Full.': 'Le righe finiscono dove stabilisce la larghezza scelta, così le risposte lunghe restano leggibili sia in una finestra stretta sia su un monitor largo. In una finestra stretta il testo prende tutto lo spazio che ha. Codice e tabelle qui sotto possono arrivare a 1100 px, o a tutta la larghezza con Piena.',
   'The agent explains what it changed and why, in the font you picked.': 'L’agente spiega che cosa ha cambiato e perché, nel font che hai scelto.',
   Notifications: 'Notifiche',
   'Session titles': 'Titoli delle sessioni',
@@ -260,6 +263,7 @@ const it: Record<string, string> = {
   'Close column {title}': 'Chiudi la colonna {title}',
   'Close column (the session stays in its tab)': 'Chiudi la colonna (la sessione resta nella sua tab)',
   '+{n} hidden': '+{n} nascoste',
+  'Resize columns {a} and {b}': 'Ridimensiona le colonne {a} e {b}',
   'There is no room for the other columns. Widen the window to see them.': 'Non c’è spazio per le altre colonne. Allarga la finestra per vederle.'
 }
 

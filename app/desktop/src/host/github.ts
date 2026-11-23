@@ -116,15 +116,15 @@ export async function ghState(cwd: string): Promise<GhState> {
   return result
 }
 
-/** Branch predefinito: origin/HEAD se c'è, altrimenti quello di GitHub, altrimenti main o master. */
-export async function defaultBranch(cwd: string): Promise<string> {
+/** Branch predefinito: origin/HEAD se c'è, altrimenti quello di GitHub (solo con `network`), altrimenti main o master. */
+export async function defaultBranch(cwd: string, network = true): Promise<string> {
   try {
     const ref = await git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
     if (ref) return ref.replace(/^origin\//, '')
   } catch {
     // origin/HEAD non impostato: si prova con gh.
   }
-  if ((await ghState(cwd)) === 'ok') {
+  if (network && (await ghState(cwd)) === 'ok') {
     try {
       const data = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'defaultBranchRef'], 10000)) as { defaultBranchRef?: { name?: string } }
       if (data.defaultBranchRef?.name) return data.defaultBranchRef.name
@@ -168,6 +168,7 @@ export interface RawPr {
   isCrossRepository?: boolean
   baseRefName?: string
   updatedAt?: string
+  mergedAt?: string | null
   statusCheckRollup?: RawCheck[] | null
   comments?: { author?: { login?: string }; body?: string; createdAt?: string; url?: string }[]
 }
@@ -203,7 +204,7 @@ export interface PrDetails {
   comments: ReviewComment[]
 }
 
-const PR_FIELDS = 'number,title,url,state,isDraft,mergeable,mergeStateStatus,headRefOid,reviewDecision,baseRefName,updatedAt,statusCheckRollup,comments'
+const PR_FIELDS = 'number,title,url,state,isDraft,mergeable,mergeStateStatus,headRefOid,reviewDecision,baseRefName,updatedAt,mergedAt,statusCheckRollup,comments'
 
 /** Stato e check di una PR dal JSON di `gh pr view` (LAD-69: lo usa anche il controllo prima del merge). */
 export function prFromRaw(raw: RawPr): { status: PrStatus; checks: MergeCheck[] } {
@@ -223,7 +224,9 @@ export function prFromRaw(raw: RawPr): { status: PrStatus; checks: MergeCheck[] 
     mergeable: raw.mergeable === 'CONFLICTING' ? 'conflicts' : raw.mergeable === 'MERGEABLE' ? 'clean' : 'unknown',
     review,
     base: raw.baseRefName ?? 'main',
-    updatedAt: raw.updatedAt ? Date.parse(raw.updatedAt) : Date.now()
+    updatedAt: raw.updatedAt ? Date.parse(raw.updatedAt) : Date.now(),
+    // GitHub manda null (o la data 0001-01-01) se non è unita.
+    mergedAt: state === 'merged' && raw.mergedAt ? Date.parse(raw.mergedAt) || null : null
   }
   return { status, checks }
 }

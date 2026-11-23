@@ -8,6 +8,7 @@ import { request } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 import { plural, t } from '@shared/i18n'
+import { BranchMap } from './branch-map'
 import { PanelNote } from './changes-panel'
 import { useRestore } from './use-restore'
 
@@ -69,6 +70,8 @@ export function HistoryPanel({ projectId, root, isGit, session }: HistoryPanelPr
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* LAD-80: mappa dei worktree in cima */}
+        <BranchMap projectId={projectId} currentSessionId={session?.id ?? null} />
         {error && <PanelNote tone="error">{error}</PanelNote>}
         {!entries && !error && <p className="px-3 py-2 text-xs text-muted-foreground">{t('Reading history…')}</p>}
         {entries?.length === 0 && <PanelNote>{t('Nothing yet. Checkpoints start with the session’s first message.')}</PanelNote>}

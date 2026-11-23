@@ -111,7 +111,10 @@ const COLUMNS: [table: string, column: string, definition: string][] = [
   // Profilo (account) della sessione, fissato alla creazione; null = predefinito (anche per le sessioni nate prima dei profili).
   ['sessions', 'profile_id', 'text'],
   // Livello chiesto a turno in corso che l'agente applica dal turno successivo (Codex).
-  ['sessions', 'permission_next', 'text']
+  ['sessions', 'permission_next', 'text'],
+  // Sessione archiviata dopo l'unione ('git' | 'pr') e quando: la mappa dei branch (LAD-80) la ricorda anche dopo un riavvio. Null = non nota.
+  ['sessions', 'merged_via', 'text'],
+  ['sessions', 'merged_at', 'integer']
 ]
 
 function migrate(db: DatabaseSync): void {
@@ -185,6 +188,9 @@ export interface SessionRow {
   profile_id: string | null
   /** Livello di permessi in attesa del turno successivo; null se nessuno. */
   permission_next: string | null
+  /** 'git' | 'pr' se la sessione è stata archiviata come unita (LAD-80); null altrimenti. */
+  merged_via: string | null
+  merged_at: number | null
 }
 
 export interface CheckpointRow {

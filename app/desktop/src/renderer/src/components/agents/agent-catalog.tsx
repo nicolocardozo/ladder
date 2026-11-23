@@ -585,7 +585,7 @@ export function AgentCatalog({ actions }: { actions: AgentCatalogActions }) {
       {entries && curated.length + rest.length === 0 && (
         <p className="px-1 py-3 text-sm text-muted-foreground">{searching ? t('No agent matches “{query}”.', { query: query.trim() }) : t('The registry has no agents for this Mac.')}</p>
       )}
-      <p className="text-xs text-muted-foreground">{t('The agent handles its own login. Binaries are only downloaded after you confirm, and are never updated on their own.')}</p>
+      <p className="max-w-[62ch] text-xs text-muted-foreground">{t('The agent handles its own login. Binaries are only downloaded after you confirm, and are never updated on their own.')}</p>
     </section>
   )
 }

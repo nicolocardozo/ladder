@@ -67,6 +67,7 @@ const LABELS: Record<CommandId, string> = {
   'inspector.files': 'Show files',
   'inspector.history': 'History and checkpoints',
   'inspector.merge': 'Ready to merge',
+  'inspector.toggle': 'Show or hide the right panel',
   'terminal.toggle': 'Show or hide terminal',
   'file.save': 'Save file',
   'composer.cyclePermission': 'Change permission level',
@@ -86,7 +87,7 @@ const GROUPS: { title: string; ids: CommandId[] }[] = [
     title: 'Sessions and tabs',
     ids: ['chat.new', 'chat.newFrom', 'chat.split', 'column.focusLeft', 'column.focusRight', 'tab.next', 'tab.previous', 'tab.reopenClosed', 'tab.moveLeft', 'tab.moveRight', 'tab.close', 'session.nextWaiting', 'session.interrupt']
   },
-  { title: 'Panels', ids: ['inspector.changes', 'inspector.files', 'inspector.history', 'inspector.merge', 'terminal.toggle'] },
+  { title: 'Panels', ids: ['inspector.changes', 'inspector.files', 'inspector.history', 'inspector.merge', 'inspector.toggle', 'terminal.toggle'] },
   { title: 'Editor and message box', ids: ['file.save', 'composer.cyclePermission', 'composer.stop'] },
   { title: 'App', ids: ['app.openSettings', 'window.close'] }
 ]
@@ -414,7 +415,7 @@ export function ShortcutsSection() {
           {t('Reset all')}
         </button>
       </div>
-      <p className="mt-2 max-w-[70ch] text-xs text-muted-foreground">
+      <p className="mt-2 max-w-[62ch] text-xs text-muted-foreground">
         {state.preset === 'ladder'
           ? t('Only the shortcuts Ladder comes with.')
           : t('Adds the shortcuts of {editor} that Ladder doesn’t have: {list}. Your own changes stay on top.', { editor: PRESET_NAMES[state.preset], list: added.join(' ') })}
@@ -482,14 +483,15 @@ export function ShortcutsSection() {
         </p>
       )}
 
-      <div ref={list} className="mt-5 flex flex-col gap-5">
+      {/* Da 820 px i gruppi stanno su due colonne (ognuno intero, senza spezzarsi). */}
+      <div ref={list} className="mt-5 flex flex-col gap-5 @[820px]:block @[820px]:columns-2 @[820px]:gap-x-10">
         {groups.length === 0 && (
           <p role="status" className="text-sm text-muted-foreground">
             {t('No shortcuts match “{query}”.', { query })}
           </p>
         )}
         {groups.map((group) => (
-          <section key={group.title} aria-label={t(group.title)}>
+          <section key={group.title} aria-label={t(group.title)} className="@[820px]:mb-5 @[820px]:break-inside-avoid">
             <h3 className="px-1 pb-1.5 text-xs font-semibold text-muted-foreground">{t(group.title)}</h3>
             <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
               {group.ids.map((id) => (

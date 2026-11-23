@@ -35,6 +35,7 @@ const it: Record<string, string> = {
   Ask: 'Chiedi',
   Edit: 'Modifica',
   'Full access': 'Accesso completo',
+  'Full access (short)': 'Completo',
   'Reads and proposes, never edits': 'Legge e propone, non modifica',
   'Asks before every edit or command': 'Chiede prima di ogni modifica o comando',
   'Edits files, asks before commands': 'Modifica i file, chiede per i comandi',
@@ -101,6 +102,12 @@ const it: Record<string, string> = {
   // Tab
   'Open sessions': 'Sessioni aperte',
   'Close {title}': 'Chiudi {title}',
+  'Split': 'Affianca',
+  'Maximum three columns': 'Massimo tre colonne',
+  'Open a new chat in a column': 'Apri una nuova chat in una colonna',
+  'Open a chat tab to split': 'Apri una tab di chat per affiancare',
+  '{key}click a tab to add or remove its column': '{key}clic su una tab per aggiungere o togliere la sua colonna',
+  'In column {n} of {total}': 'In colonna {n} di {total}',
   '{n} requests in this project': '{n} richieste nel progetto',
   Go: 'Vai',
 
@@ -127,6 +134,7 @@ const it: Record<string, string> = {
   'Show files': 'Mostra i file',
   'History and checkpoints': 'Cronologia e checkpoint',
   'Ready to merge': 'Pronto per il merge',
+  'Show or hide the right panel': 'Mostra o nascondi il pannello di destra',
   'Search Ladder': 'Cerca in Ladder',
   'Sessions from all projects, projects and actions.': 'Sessioni di tutti i progetti, progetti e azioni.',
   'Go to next session waiting for you': 'Vai alla prossima sessione che ti aspetta',
@@ -181,7 +189,8 @@ const it: Record<string, string> = {
   'switch source': 'cambia fonte',
   'Works in a worktree on the branch': 'Lavora in un worktree sul branch',
   'Worktree on the PR branch': 'Worktree sul branch della PR',
-  'Prompt editable before sending': 'Prompt modificabile prima di inviare'
+  'Prompt editable before sending': 'Prompt modificabile prima di inviare',
+  'Resize sidebar': 'Ridimensiona la barra laterale'
 }
 
 export default it

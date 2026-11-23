@@ -230,7 +230,7 @@ function AllSessionsPanel({ project, autoFocus, panelRef, busy, onClose, onPoint
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       data-native-overlay
-      className="no-drag fixed inset-y-0 left-[262px] z-40 flex w-[320px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[0_12px_32px_rgb(0_0_0/.32)] duration-150 animate-in fade-in-0 slide-in-from-left-2 motion-reduce:animate-none"
+      className="no-drag fixed inset-y-0 left-[var(--sidebar-w,262px)] z-40 flex w-[320px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[0_12px_32px_rgb(0_0_0/.32)] duration-150 animate-in fade-in-0 slide-in-from-left-2 motion-reduce:animate-none"
     >
       <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">
         <h2 className="text-sm font-semibold">{t('All sessions')}</h2>

@@ -106,6 +106,7 @@ const it: Record<string, string> = {
   'The list appears after {agent} starts for the first time.': 'L’elenco arriva dopo il primo avvio di {agent}.',
   'Effort': 'Effort',
   'Permissions: {level}': 'Permessi: {level}',
+  'Agent and model: {summary}': 'Agente e modello: {summary}',
   '{level} from next turn': '{level} dal prossimo turno',
   'Permission change timed out': 'Il cambio dei permessi non ha avuto risposta',
   'Permissions · ⇧Tab to switch': 'Permessi · ⇧Tab per cambiare',

@@ -10,6 +10,20 @@ import { Button } from '@/components/ui/button'
 import { CONNECTION_NAME, type ConnectionActions } from '@/lib/connections'
 import { cn } from '@/lib/utils'
 
+/**
+ * Griglia di una riga (Impostazioni → Abbonamenti): segno, testo, limiti d'uso e bottoni. Con il pannello delle Impostazioni
+ * (`@container` in settings-dialog.tsx) largo almeno 820 px i limiti stanno sulla stessa riga, prima dei bottoni; sotto, testo,
+ * limiti e bottoni vanno uno sotto l'altro. Senza contenitore (primo avvio) la riga resta a due colonne con i bottoni a destra.
+ */
+export const ROW_GRID = 'grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2.5 @[820px]:grid-cols-[18px_minmax(0,3fr)_minmax(240px,2fr)_auto]'
+/** Come ROW_GRID, per le righe senza limiti d'uso (Altri agenti): due colonne a ogni larghezza, i bottoni restano a destra. */
+export const ROW_GRID_PLAIN = 'grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2.5'
+export const ROW_ACTIONS_PLAIN = 'col-start-3 flex shrink-0 items-center justify-end gap-1 @max-[819px]:col-start-2 @max-[819px]:justify-start'
+/** I bottoni stanno all'ultima colonna, allineati al bordo destro; nel pannello stretto sotto il resto, a sinistra. */
+export const ROW_ACTIONS = 'col-start-3 flex shrink-0 items-center justify-end gap-1 @max-[819px]:col-start-2 @max-[819px]:justify-start @[820px]:col-start-4'
+/** Limiti d'uso: sotto il testo, o nella terza colonna. */
+export const ROW_USAGE = 'col-start-2 row-start-2 min-w-0 max-w-[420px] @[820px]:col-start-3 @[820px]:row-start-1'
+
 /** Segno del servizio, decorativo: il nome sta accanto. */
 function ServiceMark({ id }: { id: ConnectionId }) {
   const icon = id === 'github' ? githubIcon : agentIcon(id)
@@ -162,15 +176,17 @@ export interface ConnectionRowProps {
   name?: string
   /** Al posto del nome, per esempio il campo di rinomina. */
   titleSlot?: ReactNode
-  /** Sotto stato e account: i limiti d'uso del profilo. */
+  /** Sotto stato e account: dettagli che restano nella colonna del testo. */
   extra?: ReactNode
+  /** I limiti d'uso del profilo, già aperti: accanto al testo da 820 px, sotto più stretto. Solo con l'account collegato. */
+  usage?: ReactNode
   /** In fondo a destra, dopo i bottoni: il menu del profilo. */
   trailing?: ReactNode
   /** In fondo alla colonna centrale: conferme e errori del profilo. */
   footer?: ReactNode
 }
 
-export function ConnectionRow({ id, status, actions, showTool, profileId, name: nameOverride, titleSlot, extra, trailing, footer }: ConnectionRowProps) {
+export function ConnectionRow({ id, status, actions, showTool, profileId, name: nameOverride, titleSlot, extra, usage, trailing, footer }: ConnectionRowProps) {
   const [confirm, setConfirm] = useState<Confirm>(null)
   const cancelConfirm = useRef<HTMLButtonElement>(null)
   const root = useRef<HTMLDivElement>(null)
@@ -267,9 +283,9 @@ export function ConnectionRow({ id, status, actions, showTool, profileId, name: 
           : purpose(id)
 
   return (
-    <div ref={root} data-connection={id} data-profile={profileId ?? 'default'} className="flex items-start gap-3 px-4 py-3.5" onFocusCapture={() => (focusInside.current = true)} onBlurCapture={onBlurRow}>
+    <div ref={root} data-connection={id} data-profile={profileId ?? 'default'} className={cn(ROW_GRID, 'px-4 py-3.5')} onFocusCapture={() => (focusInside.current = true)} onBlurCapture={onBlurRow}>
       <ServiceMark id={id} />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           {titleSlot ?? <span className="text-sm font-medium">{name}</span>}
           {state === 'connected' && status?.plan && <span className="rounded border border-border px-1 text-xs text-muted-foreground">{status.plan}</span>}
@@ -328,7 +344,7 @@ export function ConnectionRow({ id, status, actions, showTool, profileId, name: 
         )}
         {footer}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className={ROW_ACTIONS}>
         {login ? (
           <Button data-primary variant="ghost" size="sm" className="text-sm" disabled={busy} aria-label={t('Cancel signing in to {name}', { name })} onClick={() => run(() => actions.cancel(id, profileId))}>
             {t('Cancel')}
@@ -349,6 +365,7 @@ export function ConnectionRow({ id, status, actions, showTool, profileId, name: 
         ) : null}
         {trailing}
       </div>
+      {connected && usage && <div className={ROW_USAGE}>{usage}</div>}
     </div>
   )
 }

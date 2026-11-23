@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { Command as CommandPrimitive } from 'cmdk'
-import { BellOff, Bookmark, ChevronLeft, ChevronRight, CircleAlert, Columns2, FileDiff, FileSearch, Folder, FolderPlus, FolderSearch, FolderTree, Globe, Keyboard, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, PanelRightClose, Search, Sparkles, SquarePen, SquareTerminal, Undo2 } from 'lucide-react'
+import { BellOff, Bookmark, ChevronLeft, ChevronRight, CircleAlert, Columns2, FileDiff, FileSearch, Folder, FolderPlus, FolderSearch, FolderTree, Globe, Keyboard, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, PanelRight, PanelRightClose, Search, Sparkles, SquarePen, SquareTerminal, Undo2 } from 'lucide-react'
 import type { SearchHit } from '@shared/protocol'
 import { localeTag, plural, t } from '@shared/i18n'
 import { openInbox } from '@/components/app-sidebar'
@@ -34,7 +34,19 @@ function inspectorActions(run: (perform: () => void) => void): Action[] {
     { id: 'changes', label: t('Show changes'), icon: FileDiff, keywords: 'changes diff turn session restore comments modifiche turno sessione ripristina commenti', command: 'inspector.changes', perform: open('changes') },
     { id: 'files', label: t('Show files'), icon: FolderTree, keywords: 'files explorer tree folder viewer file albero cartella', command: 'inspector.files', perform: open('files') },
     { id: 'history', label: t('History and checkpoints'), icon: History, keywords: 'history checkpoint commit restore cronologia ripristina', command: 'inspector.history', perform: open('history') },
-    { id: 'merge', label: t('Ready to merge'), icon: GitMerge, keywords: 'merge pr pull request ci review comments conflicts create pr commenti conflitti crea', command: 'inspector.merge', perform: open('merge') }
+    { id: 'merge', label: t('Ready to merge'), icon: GitMerge, keywords: 'merge pr pull request ci review comments conflicts create pr commenti conflitti crea', command: 'inspector.merge', perform: open('merge') },
+    {
+      id: 'panel',
+      label: t('Show or hide the right panel'),
+      icon: PanelRight,
+      keywords: 'right panel inspector toggle hide show pannello destro ispettore mostra nascondi',
+      command: 'inspector.toggle',
+      perform: () =>
+        run(() => {
+          const { selection, toggleInspector } = useApp.getState()
+          if (selection.projectId) toggleInspector(selection.projectId)
+        })
+    }
   ]
 }
 

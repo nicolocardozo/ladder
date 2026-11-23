@@ -19,6 +19,7 @@ import type {
   HostToMain,
   IssueList,
   GitArchiveResult,
+  BranchMap,
   MergeInfo,
   PrStatus,
   RequestItemData,
@@ -52,6 +53,7 @@ import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, ty
 import { acpAuthenticate, AcpSession } from './acp/adapter'
 import { BrowserAgent } from './browser-agent'
 import { agentCatalog, resolveAgentSpec, UNKNOWN_LOGIN } from './acp/catalog'
+import { OtherAgents } from './acp/others'
 import { agentDir, AgentInstaller, recoverInstalls } from './acp/install'
 import { hasUnsafeArgs, iconData, registryEntry, registrySpec } from './acp/registry'
 import { rm } from 'node:fs/promises'
@@ -66,6 +68,7 @@ import { codexDefaults } from './codex/environment'
 import { codexText, codexTitle, smallCodexModel } from './codex/title'
 import { clipTitle, inTitleQueue, issueRef, teamPrefixes, titlePrompt, withIssue } from './titles'
 import { insideRoot, listTree, mediaInfo, readText, RootWatcher, writeText } from './files'
+import { BranchMapService, type BranchMapRow, type BranchMapSource } from './branch-map'
 import { FileRoots } from './file-roots'
 import { aheadBehind, changedFiles, commitChanges, createCheckpoint, ensureExcluded, fetchRef, git, gitRead, gitStatus, listBranches, listFiles, mergeConflicts, repoInfo, resolveCommit } from './git'
 import { GitStatusTracker } from './git-status'
@@ -92,6 +95,8 @@ import { BRANCH_SYSTEM, BRANCH_TIMEOUT_MS, COMMIT_LABEL, COMMIT_SYSTEM, COMMIT_T
 
 
 type Broadcast = (event: HostEvent) => void
+/** Evento a una sola connessione (porta). */
+type SendTo = (origin: object, event: HostEvent) => void
 type Notify = (message: HostToMain) => void
 
 /** Ogni quanto si rilegge lo stato delle PR dei branch con sessioni aperte. */
@@ -186,6 +191,8 @@ export class Host {
   private subagents = new SubagentBoard()
   private subagentFlush = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly terminals: TerminalManager
+  /** LAD-79: "Altri agenti" nelle Subscription (stato di accesso, login e logout con la loro CLI). */
+  private readonly otherAgents: OtherAgents
   private readonly watcher: RootWatcher
   /** LAD-70: id delle root servite dal protocollo ladder-file del main. */
   private readonly fileRoots: FileRoots
@@ -193,6 +200,9 @@ export class Host {
   private readonly gitStatus: GitStatusTracker
   /** Iscrizioni a `git.watch` per connessione (finestra): connessione -> sessione -> cartella. Chiusa la porta, si tolgono tutte. */
   private readonly gitSubs = new Map<object, Map<string, string>>()
+  /** Mappa dei branch (LAD-80) e le sue iscrizioni per connessione: connessione -> progetto -> conteggio. */
+  private readonly branchMaps: BranchMapService
+  private readonly branchMapSubs = new Map<object, Map<string, number>>()
   /** `fs.watch` per connessione: connessione -> cartella -> iscrizioni (un `off` non toglie quelle di un'altra finestra). */
   private readonly fsSubs = new Map<object, Map<string, number>>()
   private readonly ports: Ports
@@ -293,7 +303,9 @@ export class Host {
   constructor(
     private readonly db: Db,
     private readonly broadcast: Broadcast,
-    private readonly notify: Notify = () => undefined
+    private readonly notify: Notify = () => undefined,
+    /** Senza, gli eventi per una connessione sola (mappa dei branch) vanno a tutte. */
+    private readonly sendTo?: SendTo
   ) {
     this.terminals = new TerminalManager(db, {
       upsert: (terminal) => this.broadcast({ type: 'terminal.upsert', terminal }),
@@ -302,12 +314,33 @@ export class Host {
       agent: (terminal, signal) => this.onAgentSignal(terminal, signal),
       devServer: (terminal, url) => this.broadcast({ type: 'browser.devserver', projectId: terminal.projectId, terminalId: terminal.id, url })
     })
+    this.otherAgents = new OtherAgents({
+      specs: () => this.acpSpecs,
+      login: (id) => this.login(id),
+      saveLogin: (id, login) => this.saveLogin(id, login),
+      emit: (agent) => this.broadcast({ type: 'agent.connection', agent }),
+      terminals: this.terminals,
+      project: (projectId) => {
+        const project = projectId ? this.mustProject(projectId) : [...this.projects.values()][0]
+        if (!project) throw new Error(t('Open a project first.'))
+        return project
+      }
+    })
     this.watcher = new RootWatcher((root) => this.notifyFsChanged(root))
     this.fileRoots = new FileRoots((message) => this.notify(message), () => [...this.projects.values()].map((p) => p.path).concat([...this.rows.values()].map((r) => this.cwdOf(r))).filter(Boolean))
     this.gitStatus = new GitStatusTracker({
-      emit: (status) => this.broadcast({ type: 'git.status', status }),
+      emit: (status) => {
+        this.broadcast({ type: 'git.status', status })
+        this.touchBranchMapOf(status.root)
+      },
       isWorktree: (root) => this.isWorktreeRoot(root),
-      busy: (root) => this.busySession(root) !== null
+      busy: (root) => this.busySession(root) !== null,
+      fetched: (root) => this.touchBranchMapOf(root)
+    })
+    this.branchMaps = new BranchMapService({
+      source: (projectId) => this.branchMapSource(projectId),
+      emit: (projectId, map) => this.emitBranchMap(projectId, map),
+      dirty: (cwd) => this.gitStatus.peek(cwd)?.dirty ?? null
     })
     this.ports = new Ports(db)
     this.projectGroups = new ProjectGroups(
@@ -883,6 +916,11 @@ export class Host {
         this.profiles.dropProject(command.projectId)
         this.projects.delete(command.projectId)
         for (const row of this.rows.values()) if (row.project_id === command.projectId) this.unsubscribeGit(row.id)
+        this.branchMaps.forget(command.projectId)
+        for (const [conn, subs] of this.branchMapSubs) {
+          subs.delete(command.projectId)
+          if (subs.size === 0) this.branchMapSubs.delete(conn)
+        }
         this.terminals.forgetProject(command.projectId)
         for (const terminal of this.terminals.list()) if (terminal.projectId === command.projectId) this.terminals.close(terminal.id)
         for (const row of this.rows.values()) if (row.project_id === command.projectId) this.commandLists.delete(row.id)
@@ -1167,6 +1205,14 @@ export class Host {
       case 'agents.authenticate.cancel':
         this.cancelAuthenticate(command.id)
         return null
+      case 'agents.others':
+        return this.otherAgents.list()
+      case 'agents.others.refresh':
+        return this.otherAgents.refresh(command.id)
+      case 'agents.others.login':
+        return this.otherAgents.launch(command.id, 'login', command.projectId)
+      case 'agents.others.logout':
+        return this.otherAgents.launch(command.id, 'logout', command.projectId)
       case 'agents.install.cancel':
         this.installer.cancel(command.id)
         return null
@@ -1214,6 +1260,28 @@ export class Host {
         const row = this.mustRow(command.sessionId)
         return this.gitStatus.read(this.mustCwd(row))
       }
+      // ── LAD-80 ──
+      case 'project.branchMap':
+        return this.branchMaps.read(this.mustProject(command.projectId).id)
+      case 'project.branchMap.watch': {
+        const projectId = this.mustProject(command.projectId).id
+        const subs = this.branchMapSubs.get(origin) ?? new Map<string, number>()
+        const count = subs.get(projectId) ?? 0
+        if (command.on) {
+          subs.set(projectId, count + 1)
+          this.branchMapSubs.set(origin, subs)
+          this.branchMaps.watch(projectId)
+        } else if (count > 0) {
+          // Un `off` toglie solo un'iscrizione di questa finestra, mai quelle di un'altra.
+          if (count === 1) subs.delete(projectId)
+          else subs.set(projectId, count - 1)
+          // Senza più iscrizioni la connessione esce dall'elenco (`touchBranchMapOf` si ferma subito con l'elenco vuoto).
+          if (subs.size === 0) this.branchMapSubs.delete(origin)
+          this.branchMaps.unwatch(projectId)
+        }
+        return null
+      }
+      // ── fine LAD-80 ──
       case 'git.watch': {
         if (command.on) this.subscribeGit(origin, command.sessionId, this.mustCwd(this.mustRow(command.sessionId)))
         else this.unsubscribeGit(command.sessionId, origin)
@@ -1307,6 +1375,65 @@ export class Host {
   private notifyFsChanged(root: string): void {
     this.broadcast({ type: 'fs.changed', root })
     this.gitStatus.refresh(root)
+    this.touchBranchMapOf(root)
+  }
+
+  /** LAD-80: la mappa nuova va solo alle connessioni iscritte a quel progetto. */
+  private emitBranchMap(projectId: string, map: BranchMap): void {
+    const event: HostEvent = { type: 'project.branchMap', projectId, map }
+    if (!this.sendTo) return this.broadcast(event)
+    for (const [origin, subs] of this.branchMapSubs) if (subs.has(projectId)) this.sendTo(origin, event)
+  }
+
+  /** LAD-80: la cartella è cambiata (file, commit, fetch): se una finestra guarda la mappa del suo progetto, si rilegge. */
+  private touchBranchMapOf(root: string): void {
+    if (this.branchMapSubs.size === 0) return
+    const row = [...this.rows.values()].find((r) => this.cwdOf(r) === root)
+    const projectId = row?.project_id ?? [...this.projects.values()].find((p) => p.path === root)?.id
+    if (projectId) this.branchMaps.touch(projectId)
+  }
+
+  /** Righe e ramo principale per la mappa dei branch (LAD-80): dati dell'host e cache delle PR, nessuna chiamata a gh (nemmeno per la base). */
+  private async branchMapSource(projectId: string): Promise<BranchMapSource> {
+    const project = this.mustProject(projectId)
+    // Con un percorso vuoto git lavorerebbe nella cartella corrente dell'host.
+    if (!project.path) throw new Error(t('Folder unknown to Ladder.'))
+    const usable = project.isGit && existsSync(project.path)
+    // Base senza rete: se il pannello Merge l'ha già risolta (anche con gh) vale quella, altrimenti origin/HEAD, main o master.
+    const base = usable ? await (this.defaultBranches.get(project.path) ?? defaultBranch(project.path, false)) : null
+    const rows: BranchMapRow[] = []
+    for (const row of this.rows.values()) {
+      if (row.project_id !== projectId || !usable) continue
+      let worktree: WorktreeInfo | null = null
+      try {
+        worktree = row.worktree ? (JSON.parse(row.worktree) as WorktreeInfo) : null
+      } catch {
+        // Riga con JSON rovinato: non si sa dov'è né su quale branch, quindi non entra nella mappa (le altre sì).
+        continue
+      }
+      const cwd = this.cwdOf(row)
+      const branch = worktree ? (worktree.branch ?? null) : (project.branch ?? null)
+      const pr = branch ? (this.prs.get(`${cwd}\0${branch}`) ?? null) : null
+      const mergedAt = pr?.status.state === 'merged' ? (pr.status.mergedAt ?? null) : null
+      rows.push({
+        sessionId: row.id,
+        title: row.title,
+        agent: row.agent as BranchMapRow['agent'],
+        run: row.run_state as BranchMapRow['run'],
+        archived: row.archived === 1,
+        activityAt: row.activity_at || row.updated_at,
+        prState: pr?.status.state ?? null,
+        isWorktree: worktree !== null,
+        worktreeMissing: worktree !== null && !existsSync(cwd),
+        cwd,
+        branch,
+        start: worktree?.base ?? null,
+        // Come in refreshPrs: una PR unita prima della nascita della sessione è di un branch omonimo precedente (conta mergedAt, non updatedAt).
+        prMerged: mergedAt !== null && mergedAt >= row.created_at ? { at: mergedAt, oid: pr?.headOid ?? null } : null,
+        saved: row.merged_via === 'git' || row.merged_via === 'pr' ? { via: row.merged_via, at: row.merged_at } : null
+      })
+    }
+    return { root: project.path, base, rows }
   }
 
   /** Iscrive la connessione agli aggiornamenti git della cartella della sessione (una volta sola per connessione e sessione). */
@@ -1339,6 +1466,9 @@ export class Host {
       this.watcher.unwatch(root)
       this.gitStatus.untrack(root)
     }
+    const maps = this.branchMapSubs.get(origin)
+    this.branchMapSubs.delete(origin)
+    for (const [projectId, count] of maps ?? []) for (let i = 0; i < count; i++) this.branchMaps.unwatch(projectId)
     const files = this.fsSubs.get(origin)
     this.fsSubs.delete(origin)
     for (const [root, count] of files ?? []) for (let i = 0; i < count; i++) this.watcher.unwatch(root)
@@ -1514,7 +1644,9 @@ export class Host {
       // Un titolo dato alla creazione è una scelta dell'utente.
       title_source: command.title?.trim() ? 'user' : 'provisional',
       profile_id: profileId,
-      permission_next: null
+      permission_next: null,
+      merged_via: null,
+      merged_at: null
     }
     this.db
       .prepare(
@@ -3291,6 +3423,8 @@ export class Host {
     if (!this.rows.has(sessionId)) return
     this.broadcast({ type: 'session.upsert', session: this.summary(sessionId) })
     this.updateBadge()
+    // LAD-80: stato, titolo e archiviazione sono nella mappa dei branch.
+    if (this.branchMapSubs.size > 0) this.branchMaps.touch(this.rows.get(sessionId)!.project_id)
   }
 
   // ── Notifiche e badge del Dock (li mostra il processo main) ──────────────────
@@ -3603,6 +3737,9 @@ export class Host {
     const key = `${root}\0${branch}`
     const before = JSON.stringify(this.prs.get(key)?.status ?? null)
     this.prs.set(key, details)
+    // LAD-80: una PR unita si ricorda sulle sessioni del branch (nate prima dell'unione): la mappa le mostra unite anche archiviate e dopo un riavvio.
+    const mergedAt = details?.status.state === 'merged' ? (details.status.mergedAt ?? null) : null
+    if (mergedAt !== null) for (const row of this.rows.values()) if (this.cwdOf(row) === root && this.branchOf(row) === branch && mergedAt >= row.created_at) this.rememberMerged(row, 'pr', mergedAt)
     if (JSON.stringify(details?.status ?? null) === before) return
     for (const row of this.rows.values()) {
       if (!row.archived && this.cwdOf(row) === root && this.branchOf(row) === branch) this.emitSummary(row.id)
@@ -3638,10 +3775,19 @@ export class Host {
     for (const row of [...this.rows.values()]) {
       const pr = this.prOf(row)
       if (row.archived || !row.worktree || pr?.state !== 'merged' || this.mergedHandled.has(row.id)) continue
-      if (pr.updatedAt < row.created_at || this.busySession(this.cwdOf(row))?.id === row.id) continue
+      // Conta la data dell'unione, non l'ultimo aggiornamento: un commento su una PR vecchia non la rende della sessione.
+      if ((pr.mergedAt ?? 0) < row.created_at || this.busySession(this.cwdOf(row))?.id === row.id) continue
       this.mergedHandled.add(row.id)
       await this.archiveMerged(row, pr).catch(() => undefined)
     }
+  }
+
+  /** LAD-80: ricorda come e quando il branch della sessione è stato unito (la mappa lo legge dopo un riavvio). Non cambia `updated_at`. */
+  private rememberMerged(row: SessionRow, via: 'git' | 'pr', at: number): void {
+    if (row.merged_via === via && row.merged_at === at) return
+    row.merged_via = via
+    row.merged_at = at
+    this.db.prepare('update sessions set merged_via = ?, merged_at = ? where id = ?').run(via, at, row.id)
   }
 
   /** Un'altra sessione non archiviata usa la stessa cartella di lavoro. */
@@ -3655,9 +3801,11 @@ export class Host {
     const project = this.projects.get(row.project_id)
     if (!row.worktree) {
       await this.archive(row.id)
+      this.rememberMerged(row, pr ? 'pr' : 'git', pr?.mergedAt ?? Date.now())
       return { archived: true, worktreeRemoved: false, worktreeKept: 'none' }
     }
     await this.archive(row.id, { cleanup: false })
+    this.rememberMerged(row, pr ? 'pr' : 'git', pr?.mergedAt ?? Date.now())
     const cwd = this.cwdOf(row)
     // Un worktree usato da un'altra sessione non si tocca (nemmeno lo script di pulizia).
     if (!project || this.worktreeShared(row)) {
@@ -3768,6 +3916,7 @@ export class Host {
     this.terminals.shutdown()
     this.prFiles.shutdown()
     this.gitStatus.shutdown()
+    this.branchMaps.shutdown()
     this.watcher.close()
   }
 }

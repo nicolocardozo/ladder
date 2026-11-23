@@ -85,7 +85,42 @@ const it: Record<string, string> = {
   'Account: {name}': 'Account: {name}',
   'Account for {agent}': 'Account per {agent}',
   '{agent} account': 'Account {agent}',
-  'New sessions in this project use it. Existing sessions keep theirs.': 'Le nuove sessioni di questo progetto lo usano. Quelle esistenti tengono il loro.'
+  'New sessions in this project use it. Existing sessions keep theirs.': 'Le nuove sessioni di questo progetto lo usano. Quelle esistenti tengono il loro.',
+
+  // LAD-77: il tuo nome in Abbonamenti e il footer della sidebar con le icone dei servizi.
+  You: 'Tu',
+  'First and last name': 'Nome e cognome',
+  'Optional. It stays on this Mac and shows at the bottom left of the sidebar.': 'Facoltativo. Resta solo su questo Mac e si legge in basso a sinistra nella sidebar.',
+  'Your name': 'Il tuo nome',
+  'Your subscriptions': 'I tuoi abbonamenti',
+  'not signed in': 'non collegato',
+
+  // LAD-79: altri agenti con stato di accesso e login dalla loro CLI.
+  'Other agents': 'Altri agenti',
+  'Agents that run from their own command line. Ladder checks whether each one is installed and signed in, and opens its sign-in in a terminal. It never reads their credentials.':
+    'Agenti che si usano dalla loro riga di comando. Ladder controlla se ognuno è installato e collegato, e apre il suo accesso in un terminale. Non legge mai le loro credenziali.',
+  'Couldn’t read the other agents. Try again in a moment.': 'Non riesco a leggere gli altri agenti. Riprova tra un attimo.',
+  'Looking for agents on your Mac…': 'Cerco gli agenti sul tuo Mac…',
+  'No other agent is installed on this Mac. Add more agents in Agents.': 'Nessun altro agente è installato su questo Mac. Aggiungine altri da Agenti.',
+  'Open Agents': 'Apri Agenti',
+  'In the terminal': 'Nel terminale',
+  'Needs sign-in': 'Serve l’accesso',
+  'Not checked': 'Non controllato',
+  'Finish in the terminal. This row updates when you are done.': 'Completa l’accesso nel terminale. Questa riga si aggiorna quando hai finito.',
+  'Ready to use.': 'Pronto all’uso.',
+  'Sign in with': 'Accedi con',
+  'Sign in from the agent’s own app or CLI': 'Accedi dall’app o dalla CLI dell’agente',
+  'The terminal is already closed.': 'Il terminale è già chiuso.',
+  'Ladder opens {name} in a terminal and you sign in from there.': 'Ladder apre {name} in un terminale e accedi da lì.',
+  'Ladder couldn’t tell whether {name} is signed in.': 'Ladder non è riuscito a capire se {name} è collegato.',
+  Installed: 'Installato',
+  'Show the terminal of {name}': 'Mostra il terminale di {name}',
+  'Show terminal': 'Mostra il terminale',
+  'Check {name} again': 'Ricontrolla {name}',
+  'Check again': 'Ricontrolla',
+  'Open terminal': 'Apri il terminale',
+  'Open {name} in a terminal': 'Apri {name} in un terminale',
+  'Open a project first: the sign-in runs in one of its terminals.': 'Apri prima un progetto: l’accesso parte in uno dei suoi terminali.'
 }
 
 export default it

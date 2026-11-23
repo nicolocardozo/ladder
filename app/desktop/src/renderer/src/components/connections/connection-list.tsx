@@ -9,6 +9,9 @@ import { useApp } from '@/store/app-store'
 import { ConnectionRow } from './connection-row'
 import { AddProfile, ProfileRow, TrailingSpace } from './profile-parts'
 
+/** Evidenziazione di una riga richiesta da fuori: solo il fondo, niente movimento. */
+const HIGHLIGHT = ['bg-accent/60', 'transition-colors']
+
 export function ConnectionList({ statuses, profiles, profileStatuses, actions = liveConnectionActions, showTool, manageProfiles, focus, onFocused }: {
   /** Assente: legge lo stato dallo store. */
   statuses?: Partial<Record<ConnectionId, ConnectionStatus>>
@@ -20,7 +23,7 @@ export function ConnectionList({ statuses, profiles, profileStatuses, actions = 
   /** Un profilo per riga e gestione dei profili (Impostazioni). Il primo avvio mostra solo i collegamenti predefiniti. */
   manageProfiles?: boolean
   /** Riga su cui portare il focus (dal composer o dal pannello Merge). Assente: legge `connectionFocus` dallo store. */
-  focus?: { id: ConnectionId; profileId?: string | null; nonce: number } | null
+  focus?: { id: ConnectionId; profileId?: string | null; nonce: number; highlight?: boolean } | null
   onFocused?: (nonce: number) => void
 }) {
   const stored = useApp((s) => s.connections)
@@ -35,16 +38,37 @@ export function ConnectionList({ statuses, profiles, profileStatuses, actions = 
   /** Profilo appena creato: quando la sua riga ha il "Sign in", il focus va lì. Stato e non ref: l'effetto riparte quale che sia l'ordine fra profilo, stato e `onCreated`. */
   const [created, setCreated] = useState<string | null>(null)
 
-  // Il focus va sul bottone della riga e la riga si porta in vista; poi la richiesta si consuma.
+  /** Riga evidenziata: il timer non dipende dall'effetto del focus (che riparte quando la richiesta si consuma), ma si ferma alla chiusura. */
+  const mark = useRef<{ row: HTMLElement; timer: number } | null>(null)
+  const clearMark = () => {
+    if (!mark.current) return
+    window.clearTimeout(mark.current.timer)
+    mark.current.row.classList.remove(...HIGHLIGHT)
+    mark.current = null
+  }
+  useEffect(() => clearMark, [])
+
+  // Il focus va sul bottone della riga e la riga si porta in vista; poi la richiesta si consuma (se le Impostazioni si chiudono prima, la toglie il dialog).
   useEffect(() => {
     if (!target) return
+    let consumed = false
+    const consume = () => {
+      if (consumed) return
+      consumed = true
+      if (onFocused) onFocused(target.nonce)
+      else useApp.getState().consumeConnectionFocus(target.nonce)
+    }
     const frame = requestAnimationFrame(() => {
       const row = root.current?.querySelector<HTMLElement>(`[data-connection="${target.id}"][data-profile="${hostProfileId(target.profileId) ?? 'default'}"]`)
       row?.scrollIntoView({ block: 'nearest' })
       const button = row?.querySelector<HTMLElement>('[data-primary]:not(:disabled)') ?? row?.querySelector<HTMLElement>('button:not(:disabled)')
       button?.focus()
-      if (onFocused) onFocused(target.nonce)
-      else useApp.getState().consumeConnectionFocus(target.nonce)
+      if (row && target.highlight) {
+        clearMark()
+        row.classList.add(...HIGHLIGHT)
+        mark.current = { row, timer: window.setTimeout(clearMark, 1800) }
+      }
+      consume()
     })
     return () => cancelAnimationFrame(frame)
   }, [target, onFocused])

@@ -1,12 +1,14 @@
 // Sessioni affiancate: fino a 3 colonne nella vista del progetto, ognuna con la sua chat e il suo composer.
 // Una sola colonna è attiva (bordo iris): riceve le scorciatoie e decide cosa mostrano ispettore e terminale.
-import { useMemo, type ReactNode } from 'react'
+import { Fragment, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { Columns2, X } from 'lucide-react'
 import type { SessionSummary } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { AgentMark } from '@/components/agent-mark'
+import { ResizeHandle, type ResizeRange } from '@/components/resize-handle'
 import { SessionGlyph } from '@/components/status'
 import { MIN_COLUMN_WIDTH, useElementWidth } from '@/lib/use-element-width'
+import { clamp } from '@/lib/panel-size'
 import { noteTone, sessionNote, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { liveColumns, MAX_COLUMNS, useApp } from '@/store/app-store'
@@ -17,6 +19,9 @@ const EDGE_X = 120
 const EDGE_Y = 80
 /** Altezza della barra in alto: non fa parte del bordo, altrimenti trascinare una tab fino in fondo alla barra aprirebbe una colonna. */
 const BAR_HEIGHT = 52
+/** Margine della cornice delle colonne (px-2) e larghezza di un divisore tra due colonne. */
+const COLUMNS_INSET = 16
+const DIVIDER = 8
 
 /** Si può affiancare questa sessione trascinandola? Non se è già visibile, è l'unica aperta o le colonne sono piene. */
 export function canDropOnEdge(projectId: string, sessionId: string): boolean {
@@ -99,13 +104,24 @@ interface SplitColumnsProps {
  * nella disposizione salvata e tornano quando c'è di nuovo spazio.
  */
 export function SplitColumns({ projectId, columns, activeId, renderColumn }: SplitColumnsProps) {
-  const [ref, width] = useElementWidth()
+  const [measureRef, width] = useElementWidth()
+  const container = useRef<HTMLDivElement | null>(null)
+  const ref = useCallback(
+    (node: HTMLDivElement | null) => {
+      container.current = node
+      measureRef(node)
+    },
+    [measureRef]
+  )
+  const setColumnWidths = useApp((s) => s.setColumnWidths)
+  const saved = useApp((s) => s.ui[projectId]?.columnWidths)
   const select = useApp((s) => s.select)
   const closeColumn = useApp((s) => s.closeColumn)
   // Una stringa, così le colonne non si ridisegnano a ogni pezzo di streaming delle sessioni.
   const titlesKey = useApp((s) => JSON.stringify(columns.map((id) => s.sessions[id]?.title ?? '')))
   const titles = useMemo<string[]>(() => JSON.parse(titlesKey), [titlesKey])
-  const fit = width > 0 ? Math.max(1, Math.floor(width / MIN_COLUMN_WIDTH)) : columns.length
+  // n colonne chiedono n * MIN_COLUMN_WIDTH più i divisori (8 px). `width` è quella del contenuto, senza il margine della cornice.
+  const fit = width > 0 ? Math.max(1, Math.floor((width + DIVIDER) / (MIN_COLUMN_WIDTH + DIVIDER))) : columns.length
   const visible = useMemo(() => {
     if (columns.length <= fit) return columns
     const at = Math.max(0, columns.indexOf(activeId))
@@ -113,6 +129,51 @@ export function SplitColumns({ projectId, columns, activeId, renderColumn }: Spl
     return columns.slice(start, start + fit)
   }, [columns, fit, activeId])
   const hidden = columns.length - visible.length
+
+  // Proporzioni salvate (una per colonna); se non corrispondono alle colonne di adesso, parti uguali.
+  const weights = useMemo(() => (saved && saved.length === columns.length && saved.every((w) => Number.isFinite(w) && w > 0) ? saved : columns.map(() => 1)), [saved, columns])
+  const visibleIndex = visible.map((id) => columns.indexOf(id))
+  const visibleSum = visibleIndex.reduce((sum, i) => sum + weights[i], 0)
+  const available = Math.max(0, (container.current?.clientWidth ?? width + COLUMNS_INSET) - COLUMNS_INSET - DIVIDER * (visible.length - 1))
+
+  /** Le sezioni visibili e la loro larghezza di adesso, misurata sul DOM. */
+  const nodes = (): HTMLElement[] => visible.map((id) => container.current?.querySelector<HTMLElement>(`[data-column="${CSS.escape(id)}"]`)).filter((node): node is HTMLElement => Boolean(node))
+  const drag = useRef<{ nodes: HTMLElement[]; px: number[]; at: number } | null>(null)
+  const measure = (at: number): ResizeRange => {
+    const list = nodes()
+    const px = list.map((node) => node.getBoundingClientRect().width)
+    drag.current = { nodes: list, px, at }
+    const pair = (px[at] ?? 0) + (px[at + 1] ?? 0)
+    return { value: px[at] ?? 0, min: MIN_COLUMN_WIDTH, max: Math.max(MIN_COLUMN_WIDTH, pair - MIN_COLUMN_WIDTH) }
+  }
+  /** Sposta il divisore tra `at` e `at + 1`: solo `flex-grow` sul DOM, senza ridisegnare. */
+  const preview = (value: number) => {
+    const state = drag.current
+    if (!state || state.nodes.length !== state.px.length) return
+    const total = state.px.reduce((sum, v) => sum + v, 0)
+    if (total <= 0) return
+    const pair = state.px[state.at] + state.px[state.at + 1]
+    const left = clamp(value, MIN_COLUMN_WIDTH, pair - MIN_COLUMN_WIDTH)
+    state.nodes.forEach((node, j) => {
+      const px = j === state.at ? left : j === state.at + 1 ? pair - left : state.px[j]
+      node.style.flexGrow = String((px / total) * 100)
+    })
+  }
+  const commit = (value: number) => {
+    const state = drag.current
+    if (!state) return
+    preview(value)
+    const total = state.px.reduce((sum, v) => sum + v, 0)
+    if (total <= 0 || state.px.length !== visible.length) return
+    const pair = state.px[state.at] + state.px[state.at + 1]
+    const left = clamp(value, MIN_COLUMN_WIDTH, pair - MIN_COLUMN_WIDTH)
+    const next = weights.slice()
+    state.px.forEach((px, j) => {
+      const now = j === state.at ? left : j === state.at + 1 ? pair - left : px
+      next[visibleIndex[j]] = Math.round((now / total) * visibleSum * 10000) / 10000
+    })
+    setColumnWidths(projectId, next)
+  }
 
   // Un clic dentro una colonna la rende attiva, senza toccare quello che si è premuto. Il focus la attiva solo se viene
   // dalla tastiera (Tab): un focus programmatico, per esempio di una card di approvazione, non la deve rubare.
@@ -127,20 +188,38 @@ export function SplitColumns({ projectId, columns, activeId, renderColumn }: Spl
   const single = columns.length === 1
 
   return (
-    <div ref={ref} className={cn('flex min-h-0 min-w-0 flex-1', !single && 'gap-2 px-2 pb-2')}>
-      {visible.map((id) => {
+    <div ref={ref} className={cn('flex min-h-0 min-w-0 flex-1', !single && 'px-2 pb-2')}>
+      {visible.map((id, k) => {
         const active = id === activeId
+        const share = visibleSum > 0 ? weights[columns.indexOf(id)] / visibleSum : 1 / visible.length
+        const next = visible[k + 1]
+        const pair = visibleSum > 0 ? (available * (weights[columns.indexOf(id)] + weights[columns.indexOf(next)] || 0)) / visibleSum : 0
         return (
-          <section
-            key={id}
-            data-column={id}
-            aria-label={single ? undefined : t('Column: {title}', { title: titles[columns.indexOf(id)] ?? '' })}
-            onPointerDownCapture={(event) => activate(id, event.target)}
-            onFocusCapture={(event) => activate(id, event.target, true)}
-            className={cn('relative flex min-w-0 flex-1 basis-0 flex-col overflow-hidden', !single && 'rounded-xl border bg-background', !single && (active ? 'border-ring/60' : 'border-border/60'))}
-          >
-            {renderColumn(id, { active, single, hidden: active ? hidden : 0, onClose: () => closeColumn(projectId, id) })}
-          </section>
+          <Fragment key={id}>
+            <section
+              data-column={id}
+              aria-label={single ? undefined : t('Column: {title}', { title: titles[columns.indexOf(id)] ?? '' })}
+              onPointerDownCapture={(event) => activate(id, event.target)}
+              onFocusCapture={(event) => activate(id, event.target, true)}
+              style={{ flexGrow: share * 100, minWidth: single ? undefined : MIN_COLUMN_WIDTH }}
+              className={cn('relative flex min-w-0 basis-0 flex-col overflow-hidden', !single && 'rounded-xl border bg-background', !single && (active ? 'border-ring/60' : 'border-border/60'))}
+            >
+              {renderColumn(id, { active, single, hidden: active ? hidden : 0, onClose: () => closeColumn(projectId, id) })}
+            </section>
+            {next && (
+              <ResizeHandle
+                label={t('Resize columns {a} and {b}', { a: columns.indexOf(id) + 1, b: columns.indexOf(next) + 1 })}
+                value={share * available}
+                min={MIN_COLUMN_WIDTH}
+                max={Math.max(MIN_COLUMN_WIDTH, pair - MIN_COLUMN_WIDTH)}
+                measure={() => measure(k)}
+                onPreview={preview}
+                onCommit={commit}
+                onReset={() => setColumnWidths(projectId, undefined)}
+                className="shrink-0 self-stretch"
+              />
+            )}
+          </Fragment>
         )
       })}
     </div>

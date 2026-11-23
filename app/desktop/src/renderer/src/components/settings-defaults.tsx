@@ -445,11 +445,18 @@ export function DefaultsSection() {
         )}
       </p>
 
-      <PresetsSection />
-      <SendKeySection />
-      <TitlesSection />
-      <GeneratedTextSection />
-      <AgentBrowserSection />
+      {/* Da 820 px su due colonne: profili e tasto di invio, poi titoli, testo scritto e browser. */}
+      <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
+        <div className="min-w-0">
+          <PresetsSection />
+          <SendKeySection />
+        </div>
+        <div className="min-w-0">
+          <TitlesSection />
+          <GeneratedTextSection />
+          <AgentBrowserSection />
+        </div>
+      </div>
     </>
   )
 }

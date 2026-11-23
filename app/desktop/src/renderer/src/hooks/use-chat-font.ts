@@ -1,7 +1,7 @@
 import type { AppPrefs, ChatFont, CodeFont, TextSize } from '@shared/protocol'
 import { useApp } from '@/store/app-store'
 
-export const DEFAULT_CHAT_FONT: ChatFont = 'system-mono'
+export const DEFAULT_CHAT_FONT: ChatFont = 'system-sans'
 /** Evento prima che font o larghezza della chat cambino: la chat prende lì la posizione di lettura, con il layout ancora vecchio. */
 export const CHAT_LAYOUT_WILL_CHANGE = 'ladder:chat-layout-will-change'
 export const DEFAULT_CHAT_WIDTH: AppPrefs['chatWidth'] = 'comfortable'

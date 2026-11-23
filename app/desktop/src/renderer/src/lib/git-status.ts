@@ -62,5 +62,7 @@ export function describeGit(status: GitStatus): GitStatusView {
 
 /** Etichetta della pillola delle modifiche: lettori di schermo e tooltip. */
 export function changesLabel(view: Pick<GitStatusView, 'dirty' | 'added' | 'removed'>): string {
-  return `${plural(view.dirty, '{n} file changed', '{n} files changed')}, ${t('{added} lines added, {removed} removed', { added: view.added, removed: view.removed })}`
+  const files = plural(view.dirty, '{n} file changed', '{n} files changed')
+  // Senza righe (binari, file vuoti, rinomine, permessi) solo i file.
+  return view.added + view.removed > 0 ? `${files}, ${t('{added} lines added, {removed} removed', { added: view.added, removed: view.removed })}` : files
 }

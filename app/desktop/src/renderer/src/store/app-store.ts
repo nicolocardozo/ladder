@@ -2,7 +2,7 @@
 import { create } from 'zustand'
 import { isElectron, onHostConnect, request, send } from '@/lib/host-client'
 import { applyProjectGroupOp, normalizeProjectGroups, type ProjectGroupOp } from '@/lib/project-groups'
-import type { AgentBrowserState, AgentStatus, AppPrefs, Attachment, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentBrowserState, AgentStatus, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalData } from '@/lib/terminal-registry'
 import { disposeBuffer } from '@/components/editor/buffers'
@@ -97,6 +97,18 @@ interface AppState {
   /** Toglie l'iscrizione (idempotente). */
   unwatchGit: (sessionId: string) => void
   // ── fine LAD-68 ──
+  // ── LAD-80 ──
+  /** Mappa dei branch per progetto, letta dall'host solo mentre la scheda History o Merge la guarda (`watchBranchMap`). */
+  branchMaps: Record<string, BranchMap>
+  /** Ultima richiesta della mappa fallita, per progetto: la UI mostra l'errore con "Riprova" invece di "Reading branches…". Sparisce al primo successo. */
+  branchMapError: Record<string, string>
+  /** Rilegge la mappa del progetto osservato (il "Riprova" dopo un errore). */
+  retryBranchMap: (projectId: string) => void
+  /** Iscrive la finestra agli aggiornamenti della mappa del progetto (idempotente) e legge la mappa iniziale. */
+  watchBranchMap: (projectId: string) => void
+  /** Toglie l'iscrizione (idempotente). La mappa già letta resta finché il progetto non è rimosso. */
+  unwatchBranchMap: (projectId: string) => void
+  // ── fine LAD-80 ──
   /** Ultima richiesta di apertura dell'ispettore: un file nel viewer o un ambito del diff. */
   inspectorRequest: InspectorRequest | null
   /** Testo da inserire nel composer con la chiave indicata (Aggiungi alla chat, @terminal). */
@@ -138,18 +150,22 @@ interface AppState {
   connections: Partial<Record<ConnectionId, ConnectionStatus>>
   /** Collegamenti dei profili non predefiniti (Claude Code, Codex), per id del profilo. */
   profileConnections: Record<string, ConnectionStatus>
+  /** LAD-79: "Altri agenti" (CLI come Gemini, Copilot, Cursor) con stato di accesso. Null finché `agents.others` non ha risposto; gli eventi `agent.connection` aggiornano la riga con lo stesso id. */
+  otherAgents: OtherAgentConnection[] | null
+  setOtherAgents: (list: OtherAgentConnection[]) => void
   /** Primo avvio: `open` finché non si preme Continua o Salta, anche se nel frattempo un agente si collega. `done` fino al prossimo avvio. */
   onboarding: 'idle' | 'open' | 'done'
   /** Cresce quando GitHub si collega o si scollega: issue e pannello Merge rileggono. */
   githubVersion: number
   /** Riga di Impostazioni → Abbonamenti su cui portare il focus (dal composer o dal pannello Merge). */
-  connectionFocus: { id: ConnectionId; profileId?: string | null; nonce: number } | null
+  connectionFocus: { id: ConnectionId; profileId?: string | null; nonce: number; highlight?: boolean } | null
   setOnboarding: (state: 'idle' | 'open' | 'done') => void
   /** "Other agents found on your Mac" nascosta con Hide: vale fino alla chiusura dell'app, non è una preferenza. */
   detectedAgentsHidden: boolean
   hideDetectedAgents: () => void
   /** Porta l'utente alla riga del collegamento in Impostazioni → Abbonamenti. */
-  focusConnection: (id: ConnectionId, profileId?: string | null) => void
+  /** `highlight`: la riga si evidenzia per un attimo (dal pannello dei limiti nel composer). */
+  focusConnection: (id: ConnectionId, profileId?: string | null, options?: { highlight?: boolean }) => void
   consumeConnectionFocus: (nonce: number) => void
   /** Review chieste a un altro agente, per id: in corso, finite o fallite. */
   reviews: Record<string, ReviewState>
@@ -267,6 +283,8 @@ interface AppState {
   /** ⌘⌥← e ⌘⌥→: la colonna a sinistra o a destra diventa attiva. */
   focusColumn: (delta: -1 | 1) => boolean
   setSplitDrop: (on: boolean) => void
+  /** LAD-75: proporzioni delle colonne affiancate del progetto; undefined = parti uguali. */
+  setColumnWidths: (projectId: string, widths: number[] | undefined) => void
   setQuickOpen: (open: boolean) => void
   /** ⌘P e il nome del progetto nella barra: chiude la palette e apre o chiude la ricerca dei file. */
   toggleQuickOpen: () => void
@@ -399,19 +417,51 @@ onHostConnect(() => {
     loadGitStatus(sessionId)
   }
 })
-/** Toglie lo stato git della sessione; quello della cartella resta finché un'altra sessione osservata la usa. */
-function dropGit(sessionId: string): void {
+/**
+ * Smettere di osservare una sessione non cancella il suo stato git: tornando sulla tab l'intestazione mostra subito
+ * l'ultimo stato noto (poi aggiornato da `loadGitStatus`) invece di sparire e ricomparire spostando le tab.
+ * Gli eventi `git.status` arrivano solo per le sessioni osservate, quindi il dato fermo non riceve aggiornamenti
+ * finché la tab non torna visibile.
+ */
+function dropGit(_sessionId: string): void {}
+
+/** Prima della risposta dell'host: una sessione senza worktree lavora nella cartella del progetto, il cui stato può essere già noto. */
+function seedGitRoot(sessionId: string): void {
   useApp.setState((state) => {
-    const root = state.gitRoot[sessionId]
-    if (root === undefined) return {}
-    const gitRoot = { ...state.gitRoot }
-    delete gitRoot[sessionId]
-    if (Object.values(gitRoot).includes(root)) return { gitRoot }
-    const gitStatus = { ...state.gitStatus }
-    delete gitStatus[root]
-    return { gitRoot, gitStatus }
+    if (state.gitRoot[sessionId] !== undefined) return {}
+    const session = state.sessions[sessionId]
+    if (!session || session.worktree) return {}
+    const project = state.projects.find((p) => p.id === session.projectId)
+    if (!project || !state.gitStatus[project.path]) return {}
+    return { gitRoot: { ...state.gitRoot, [sessionId]: project.path } }
   })
 }
+
+// ── LAD-80: progetti di cui la scheda History o Merge guarda la mappa dei branch ──
+const branchMapWatched = new Set<string>()
+/** Legge la mappa del progetto osservato; ignora la risposta se nel frattempo non è più osservato. */
+function loadBranchMap(projectId: string): void {
+  request<BranchMap>({ type: 'project.branchMap', projectId })
+    .then((map) => {
+      if (!branchMapWatched.has(projectId)) return
+      useApp.setState((state) => {
+        const { [projectId]: _gone, ...branchMapError } = state.branchMapError
+        return { branchMaps: { ...state.branchMaps, [projectId]: map }, branchMapError }
+      })
+    })
+    .catch((error: unknown) => {
+      if (!branchMapWatched.has(projectId)) return
+      useApp.setState((state) => ({ branchMapError: { ...state.branchMapError, [projectId]: error instanceof Error ? error.message : String(error) } }))
+    })
+}
+// Nuova connessione con l'host: le iscrizioni vivono per connessione, quindi la UI le rifà e rilegge.
+onHostConnect(() => {
+  for (const projectId of branchMapWatched) {
+    send({ type: 'project.branchMap.watch', projectId, on: true })
+    loadBranchMap(projectId)
+  }
+})
+// ── fine LAD-80 ──
 
 function readSidebarOpen(): boolean {
   try {
@@ -543,18 +593,18 @@ function selectionPatch(state: AppState, selection: Selection): Partial<AppState
   const ui = state.ui[selection.projectId] ?? emptyUi()
   let tabs = ui.tabs.includes(selection.sessionId) ? ui.tabs : [...ui.tabs, selection.sessionId]
   if (tabs.length > MAX_TABS) tabs = tabs.slice(tabs.length - MAX_TABS)
-  const nextUi: ProjectUiState = { ...ui, tabs, activeTab: selection.sessionId }
+  let nextUi: ProjectUiState = { ...ui, tabs, activeTab: selection.sessionId }
   // Con le colonne affiancate la sessione scelta o è già una colonna (diventa attiva) o prende il posto della colonna attiva.
   // Dopo ⌘\ senza altre chat, la sessione nuova si apre invece accanto a quella da cui si è partiti.
   const split = cleanSplit(state, selection.projectId)
   const pending = state.pendingSplit?.projectId === selection.projectId && state.pendingSplit.base !== selection.sessionId ? state.pendingSplit : null
   const base = split?.active ?? pending?.base ?? null
-  if (split && split.sessions.includes(selection.sessionId)) nextUi.split = { ...split, active: selection.sessionId }
+  if (split && split.sessions.includes(selection.sessionId)) nextUi = withSplit(nextUi, { ...split, active: selection.sessionId })
   else if (pending && isLiveSession(state, state.sessions[pending.base])) {
     const sessions = withColumn(split?.sessions ?? [pending.base], split?.active ?? pending.base, selection.sessionId)
-    nextUi.split = { sessions, active: selection.sessionId }
-  } else if (split && base) nextUi.split = { sessions: split.sessions.map((id) => (id === base ? selection.sessionId : id)), active: selection.sessionId }
-  else if (ui.split) delete nextUi.split
+    nextUi = withSplit(nextUi, { sessions, active: selection.sessionId })
+  } else if (split && base) nextUi = withSplit(nextUi, { sessions: split.sessions.map((id) => (id === base ? selection.sessionId : id)), active: selection.sessionId })
+  else if (ui.split) nextUi = withSplit(nextUi, undefined)
   persistUi(selection.projectId, nextUi)
   return { selection, firstUnread, ui: { ...state.ui, [selection.projectId]: nextUi }, heldUnread: null, pendingSplit: null }
 }
@@ -575,12 +625,31 @@ export function liveColumns(state: Pick<AppState, 'projects' | 'sessions' | 'ui'
   return ids.length >= 2 ? ids : NO_COLUMNS
 }
 
+/** La prossima chat aperta in una tab che non è ancora in colonna, partendo da quella dopo la corrente (regola di ⌘\ e del pulsante Affianca). */
+export function splitCandidate(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, projectId: string, currentId: string): string | undefined {
+  const open = liveColumns(state, projectId)
+  const taken = open.length >= 2 ? open : [currentId]
+  const tabs = (state.ui[projectId]?.tabs ?? []).filter((id) => isLiveSession(state, state.sessions[id]) && state.sessions[id].projectId === projectId)
+  const from = Math.max(0, tabs.indexOf(currentId))
+  return [...tabs.slice(from + 1), ...tabs.slice(0, from)].find((id) => !taken.includes(id))
+}
+
 /** Divisione ripulita: colonne vive e colonna attiva valida, oppure undefined se non resta niente da affiancare. */
 function cleanSplit(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, projectId: string): { sessions: string[]; active: string } | undefined {
   const sessions = liveColumns(state, projectId)
   if (sessions.length < 2) return undefined
   const active = state.ui[projectId]?.split?.active
   return { sessions, active: active && sessions.includes(active) ? active : sessions[0] }
+}
+
+/** Imposta (o toglie) la divisione del progetto. Se cambia l'insieme o l'ordine delle colonne le proporzioni salvate (LAD-75) si azzerano: tornano parti uguali. Unico punto che scrive `split`. */
+function withSplit(ui: ProjectUiState, split: { sessions: string[]; active: string } | undefined): ProjectUiState {
+  const next = { ...ui }
+  const before = ui.split?.sessions
+  if (!split || !before || before.length !== split.sessions.length || before.some((id, i) => id !== split.sessions[i])) delete next.columnWidths
+  if (split) next.split = split
+  else delete next.split
+  return next
 }
 
 /** Aggiunge `id` alle colonne: dopo `base` (o in fondo con `end`). Se sono piene prende il posto di `base`. */
@@ -702,6 +771,8 @@ export const useApp = create<AppState>((set, get) => ({
   fsVersion: {},
   gitStatus: {},
   gitRoot: {},
+  branchMaps: {}, // LAD-80
+  branchMapError: {},
   inspectorRequest: null,
   composerInsert: null,
   composerReplace: null,
@@ -723,6 +794,7 @@ export const useApp = create<AppState>((set, get) => ({
   prefs: null,
   connections: {},
   profileConnections: {},
+  otherAgents: null,
   onboarding: 'idle',
   detectedAgentsHidden: false,
   githubVersion: 0,
@@ -787,14 +859,19 @@ export const useApp = create<AppState>((set, get) => ({
         case 'project.removed': {
           const projects = state.projects.filter((p) => p.id !== event.projectId)
           purgeProjectBrowser(event.projectId)
+          branchMapWatched.delete(event.projectId)
+          const branchMaps = { ...state.branchMaps }
+          delete branchMaps[event.projectId]
+          const branchMapError = { ...state.branchMapError }
+          delete branchMapError[event.projectId]
           for (const s of Object.values(state.sessions)) if (s.projectId === event.projectId && gitWatched.delete(s.id)) queueMicrotask(() => dropGit(s.id))
           // I comandi delle sessioni del progetto rimosso non servono più.
           const commands = { ...state.commands }
           for (const s of Object.values(state.sessions)) if (s.projectId === event.projectId) delete commands[s.id]
-          if (state.selection.projectId !== event.projectId) return { projects, commands }
+          if (state.selection.projectId !== event.projectId) return { projects, commands, branchMaps, branchMapError }
           // La selezione era nel progetto rimosso: si passa alla nuova chat del primo progetto rimasto.
           const selection: Selection = { kind: 'new', projectId: projects[0]?.id ?? null }
-          return { projects, commands, selection, ...pushHistory(state, selection) }
+          return { projects, commands, branchMaps, branchMapError, selection, ...pushHistory(state, selection) }
         }
         case 'sessions.autoArchived': {
           // Le tab si chiudono con i session.upsert delle sessioni archiviate; qui si avvisa, una volta sola per giro.
@@ -891,10 +968,22 @@ export const useApp = create<AppState>((set, get) => ({
           const github = event.status.id === 'github' && before !== undefined && linked(before) !== linked(event.status)
           return { connections: { ...state.connections, [event.status.id]: event.status }, ...(github ? { githubVersion: state.githubVersion + 1 } : {}) }
         }
+        case 'agent.connection': {
+          // Prima della lettura dell'elenco non c'è niente da aggiornare: la lettura porta già lo stato più recente.
+          if (!state.otherAgents) return {}
+          const exists = state.otherAgents.some((a) => a.id === event.agent.id)
+          return { otherAgents: exists ? state.otherAgents.map((a) => (a.id === event.agent.id ? event.agent : a)) : [...state.otherAgents, event.agent] }
+        }
         case 'git.status': {
           // Un evento in ritardo, dopo l'ultimo `unwatchGit`, non rimette in vita lo stato.
           if (gitWatched.size === 0) return {}
           return { gitStatus: { ...state.gitStatus, [event.status.root]: event.status } }
+        }
+        case 'project.branchMap': {
+          // Un evento in ritardo, dopo l'ultimo `unwatchBranchMap`, non rimette in vita la mappa.
+          if (!branchMapWatched.has(event.projectId)) return {}
+          const { [event.projectId]: _gone, ...branchMapError } = state.branchMapError
+          return { branchMaps: { ...state.branchMaps, [event.projectId]: event.map }, branchMapError }
         }
         case 'fs.changed':
           return { fsVersion: { ...state.fsVersion, [event.root]: (state.fsVersion[event.root] ?? 0) + 1 } }
@@ -1256,9 +1345,8 @@ export const useApp = create<AppState>((set, get) => ({
       const column = before?.sessions.includes(sessionId) ? withoutColumn(before, sessionId) : null
       const fallback = column ? column.neighbor : (tabs[Math.min(Math.max(index, 0), tabs.length - 1)] ?? null)
       const nextActive = wasActive ? (fallback ?? tabs[Math.min(Math.max(index, 0), tabs.length - 1)] ?? null) : ui.activeTab === sessionId ? null : ui.activeTab
-      const nextUi: ProjectUiState = { ...ui, tabs, activeTab: nextActive }
-      if (column?.split) nextUi.split = column.split
-      else if (ui.split) delete nextUi.split
+      // Chiudere una tab che non è una colonna lascia la divisione (e le proporzioni) com'è.
+      const nextUi = withSplit({ ...ui, tabs, activeTab: nextActive }, column ? column.split : before)
       persistUi(projectId, nextUi)
       const next = { ...state, ui: { ...state.ui, [projectId]: nextUi } }
       // Le sessioni archiviate non si riaprono: ⌘⇧T riguarda solo le tab chiuse a mano.
@@ -1440,6 +1528,7 @@ export const useApp = create<AppState>((set, get) => ({
   watchGit: (sessionId) => {
     if (gitWatched.has(sessionId)) return
     gitWatched.add(sessionId)
+    seedGitRoot(sessionId)
     send({ type: 'git.watch', sessionId, on: true })
     loadGitStatus(sessionId)
   },
@@ -1449,6 +1538,24 @@ export const useApp = create<AppState>((set, get) => ({
     send({ type: 'git.watch', sessionId, on: false })
     dropGit(sessionId)
   },
+
+  // ── LAD-80 ──
+  watchBranchMap: (projectId) => {
+    if (branchMapWatched.has(projectId)) return
+    branchMapWatched.add(projectId)
+    send({ type: 'project.branchMap.watch', projectId, on: true })
+    loadBranchMap(projectId)
+  },
+
+  retryBranchMap: (projectId) => {
+    if (branchMapWatched.has(projectId)) loadBranchMap(projectId)
+  },
+
+  unwatchBranchMap: (projectId) => {
+    if (!branchMapWatched.delete(projectId)) return
+    send({ type: 'project.branchMap.watch', projectId, on: false })
+  },
+  // ── fine LAD-80 ──
 
   markUnread: (sessionId) => {
     const { selection } = get()
@@ -1519,7 +1626,7 @@ export const useApp = create<AppState>((set, get) => ({
       select()
       return false
     }
-    set((current) => patchUi(current, projectId, (ui) => ({ ...ui, split: { sessions: withColumn(split?.sessions ?? [base], base, sessionId, options?.at === 'end'), active: sessionId } })))
+    set((current) => patchUi(current, projectId, (ui) => withSplit(ui, { sessions: withColumn(split?.sessions ?? [base], base, sessionId, options?.at === 'end'), active: sessionId })))
     select()
     return true
   },
@@ -1531,11 +1638,7 @@ export const useApp = create<AppState>((set, get) => ({
     const projectId = selection.projectId
     const split = cleanSplit(state, projectId)
     if (split && split.sessions.length >= MAX_COLUMNS) return
-    const open = split?.sessions ?? [selection.sessionId]
-    // La prossima chat aperta in una tab che non è ancora in colonna, partendo da quella dopo la corrente.
-    const tabs = (state.ui[projectId]?.tabs ?? []).filter((id) => isLiveSession(state, state.sessions[id]) && state.sessions[id].projectId === projectId)
-    const from = Math.max(0, tabs.indexOf(selection.sessionId))
-    const candidate = [...tabs.slice(from + 1), ...tabs.slice(0, from)].find((id) => !open.includes(id))
+    const candidate = splitCandidate(state, projectId, selection.sessionId)
     if (candidate) {
       state.openSplit(projectId, candidate)
       return
@@ -1552,12 +1655,7 @@ export const useApp = create<AppState>((set, get) => ({
     const { split: next, neighbor } = withoutColumn(split, sessionId)
     const wasSelected = state.selection.kind === 'session' && state.selection.sessionId === sessionId
     set((current) =>
-      patchUi(current, projectId, (ui) => {
-        const rest = { ...ui }
-        if (next) rest.split = next
-        else delete rest.split
-        return rest
-      })
+      patchUi(current, projectId, (ui) => withSplit(ui, next))
     )
     if (wasSelected && neighbor) get().select({ kind: 'session', projectId, sessionId: neighbor })
   },
@@ -1577,6 +1675,15 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setSplitDrop: (on) => set((state) => (state.splitDrop === on ? {} : { splitDrop: on })),
+  setColumnWidths: (projectId, widths) =>
+    set((state) =>
+      patchUi(state, projectId, (ui) => {
+        const next = { ...ui }
+        if (widths) next.columnWidths = widths
+        else delete next.columnWidths
+        return next
+      })
+    ),
   setQuickOpen: (open) => set({ quickOpen: open }),
   toggleQuickOpen: () => set((state) => ({ paletteOpen: false, quickOpen: !state.quickOpen })),
 
@@ -1631,10 +1738,11 @@ export const useApp = create<AppState>((set, get) => ({
     }),
 
   setPrefs: (prefs) => set({ prefs }),
+  setOtherAgents: (otherAgents) => set({ otherAgents }),
   setOnboarding: (onboarding) => set({ onboarding }),
   hideDetectedAgents: () => set({ detectedAgentsHidden: true }),
-  focusConnection: (id, profileId) => {
-    set({ connectionFocus: { id, ...(profileId ? { profileId } : {}), nonce: ++nonce } })
+  focusConnection: (id, profileId, options) => {
+    set({ connectionFocus: { id, ...(profileId ? { profileId } : {}), ...(options?.highlight ? { highlight: true } : {}), nonce: ++nonce } })
     useSettings.getState().openSection('subscriptions')
   },
   consumeConnectionFocus: (value) => set((state) => (state.connectionFocus?.nonce === value ? { connectionFocus: null } : {}))

@@ -51,6 +51,8 @@ export interface GitStatusHooks {
   isWorktree: (root: string) => boolean
   /** Una sessione sta lavorando in questa cartella (un turno può star facendo git). */
   busy: (root: string) => boolean
+  /** Un fetch è andato a buon fine: i branch remoti sono cambiati anche se lo stato della cartella no (mappa dei branch, LAD-80). */
+  fetched?: (root: string) => void
 }
 
 export class GitStatusTracker {
@@ -73,6 +75,11 @@ export class GitStatusTracker {
     const fresh = this.roots.get(root)?.fresh
     if (fresh && fresh.version === this.roots.get(root)!.version && Date.now() - fresh.at < FRESH_MS) return fresh.status
     return gitStatus(root, this.hooks.isWorktree(root))
+  }
+
+  /** Ultimo stato letto dal tracker per la cartella (nessuna lettura nuova); null se non è seguita o non è ancora stata letta. */
+  peek(root: string): GitStatus | null {
+    return this.roots.get(root)?.fresh?.status ?? null
   }
 
   /** Un iscritto in più: la prima volta legge subito e programma il primo fetch. */
@@ -225,6 +232,7 @@ export class GitStatusTracker {
       repo.failures = ok ? 0 : repo.failures + 1
       repo.nextAt = Date.now() + (ok ? FETCH_INTERVAL_MS : Math.min(FETCH_INTERVAL_MS * 2 ** repo.failures, FETCH_BACKOFF_MAX_MS))
       for (const r of siblings) this.refresh(r)
+      if (ok) this.hooks.fetched?.(root)
       this.scheduleFetch(root, repo.nextAt - Date.now() + 500)
     } catch {
       this.scheduleFetch(root, FETCH_INTERVAL_MS)

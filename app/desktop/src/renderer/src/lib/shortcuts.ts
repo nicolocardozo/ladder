@@ -14,7 +14,8 @@ type State = ReturnType<typeof useApp.getState>
 /** Vero se l'azione ha fatto qualcosa: solo allora l'evento si ferma (preventDefault). */
 type Action = (state: State) => boolean
 
-const inspector = (tab: 'changes' | 'files' | 'history' | 'merge'): Action => (state) => {
+/** Senza `tab` apre sull'ultima scheda usata o chiude il pannello. */
+const inspector = (tab?: 'changes' | 'files' | 'history' | 'merge'): Action => (state) => {
   const projectId = state.selection.projectId
   if (!projectId) return false
   state.toggleInspector(projectId, tab)
@@ -106,6 +107,8 @@ const ACTIONS: Partial<Record<CommandId, Action>> = {
   'inspector.files': inspector('files'),
   'inspector.history': inspector('history'),
   'inspector.merge': inspector('merge'),
+  // Pannello di destra: apre sull'ultima scheda usata o chiude.
+  'inspector.toggle': inspector(),
   // Pannello terminale del progetto. Si ferma sempre l'evento; con la palette aperta (vedi ALWAYS_ACTIVE) non fa nulla.
   'terminal.toggle': (state) => {
     const projectId = state.selection.projectId

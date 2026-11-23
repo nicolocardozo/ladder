@@ -11,7 +11,7 @@ import { ChatContext, createToggleStore, prefersReducedMotion, type ChatActions 
 import { WaitingAgentsLine } from './agents-lines'
 import { TurnRow } from './turn-row'
 import { useApp } from '@/store/app-store'
-import { CHAT_LAYOUT_WILL_CHANGE, DEFAULT_CHAT_WIDTH, DEFAULT_TEXT_SIZE } from '@/hooks/use-chat-font'
+import { CHAT_LAYOUT_WILL_CHANGE, DEFAULT_CHAT_FONT, DEFAULT_CHAT_WIDTH, DEFAULT_TEXT_SIZE } from '@/hooks/use-chat-font'
 import { chatColumn, createTurnCache, estimateTurnHeight, groupTurns, type Turn } from './turns'
 
 /** Posizione di lettura: elemento in cima alla vista e quanti pixel ne sono già passati sopra il bordo. */
@@ -147,7 +147,7 @@ function ChatViewInner({
     if (compact) toggles.closeAll(['tool:', 'out:'])
   }, [compact, toggles])
 
-  const chatFont = useApp((s) => s.prefs?.chatFont) ?? 'system-mono'
+  const chatFont = useApp((s) => s.prefs?.chatFont) ?? DEFAULT_CHAT_FONT
   const chatWidth = useApp((s) => s.prefs?.chatWidth) ?? DEFAULT_CHAT_WIDTH
   const chatSize = useApp((s) => s.prefs?.chatTextSize) ?? DEFAULT_TEXT_SIZE
   // Colonna di testo effettiva (caratteri per riga): si misura in modo sincrono al primo layout e poi a ogni resize,

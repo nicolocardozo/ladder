@@ -66,6 +66,64 @@ export interface AgentLogin {
 }
 
 /**
+ * LAD-79: stato di accesso di un altro agente (Gemini CLI, Copilot, Cursor, OpenCode e simili; non Claude, Codex e GitHub).
+ * - connected: l'agente ha aperto una sessione di prova (ACP `session/new`) senza chiedere l'accesso.
+ * - needs-login: l'agente ha risposto auth_required.
+ * - unknown: non si sa: mai provato, CLI assente, non si prova (npx/uvx) o la prova è fallita (timeout, programma che non parla ACP).
+ */
+export type OtherAgentAuth = 'connected' | 'needs-login' | 'unknown'
+
+/**
+ * Riga di "Altri agenti" nelle Subscription: un agente ACP curato (rilevato o no) o aggiunto dall'utente, escluse le righe
+ * di Claude, Codex e GitHub. `id` è l'id del registro, lo stesso di AgentCatalogEntry e di `agent.login`.
+ * L'elenco contiene sempre gli agenti curati (anche non installati, `installed: false`) e quelli aggiunti.
+ */
+export interface OtherAgentConnection {
+  id: string
+  name: string
+  /** Icona come data URI (solo se l'agente è aggiunto e il registro l'ha data), altrimenti null. */
+  icon: string | null
+  /** Già in "I tuoi agenti" (AgentStatus acp:<id>). Gli agenti non aggiunti si aggiungono da Agents come oggi. */
+  added: boolean
+  /**
+   * program: c'è un programma locale (CLI nel PATH della shell di login o binario scaricato da Ladder) che Ladder può lanciare;
+   * npx / uvx: l'agente aggiunto parte da npx o uvx, senza CLI locale. Questi NON si provano mai (una prova scaricherebbe il pacchetto):
+   * `installed` è false, `auth` unknown, nessun comando di accesso.
+   */
+  runner: 'program' | 'npx' | 'uvx'
+  /** Il programma c'è (runner program e file presente). Non conferma che sia davvero quell'agente: vedi AgentCatalogEntry.detected. */
+  installed: boolean
+  /** Percorso del programma; null se non installato. Solo da mostrare (non serve per lanciare nulla). */
+  path: string | null
+  /** Da `--version` (4 secondi di tempo); null se ignota. */
+  version: string | null
+  auth: OtherAgentAuth
+  /**
+   * Account collegato. ACP non ha un campo standard per l'account e Ladder non legge mai i file delle CLI: oggi è sempre null,
+   * il campo c'è perché la UI lo mostri se un agente lo dirà (nessuna UI deve contare su di esso).
+   */
+  account: string | null
+  /** Quando l'ultima prova (o l'ultimo `agent.login` da una sessione) ha dato `auth`, in millisecondi; null se mai. */
+  checkedAt: number | null
+  /** Una prova è in corso: `auth` e `checkedAt` sono quelli di prima. */
+  probing: boolean
+  /**
+   * Comando per accedere, da mostrare e da lanciare con `agents.others.login` (es. `copilot login`, `cursor-agent login`, `gemini`).
+   * null = Ladder non conosce un comando di accesso certo per questa CLI: la UI mostra «Apri terminale» (`agents.others.login`
+   * apre allora la CLI da sola, `openCommand`, e l'utente accede da lì). Anche null se l'agente non è installato.
+   */
+  loginCommand: string | null
+  /** La CLI da sola (es. `gemini`), che `agents.others.login` apre se `loginCommand` è null. null se non installato o se il programma è solo un adattatore ACP (es. `amp-acp`): non c'è una CLI da aprire e l'accesso si fa dall'app o dalla CLI dell'agente. */
+  openCommand: string | null
+  /** Comando per uscire (es. `cursor-agent logout`), solo dove la CLI ne ha uno; si lancia con `agents.others.logout`. */
+  logoutCommand: string | null
+  /** Se `logoutCommand` è null: testo (inglese/italiano già tradotto) che spiega come scollegarsi, oppure null se non c'è niente di noto. */
+  logoutHelp: string | null
+  /** Terminale con un accesso o un'uscita in corso (da aprire nella UI); null se non ce n'è. */
+  terminalId: string | null
+}
+
+/**
  * Da dove arriva il checksum che Ladder verifica prima di avviare un binario scaricato:
  * - registry: `sha256` nella voce del registro.
  * - github-release: archivio di una release GitHub; il checksum è il `digest` della release (letto all'installazione).
@@ -371,6 +429,8 @@ export interface PrStatus {
   review: 'approved' | 'changes' | 'pending' | null
   base: string
   updatedAt: number
+  /** Quando è stata unita (LAD-80); null se non è unita o la data non c'è. Diverso da `updatedAt`, che un commento sposta. */
+  mergedAt?: number | null
 }
 
 export interface WorktreeInfo {
@@ -653,6 +713,11 @@ export interface ProjectUiState {
   /** Browser per l'agente in questo progetto: true/false scavalca AppPrefs.agentBrowser; assente = vale quello globale. Vale dalla prossima ripartenza dell'agente di ogni sessione (spento: subito). */
   agentBrowser?: boolean
   // ── Fine LAD-57 parte 2 ──
+
+  // ── LAD-75 ──
+  /** Proporzioni delle colonne affiancate, una per colonna in `split.sessions` (stesso ordine). Assente o di lunghezza diversa: parti uguali. */
+  columnWidths?: number[]
+  // ── Fine LAD-75 ──
 }
 
 /** Sezione della sidebar che raccoglie progetti, creata da te. */
@@ -1305,6 +1370,31 @@ export type HostCommand =
   /** Annulla un'installazione in corso: la cartella finale non cambia. Risponde null. */
   | { type: 'agents.install.cancel'; id: string }
   /**
+   * LAD-79: elenco di "Altri agenti" nelle Subscription (OtherAgentConnection[]). Risponde subito con quanto è noto (programmi
+   * cercati nel PATH della shell di login, versioni, ultimo stato) e per gli agenti installati con `auth` unknown o provato da più di
+   * 10 minuti avvia in background una prova (al massimo 2 insieme): ogni esito arriva come evento `agent.connection`
+   * (prima con `probing: true`, poi col risultato). La prova avvia il programma dell'agente, fa `initialize` e `session/new` in
+   * una cartella neutra (la home) senza mandare prompt, con `NO_BROWSER=true` nell'ambiente (l'agente non apre il browser) e senza
+   * variabili ANTHROPIC_*, CLAUDE* e chiavi API; poi lo ferma. Non legge mai file di credenziali. Nessun download né installazione.
+   */
+  | { type: 'agents.others' }
+  /** Ripete la prova di un agente e risponde OtherAgentConnection aggiornato (anche per un id senza riga: errore). Emette `agent.connection` e, se la prova dà ready/required, `agent.login`. */
+  | { type: 'agents.others.refresh'; id: string }
+  /**
+   * Accesso tramite la CLI dell'agente, in un terminale di Ladder (con TTY: i login di Gemini, Copilot, Cursor sono interattivi).
+   * Come le azioni di progetto (`run.start`): un terminale `kind: 'run'` del progetto (`projectId`, altrimenti il primo progetto aperto; errore se non ce n'è),
+   * titolo "Sign in to <agente>", cartella del progetto, lanciato con la shell di login; con `loginCommand` null apre la CLI da sola.
+   * Risponde TerminalInfo (la UI lo apre con il suo id); un secondo `login` mentre quello gira risponde lo stesso terminale.
+   * Quando il processo esce Ladder ripete la prova dell'agente ed emette `agent.connection` (anche con un'uscita con errore o chiuso dall'utente).
+   * Errore se l'agente non è installato o è npx/uvx. Il browser lo apre la CLI da sé: Ladder non vede credenziali.
+   */
+  | { type: 'agents.others.login'; id: string; projectId?: string }
+  /**
+   * Uscita tramite la CLI, nello stesso modo di `agents.others.login` (terminale, poi nuova prova ed `agent.connection`), solo se
+   * `logoutCommand` non è null; altrimenti errore e la UI mostra `logoutHelp`. Risponde TerminalInfo.
+   */
+  | { type: 'agents.others.logout'; id: string; projectId?: string }
+  /**
    * Accesso a un agente ACP con uno dei suoi metodi (AgentLogin.methods, solo di tipo `agent`): chiama `authenticate`
    * del protocollo ACP e poi apre una sessione di prova per verificare l'esito. Ladder non vede né salva credenziali:
    * le gestisce l'agente (spesso apre il browser). `projectId` dà la cartella di lavoro (altrimenti la home). Può
@@ -1410,6 +1500,19 @@ export type HostCommand =
    */
   | { type: 'git.watch'; sessionId: string; on: boolean }
   // ── fine LAD-68 ──
+  // ── LAD-80 ──
+  /**
+   * Mappa dei branch del progetto: una riga per sessione (worktree e non) con distanza da main, stato del merge e ultimo commit.
+   * Risponde BranchMap. Solo letture git sul checkout principale (nessun gh, nessuna scrittura), con cache per sha: chiamarla spesso costa poco.
+   * Un progetto sconosciuto è un errore; un progetto non git (o con la cartella sparita) risponde una mappa vuota con `base` null.
+   */
+  | { type: 'project.branchMap'; projectId: string }
+  /**
+   * Iscrive (on) o toglie (off) la finestra agli eventi `project.branchMap` del progetto. Per connessione e con conteggio (due `on`
+   * vogliono due `off`); la chiusura della finestra toglie tutte le sue iscrizioni. Senza iscritti l'host non rilegge nulla. Risponde null.
+   */
+  | { type: 'project.branchMap.watch'; projectId: string; on: boolean }
+  // ── fine LAD-80 ──
   // ── LAD-69 ──
   /**
    * Anteprima del push, leggera (solo git locale, nessuna rete): cosa verrebbe inviato, da mostrare nella conferma. Risponde
@@ -1500,6 +1603,8 @@ export type HostEvent =
   | { type: 'agent.install'; install: AgentInstall }
   /** Cambiato lo stato del login di un agente ACP (dopo `agents.authenticate` o una sessione): `id` è quello del registro. */
   | { type: 'agent.login'; id: string; login: AgentLogin }
+  /** LAD-79: riga di "Altri agenti" cambiata (inizio e fine di una prova, fine di un accesso o di un'uscita): riga completa, sostituisce la precedente con lo stesso `id`. */
+  | { type: 'agent.connection'; agent: OtherAgentConnection }
   | { type: 'review.update'; review: ReviewState }
   | { type: 'terminal.upsert'; terminal: TerminalInfo }
   | { type: 'terminal.removed'; id: string }
@@ -1516,6 +1621,10 @@ export type HostEvent =
   /** Stato git di una cartella cambiato (modifiche, commit, fetch, cambio branch): intero, solo se è diverso dall'ultimo mandato. */
   | { type: 'git.status'; status: GitStatus }
   // ── fine LAD-68 ──
+  // ── LAD-80 ──
+  /** Mappa dei branch cambiata: intera, solo se è diversa dall'ultima mandata, per i progetti con una finestra iscritta (`project.branchMap.watch`). */
+  | { type: 'project.branchMap'; projectId: string; map: BranchMap }
+  // ── fine LAD-80 ──
   /** Un collegamento è cambiato: avanza il download o il login, o è finito (anche con errore). */
   | { type: 'connection.update'; status: ConnectionStatus }
 
@@ -1624,17 +1733,22 @@ export interface AppPrefs {
    * Predefinito true. Per progetto: ProjectUiState.generatedText. I titoli restano governati da generatedTitles.
    */
   generatedText: boolean
-  /** Font dei messaggi in chat (utente e modello); il resto dell'app resta in Mona Sans. Predefinito 'system-mono'. */
+  /** Font dei messaggi in chat (utente e modello); il resto dell'app resta in Mona Sans. Predefinito 'system-sans' (LAD-71; prima 'system-mono', migrato una volta dal main). */
   chatFont: ChatFont
   /**
    * Larghezza del testo della chat, per colonna (container query), non per finestra:
-   * 'comfortable' ~75ch (predefinita), 'wide' ~100ch, 'full' tutta la colonna. I blocchi
+   * 'comfortable' ~820px (predefinita), 'wide' ~1100px, 'full' tutta la colonna (LAD-71; prima in ch). I blocchi
    * larghi (codice, diff, tabelle, output) arrivano fino a ~1100px o alla colonna.
    */
   chatWidth: 'comfortable' | 'wide' | 'full'
   /** Vedi HostPrefs.autonomyHint e stallHint. */
   autonomyHint: boolean
   stallHint: boolean
+  /**
+   * LAD-77: nome con cui l'app saluta l'utente. Stringa tagliata di al più 80 caratteri; null = non impostato (vuota o solo spazi).
+   * Resta solo in settings.json su questo Mac: non va all'host, né ad agenti o servizi.
+   */
+  userName: string | null
   // ── LAD-57 parte 2 ──
   /**
    * Browser per l'agente (strumenti browser_* in un browser isolato, visibile in una tab). Predefinito false: dà all'agente
@@ -1901,6 +2015,84 @@ export interface GitStatus {
   isWorktree: boolean
 }
 // ── fine LAD-68 ──
+
+// ── LAD-80 ──
+/** Perché una riga della mappa non ha i numeri: i campi dipendenti sono null. */
+export type BranchMapProblem =
+  /** La sessione non ha un branch (HEAD staccato sul checkout principale). */
+  | 'detached'
+  /** Il branch non esiste più (cancellato, o repository senza commit). */
+  | 'branch_missing'
+  /** Il ramo principale non esiste (repository senza commit, base cancellata). */
+  | 'no_base'
+  /** Il branch e il ramo principale hanno storie non correlate: nessun merge-base. */
+  | 'no_merge_base'
+
+/**
+ * Una sessione sulla mappa. Tutti i tempi sono ms; l'asse X lo normalizza la UI. Lo stato "a parole" lo calcola la UI da `run`,
+ * `archived` e `merged` come per la sidebar (in esecuzione = running/starting, ti aspetta = waiting, unita = merged, ferma = il resto).
+ */
+export interface BranchMapEntry {
+  sessionId: string
+  title: string
+  agent: AgentId
+  run: RunState
+  archived: boolean
+  /** Ultima attività della sessione: ordina la mappa (le più recenti prima) e decide "gli ultimi 6 attivi". */
+  activityAt: number
+  /** Stato della PR del branch se già in cache (nessuna chiamata a gh per costruire la mappa); null se ignoto o senza PR. */
+  prState: PrStatus['state'] | null
+  /** false: la sessione lavora sul checkout principale. L'host manda solo quelle sul ramo principale (`isBase`), le ultime 20: servono a "sei su main". */
+  isWorktree: boolean
+  /** La cartella del worktree non esiste più (il branch può esserci ancora: i numeri sono quelli del branch). */
+  worktreeMissing: boolean
+  /** null con HEAD staccato. */
+  branch: string | null
+  /** Il branch è il ramo principale stesso (sessione sul checkout principale): niente curva, nessun conteggio. */
+  isBase: boolean
+  problem: BranchMapProblem | null
+  /** Punto di stacco da main (`git merge-base`): sha completo e data del commit. Null con `problem`. */
+  mergeBase: string | null
+  mergeBaseAt: number | null
+  /** Commit del branch non nel ramo principale (↑) e del ramo principale non nel branch (↓). Da `merged` in poi hanno poco senso: con lo squash ↑ resta > 0. */
+  ahead: number | null
+  behind: number | null
+  /**
+   * Unito: 'git' = il branch è già tutto nel ramo principale E c'è la prova che ha avuto commit propri: un merge commit del ramo
+   * principale che lo cita come genitore, oppure (fast-forward) il suo branch su origin, arrivato dopo la nascita, è dentro il ramo
+   * principale. Un branch solo "avanzato" lungo main (pull, reset) NON è unito. 'pr' = la PR del branch è unita (squash e rebase
+   * compresi), era già in cache e il branch non ha commit dopo di lei (oggetto della PR non scaricato: non unito). Gli archiviati
+   * uniti si ricordano dopo un riavvio (colonne `merged_via`/`merged_at`). Nel dubbio null: meglio un mancato "unito" che uno falso.
+   */
+  merged: 'git' | 'pr' | null
+  /** Quando: merge commit sul ramo principale se c'è (git), `mergedAt` della PR (pr), data dell'ultimo commit del branch come ripiego. Null se non unito. */
+  mergedAt: number | null
+  /** Ultimo commit del branch. */
+  lastCommit: { subject: string; at: number } | null
+  /** Righe aggiunte/tolte dai commit del branch rispetto al merge-base (non le modifiche non committate). */
+  added: number | null
+  removed: number | null
+  /** File con modifiche non committate, solo se il tracker git ha già letto la cartella; altrimenti null. */
+  dirty: number | null
+}
+
+export interface BranchMap {
+  projectId: string
+  /**
+   * Ramo principale, letto senza rete (origin/HEAD, poi main o master; se il pannello Merge l'ha già risolto con gh vale quello).
+   * Una PR verso un altro ramo cambia la base del pannello Merge ma non quella della mappa. Null se il progetto non è git o la cartella non c'è.
+   */
+  base: string | null
+  /** Data dell'ultimo commit del ramo principale (fine della linea di main); null se non si legge. */
+  baseAt: number | null
+  /** Al massimo 50 righe di worktree (attivi o uniti), le più recenti, più le ultime 20 sessioni sul ramo principale; le altre non ci sono (`hidden`). */
+  entries: BranchMapEntry[]
+  /** Righe che avrebbero un posto sulla mappa (worktree attivi o uniti) ma non ci sono per il limite di 50; stima per difetto. */
+  hidden: number
+  /** Lettura fallita: la mappa è vuota e la UI può dirlo (testo già tradotto). Assente o null se è andata bene. */
+  error?: string | null
+}
+// ── fine LAD-80 ──
 
 // ── LAD-69 ──
 export type PrMergeMethod = 'merge' | 'squash' | 'rebase'

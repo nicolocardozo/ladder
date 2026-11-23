@@ -10,7 +10,7 @@ import type { AcpAgentSpec, AgentLogin, Attachment, Effort, PermissionLevel, Req
 import { agentEnv, BROWSER_MCP_NAME, clip, displayCommand, firstLine, whichInShell, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
 
 /** Chiavi API tolte sempre: vale il login dell'agente. */
-const STRIP_ENV = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY']
+export const STRIP_ENV = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY']
 
 export interface AcpOptions extends SessionOptions {
   spec: AcpAgentSpec
@@ -138,6 +138,79 @@ export async function acpAuthenticate(spec: AcpAgentSpec, methodId: string, cwd:
     child.kill()
     // Un agente che ignora SIGTERM non deve restare in vita: SIGKILL dopo qualche secondo, se è ancora lì.
     if (child.exitCode === null && child.signalCode === null) setTimeout(() => child.kill('SIGKILL'), 3000).unref()
+  }
+}
+
+/** Ferma il gruppo di processi di un programma avviato `detached`: SIGTERM subito, SIGKILL dopo 3 secondi a chi è rimasto. */
+function stopGroup(child: ChildProcess): void {
+  const pid = child.pid
+  const signal = (name: NodeJS.Signals): void => {
+    try {
+      if (pid) process.kill(-pid, name)
+      else child.kill(name)
+    } catch {
+      // Gruppo già finito.
+    }
+  }
+  signal('SIGTERM')
+  setTimeout(() => signal('SIGKILL'), 3000).unref()
+}
+
+/** Tempo massimo di una prova di accesso: un avvio a freddo di una CLI può essere lento, ma non deve restare appeso. */
+const PROBE_TIMEOUT_MS = 25_000
+
+/**
+ * Prova di accesso (LAD-79): avvia l'agente, `initialize` e `session/new` in `cwd` senza prompt, poi lo ferma. `ready` se la sessione
+ * si apre, `required` se risponde auth_required; ogni altro errore (non parte, timeout, non parla ACP) è un'eccezione: l'esito è ignoto.
+ * `NO_BROWSER=true` nell'ambiente (anche se la voce dell'agente dice altro): una CLI come Gemini non deve aprire la pagina di login.
+ * L'ambiente è quello degli altri agenti (senza ANTHROPIC_*, CLAUDE* e chiavi API). Non legge né tocca file di credenziali.
+ */
+export async function acpProbe(spec: AcpAgentSpec, cwd: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<AgentLogin> {
+  const command = await whichInShell(spec.command)
+  if (!command || (command.startsWith('/') && !existsSync(command))) throw new Error(t('command “{command}” not found', { command: spec.command }))
+  const env = await agentEnv(STRIP_ENV, { ...(spec.env ?? {}), NO_BROWSER: 'true' })
+  // `detached`: il programma è capo di un gruppo di processi suo, così alla fine si fermano anche i nipoti (server MCP, aggiornamenti).
+  const child = spawn(command, spec.args, { cwd, stdio: ['pipe', 'pipe', 'ignore'], env, detached: true })
+  child.on('error', () => undefined)
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(t('The agent did not answer in time.'))), timeoutMs)
+  })
+  timeout.catch(() => undefined)
+  const gone = new Promise<never>((_, reject) => {
+    child.once('error', (error) => reject(error))
+    child.once('exit', () => reject(new Error(t('The agent stopped before answering.'))))
+  })
+  gone.catch(() => undefined)
+  const wait = <T>(request: Promise<T>): Promise<T> => Promise.race([request, gone, timeout])
+  const stream = acp.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>)
+  const connection = acp
+    .client({ name: 'ladder' })
+    .onRequest('*', ({ method }) => {
+      throw acp.RequestError.methodNotFound(method)
+    })
+    .onNotification('*', () => undefined)
+    .connect(stream)
+  try {
+    const init = await wait(
+      connection.agent.request(acp.methods.agent.initialize, {
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {},
+        clientInfo: { name: 'ladder', title: 'Ladder', version: '0.0.0' }
+      })
+    )
+    const methods = authMethodsOf(init)
+    try {
+      await wait(connection.agent.request(acp.methods.agent.session.new, { cwd, mcpServers: [] }))
+    } catch (error) {
+      if ((error as { code?: number }).code === -32000) return { state: 'required', methods, checkedAt: Date.now() }
+      throw error
+    }
+    return { state: 'ready', methods, checkedAt: Date.now() }
+  } finally {
+    clearTimeout(timer)
+    connection.close()
+    stopGroup(child)
   }
 }
 

@@ -13,6 +13,7 @@ import {
   GitFork,
   HardDrive,
   Info,
+  PanelRight,
   Play,
   RotateCcw,
   SquareTerminal,
@@ -34,7 +35,7 @@ import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sideba
 import { ChatView } from '@/components/chat/chat-view'
 import { LadderEngraved } from '@/components/brand/logo'
 import { Composer } from '@/components/composer'
-import { GitChangesPill, GitStatusChip, useFirstChangeFlash, useGitStatus } from '@/components/git-status-chip'
+import { GitBlock, useFirstChangeFlash, useGitStatus } from '@/components/git-status-chip'
 import { Inspector } from '@/components/inspector/inspector'
 import { ColumnHeader, SplitColumns, SplitDropHint } from '@/components/split-view'
 import { TabBar } from '@/components/tab-bar'
@@ -102,7 +103,7 @@ export function useProjectSettings(project: Project | null): ProjectSettings | n
 // ── Barra in alto ───────────────────────────────────────────────────────────
 
 const barButton =
-  'no-drag inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent'
+  'no-drag inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent'
 
 function BarIcon({ label, shortcut, active, onClick, children }: { label: string; shortcut: string; active: boolean; onClick: () => void; children: ReactNode }) {
   return (
@@ -111,7 +112,7 @@ function BarIcon({ label, shortcut, active, onClick, children }: { label: string
         aria-label={label}
         aria-pressed={active}
         onClick={onClick}
-        className={cn('no-drag grid size-7 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50', active && 'bg-accent text-foreground')}
+        className={cn('no-drag grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50', active && 'bg-accent text-foreground')}
       >
         {children}
       </TooltipTrigger>
@@ -163,7 +164,7 @@ function RunButtons({ project, session }: { project: Project; session: SessionSu
   )
 }
 
-/** Chip del branch e pillola delle modifiche: aprono il pannello di destra su Merge e su Modifiche. */
+/** Blocco git (branch e modifiche): apre il pannello di destra su Merge e su Modifiche. */
 function SessionGit({ project, session, root }: { project: Project; session: SessionSummary; root: string | null }) {
   const status = useGitStatus(session.id)
   const flash = useFirstChangeFlash(status)
@@ -172,16 +173,24 @@ function SessionGit({ project, session, root }: { project: Project; session: Ses
   const mergeOpen = openTab === 'merge'
   const changesOpen = openTab === 'changes'
   return (
-    <div className="mr-1 flex min-w-0 shrink items-center gap-0.5">
-      <GitStatusChip status={status} fallbackBranch={session.branch ?? project.branch ?? null} title={root ?? project.path} active={mergeOpen} onClick={() => toggleInspector(project.id, 'merge')} />
-      {status && <GitChangesPill status={status} active={changesOpen} flash={flash} onClick={() => toggleInspector(project.id, 'changes')} />}
-    </div>
+    <GitBlock
+      status={status}
+      fallbackBranch={session.branch ?? project.branch ?? null}
+      title={root ?? project.path}
+      mergeActive={mergeOpen}
+      changesActive={changesOpen}
+      flash={flash}
+      onOpenMerge={() => toggleInspector(project.id, 'merge')}
+      // I numeri sono le modifiche non committate della cartella: Changes si apre sulla stessa vista, così i conti tornano.
+      onOpenChanges={() => (changesOpen ? toggleInspector(project.id, 'changes') : useApp.getState().openInspector(project.id, 'changes', { scope: { kind: 'uncommitted' } }))}
+    />
   )
 }
 
 export function TopBar({ children, project, session, root }: { children?: ReactNode; project: Project | null; session: SessionSummary | null; root: string | null }) {
   useShortcutsRevision()
   const sidebarOpen = useApp((s) => s.sidebarOpen)
+  const panelOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.inspector?.open) : false))
   const filesOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.inspector?.open) && s.ui[project.id]?.inspector?.tab === 'files' : false))
   const terminalOpen = useApp((s) => (project ? Boolean(s.ui[project.id]?.terminal?.open) : false))
   const toggleInspector = useApp((s) => s.toggleInspector)
@@ -189,8 +198,8 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
   const quickOpen = useApp((s) => s.quickOpen)
   const toggleQuickOpen = useApp((s) => s.toggleQuickOpen)
   return (
-    // Con la sidebar nascosta i semafori di macOS stanno sopra questa barra: 82px di margine, come nella sidebar.
-    <div className={`drag flex h-11 shrink-0 items-center gap-1 pr-2 ${sidebarOpen ? 'pl-3' : 'pl-[82px]'}`}>
+    // Con la sidebar nascosta i semafori di macOS stanno sopra questa barra: stesso margine della sidebar, che a schermo intero scende al normale.
+    <div className={`drag flex h-11 shrink-0 items-center gap-1 pr-2 ${sidebarOpen ? 'pl-3' : 'pl-traffic'}`}>
       {!sidebarOpen && <ShowSidebarButton />}
       {project && (
         // Dove sei: anche a sidebar chiusa si legge il progetto a cui appartengono le tab.
@@ -236,7 +245,7 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
               aria-pressed={filesOpen}
               onClick={() => toggleInspector(project.id, 'files')}
               className={cn(
-                'no-drag flex h-7 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+                'no-drag flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
                 filesOpen && 'bg-accent text-foreground'
               )}
             >
@@ -247,6 +256,9 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
               {t('Files of this project')} <Kbd className="ml-1">{shortcutLabel('inspector.files')}</Kbd>
             </TooltipContent>
           </Tooltip>
+          <BarIcon label={panelOpen ? t('Hide panel') : t('Show panel')} shortcut={shortcutLabel('inspector.toggle')} active={panelOpen} onClick={() => toggleInspector(project.id)}>
+            <PanelRight className="size-4" strokeWidth={1.75} />
+          </BarIcon>
         </>
       )}
     </div>
@@ -1061,8 +1073,8 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
           className={cn('w-full pb-1 text-xs text-muted-foreground', isTerminal ? 'flex min-w-0 items-center gap-1.5 px-5' : 'chat-col chat-gutter')}
           data-compact={!isTerminal && compact ? '' : undefined}
         >
-          {/* Nella chat le note stanno sulla stessa colonna del testo. */}
-          <div className={isTerminal ? 'w-full min-w-0' : 'chat-measure'}>
+          {/* Nella chat le note stanno sulla stessa colonna del composer (stesso chat-bleed). */}
+          <div className={isTerminal ? 'w-full min-w-0' : 'chat-measure chat-bleed'}>
             <div className={cn(!isTerminal && 'chat-reset')}>
             <div className="flex min-w-0 items-center gap-1.5 text-xs">
           {isTerminal && (
@@ -1110,9 +1122,9 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
               onPrefill={(text) => useApp.getState().insertIntoComposer(sessionId, text)}
             />
           </div>
-          {/* Il composer segue la colonna di testo (Impostazioni, Aspetto: larghezza della chat). */}
+          {/* Il composer segue la colonna di testo (Impostazioni, Aspetto: larghezza della chat), poco più largo (chat-bleed). */}
           <div className="chat-col chat-gutter pb-4" data-compact={compact ? '' : undefined}>
-            <div className="chat-measure">
+            <div className="chat-measure chat-bleed">
             <div className="chat-reset flex flex-col items-center">
             {error && <p className="mb-2 w-full text-sm text-destructive">{error}</p>}
             <SignInNotice agent={session.agent} profileId={session.profileId} className="mb-2 w-full" />
@@ -1175,7 +1187,6 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
               context={session.context}
               disabledReason={signInNeeded ? t('Sign in to {name} to start a session.', { name: CONNECTION_NAME[signInNeeded.id] }) : !agentStatus.available ? (agentStatus.error ?? t('{agent} is not available.', { agent: agentStatus.name })) : null}
               autoFocus={active && !focusTarget}
-              compact={compact}
             />
             </div>
             </div>

@@ -3,12 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConnectionId, ConnectionStatus, Profile, ProfileAgent } from '@shared/protocol'
 import { AccountButton } from '@/components/app-sidebar'
+import { SettingsDialog } from '@/components/settings-dialog'
 import { ConnectionList } from '@/components/connections/connection-list'
+import { OtherAgents } from '@/components/connections/other-agents'
+import { YouBlock } from '@/components/connections/you-block'
+import { SettingsBlock } from '@/components/settings-parts'
 import { Onboarding } from '@/components/connections/onboarding'
 import { SignInNotice } from '@/components/connections/sign-in-notice'
 import { connectionKey, type ConnectionActions } from '@/lib/connections'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
+import { installSettingsPreview } from './settings-preview'
+import { previewOtherAgents } from './others-preview'
 import { t } from '@shared/i18n'
 import { CONNECTION_SCENARIOS, connectionAgents, connectionScenario, PREVIEW_PROFILES, previewProfileAgents, previewProfileConnections, type ConnectionScenario, type ConnectionSet } from './fixtures'
 
@@ -28,6 +34,9 @@ export function ConnectionsPreview() {
   const [profiles, setProfiles] = useState<Profile[]>(PREVIEW_PROFILES)
   const [profileStatuses, setProfileStatuses] = useState<Record<string, ConnectionStatus>>(() => previewProfileConnections('first-run'))
   const timers = useRef<Record<string, number[]>>({})
+  // Host finto: risponde ad agents.others* e manda `agent.connection` dopo l'accesso. La porta arriva in modo asincrono.
+  useState(() => installSettingsPreview())
+  const userName = useApp((s) => s.prefs?.userName ?? null)
   const created = useRef(0)
 
   const patch = useCallback((id: ConnectionId, change: Partial<ConnectionStatus>, profileId?: string) => {
@@ -42,8 +51,8 @@ export function ConnectionsPreview() {
 
   // Le stesse viste dell'app leggono lo store: lo si tiene allineato (notice sopra il composer, pulsante dell'account).
   useEffect(() => {
-    useApp.setState({ connections: statuses, agents: connectionAgents(statuses), profiles, profileConnections: profileStatuses, profileAgents: previewProfileAgents(profileStatuses) })
-  }, [statuses, profiles, profileStatuses])
+    useApp.setState({ connections: statuses, agents: connectionAgents(statuses, scenario === 'attention' ? 88 : 62), profiles, profileConnections: profileStatuses, profileAgents: previewProfileAgents(profileStatuses) })
+  }, [statuses, profiles, profileStatuses, scenario])
 
   const choose = (next: ConnectionScenario) => {
     Object.keys(timers.current).forEach(clear)
@@ -120,6 +129,20 @@ export function ConnectionsPreview() {
           </button>
         ))}
         <span className="flex-1" />
+        <button
+          type="button"
+          aria-pressed={Boolean(userName)}
+          onClick={() => useApp.setState((s) => (s.prefs ? { prefs: { ...s.prefs, userName: userName ? null : 'Nicolò Cardozo' } } : {}))}
+          className={cn(btn, userName && 'border-ring/60 bg-accent text-foreground')}
+        >
+          {userName ? 'Con nome' : 'Senza nome'}
+        </button>
+        <button type="button" onClick={() => useApp.getState().setOtherAgents(previewOtherAgents())} className={btn}>
+          Altri agenti: ripristina
+        </button>
+        <button type="button" onClick={() => useApp.getState().setOtherAgents([])} className={btn}>
+          Altri agenti: nessuno
+        </button>
         {(['onboarding', 'settings'] as const).map((id) => (
           <button key={id} type="button" aria-pressed={screen === id} onClick={() => setScreen(id)} className={cn(btn, screen === id && 'border-ring/60 bg-accent text-foreground')}>
             {id === 'onboarding' ? 'Schermata di primo avvio' : 'Impostazioni → Abbonamenti'}
@@ -132,15 +155,23 @@ export function ConnectionsPreview() {
             <Onboarding key={scenario} statuses={statuses} actions={actions} onDone={() => setScreen('settings')} />
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-8 py-7">
+          <div className="@container flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-8 py-7">
             <div>
               <h2 className="text-xl font-semibold">{t('Subscriptions')}</h2>
               <p className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
                 {t('Sign in with the plans you already pay for. Ladder opens your browser and you come back connected, without installing anything or using the Terminal.')}
               </p>
             </div>
-            <div className="max-w-[640px]">
-              <ConnectionList statuses={statuses} profiles={profiles} profileStatuses={profileStatuses} actions={actions} showTool manageProfiles focus={null} />
+            <div>
+              <YouBlock />
+              <SettingsBlock id="services-title" title={t('Services')}>
+                <div className="mt-3">
+                  <ConnectionList statuses={statuses} profiles={profiles} profileStatuses={profileStatuses} actions={actions} showTool manageProfiles focus={null} />
+                </div>
+              </SettingsBlock>
+              <SettingsBlock id="other-agents-title" title={t('Other agents')} description={t('Agents that run from their own command line. Ladder checks whether each one is installed and signed in, and opens its sign-in in a terminal. It never reads their credentials.')}>
+                <OtherAgents />
+              </SettingsBlock>
             </div>
             <div className="flex max-w-[640px] flex-col gap-2">
               <p className="text-xs text-muted-foreground">Sopra il composer, con l’agente non collegato</p>
@@ -156,6 +187,8 @@ export function ConnectionsPreview() {
           </div>
         )}
       </div>
+      {/* Il pulsante dell'account apre Impostazioni → Abbonamenti: serve il dialogo vero. */}
+      <SettingsDialog />
     </div>
   )
 }

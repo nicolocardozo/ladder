@@ -31,6 +31,23 @@ if (!applyTheme(initialTheme)) {
   observer.observe(document, { childList: true })
 }
 
+// Schermo intero: i semafori spariscono, quindi <html> porta data-fullscreen e il CSS azzera il loro spazio.
+// Lo stato è della finestra; il valore iniziale è sincrono, così dopo un reload non c'è nessun salto.
+function applyFullScreen(on: boolean): void {
+  const root = document.documentElement
+  if (root) root.toggleAttribute('data-fullscreen', on)
+}
+const initialFullScreen = ipcRenderer.sendSync('ladder:is-full-screen') === true
+if (!document.documentElement) {
+  const observer = new MutationObserver(() => {
+    if (!document.documentElement) return
+    applyFullScreen(initialFullScreen)
+    observer.disconnect()
+  })
+  observer.observe(document, { childList: true })
+} else applyFullScreen(initialFullScreen)
+ipcRenderer.on('ladder:full-screen', (_event, on: boolean) => applyFullScreen(on))
+
 const api = {
   platform: process.platform,
   versions: {

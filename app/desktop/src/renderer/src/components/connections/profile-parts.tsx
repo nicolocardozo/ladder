@@ -1,15 +1,17 @@
 // Profili degli agenti (LAD-23) dentro Impostazioni → Abbonamenti: riga di un profilo con menu (rinomina, rimuovi), limiti d'uso
 // a scomparsa e "Add account". Il login resta la ConnectionRow di sempre: qui ci sono solo gli attacchi.
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, EllipsisVertical, Loader2, Plus, RotateCw } from 'lucide-react'
+import { EllipsisVertical, Loader2, Plus, RotateCw, TriangleAlert } from 'lucide-react'
 import type { ConnectionStatus, Profile, ProfileAgent } from '@shared/protocol'
-import { t } from '@shared/i18n'
+import { plural, t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { UsageRow, updatedLabel, useUsage } from '@/components/composer/usage-button'
+import { UsageRow, updatedLabel, useUsage, usageAlert, usageAlertText } from '@/components/composer/usage-button'
 import { CONNECTION_NAME, type ConnectionActions } from '@/lib/connections'
+import { runningSessionsOn } from '@/lib/usage-accounts'
 import { cn } from '@/lib/utils'
+import { useApp } from '@/store/app-store'
 import { ConnectionRow } from './connection-row'
 
 /** I messaggi dell'host sono già tradotti; se manca, un testo generico. */
@@ -17,43 +19,48 @@ function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : t('Something went wrong. Try again.')
 }
 
-/** Limiti d'uso del profilo, a scomparsa: si leggono solo quando li apri (e se il dato è vecchio si rinnovano). */
+/**
+ * Limiti d'uso del profilo, già aperti: le finestre da 5 ore e settimanale con le barre compatte di sempre (`UsageRow`).
+ * Si leggono all'apertura (se il dato è vecchio si rinnovano), come nel pannello del composer.
+ */
 function ProfileUsage({ agent, profile }: { agent: ProfileAgent; profile: Profile }) {
-  const [open, setOpen] = useState(false)
   const { status, loading, failed, now, native, windows, refresh, opened } = useUsage(agent, profile.id)
+  useEffect(() => {
+    opened()
+    // Solo all'apertura della riga: `opened` cambia a ogni render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // Le finestre del piano (5 ore, settimanale), non quelle per modello: le altre restano nel pannello del composer.
+  const plan = windows.filter((w) => !w.model)
+  const shown = (plan.length ? plan : windows).slice().sort((a, b) => a.minutes - b.minutes).slice(0, 2)
+  // Come nel pannello del composer: sessioni in corso con questo account e segno d'avviso (forma oltre al colore).
+  const running = useApp((s) => runningSessionsOn(Object.values(s.sessions), agent, profile.id))
+  const alert = usageAlert(windows)
+  const alertText = alert ? usageAlertText(alert, now) : null
   return (
-    <div className="flex flex-col gap-2">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => {
-          if (!open) opened()
-          setOpen(!open)
-        }}
-        className="-ml-1 flex w-fit items-center gap-1 rounded-sm px-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        <ChevronRight aria-hidden className={cn('size-3 transition-transform motion-reduce:transition-none', open && 'rotate-90')} />
-        {t('Usage limits')}
-      </button>
-      {open && (
-        <div className="flex max-w-[360px] flex-col gap-3 rounded-md bg-muted p-3">
-          {windows.length > 0 ? (
-            windows.map((usage) => <UsageRow key={usage.key} usage={usage} now={now} />)
-          ) : (
-            <p role="status" className="text-xs text-muted-foreground">
-              {loading ? t('Reading your plan limits…') : t('No usage data yet. It appears after the first reply.')}
-            </p>
-          )}
-          <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-xs text-muted-foreground">{loading ? t('Updating…') : failed ? `${t('Update failed')} · ${updatedLabel(status?.usageAt, now)}` : updatedLabel(status?.usageAt, now)}</span>
-            {native && (
-              <Button variant="ghost" size="icon-xs" disabled={loading} aria-label={t('Refresh usage of {name}', { name: profile.name })} title={t('Refresh usage')} onClick={refresh}>
-                <RotateCw aria-hidden className={cn(loading && 'animate-spin motion-reduce:animate-none')} />
-              </Button>
-            )}
-          </div>
-        </div>
+    <div className="flex flex-col gap-2" aria-label={t('Usage limits')} role="group">
+      {running > 0 && <span className="text-xs text-muted-foreground tabular-nums">{plural(running, '1 session in use', '{n} sessions in use')}</span>}
+      {alert && alertText && (
+        <p className="flex items-start gap-1.5 text-xs font-medium">
+          <TriangleAlert aria-hidden className={cn('mt-px size-3.5 shrink-0', alert.limited ? 'text-destructive' : 'text-attention')} strokeWidth={2} />
+          <span className="min-w-0">{alertText.what}</span>
+        </p>
       )}
+      {shown.length > 0 ? (
+        shown.map((usage) => <UsageRow key={usage.key} usage={usage} now={now} compact />)
+      ) : (
+        <p role="status" className="text-xs text-muted-foreground">
+          {loading ? t('Reading your plan limits…') : t('No usage data yet. It appears after the first reply.')}
+        </p>
+      )}
+      <div className="-mt-1 flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-xs text-faint">{loading ? t('Updating…') : failed ? `${t('Update failed')} · ${updatedLabel(status?.usageAt, now)}` : updatedLabel(status?.usageAt, now)}</span>
+        {native && (
+          <Button variant="ghost" size="icon-xs" disabled={loading} aria-label={t('Refresh usage of {name}', { name: profile.name })} title={t('Refresh usage')} onClick={refresh}>
+            <RotateCw aria-hidden className={cn(loading && 'animate-spin motion-reduce:animate-none')} />
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
@@ -166,7 +173,7 @@ export function ProfileRow({ agent, profile, count, status, actions, showTool }:
           </form>
         ) : undefined
       }
-      extra={<ProfileUsage agent={agent} profile={profile} />}
+      usage={<ProfileUsage agent={agent} profile={profile} />}
       footer={
         <>
           {error && (

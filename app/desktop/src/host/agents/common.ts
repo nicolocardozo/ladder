@@ -84,7 +84,8 @@ export async function whichManyInShell(names: string[]): Promise<Map<string, str
   const found = new Map<string, string>()
   const safe = names.filter((n) => /^[\w.-]+$/.test(n))
   if (!safe.length) return found
-  const script = `for n in ${safe.join(' ')}; do p=$(command -v -- "$n") && printf '%s\\t%s\\n' "$n" "$p"; done`
+  // `; true`: senza, l'ultimo nome mancante dà stato 1 a tutto lo script e execFile scarta anche i percorsi già trovati.
+  const script = `for n in ${safe.join(' ')}; do p=$(command -v -- "$n") && printf '%s\\t%s\\n' "$n" "$p"; done; true`
   try {
     const { stdout } = await run(process.env.SHELL || '/bin/zsh', ['-lc', script], { timeout: 8000, env: cleanEnv() })
     for (const line of stdout.split('\n')) {

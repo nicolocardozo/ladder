@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { Bot, CircleAlert, FileText, Globe, OctagonX, Plus, X } from 'lucide-react'
+import { Bot, CircleAlert, Columns2, FileText, Globe, OctagonX, Plus, X } from 'lucide-react'
 import { fileTabId } from '@shared/file-tabs'
 import type { AgentBrowserState } from '@shared/protocol'
 import { t } from '@shared/i18n'
@@ -10,13 +10,15 @@ import { SessionGlyph } from '@/components/status'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Kbd } from '@/components/ui/kbd'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { agentStatusText, hasAgentTab } from '@/lib/browser-agent'
 import { browserAddress, browserTabLabel } from '@/lib/browser-tabs'
 import { canDropOnEdge, overSplitEdge } from '@/components/split-view'
 import { startSortDrag } from '@/lib/pointer-drag'
+import { isMac } from '@/lib/send-key'
 import { sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
-import { useApp } from '@/store/app-store'
+import { MAX_COLUMNS, liveColumns, splitCandidate, useApp } from '@/store/app-store'
 
 const NO_TABS: string[] = []
 const NO_FILES: { root: string; path: string }[] = []
@@ -43,8 +45,31 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
   const project = useApp((s) => s.projects.find((p) => p.id === projectId) ?? null)
   const select = useApp((s) => s.select)
   const closeTab = useApp((s) => s.closeTab)
+  const projects = useApp((s) => s.projects)
+  const ui = useApp((s) => s.ui)
+  const selection = useApp((s) => s.selection)
+  const openSplit = useApp((s) => s.openSplit)
+  const closeColumn = useApp((s) => s.closeColumn)
+  const splitActive = useApp((s) => s.splitActive)
   const reorderTab = useApp((s) => s.reorderTab)
   const visible = tabs.filter((id) => sessions[id] && !sessions[id].archived)
+  // Colonne affiancate del progetto (vuoto se non c'è divisione) e perché il pulsante Affianca può essere spento.
+  const columns = liveColumns({ projects, sessions, ui }, projectId)
+  const currentId = selection.kind === 'session' && selection.projectId === projectId ? selection.sessionId : null
+  const splitBlocked =
+    columns.length >= MAX_COLUMNS
+      ? t('Maximum three columns')
+      : !currentId
+        ? t('Open a chat tab to split')
+        : null
+  // Senza altre chat aperte il pulsante fa come ⌘\: apre una chat nuova in colonna.
+  const hasCandidate = currentId !== null && splitCandidate({ projects, sessions, ui }, projectId, currentId) !== undefined
+  const modKey = isMac ? '⌘' : 'Ctrl'
+  // ⌘clic (Ctrl fuori da macOS) su una tab di chat: la aggiunge alle colonne o, se c'è già, la toglie. Il clic dopo un trascinamento è assorbito altrove.
+  const toggleColumn = (id: string) => {
+    if (columns.includes(id)) closeColumn(projectId, id)
+    else openSplit(projectId, id)
+  }
   // Una richiesta in un'altra sessione dello stesso progetto: niente notifica, un avviso qui con "Vai".
   const waitingHere = Object.values(sessions)
     .filter((s) => s.projectId === projectId && !s.archived && s.run === 'waiting' && s.id !== activeSessionId)
@@ -97,6 +122,7 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
       {visible.map((id) => {
         const session = sessions[id]
         const active = id === activeSessionId
+        const column = columns.indexOf(id) + 1
         return (
           <ContextMenu key={id}>
             <ContextMenuTrigger
@@ -105,14 +131,21 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
               data-tab-kind="session"
               aria-selected={active}
               className={cn(
-                'group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1.5 rounded-md pr-1 pl-2 text-sm text-muted-foreground select-none data-[dragging=true]:bg-accent',
+                'group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1 rounded-md pr-0.5 pl-2 text-sm text-muted-foreground select-none data-[dragging=true]:bg-accent',
                 active ? 'bg-accent text-foreground' : 'hover:bg-accent/60 data-[popup-open]:bg-accent/60'
               )}
             >
               <button
                 type="button"
-                onClick={() => select({ kind: 'session', projectId, sessionId: id })}
-                className="flex min-w-0 items-center gap-1.5 outline-none focus-visible:underline"
+                onClick={(event) => {
+                  // Su macOS Ctrl+clic è il clic destro: resta al menu.
+                  if (isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey) {
+                    toggleColumn(id)
+                    return
+                  }
+                  select({ kind: 'session', projectId, sessionId: id })
+                }}
+                className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:underline"
                 title={session.titleGenerating ? `${session.title} · ${t('Generating title…')}` : session.title}
               >
                 {/* A riposo il segno del provider; quando lavora o ti aspetta, lo stato. */}
@@ -121,6 +154,16 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
                 </span>
                 <span className={cn('truncate', active && 'font-medium', session.titleGenerating && 'animate-pulse motion-reduce:animate-none')}>{session.title}</span>
                 {agentBrowser[id]?.action && <Globe role="img" aria-label={t('The agent is using the browser')} className="size-3 shrink-0 text-running" strokeWidth={2} />}
+                {/* Colonna affiancata: il numero (oltre al colore) dice quale; pieno se è la colonna attiva. */}
+                {column > 0 && (
+                  <span
+                    role="img"
+                    aria-label={t('In column {n} of {total}', { n: column, total: columns.length })}
+                    className={cn('grid size-4 shrink-0 place-items-center rounded-[4px] border text-[10px] leading-none font-semibold tabular-nums', active ? 'border-transparent bg-foreground text-background' : 'border-border text-foreground')}
+                  >
+                    {column}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
@@ -128,7 +171,7 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
                 aria-label={t('Close {title}', { title: session.title })}
                 onClick={() => closeTab(projectId, id)}
                 className={cn(
-                  'grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+                  'grid size-[18px] shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
                   !active && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
                 )}
               >
@@ -145,8 +188,8 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
         const dirty = Boolean(dirtyFiles[id])
         const name = file.path.split('/').pop() ?? file.path
         return (
-          <div key={id} role="tab" data-tab-id={id} data-tab-kind="file" aria-selected={active} className={cn('group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1.5 rounded-md pr-1 pl-2 text-sm text-muted-foreground select-none data-[dragging=true]:bg-accent', active ? 'bg-accent text-foreground' : 'hover:bg-accent/60')}>
-            <button type="button" onClick={() => openFile(projectId, file.root, file.path)} className="flex min-w-0 items-center gap-1.5 outline-none focus-visible:underline" title={`${file.root}/${file.path}`}>
+          <div key={id} role="tab" data-tab-id={id} data-tab-kind="file" aria-selected={active} className={cn('group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1 rounded-md pr-0.5 pl-2 text-sm text-muted-foreground select-none data-[dragging=true]:bg-accent', active ? 'bg-accent text-foreground' : 'hover:bg-accent/60')}>
+            <button type="button" onClick={() => openFile(projectId, file.root, file.path)} className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:underline" title={`${file.root}/${file.path}`}>
               <FileText aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
               <span className={cn('truncate', active && 'font-medium')}>{name}</span>
             </button>
@@ -155,7 +198,7 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
               data-tab-close
               aria-label={t('Close {title}', { title: name })}
               onClick={() => closeFile(projectId, file.root, file.path)}
-              className={cn('grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50', !active && !dirty && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
+              className={cn('grid size-[18px] shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50', !active && !dirty && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
             >
               {dirty && <span aria-label={t('Unsaved')} className="block size-2 rounded-full bg-foreground/70 group-hover:hidden" />}
               <X className={cn('size-3', dirty && 'hidden group-hover:block')} />
@@ -168,8 +211,8 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
         const live = browserStates[tab.id]
         const label = browserTabLabel(live, tab.url, tab.title)
         return (
-          <div key={tab.id} role="tab" data-tab-id={tab.id} data-tab-kind="browser" aria-selected={active} className={cn('group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1.5 rounded-md pr-1 pl-2 text-sm text-muted-foreground select-none data-[dragging=true]:bg-accent', active ? 'bg-accent text-foreground' : 'hover:bg-accent/60')}>
-            <button type="button" onClick={() => select({ kind: 'browser', projectId, tabId: tab.id })} className="flex min-w-0 items-center gap-1.5 outline-none focus-visible:underline" title={live?.url || tab.url || label}>
+          <div key={tab.id} role="tab" data-tab-id={tab.id} data-tab-kind="browser" aria-selected={active} className={cn('group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1 rounded-md pr-0.5 pl-2 text-sm text-muted-foreground select-none data-[dragging=true]:bg-accent', active ? 'bg-accent text-foreground' : 'hover:bg-accent/60')}>
+            <button type="button" onClick={() => select({ kind: 'browser', projectId, tabId: tab.id })} className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:underline" title={live?.url || tab.url || label}>
               {/* Mentre la pagina carica, lo stesso anello delle sessioni in corso al posto del globo. */}
               <span className="grid w-3.5 shrink-0 place-items-center">
                 {live?.loading ? (
@@ -185,7 +228,7 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
               data-tab-close
               aria-label={t('Close {title}', { title: label })}
               onClick={() => closeBrowser(projectId, tab.id)}
-              className={cn('grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50', !active && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
+              className={cn('grid size-[18px] shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50', !active && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
             >
               <X className="size-3" />
             </button>
@@ -203,8 +246,8 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
         const waiting = Boolean(agent.action?.waitingForYou)
         const closeNote = t('Close the agent’s browser. This stops it.')
         return (
-          <div key={id} role="tab" data-tab-id={id} data-tab-kind="agent" aria-selected={active} className={cn('group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1.5 rounded-md pr-1 pl-2 text-sm text-muted-foreground select-none', active ? 'bg-accent text-foreground' : 'hover:bg-accent/60')}>
-            <button type="button" onClick={() => select({ kind: 'browser', projectId, tabId: id })} className="flex min-w-0 items-center gap-1.5 outline-none focus-visible:underline" title={`${session.title} · ${status}`}>
+          <div key={id} role="tab" data-tab-id={id} data-tab-kind="agent" aria-selected={active} className={cn('group flex h-7 max-w-[180px] min-w-[84px] shrink items-center gap-1 rounded-md pr-0.5 pl-2 text-sm text-muted-foreground select-none', active ? 'bg-accent text-foreground' : 'hover:bg-accent/60')}>
+            <button type="button" onClick={() => select({ kind: 'browser', projectId, tabId: id })} className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:underline" title={`${session.title} · ${status}`}>
               <Bot aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
               <span className={cn('truncate', active && 'font-medium')}>{label}</span>
               {/* Lo stato ha una forma propria oltre al colore: anello = lavora, avviso = ti aspetta, stop = fermato. */}
@@ -222,7 +265,7 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
               aria-label={`${t('Close {title}', { title: label })}. ${closeNote}`}
               title={closeNote}
               onClick={() => closeBrowser(projectId, id)}
-              className={cn('grid size-5 shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50', !active && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
+              className={cn('grid size-[18px] shrink-0 place-items-center rounded text-faint outline-none hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50', !active && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
             >
               <X className="size-3" />
             </button>
@@ -285,6 +328,31 @@ export function TabBar({ projectId, activeSessionId, activeFile, activeBrowser }
             {browsers.length > 0 && <DropdownMenuItem onClick={() => openBrowser(projectId, { fresh: true })}>{t('New browser tab')}</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+      {visible.length > 0 && (
+        <Tooltip>
+          {/* aria-disabled e non disabled: il tooltip che spiega il perché deve restare raggiungibile da mouse e tastiera. */}
+          <TooltipTrigger
+            aria-label={t('Split')}
+            aria-disabled={splitBlocked ? true : undefined}
+            onClick={() => {
+              if (!splitBlocked) splitActive()
+            }}
+            className={cn(
+              'no-drag grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent/60',
+              splitBlocked && 'opacity-40 hover:bg-transparent hover:text-muted-foreground'
+            )}
+          >
+            <Columns2 aria-hidden className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="flex-col items-start gap-0.5">
+            <span className="flex items-center gap-1.5">
+              {splitBlocked ?? (hasCandidate ? t('Split') : t('Open a new chat in a column'))}
+              {shortcutLabel('chat.split') && <Kbd>{shortcutLabel('chat.split')}</Kbd>}
+            </span>
+            <span className="opacity-70">{t('{key}click a tab to add or remove its column', { key: modKey })}</span>
+          </TooltipContent>
+        </Tooltip>
       )}
     </div>
   )

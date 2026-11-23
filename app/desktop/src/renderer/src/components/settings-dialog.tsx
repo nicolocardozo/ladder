@@ -7,6 +7,8 @@ import { AgentMark } from '@/components/agent-mark'
 import { AgentCatalog } from '@/components/agents/agent-catalog'
 import { liveAgentCatalogActions } from '@/lib/agent-catalog'
 import { ConnectionList } from '@/components/connections/connection-list'
+import { OtherAgents } from '@/components/connections/other-agents'
+import { YouBlock } from '@/components/connections/you-block'
 import { refreshConnections } from '@/lib/connections'
 import { useApp } from '@/store/app-store'
 import type { ThemeInfo } from '@shared/themes.generated'
@@ -18,7 +20,7 @@ import { usePrefs } from '@/hooks/use-prefs'
 import { useElementWidth } from '@/lib/use-element-width'
 import { DefaultsSection } from '@/components/settings-defaults'
 import { ShortcutsSection } from '@/components/settings-shortcuts'
-import { Toggle } from '@/components/settings-parts'
+import { SettingsBlock, Toggle } from '@/components/settings-parts'
 import { ReadingBlocks } from '@/components/settings-reading'
 import { SystemSection } from '@/components/settings-system'
 import { WorkspaceSection } from '@/components/settings-workspace'
@@ -80,9 +82,10 @@ export function SettingsDialog() {
   const setSection = useSettings((s) => s.setSection)
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {/* Dimensioni fisse: passando da una sezione all'altra la finestra non si muove. */}
-      <DialogContent className="flex h-[min(760px,calc(100vh-48px))] w-[min(1120px,calc(100vw-48px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
+    <Dialog open={open} onOpenChange={(next) => (setOpen(next), !next && useApp.setState({ connectionFocus: null }))}>
+      {/* Dimensioni fisse: passando da una sezione all'altra la finestra non si muove. Il contenuto della sezione è un container (`@container`):
+          da 820 px le sezioni si dispongono su due colonne, sotto stanno una sotto l'altra. */}
+      <DialogContent className="flex h-[min(760px,calc(100vh-48px))] w-[min(1360px,calc(100vw-48px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
         <div className="flex min-h-0 flex-1">
           <nav className="flex w-[210px] shrink-0 flex-col gap-1 border-r border-border bg-sidebar p-3" aria-label={t('Settings sections')}>
             <LadderLockup className="mx-1 mt-1 mb-4 h-[18px] w-auto" title="Ladder" />
@@ -104,7 +107,7 @@ export function SettingsDialog() {
               </button>
             ))}
           </nav>
-          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-8 py-7">
+          <div className="@container flex min-w-0 flex-1 flex-col overflow-y-auto px-8 py-7">
             {section === 'appearance' && <AppearanceSection open={open} />}
             {section === 'notifications' && <NotificationsSection />}
             {section === 'subscriptions' && <SubscriptionsSection />}
@@ -173,16 +176,23 @@ function AppearanceSection({ open }: { open: boolean }) {
                 )
               })}
             </div>
-            <ChatFontPicker />
-            <ChatWidthPicker />
-            <ReadingBlocks />
+            {/* Da 820 px: chat a sinistra (font e larghezza con le loro anteprime), lettura e codice a destra. */}
+            <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
+              <div className="min-w-0">
+                <ChatFontPicker />
+                <ChatWidthPicker />
+              </div>
+              <div className="min-w-0">
+                <ReadingBlocks />
+              </div>
+            </div>
     </>
   )
 }
 
 const CHAT_FONTS: { id: ChatFont; label: string }[] = [
-  { id: 'system-mono', label: 'System monospace' },
   { id: 'system-sans', label: 'System sans' },
+  { id: 'system-mono', label: 'System monospace' },
   { id: 'mona-sans', label: 'Mona Sans' },
   { id: 'monaspace-neon', label: 'Monaspace Neon' }
 ]
@@ -222,7 +232,7 @@ function ChatFontPicker() {
               )}
             >
               <span className={selected ? 'font-semibold' : 'font-medium'}>{t(font.label)}</span>
-              {font.id === 'system-mono' && <span className="rounded border border-border px-1 font-sans text-xs text-muted-foreground">{t('default')}</span>}
+              {font.id === 'system-sans' && <span className="rounded border border-border px-1 font-sans text-xs text-muted-foreground">{t('default')}</span>}
               {selected && <Check className="ml-auto size-3.5 text-primary" aria-hidden="true" />}
             </button>
           )
@@ -238,8 +248,8 @@ function ChatFontPicker() {
   )
 }
 
-/** Anteprima di una finestra larga 1200 px, rimpicciolita per stare nel dialogo: a scala reale 75, 100 ch e tutta la vista non si distinguerebbero. */
-const PREVIEW_WINDOW = 1200
+/** Anteprima di una finestra larga 1400 px, rimpicciolita per stare nel dialogo: a scala reale 820, 1100 px e tutta la vista non si distinguerebbero. Più larga di 1100 px, così Ampia e Piena restano diverse. */
+const PREVIEW_WINDOW = 1400
 function WidthPreview({ width }: { width: AppPrefs['chatWidth'] }) {
   const [measure, frame] = useElementWidth()
   const zoom = frame > 0 ? Math.min(1, (frame - 2) / PREVIEW_WINDOW) : 1
@@ -248,22 +258,22 @@ function WidthPreview({ width }: { width: AppPrefs['chatWidth'] }) {
       <div style={{ width: PREVIEW_WINDOW, zoom }} className="px-6 py-4">
         <div className="chat-measure">
           <p className="font-[family-name:var(--font-chat)] text-[length:var(--chat-size)] leading-[var(--chat-leading)] text-foreground">
-            {t('Lines end where the width you picked says, so long answers stay easy to read in a narrow window and on a wide monitor alike. Code and tables below can use the whole window.')}
+            {t('Lines end where the width you picked says, so long answers stay easy to read in a narrow window and on a wide monitor alike. In a narrow window the text simply takes all the room it has. Code and tables below can use up to 1100 px, or the whole width with Full.')}
           </p>
         </div>
-        <pre className="mt-3 overflow-hidden rounded-md border border-border bg-[var(--code-bg)] px-3 py-2 font-mono text-xs leading-5 text-foreground">const total = items.reduce((sum, item) =&gt; sum + item.price, 0)</pre>
+        <pre style={{ maxWidth: 'min(100%, max(var(--chat-measure), 1100px))' }} className="mx-auto mt-3 overflow-hidden rounded-md border border-border bg-[var(--code-bg)] px-3 py-2 font-mono text-xs leading-5 text-foreground">const total = items.reduce((sum, item) =&gt; sum + item.price, 0)</pre>
       </div>
     </div>
   )
 }
 
 const CHAT_WIDTHS: { id: AppPrefs['chatWidth']; label: string; hint: string }[] = [
-  { id: 'comfortable', label: 'Comfortable', hint: 'About 75 characters per line' },
-  { id: 'wide', label: 'Wide', hint: 'About 100 characters per line' },
+  { id: 'comfortable', label: 'Comfortable', hint: 'Up to 820 px' },
+  { id: 'wide', label: 'Wide', hint: 'Up to 1100 px' },
   { id: 'full', label: 'Full', hint: 'The whole width of the window' }
 ]
 
-/** Larghezza della chat: limite del testo in caratteri del font scelto. Codice, tabelle e output dei comandi possono uscirne. */
+/** Larghezza della chat: limite del testo in pixel (in una finestra stretta occupa tutto lo spazio). Codice, tabelle e output dei comandi possono uscirne. */
 function ChatWidthPicker() {
   const [prefs, update] = usePrefs()
   if (!prefs) return null
@@ -443,9 +453,19 @@ function SubscriptionsSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Sign in with the plans you already pay for. Ladder opens your browser and you come back connected, without installing anything or using the Terminal.')}
       </DialogDescription>
-      <div className="mt-6 max-w-[640px]">
-        <ConnectionList showTool manageProfiles />
-      </div>
+      <YouBlock />
+      <SettingsBlock id="services-title" title={t('Services')}>
+        <div className="mt-3">
+          <ConnectionList showTool manageProfiles />
+        </div>
+      </SettingsBlock>
+      <SettingsBlock
+        id="other-agents-title"
+        title={t('Other agents')}
+        description={t('Agents that run from their own command line. Ladder checks whether each one is installed and signed in, and opens its sign-in in a terminal. It never reads their credentials.')}
+      >
+        <OtherAgents />
+      </SettingsBlock>
     </>
   )
 }
@@ -459,7 +479,7 @@ function AgentsSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Claude Code and Codex have a native adapter. Other agents speak ACP, the open protocol between editors and agents: to add one, all you need is the command that starts it.')}
       </DialogDescription>
-      <div className="mt-6 grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-8">
+      <div className="mt-6 grid items-start gap-8 @[820px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
         {agents.map((agent) => (
@@ -547,7 +567,7 @@ function AddAcpAgent() {
   const words = commandLine.trim().split(/\s+/).filter(Boolean)
 
   return (
-    <section className="col-span-full flex min-w-0 max-w-[720px] flex-col gap-2">
+    <section className="flex min-w-0 flex-col gap-2">
       <div className="flex items-center gap-1">
         <h3 className="mr-2 text-sm font-semibold">{t('Add an agent')}</h3>
         {(['registry', 'custom'] as const).map((id) => (

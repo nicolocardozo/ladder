@@ -143,12 +143,13 @@
 [data-chat-size='xlarge'] {
   --chat-step: 4px;
 }
-:root,
 [data-chat-font='system-mono'] {
   --font-chat: "SF Mono", "Cascadia Mono", Consolas, Menlo, monospace;
   --chat-size: calc(14px + var(--chat-step));
   --chat-leading: 1.65;
 }
+/* Predefinito: sans di sistema (SF Pro su macOS), 15 px. Le altre voci sono scelte in Impostazioni, Aspetto. */
+:root,
 [data-chat-font='system-sans'] {
   --font-chat: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   --chat-size: calc(15px + var(--chat-step));
@@ -176,6 +177,17 @@
 }
 [data-code-font='monaspace-neon'] {
   --font-code: var(--font-mono);
+}
+
+/* Spazio per i semafori di macOS: 82px in finestra, il margine normale a schermo intero (il preload imposta data-fullscreen su <html>). */
+:root {
+  --traffic-light-inset: 82px;
+}
+:root[data-fullscreen] {
+  --traffic-light-inset: 12px;
+}
+@utility pl-traffic {
+  padding-left: var(--traffic-light-inset);
 }
 
 /* Zone trascinabili della finestra (barra del titolo nascosta di macOS). */
@@ -331,4 +343,9 @@
 [role='listbox'],
 [role='dialog'] {
   -webkit-app-region: no-drag;
+}
+
+/* LAD-75: durante un trascinamento (pointer-drag.ts) il testo sotto il puntatore non si seleziona. */
+html[data-dragging='true'] * {
+  user-select: none !important;
 }

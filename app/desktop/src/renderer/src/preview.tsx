@@ -16,8 +16,10 @@ import { seedProjectFiles } from './components/composer/file-index'
 import { TooltipProvider } from './components/ui/tooltip'
 import {
   agentsFixture,
+  agentsGraphFixture,
   PREVIEW_CLAUDE_WORK,
   PREVIEW_PROFILES,
+  connectionScenario,
   previewUsage,
   previewProfileAgents,
   previewProfileConnections,
@@ -66,7 +68,7 @@ const INITIAL_LOCALE: Locale = isLocale(initialLang) ? initialLang : 'en'
 setLocale(INITIAL_LOCALE)
 document.documentElement.lang = INITIAL_LOCALE
 
-type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question' | 'command' | 'busy' | 'agents' | 'agents-idle' | 'agents-errors' | 'notice-done' | 'notice-failed' | 'agents-waiting' | 'finished-states' | 'stalled'
+type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question' | 'command' | 'busy' | 'agents' | 'agents-tree' | 'agents-12' | 'agents-45' | 'agents-idle' | 'agents-errors' | 'notice-done' | 'notice-failed' | 'agents-waiting' | 'finished-states' | 'stalled'
 
 // Sessione finta con cento sotto-agenti: la board, il popover e il dialogo leggono da qui come nell'app.
 const PREVIEW_SESSION = 'preview-agents'
@@ -92,9 +94,19 @@ const CONTEXT_CASES = [
 type PreviewCase = 'claude' | 'codex' | 'unknown'
 const PREVIEW_CASES: PreviewCase[] = ['claude', 'codex', 'unknown']
 // Limiti d'uso (LAD-67): sotto soglia niente, 85% avviso sull'icona, 96% anche il bannerino, limite esaurito. Il profilo Work segue il caso, il predefinito resta basso.
-type UsageCase = 'below' | '85%' | '96%' | 'limited'
-const USAGE_CASES: UsageCase[] = ['below', '85%', '96%', 'limited']
-const USAGE_PERCENTS: Record<UsageCase, [number, number]> = { below: [34, 62], '85%': [85, 62], '96%': [40, 96], limited: [100, 71] }
+// 'mixed' (LAD-82): pannello con tutti gli abbonamenti, sessioni in corso su più account, Codex senza dati e Work vicino al limite.
+type UsageCase = 'below' | '85%' | '96%' | 'limited' | 'mixed'
+const USAGE_CASES: UsageCase[] = ['below', '85%', '96%', 'limited', 'mixed']
+const USAGE_PERCENTS: Record<UsageCase, [number, number]> = { below: [34, 62], '85%': [85, 62], '96%': [40, 96], limited: [100, 71], mixed: [91, 62] }
+/** Sessione di prova con i soli campi che servono ai limiti (agente, profilo, stato), il resto ai valori neutri. */
+function usageSession(id: string, agent: 'claude-code' | 'codex', profileId: string | undefined, run: SessionSummary['run'], at: number): SessionSummary {
+  return {
+    id, projectId: PREVIEW_PROJECT, title: id, titleSource: 'generated', agent, profileId, model: null, effort: null, permission: 'edit', createdAt: at, updatedAt: at, run,
+    waitingLabel: null, activity: null, unread: false, lastReadSeq: 0, archived: false, queue: [], context: null, mode: 'chat', cwd: '/tmp/acme', worktree: null, command: null, terminalId: null,
+    estimated: false, waitingSince: null, request: null, openRequests: 0, activityAt: at, canSteer: true, branch: null, pr: null, source: null
+  }
+}
+const RUNNING_PREVIEW = [['claude-code', undefined], ['claude-code', PREVIEW_CLAUDE_WORK], ['claude-code', PREVIEW_CLAUDE_WORK], ['codex', undefined]] as const
 const stripDefaults = (models: AgentStatus['models']): AgentStatus['models'] => models.map(({ isDefault: _a, defaultEffort: _b, ...m }) => m)
 function previewModels(kind: PreviewCase): AgentStatus['models'] {
   const claude = PREVIEW_AGENTS[0].models.filter((m) => m.id !== 'claude-haiku-5')
@@ -137,8 +149,8 @@ const PREVIEW_PREFS: AppPrefs = { notifications: true, sound: true, dndUntil: nu
     { id: 'preset-codex', name: 'Codex fix', agent: 'codex', model: 'gpt-5.5-mini', effort: 'low', permission: 'ask', worktree: false },
     { id: 'preset-gemini', name: 'Gemini sketch', note: 'Rough ideas, nothing is edited.', agent: 'acp:gemini', permission: 'plan', worktree: false }
   ],
-  sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-mono', chatWidth: 'comfortable', autonomyHint: true, stallHint: false,
-  chatTextSize: 'default', editorTextSize: 13, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: 'ladder/', autoArchiveDays: null, openAtLogin: false, keepAwake: false, soundName: 'default' }
+  sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-sans', chatWidth: 'comfortable', autonomyHint: true, stallHint: false,
+  chatTextSize: 'default', editorTextSize: 13, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: 'ladder/', autoArchiveDays: null, openAtLogin: false, keepAwake: false, soundName: 'default', userName: null }
 const PREVIEW_PROFILE_CONNECTIONS = previewProfileConnections('connected')
 useApp.setState({
   agents: PREVIEW_AGENTS,
@@ -146,6 +158,8 @@ useApp.setState({
   profiles: PREVIEW_PROFILES,
   profileConnections: PREVIEW_PROFILE_CONNECTIONS,
   profileAgents: previewProfileAgents(PREVIEW_PROFILE_CONNECTIONS),
+  // Collegamenti dei tre servizi: Impostazioni → Abbonamenti e il footer della sidebar si provano anche da qui.
+  connections: connectionScenario('connected'),
   projects: PREVIEW_PROJECTS,
   prefs: PREVIEW_PREFS,
   // acme-api ha un modello che l'agente non offre più e un agente non disponibile: si vedono come non validi.
@@ -201,6 +215,9 @@ const MODES: { id: Mode; label: string }[] = [
   { id: 'command', label: 'Comando in corso' },
   { id: 'busy', label: 'Al lavoro con coda' },
   { id: 'agents', label: '100 sotto-agenti' },
+  { id: 'agents-tree', label: '3 agenti + 1 figlio' },
+  { id: 'agents-12', label: '12 agenti' },
+  { id: 'agents-45', label: '45 agenti (solo lista)' },
   { id: 'agents-idle', label: 'Agenti conclusi' },
   { id: 'agents-errors', label: 'Solo errori' },
   { id: 'notice-done', label: 'Avviso: agenti finiti' },
@@ -230,6 +247,12 @@ function load(mode: Mode): Fixture {
       return busyFixture()
     case 'agents':
       return agentsFixture()
+    case 'agents-tree':
+      return agentsGraphFixture('tree')
+    case 'agents-12':
+      return agentsGraphFixture('twelve')
+    case 'agents-45':
+      return agentsGraphFixture('many')
     case 'agents-idle':
       return agentsFixture('idle')
     case 'agents-errors':
@@ -396,9 +419,20 @@ function Preview() {
   useEffect(() => {
     const [five, weekly] = USAGE_PERCENTS[usageCase]
     const state = useApp.getState()
+    const mixed = usageCase === 'mixed'
+    const stamp = Date.now()
+    // Sessioni in corso su più account, solo nel caso 'mixed'.
+    const others = Object.fromEntries(Object.entries(state.sessions).filter(([id]) => !id.startsWith('usage-run-')))
+    const running = Object.fromEntries(
+      RUNNING_PREVIEW.map(([agent, profileId], i) => {
+        const id = `usage-run-${i}`
+        return [id, usageSession(id, agent, profileId, i === 0 ? 'starting' : i === 3 ? 'waiting' : 'running', stamp)]
+      })
+    )
     useApp.setState({
-      agents: state.agents.map((a) => (a.agent === 'claude-code' ? { ...a, usage: previewUsage(40, 55), usageAt: Date.now() } : a.agent === 'codex' ? { ...a, usage: previewUsage(five, weekly), usageAt: Date.now() } : a)),
-      profileAgents: Object.fromEntries(Object.entries(state.profileAgents).map(([id, a]) => [id, a.agent === 'claude-code' ? { ...a, usage: previewUsage(five, weekly), usageAt: Date.now() } : a]))
+      sessions: mixed ? { ...others, ...running } : others,
+      agents: state.agents.map((a) => (a.agent === 'claude-code' ? { ...a, usage: previewUsage(40, 55), usageAt: stamp } : a.agent === 'codex' ? { ...a, usage: mixed ? [] : previewUsage(five, weekly), usageAt: mixed ? null : stamp } : a)),
+      profileAgents: Object.fromEntries(Object.entries(state.profileAgents).map(([id, a]) => [id, a.agent === 'claude-code' ? { ...a, usage: previewUsage(five, weekly), usageAt: stamp - (mixed ? 4 * 60_000 : 0) } : a]))
     })
   }, [usageCase])
   const [effort, setEffort] = useState<Effort | null>(null)
@@ -837,7 +871,7 @@ function Preview() {
         </div>
         {/* Composer vero: @ per i file finti, immagini incollate o trascinate, coda modificabile. */}
         <div className="chat-col chat-gutter shrink-0 pb-4" data-compact={narrow ? '' : undefined}>
-          <div className="chat-measure">
+          <div className="chat-measure chat-bleed">
           <div className="chat-reset">
           {permissionError && <p className="mb-2 w-full text-sm text-destructive">{permissionError}</p>}
           <Composer
@@ -848,7 +882,6 @@ function Preview() {
             onModelReset={() => setModel(null)}
             effortEffective={previewCase === 'unknown' ? undefined : 'medium'}
             draftKey="preview"
-            compact={narrow}
             sessionId={subagents.length ? PREVIEW_SESSION : undefined}
             subagentCounts={subagents.length ? countsOf(subagents) : undefined}
             projectId={PREVIEW_PROJECT}

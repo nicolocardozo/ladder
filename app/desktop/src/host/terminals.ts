@@ -68,6 +68,8 @@ export interface SpawnOptions {
   file?: string
   args?: string[]
   env?: Record<string, string>
+  /** Variabili ereditate da togliere prima di applicare `env` (es. chiavi API che scavalcherebbero il login di un agente). */
+  unsetEnv?: string[]
   port: number | null
   agent?: AgentSpec
   cols?: number
@@ -500,6 +502,7 @@ export class TerminalManager {
       if (/^(ELECTRON_|LADDER_|ANTHROPIC_|CLAUDE|CHROME_|VSCODE_|npm_)/.test(key) || key === 'NODE_OPTIONS') continue
       env[key] = value
     }
+    for (const key of live.options.unsetEnv ?? []) delete env[key]
     if (this.loginPath) env.PATH = this.loginPath
     env.TERM = 'xterm-256color'
     env.COLORTERM = 'truecolor'

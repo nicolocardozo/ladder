@@ -91,7 +91,7 @@ async function runVersion(path: string): Promise<string | null> {
 }
 
 /** Versione da `--version`: solo per `agents.catalog`. Il nome dell'eseguibile può essere un altro programma: la versione è un'indicazione, non una prova. */
-function cliVersion(path: string): Promise<string | null> {
+export function cliVersion(path: string): Promise<string | null> {
   let mtime = 0
   try {
     mtime = statSync(path).mtimeMs

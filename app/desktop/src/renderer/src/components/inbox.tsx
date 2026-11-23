@@ -131,12 +131,19 @@ function EntryHeader({ session, projectName, at, trailing }: { session: SessionS
   const { name, model } = useAgentLine(session.agent, session.model)
   const profile = useSessionProfileName(session)
   const open = () => useApp.getState().openSessionAt(session.id, session.request?.id ?? null)
+  // Tutta la riga apre la sessione: il pulsante del titolo si allarga sull'intera riga (after:inset-0); le azioni a destra stanno sopra.
   return (
-    <div className="flex min-w-0 items-center gap-2 px-1.5">
+    <div className="group/entry relative flex min-h-8 min-w-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/60 has-[[data-entry-open]:focus-visible]:ring-2 has-[[data-entry-open]:focus-visible]:ring-ring/50">
       <span className="grid w-3 shrink-0 place-items-center">
         <SessionGlyph state={sessionState(session)} />
       </span>
-      <button type="button" onClick={open} className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:underline" title={`${projectName} · ${session.title} · ${name}${model ? ` ${model}` : ''}`}>
+      <button
+        type="button"
+        data-entry-open
+        onClick={open}
+        aria-label={t('Open {title}', { title: `${projectName} · ${session.title}` })}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none after:absolute after:inset-0 after:rounded-md"
+      >
         <span className="shrink-0 text-xs text-muted-foreground">{projectName}</span>
         <span className="truncate text-sm font-medium">{session.title}</span>
         <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
@@ -146,11 +153,8 @@ function EntryHeader({ session, projectName, at, trailing }: { session: SessionS
         </span>
       </button>
       <span className="shrink-0 text-xs text-faint tabular-nums">{formatSince(at, now)}</span>
-      {trailing}
-      <button type="button" onClick={open} className={linkButton} aria-label={t('Open {title}', { title: session.title })}>
-        {t('Open')}
-        <ArrowUpRight aria-hidden className="size-3" />
-      </button>
+      {trailing && <span className="relative z-10 flex shrink-0 items-center">{trailing}</span>}
+      <ArrowUpRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/entry:opacity-100 motion-reduce:transition-none" />
     </div>
   )
 }

@@ -94,8 +94,6 @@ interface ComposerProps {
   onNewSession?: (args: string) => void
   /** Livello massimo ammesso dal progetto ([agents] permissions_max). */
   maxPermission?: PermissionLevel | null
-  /** Colonna stretta: restano icona e modello, il livello di permessi è la sola icona e i pulsanti secondari spariscono. */
-  compact?: boolean
   /** Sessione e sotto-agenti: se ce ne sono, nella barra in basso compare il badge degli agenti. */
   sessionId?: string
   subagentCounts?: SessionSummary['subagentCounts']
@@ -122,15 +120,35 @@ function findModel(models: { id: string; label: string }[], value: string) {
 /** Token di @terminal nel testo: il titolo senza spazi. */
 const terminalToken = (title: string) => `@terminal:${title.trim().replace(/\s+/g, '-') || t('terminal')}`
 
+/*
+ * Barra sotto il campo di testo: i gradini seguono la larghezza della colonna (container query sul contenitore `bar`),
+ * non quella della finestra. Unica fonte dei gradini, la barra non va mai a capo e l'invio resta sempre a destra:
+ *   largo   (>= 540 px di contenuto): come sempre, agente, modello, effort e permessi per esteso;
+ *   medio   (400 a 540 px):           agente solo logo, modello abbreviato, permessi con icona e nome breve;
+ *   stretto (< 400 px):               solo icone (il modello abbreviato resta finché entra, poi sparisce: è nel tooltip e nell'aria-label).
+ * Quello che sparisce dalla barra resta nell'aria-label e nel menu del selettore. Le soglie sono sul contenuto della barra
+ * (larghezza del composer meno 20 px di padding), cioè 560 e 420 px di composer.
+ */
+/** Visibile solo nel gradino largo, solo dal medio in su, solo nel medio; il modello abbreviato sparisce sotto i 320 px di contenuto, dove non entra nemmeno un nome corto. Stringhe intere: Tailwind le legge a build. */
+const showWide = 'hidden @min-[540px]/bar:inline'
+const showShortModel = 'hidden @min-[320px]/bar:inline @min-[540px]/bar:hidden'
+const showFromMedium = 'hidden @min-[400px]/bar:inline'
+const showMedium = 'hidden @min-[400px]/bar:inline @min-[540px]/bar:hidden'
+
+/** Nome breve del livello di permesso: "Full access" diventa "Full", gli altri sono già brevi. */
+const shortLevelName = (id: PermissionLevel) => (id === 'full' ? t('Full access (short)') : levelLabel(id))
+/** Modello abbreviato per i gradini stretti: senza il prefisso "Claude". */
+const shortModelName = (name: string) => name.replace(/^claude\s+/i, '')
+
 const chip =
-  'no-drag inline-flex h-7 items-center gap-1.5 rounded-md border border-input/70 px-2 text-xs text-secondary-foreground outline-none ' +
+  'no-drag inline-flex h-7 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border border-input/70 px-2 text-xs text-secondary-foreground outline-none ' +
   'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-60'
 
 export function Composer(props: ComposerProps) {
   useShortcutsRevision()
   const { draftKey, projectId, agentName, models, model, onModelChange, onModelReset, effort, onEffortChange, onEffortReset, effortEffective, permission, permissionNext, onPermissionChange } = props
   const { running, onSubmit, onStop, queue = [], onQueueChange, canSteer = false, onDeliver, queueReason, queueWorking = running, context, disabledReason, autoFocus, className } = props
-  const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession, compact = false } = props
+  const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession } = props
   const levels = allowedLevels(maxPermission)
   const initial = useApp.getState().drafts[draftKey] ?? ''
   const setDraft = useApp((s) => s.setDraft)
@@ -165,6 +183,11 @@ export function Composer(props: ComposerProps) {
   const shownEffort = effort ?? defaultEffort.value
   const effortLevels: Effort[] = (models.find((m) => m.id === shownModel)?.efforts ?? EFFORTS.map((e) => e.id)).filter((level) => EFFORTS.some((e) => e.id === level))
   const modelName = models.find((m) => m.id === shownModel)?.label ?? prettyModel(null, shownModel) ?? t('Default model')
+  const effortName = shownEffort && showEffort ? t(EFFORTS.find((e) => e.id === shownEffort)?.label ?? '').toLowerCase() : ''
+  const agentSummary = t('Agent and model: {summary}', { summary: [agentName, modelName, effortName].filter(Boolean).join(' · ') })
+  const permissionSummary = permissionNext
+    ? `${t('Permissions: {level}', { level: levelLabel(level.id) })}. ${t('{level} from next turn', { level: levelLabel(permissionNext) })}`
+    : t('Permissions: {level}', { level: levelLabel(level.id) })
   const disabled = Boolean(disabledReason)
 
   // Citazioni con @: posizione del cursore (null se c'è una selezione) e citazione chiusa con Esc.
@@ -683,10 +706,11 @@ export function Composer(props: ComposerProps) {
           }
           className="block max-h-[40vh] min-h-[48px] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base leading-relaxed outline-none [field-sizing:content] placeholder:text-faint disabled:cursor-not-allowed"
         />
-        <div className="flex items-center gap-1 px-2.5 pt-1 pb-2.5">
-          <IconButton icon={Plus} label={t('Attach images')} onClick={() => !disabled && fileInput.current?.click()} />
-          <IconButton icon={AtSign} label={t('Mention a file')} shortcut="@" onClick={startMention} />
-          {!compact && <UsageButton agent={agent} profileId={props.profileId} />}
+        <div className="@container/bar px-2.5 pt-1 pb-2.5">
+        <div className="flex h-7 items-center gap-1">
+          <IconButton icon={Plus} label={t('Attach images')} className="shrink-0" onClick={() => !disabled && fileInput.current?.click()} />
+          <IconButton icon={AtSign} label={t('Mention a file')} shortcut="@" className="shrink-0" onClick={startMention} />
+          <UsageButton agent={agent} profileId={props.profileId} />
           <input
             ref={fileInput}
             type="file"
@@ -700,17 +724,17 @@ export function Composer(props: ComposerProps) {
               e.target.value = ''
             }}
           />
-          <span className="flex-1" />
-
+          {/* Il gruppo di destra si restringe (i selettori si accorciano coi puntini) e il pulsante di invio, fuori dal gruppo, resta sempre visibile. Quel che il gruppo taglia resta nell'ordine di tab (il focus lo riporta in vista) e nel menu del selettore. */}
+          <div className="-mx-0.5 -my-1 flex min-w-0 flex-1 items-center justify-end gap-1 overflow-hidden px-0.5 py-1">
           {props.sessionId && props.subagentCounts && props.subagentCounts.total > 0 && (
-            <AgentBadge sessionId={props.sessionId} counts={props.subagentCounts} agent={agent} model={model} compact={compact} />
+            <AgentBadge sessionId={props.sessionId} counts={props.subagentCounts} agent={agent} model={model} />
           )}
 
           {contextRatio !== null && (
             <Tooltip>
               <TooltipTrigger
                 aria-label={t('Context used: {percent}%', { percent: Math.round(contextRatio * 100) })}
-                className="no-drag mr-1 inline-flex items-center gap-1.5 rounded px-1 font-mono text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="no-drag mr-1 inline-flex shrink-0 items-center gap-1.5 rounded px-1 font-mono text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <span
                   className="block size-3 rounded-full"
@@ -718,7 +742,7 @@ export function Composer(props: ComposerProps) {
                     background: `conic-gradient(var(${contextWarn ? '--attention' : '--muted-foreground'}) 0 ${contextRatio * 100}%, var(--input) ${contextRatio * 100}% 100%)`
                   }}
                 />
-                <span className={cn(contextWarn && 'text-attention')}>{Math.round(contextRatio * 100)}%</span>
+                <span className={cn(showFromMedium, contextWarn && 'text-attention')}>{Math.round(contextRatio * 100)}%</span>
               </TooltipTrigger>
               <TooltipContent side="top">
                 {t('{used} of {window} tokens', { used: formatTokens(context!.used), window: formatTokens(context!.window) })}
@@ -739,12 +763,13 @@ export function Composer(props: ComposerProps) {
               }
             }}
           >
-            <DropdownMenuTrigger className={chip} disabled={disabled}>
-              <AgentMark agent={agent} size={13} className="text-foreground" />
-              {compact ? <span className="sr-only">{agentName}</span> : <span className="font-semibold text-foreground">{agentName}</span>}
-              <span className={cn('min-w-0 truncate text-muted-foreground', compact && 'max-w-24')}>{compact ? modelName : `· ${modelName}`}</span>
-              {!compact && shownEffort && showEffort && <span className="text-muted-foreground">· {t(EFFORTS.find((e) => e.id === shownEffort)?.label ?? '').toLowerCase()}</span>}
-              <ChevronDown className="size-3 text-faint" />
+            <DropdownMenuTrigger className={chip} disabled={disabled} aria-label={agentSummary} title={agentSummary}>
+              <AgentMark agent={agent} size={13} className="shrink-0 text-foreground" />
+              <span className={cn(showWide, 'font-semibold text-foreground')}>{agentName}</span>
+              <span className={cn(showWide, 'min-w-0 truncate text-muted-foreground')}>· {modelName}</span>
+              <span className={cn(showShortModel, 'min-w-0 truncate text-muted-foreground')}>{shortModelName(modelName)}</span>
+              {effortName && <span className={cn(showWide, 'text-muted-foreground')}>· {effortName}</span>}
+              <ChevronDown className="size-3 shrink-0 text-faint" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={6} className="max-h-[60vh] w-80">
               <DropdownMenuGroup>
@@ -774,23 +799,20 @@ export function Composer(props: ComposerProps) {
           <DropdownMenu>
             <DropdownMenuTrigger
               className={chip}
-              aria-label={
-                permissionNext
-                  ? `${t('Permissions: {level}', { level: levelLabel(level.id) })}. ${t('{level} from next turn', { level: levelLabel(permissionNext) })}`
-                  : t('Permissions: {level}', { level: levelLabel(level.id) })
-              }
+              aria-label={permissionSummary}
+              title={permissionSummary}
               disabled={disabled}
             >
-              <ShieldCheck className="size-3.5 text-muted-foreground" />
-              {compact ? null : levelLabel(level.id)}
+              <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className={showWide}>{levelLabel(level.id)}</span>
+              <span className={showMedium}>{shortLevelName(level.id)}</span>
               {permissionNext ? (
-                compact ? (
-                  <Clock aria-hidden className="size-3 text-attention" />
-                ) : (
-                  <span className="text-muted-foreground">→ {levelLabel(permissionNext)}</span>
-                )
+                <>
+                  <Clock aria-hidden className="size-3 shrink-0 text-attention @min-[540px]/bar:hidden" />
+                  <span className={cn(showWide, 'text-muted-foreground')}>→ {levelLabel(permissionNext)}</span>
+                </>
               ) : null}
-              <ChevronDown className="size-3 text-faint" />
+              <ChevronDown className="size-3 shrink-0 text-faint" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={6} className="w-80">
               <DropdownMenuGroup>
@@ -810,13 +832,14 @@ export function Composer(props: ComposerProps) {
               {permissionNext && <p className="px-2 pt-1 pb-1.5 text-xs text-attention">{t('{level} from next turn', { level: levelLabel(permissionNext) })}</p>}
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
 
           {running && idle && onStop ? (
             <Tooltip>
               <TooltipTrigger
                 aria-label={t('Stop')}
                 onClick={onStop}
-                className="no-drag ml-1 grid size-7 place-items-center rounded-full bg-secondary text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="no-drag ml-1 grid size-7 shrink-0 place-items-center rounded-full bg-secondary text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <Square className="size-3 fill-current" />
               </TooltipTrigger>
@@ -830,7 +853,7 @@ export function Composer(props: ComposerProps) {
                 aria-label={sendLabel}
                 disabled={!canSend}
                 onClick={() => submit()}
-                className="no-drag ml-1 grid size-7 place-items-center rounded-full bg-primary text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:bg-muted disabled:text-faint"
+                className="no-drag ml-1 grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:bg-muted disabled:text-faint"
               >
                 <ArrowUp className="size-4" strokeWidth={2.2} />
               </TooltipTrigger>
@@ -844,6 +867,7 @@ export function Composer(props: ComposerProps) {
               </TooltipContent>
             </Tooltip>
           )}
+        </div>
         </div>
         {pickerOpen && pickerStyle && (
           <MentionPicker

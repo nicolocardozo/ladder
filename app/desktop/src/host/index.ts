@@ -27,12 +27,17 @@ function broadcast(event: HostEvent): void {
   for (const port of ports) post(port, { kind: 'event', event })
 }
 
+/** Un evento a una sola finestra (la mappa dei branch va solo a chi è iscritto al progetto). */
+function sendTo(origin: object, event: HostEvent): void {
+  if (ports.has(origin as MessagePortMain)) post(origin as MessagePortMain, { kind: 'event', event })
+}
+
 async function main(): Promise<void> {
   const dbPath = process.env.LADDER_DB_PATH
   if (!dbPath) throw new Error('LADDER_DB_PATH mancante')
   // Notifiche e badge li mostra il main: qui partono solo gli eventi.
   const toMain = (message: HostToMain) => process.parentPort.postMessage(message)
-  const host = new Host(openDb(dbPath), broadcast, toMain)
+  const host = new Host(openDb(dbPath), broadcast, toMain, sendTo)
   hostRef = host
   // Le preferenze arrivano prima dell'avvio (variabile d'ambiente) e poi a ogni cambio.
   if (process.env.LADDER_HOST_PREFS) host.setPrefs(JSON.parse(process.env.LADDER_HOST_PREFS))

@@ -1,13 +1,15 @@
-import { Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, Search, Settings, Sparkles, SquarePen, SquareTerminal, UserRound, X, type LucideIcon } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, UserRound, X, type LucideIcon } from 'lucide-react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { shortcutLabel } from '@shared/shortcuts'
 import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { AgentId, AgentStatus, ConnectionStatus, Project, ProjectGroup, SessionSummary } from '@shared/protocol'
+import githubIcon from '@lobehub/icons-static-svg/icons/github.svg?url'
+import type { AgentId, AgentStatus, ConnectionStatus, Project, ProjectGroup, SessionSummary, UsageWindow } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { IconButton } from '@/components/icon-button'
 import { GroupMenuContent, ProjectGroupMenuContent, ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
-import { AgentMark, useAgentLine } from '@/components/agent-mark'
+import { agentIcon, AgentMark, MaskIcon, otherAgentIcon, useAgentLine, firstGrapheme } from '@/components/agent-mark'
+import { usageAlert, usageAlertText } from '@/components/composer/usage-button'
 import { isDefaultProfileId, isProfileAgent, normalizeProfileId, profilesOf, projectProfileId, useSessionProfileName } from '@/lib/profiles'
 import { AllSessionsButton } from '@/components/all-sessions'
 import { runningSubagents } from '@/components/agent-map'
@@ -21,11 +23,14 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useSettings } from '@/hooks/use-theme'
+import { isLinked } from '@/lib/connections'
 import { request, send } from '@/lib/host-client'
+import { isOtherLinked } from '@/lib/other-agents'
 import { NO_SECTION, startProjectDrag, startSectionDrag, useProjectDrag } from '@/lib/project-drag'
 import { layoutProjects, type ProjectLayout } from '@/lib/project-groups'
 import { NO_GROUP, pickClick, startSessionDrag, useSessionDrag, usePick } from '@/lib/session-drag'
 import { isUnreadState, noteTone, prNote, projectAttention, sessionNote, sessionState, sidebarSessions } from '@/lib/session-state'
+import { SidebarResizer } from '@/components/sidebar-resizer'
 import { cn } from '@/lib/utils'
 import { canNavigate, useApp, type AwaySummary } from '@/store/app-store'
 
@@ -90,6 +95,10 @@ export function AppSidebar() {
   const dragOver = useSessionDrag((s) => (s.active ? s.over : null))
   const dragging = useProjectDrag((s) => (s.active?.kind === 'project' ? s.active.id : null))
   const [removing, setRemoving] = useState<Project | null>(null)
+  // Progetto selezionato con le sessioni chiuse da un clic sul suo nome. Si riapre quando si apre una sessione.
+  const [folded, setFolded] = useState<string | null>(null)
+  const selectedSessionId = selection.kind === 'session' ? selection.sessionId : null
+  useEffect(() => setFolded(null), [selectedSessionId])
 
   const byProject = useMemo(() => {
     const known = new Set(projects.map((p) => p.id))
@@ -119,7 +128,8 @@ export function AppSidebar() {
   /** Un progetto con le sue sessioni. `slot` è la linea che mostra dove cadrebbe un progetto trascinato. */
   const renderProject = (project: Project, slot: 'before' | 'after' | null) => {
     // Si apre solo il progetto selezionato: le righe sotto sono sempre quelle delle tab in alto.
-    const open = project.id === selection.projectId
+    const selected = project.id === selection.projectId
+    const open = selected && folded !== project.id
     const all = byProject.get(project.id) ?? []
     const attention = projectAttention(all)
     const FolderIcon = open ? FolderOpen : Folder
@@ -145,14 +155,16 @@ export function AppSidebar() {
             <ContextMenuTrigger
               render={<button type="button" />}
               aria-expanded={open}
-              aria-current={open ? 'true' : undefined}
+              aria-current={selected ? 'true' : undefined}
               onClick={(event) => {
                 // Un clic sul simbolo di stato di un altro progetto apre la sessione che lo ha generato.
                 if (!open && attention.target && (event.target as HTMLElement).closest('[data-attention]')) {
                   useApp.getState().openSessionAt(attention.target.id, attention.target.request?.id ?? null)
                   return
                 }
-                if (!open) selectProject(project.id)
+                // Sul progetto selezionato il clic chiude e riapre le sue sessioni; il progetto resta selezionato.
+                if (selected) setFolded((f) => (f === project.id ? null : project.id))
+                else selectProject(project.id)
               }}
               onPointerDown={(event) => {
                 if (event.button !== 0 || event.metaKey || event.shiftKey || event.ctrlKey) return
@@ -162,7 +174,7 @@ export function AppSidebar() {
               className={cn(
                 'flex min-h-[30px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none in-data-[sidebar-density=compact]:min-h-7',
                 'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-sidebar-accent/60',
-                open && 'bg-sidebar-accent/50 font-medium text-sidebar-accent-foreground'
+                selected && 'bg-sidebar-accent/50 font-medium text-sidebar-accent-foreground'
               )}
             >
               <FolderIcon className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
@@ -217,14 +229,16 @@ export function AppSidebar() {
 
   return (
     <aside
-      className="flex h-full w-[262px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none"
+      // LAD-75: larghezza regolabile (variabile CSS su <html>, vedi lib/panel-size.ts); si restringe con la finestra.
+      style={{ width: 'var(--sidebar-w, 262px)', maxWidth: 'max(200px, calc(100vw - 480px))' }}
+      className="relative flex h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none"
       // Esc toglie la selezione multipla, a meno che non serva a chiudere un menu o un campo.
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !event.defaultPrevented && pick.ids.length > 0 && !(event.target instanceof HTMLInputElement)) pick.clear()
       }}
     >
-      {/* Barra del titolo: lo spazio a sinistra lascia posto ai semafori di macOS. */}
-      <div className="drag flex h-11 shrink-0 items-center gap-0.5 pr-2 pl-[82px]">
+      {/* Barra del titolo: lo spazio a sinistra lascia posto ai semafori di macOS (non a schermo intero). */}
+      <div className="drag flex h-11 shrink-0 items-center gap-0.5 pr-2 pl-traffic">
         <IconButton icon={PanelLeft} label={t('Hide sidebar')} shortcut={shortcutLabel('sidebar.toggle')} onClick={toggleSidebar} />
         <IconButton icon={Search} label={t('Search')} shortcut={shortcutLabel('palette.toggle')} onClick={() => setPaletteOpen(true)} />
         <span className="flex-1" />
@@ -324,6 +338,7 @@ export function AppSidebar() {
       <RemoveProjectDialog project={removing} onClose={() => setRemoving(null)} />
       <SessionDragGhost />
       <ProjectDragGhost />
+      <SidebarResizer />
     </aside>
   )
 }
@@ -795,6 +810,10 @@ interface AccountEntry {
   profile: string | null
   account: string | null
   email: string | null
+  /** Collegato e non nel mezzo di un accesso: altrimenti scollegato o con il login scaduto. */
+  linked: boolean
+  /** Finestre dei limiti d'uso del profilo, quelle già azzerate escluse. */
+  usage: UsageWindow[]
 }
 
 /**
@@ -813,6 +832,7 @@ function useAccountEntries(): AccountEntry[] {
   return useMemo(() => {
     const session = selection.kind === 'session' ? sessions[selection.sessionId] : undefined
     const project = projects.find((p) => p.id === selection.projectId)
+    const now = Date.now() / 1000
     const entries: AccountEntry[] = []
     for (const a of agents) {
       if (a.kind !== 'native') continue
@@ -833,45 +853,134 @@ function useAccountEntries(): AccountEntry[] {
       }
       const account = status?.account ?? (connection?.plan ? `${a.name} ${connection.plan}` : null)
       const email = status?.email ?? connection?.email ?? null
-      if (account || email) entries.push({ agent: a.agent, name: a.name, profile: profileName, account, email })
+      // Senza lo stato del collegamento (non ancora letto) vale ciò che l'agente dice dell'account.
+      const linked = connection ? isLinked(connection) && !connection.login : Boolean(account || email)
+      entries.push({ agent: a.agent, name: a.name, profile: profileName, account, email, linked, usage: (status?.usage ?? []).filter((w) => w.resetsAt === null || w.resetsAt > now) })
     }
-    // L'agente della sessione aperta va per primo: la sua email è quella che si vede.
-    const first = session?.agent
-    return first ? [...entries.filter((e) => e.agent === first), ...entries.filter((e) => e.agent !== first)] : entries
+    return entries
   }, [agents, profileAgents, connections, profileConnections, profiles, selection, sessions, projects])
 }
 
-/** In basso a sinistra: gli abbonamenti collegati agli agenti, dei profili in uso. Iniziale ed email; piani e account per agente nel tooltip. Apre Impostazioni → Abbonamenti. */
+/** Un servizio del footer: il suo segno, se è collegato, un eventuale avviso d'uso e le righe per il tooltip. */
+interface FooterService {
+  key: string
+  name: string
+  icon: string | null
+  linked: boolean
+  alert: { usage: UsageWindow; limited: boolean } | null
+  /** Per il nome accessibile: servizio e stato, senza email. */
+  summary: string
+  /** Per il tooltip: account, email e piano. */
+  detail: string[]
+}
+
+/** Claude, ChatGPT / Codex, GitHub e gli altri agenti collegati, in quest'ordine. Chi non è collegato resta in fila, attenuato. */
+function useFooterServices(): FooterService[] {
+  const entries = useAccountEntries()
+  const github = useApp((s) => s.connections.github)
+  const others = useApp((s) => s.otherAgents)
+  return useMemo(() => {
+    const services: FooterService[] = entries.map((a) => {
+      const alert = a.linked ? usageAlert(a.usage) : null
+      const alertText = alert ? usageAlertText(alert, Date.now() / 1000) : null
+      return {
+        key: a.agent,
+        name: a.name,
+        icon: agentIcon(a.agent),
+        linked: a.linked,
+        alert,
+        summary: [a.name, a.linked ? null : t('not signed in'), alertText?.what.replace(/\.$/, '')].filter(Boolean).join(', '),
+        detail: a.linked ? [[a.name, a.profile, a.account, a.email].filter(Boolean).join(' · '), ...(alertText ? [alertText.what] : [])] : [`${a.name} · ${t('Not signed in')}`]
+      }
+    })
+    if (github) {
+      const linked = isLinked(github) && !github.login
+      services.push({ key: 'github', name: 'GitHub', icon: githubIcon, linked, alert: null, summary: linked ? 'GitHub' : `GitHub, ${t('not signed in')}`, detail: [linked ? ['GitHub', github.user].filter(Boolean).join(' · ') : `GitHub · ${t('Not signed in')}`] })
+    }
+    for (const other of others ?? []) {
+      if (!isOtherLinked(other)) continue
+      services.push({ key: `other:${other.id}`, name: other.name, icon: otherAgentIcon(other), linked: true, alert: null, summary: other.name, detail: [[other.name, other.account].filter(Boolean).join(' · ')] })
+    }
+    return services
+  }, [entries, github, others])
+}
+
+/** Iniziali per l'avatar: il primo grafema delle prime due parole del nome, in maiuscolo (al massimo 2 grafemi). */
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => {
+      const first = firstGrapheme(word)
+      const upper = first.toUpperCase()
+      // «ß» in maiuscolo diventa «SS»: se le lettere raddoppiano si tiene quella originale, per restare a 1 grafema per parola.
+      return firstGrapheme(upper) === upper ? upper : first
+    })
+    .join('')
+}
+
+/** Segno di un servizio nel footer. Scollegato o con il login scaduto: attenuato con un puntino; vicino ai limiti d'uso: triangolo come l'icona dell'uso nel composer. */
+function FooterServiceMark({ service }: { service: FooterService }) {
+  return (
+    <span data-service={service.key} data-linked={service.linked} className="relative grid size-[14px] shrink-0 place-items-center">
+      <MaskIcon icon={service.icon} name={service.name} size={14} className={cn(service.linked ? 'text-foreground' : 'text-muted-foreground opacity-65')} />
+      {!service.linked && <span aria-hidden data-dot className="absolute -top-[3px] -right-[3px] size-[7px] rounded-full bg-attention ring-2 ring-sidebar" />}
+      {service.alert && (
+        <TriangleAlert aria-hidden data-alert strokeWidth={2.5} className={cn('absolute -top-[5px] -right-[5px] size-[9px] rounded-[2px] bg-sidebar', service.alert.limited ? 'text-destructive' : 'text-attention')} />
+      )}
+    </span>
+  )
+}
+
+/** Gli altri agenti a cui Ladder può appoggiarsi sono pochi: oltre questi, un "+N". */
+const FOOTER_ICONS = 5
+
+/**
+ * In basso a sinistra: il tuo nome (o "Your subscriptions") con le iniziali in un cerchio, e a destra i servizi collegati in piccolo.
+ * Nessuna email: account e piani stanno nel tooltip. Apre Impostazioni → Abbonamenti.
+ */
 export function AccountButton() {
-  const linked = useAccountEntries()
-  const emails = [...new Set(linked.flatMap((a) => (a.email ? [a.email] : [])))]
-  const email = emails[0] ?? null
-  const name = email ?? t('Linked subscriptions')
-  const more = emails.length - 1
+  const services = useFooterServices()
+  const userName = useApp((s) => s.prefs?.userName?.trim() || null)
+  // Gli altri agenti collegati compaiono nel footer: l'elenco lo legge una volta lib/other-agents (all'avvio e a ogni riconnessione con l'host).
+  const shown = services.slice(0, FOOTER_ICONS)
+  const more = services.length - shown.length
+  const label = userName ?? t('Your subscriptions')
   return (
     <Tooltip>
       <TooltipTrigger
         render={<button type="button" />}
-        aria-label={[name, ...linked.map((a) => [a.name, a.profile, a.email, a.account].filter(Boolean).join(', '))].join('. ')}
+        aria-label={[label, ...services.map((s) => s.summary)].join('. ')}
         onClick={() => useSettings.getState().openSection('subscriptions')}
         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
-        <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/10 text-xs font-semibold text-foreground">
-          {email ? email.slice(0, 1).toUpperCase() : <UserRound className="size-3.5" />}
+        <span aria-hidden data-avatar className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/10 text-xs font-semibold text-foreground">
+          {userName ? initialsOf(userName) : <UserRound className="size-3.5" />}
         </span>
-        <span className="block min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
-        {more > 0 && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">+{more}</span>}
+        <span data-account-name className="block min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
+        {shown.length > 0 && (
+          <span data-services className="flex shrink-0 items-center gap-1.5">
+            {shown.map((service) => (
+              <FooterServiceMark key={service.key} service={service} />
+            ))}
+            {more > 0 && <span className="text-xs tabular-nums text-muted-foreground">+{more}</span>}
+          </span>
+        )}
       </TooltipTrigger>
       <TooltipContent side="top" align="start">
-        {linked.length === 0 ? (
+        {services.length === 0 ? (
           t('No subscriptions linked')
         ) : (
           <span className="flex flex-col gap-0.5">
-            <span className="font-medium">{t('Linked subscriptions')}</span>
-            {linked.map((a) => (
-              <span key={a.agent}>
-                {a.name}
-                <span className="opacity-70">{[a.profile, a.account, a.email].filter(Boolean).map((v) => ` · ${v}`).join('')}</span>
+            <span className="font-medium">{label}</span>
+            {services.map((service) => (
+              <span key={service.key} className="flex flex-col">
+                {service.detail.map((line, i) => (
+                  <span key={i} className={cn(i > 0 && 'opacity-70', !service.linked && 'opacity-70')}>
+                    {line}
+                  </span>
+                ))}
               </span>
             ))}
           </span>
