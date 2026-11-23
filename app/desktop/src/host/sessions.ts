@@ -18,6 +18,7 @@ import type {
   HostPrefs,
   HostToMain,
   IssueList,
+  GitArchiveResult,
   MergeInfo,
   PrStatus,
   RequestItemData,
@@ -65,8 +66,12 @@ import { codexDefaults } from './codex/environment'
 import { codexText, codexTitle, smallCodexModel } from './codex/title'
 import { clipTitle, inTitleQueue, issueRef, teamPrefixes, titlePrompt, withIssue } from './titles'
 import { listTree, readText, RootWatcher, writeText } from './files'
-import { aheadBehind, changedFiles, commitChanges, createCheckpoint, ensureExcluded, fetchRef, git, listBranches, listFiles, mergeConflicts, repoInfo, resolveCommit } from './git'
+import { aheadBehind, changedFiles, commitChanges, createCheckpoint, ensureExcluded, fetchRef, git, gitRead, gitStatus, listBranches, listFiles, mergeConflicts, repoInfo, resolveCommit } from './git'
 import { GitStatusTracker } from './git-status'
+import { pushBranch, pushPreview } from './git-push'
+import { withRepoLock } from './repo-lock'
+import { mergePullRequest } from './pr-merge'
+import { mergeBlocks, nextAction } from './merge-flow'
 import { Connections } from './connections'
 import { customProfileId, isDefaultProfileId, isProfileAgent, Profiles } from './profiles'
 import { defaultBranch, ghState, listGithubIssues, listGithubPrs, prForBranch, type PrDetails } from './github'
@@ -1163,7 +1168,7 @@ export class Host {
       case 'text.pr':
         return this.writePr(command.sessionId)
       case 'git.commit': {
-        const root = this.cwdOf(this.mustRow(command.sessionId))
+        const root = this.mustCwd(this.mustRow(command.sessionId))
         const result = await commitChanges(root, command.subject, command.body, command.paths)
         this.notifyFsChanged(root)
         return result
@@ -1177,6 +1182,44 @@ export class Host {
         else this.unsubscribeGit(command.sessionId, origin)
         return null
       }
+      // ── LAD-69 ──
+      case 'git.push.preview':
+        return pushPreview(this.mustCwd(this.mustRow(command.sessionId)), { remote: command.remote })
+      case 'git.push': {
+        const root = this.mustCwd(this.mustRow(command.sessionId))
+        try {
+          return await pushBranch(root, { publish: command.publish === true, remote: command.remote, expectedHead: command.expectedHead }, () => this.busySession(root) !== null)
+        } finally {
+          // Riuscito o rifiutato, chip e pannello si rileggono subito.
+          this.notifyFsChanged(root)
+        }
+      }
+      case 'pr.merge': {
+        const row = this.mustRow(command.sessionId)
+        const root = this.mustCwd(row)
+        const project = this.mustProject(row.project_id)
+        const info = await repoInfo(root)
+        if (!info.isGit) throw new Error(t('The folder is not a git repository.'))
+        if (!info.branch) throw new Error(t('HEAD is detached: switch to a branch before merging.'))
+        if (info.branch === (await this.defaultBranchOf(project))) throw new Error(t('This is the default branch: there is no pull request to merge.'))
+        try {
+          const result = await mergePullRequest(root, info.branch, { number: command.number, method: command.method, deleteBranch: command.deleteBranch === true, expectedHeadOid: command.expectedHeadOid }, () => this.busySession(root) !== null)
+          // Stato della PR riletto subito: la sessione e il pannello mostrano "unita" senza aspettare il giro periodico.
+          const details = await prForBranch(root, info.branch).catch(() => null)
+          if (details) this.storePr(root, info.branch, details)
+          return { ...result, pr: details?.status ?? null }
+        } catch (error) {
+          // Anche dopo un errore (per esempio nessuna risposta di gh: GitHub potrebbe aver unito) lo stato della PR si rilegge.
+          const details = await prForBranch(root, info.branch).catch(() => null)
+          if (details) this.storePr(root, info.branch, details)
+          throw error
+        } finally {
+          this.notifyFsChanged(root)
+        }
+      }
+      case 'git.archive':
+        return this.archiveAfterMerge(command.sessionId)
+      // ── fine LAD-69 ──
       case 'pr.prepare': {
         const project = this.mustProject(command.projectId)
         this.mustRow(command.sessionId)
@@ -1216,6 +1259,8 @@ export class Host {
   /** Solo le cartelle di progetti e sessioni: la UI non può chiedere file da altre parti del disco. */
   private knownRoot(root: string): string {
     const normalized = root.replace(/\/+$/, '')
+    // '/' diventa '' e combacerebbe con le sessioni senza cartella.
+    if (!normalized) throw new Error(t('Folder unknown to Ladder.'))
     for (const project of this.projects.values()) if (project.path === normalized) return normalized
     for (const row of this.rows.values()) if (this.cwdOf(row) === normalized) return normalized
     throw new Error(t('Folder unknown to Ladder.'))
@@ -3515,6 +3560,28 @@ export class Host {
     // senza cambi da allora (al massimo 5 s) vale quella: `merge.info` parte a ogni `fs.changed` e non rifà ~7 processi git.
     const local = await this.gitStatus.recent(root)
     const unpushed = local?.hasUpstream ? local.ahead : null
+    // LAD-69: passo successivo e blocchi si calcolano qui, in un punto solo (merge-flow.ts), sugli stessi dati dell'intestazione.
+    const hasRemote = (await gitRead(root, ['remote']).catch(() => '')).trim().length > 0
+    const conflicts = counts && counts.behind > 0 ? await mergeConflicts(root, 'HEAD', baseRef) : []
+    const blocks = mergeBlocks({ pr: details?.status ?? null, checks: details?.checks ?? [], mergeState: details?.mergeState ?? null, conflicts })
+    const agentBusy = this.busySession(root) !== null
+    const isWorktree = this.isWorktreeRoot(root)
+    const next = nextAction({
+      branch,
+      isDefaultBranch: branch === base,
+      isWorktree,
+      dirty: local?.dirty ?? 0,
+      ahead: counts?.ahead ?? 0,
+      unpushed,
+      behindUpstream: local?.behind ?? 0,
+      hasUpstream: unpushed !== null,
+      hasRemote,
+      gh: ghError ? 'error' : gh,
+      pr: details?.status ?? null,
+      prMergedCoversHead: details?.status.state === 'merged' ? await this.mergedCoversHead(root, details.headOid) : false,
+      blocks,
+      agentBusy
+    })
     return {
       root,
       branch,
@@ -3525,18 +3592,44 @@ export class Host {
       behind: counts?.behind ?? 0,
       unpushed,
       hasUpstream: unpushed !== null,
-      conflicts: counts && counts.behind > 0 ? await mergeConflicts(root, 'HEAD', baseRef) : [],
+      conflicts,
       gh: ghError ? 'error' : gh,
       ghError,
       pr: details?.status ?? null,
       checks: details?.checks ?? [],
-      comments: details?.comments ?? []
+      comments: details?.comments ?? [],
+      behindUpstream: local?.behind ?? 0,
+      added: local?.added ?? 0,
+      removed: local?.removed ?? 0,
+      hasRemote,
+      upstream: local?.upstream ?? null,
+      prHeadOid: details?.headOid ?? null,
+      mergeState: details?.mergeState ?? null,
+      agentBusy,
+      blocks,
+      nextAction: next
     }
   }
 
   /** La cartella è il worktree di una sessione non archiviata (stesso criterio per l'intestazione e per `merge.info`). */
   private isWorktreeRoot(root: string): boolean {
     return [...this.rows.values()].some((r) => !r.archived && !!r.worktree && this.cwdOf(r) === root)
+  }
+
+  /** HEAD è la testa della PR unita o un suo antenato (nessun commit nuovo dopo il merge)? Se non si può dire (oggetto non scaricato), sì. */
+  private async mergedCoversHead(root: string, oid: string | null): Promise<boolean> {
+    if (!oid || !/^[0-9a-f]{40,64}$/.test(oid)) return true
+    try {
+      await gitRead(root, ['cat-file', '-e', `${oid}^{commit}`])
+    } catch {
+      return true
+    }
+    try {
+      await gitRead(root, ['merge-base', '--is-ancestor', 'HEAD', oid])
+      return true
+    } catch {
+      return false
+    }
   }
 
   private storePr(root: string, branch: string, details: PrDetails | null): void {
@@ -3584,28 +3677,114 @@ export class Host {
     }
   }
 
-  private async archiveMerged(row: SessionRow, pr: PrStatus): Promise<void> {
-    const project = this.projects.get(row.project_id)
-    await this.archive(row.id, { cleanup: false })
-    if (!project) return
+  /** Un'altra sessione non archiviata usa la stessa cartella di lavoro. */
+  private worktreeShared(row: SessionRow): boolean {
     const cwd = this.cwdOf(row)
+    return [...this.rows.values()].some((r) => r.id !== row.id && !r.archived && this.cwdOf(r) === cwd)
+  }
+
+  /** Archivia la sessione di una PR unita (`pr`) o di un branch già nella base (null) e toglie il worktree se è pulito e nessun'altra sessione lo usa. */
+  private async archiveMerged(row: SessionRow, pr: PrStatus | null): Promise<GitArchiveResult> {
+    const project = this.projects.get(row.project_id)
+    if (!row.worktree) {
+      await this.archive(row.id)
+      return { archived: true, worktreeRemoved: false, worktreeKept: 'none' }
+    }
+    await this.archive(row.id, { cleanup: false })
+    const cwd = this.cwdOf(row)
+    // Un worktree usato da un'altra sessione non si tocca (nemmeno lo script di pulizia).
+    if (!project || this.worktreeShared(row)) {
+      this.upsertItem(row.id, { kind: 'notice', id: randomUUID(), turnId: 'system', at: Date.now(), tone: 'info', text: t('Session archived; the worktree stays because another session uses it.') })
+      this.flush()
+      return { archived: true, worktreeRemoved: false, worktreeKept: 'shared' }
+    }
     // Il worktree si toglie solo se è pulito: git rifiuta da solo se ci sono modifiche o file non tracciati. Il branch resta.
-    const { removed, cleanup } = await removeWorktree(project, cwd, { port: this.ports.allocate(cwd), stopServices: () => this.stopServices(cwd) })
+    const { removed, cleanup, error } = await removeWorktree(project, cwd, { port: this.ports.allocate(cwd), stopServices: () => this.stopServices(cwd) })
     // Il blocco di porte del worktree tolto torna libero, ma non se lo script di pulizia è fallito o scaduto: quello che avviava (per
     // esempio un container) può tenere ancora le porte, e un worktree nuovo le troverebbe occupate.
     if (removed && (!cleanup || (cleanup.code === 0 && !cleanup.timedOut))) this.ports.release(cwd)
     this.noticeCleanup(row.id, cleanup)
+    // Non tolto: con file non committati è 'dirty'; se è pulito e git l'ha rifiutato lo stesso (sottomoduli, permessi, cartella sparita) è 'failed'.
+    const dirty = !removed && existsSync(cwd) ? ((await gitStatus(cwd, true, false).catch(() => null))?.dirty ?? 0) > 0 : false
+    const kept: GitArchiveResult['worktreeKept'] = removed ? null : dirty ? 'dirty' : 'failed'
+    const reason = error ?? t('the folder no longer exists')
     this.upsertItem(row.id, {
       kind: 'notice',
       id: randomUUID(),
       turnId: 'system',
       at: Date.now(),
       tone: 'info',
-      text: removed
-        ? t('PR #{number} was merged: session archived and worktree removed (the branch stays).', { number: pr.number })
-        : t('PR #{number} was merged: session archived; the worktree stays because it has uncommitted files.', { number: pr.number })
+      text: pr
+        ? removed
+          ? t('PR #{number} was merged: session archived and worktree removed (the branch stays).', { number: pr.number })
+          : kept === 'dirty'
+            ? t('PR #{number} was merged: session archived; the worktree stays because it has uncommitted files.', { number: pr.number })
+            : t('PR #{number} was merged: session archived; git could not remove the worktree: {reason}', { number: pr.number, reason })
+        : removed
+          ? t('Session archived and worktree removed (the branch stays).')
+          : kept === 'dirty'
+            ? t('Session archived; the worktree stays because it has uncommitted files.')
+            : t('Session archived; git could not remove the worktree: {reason}', { reason })
     })
     this.flush()
+    return { archived: true, worktreeRemoved: removed, worktreeKept: kept, ...(kept === 'failed' ? { worktreeError: error } : {}) }
+  }
+
+  /**
+   * "Archivia" dopo il merge (`git.archive`, LAD-69). Solo se la PR è unita (e il branch è tutto dentro) o il branch è già nella base;
+   * per un worktree mai con modifiche non committate né con commit che esistono solo lì. Ogni controllo viene prima di toccare
+   * qualcosa: se fallisce non è stato archiviato nulla.
+   */
+  private async archiveAfterMerge(sessionId: string): Promise<GitArchiveResult> {
+    const row = this.mustRow(sessionId)
+    if (row.archived) throw new Error(t('The session is already archived.'))
+    const root = this.mustCwd(row)
+    // Un'operazione alla volta per repo (push, merge, archivia) e il fetch in background si ferma.
+    return withRepoLock(root, () => this.archiveLocked(row, root))
+  }
+
+  private async archiveLocked(row: SessionRow, root: string): Promise<GitArchiveResult> {
+    const busy = () => new Error(t('The agent is working in this folder: wait for it to finish before archiving.'))
+    if (this.busySession(root)) throw busy()
+    const project = this.mustProject(row.project_id)
+    const info = await repoInfo(root)
+    const branch = info.isGit ? info.branch : null
+    if (!branch) throw new Error(t('HEAD is detached: switch to a branch before archiving.'))
+    const base = await this.defaultBranchOf(project)
+    if (branch === base) throw new Error(t('This is the default branch: there is nothing to archive after a merge.'))
+
+    // La PR è unita? Si rilegge da GitHub (la cache può essere vecchia); senza gh si usa l'ultima nota.
+    let pr: PrStatus | null = null
+    let headOid: string | null = null
+    if ((await ghState(root)) === 'ok') {
+      const details = await prForBranch(root, branch).catch(() => null)
+      if (details) this.storePr(root, branch, details)
+      if (details?.status.state === 'merged') (pr = details.status), (headOid = details.headOid)
+    } else if (this.prOf(row)?.state === 'merged') pr = this.prOf(row)
+    if (pr && !(await this.mergedCoversHead(root, headOid))) pr = null
+    const baseRef = (await resolveCommit(root, `refs/remotes/origin/${base}`)) ? `origin/${base}` : base
+    const integrated = await gitRead(root, ['merge-base', '--is-ancestor', 'HEAD', baseRef]).then(() => true, () => false)
+    if (!pr && !integrated) throw new Error(t('The pull request is not merged yet: archive after the merge.'))
+
+    if (row.worktree) {
+      const status = await gitStatus(root, true, false)
+      if (status && status.dirty > 0) throw new Error(t('The worktree has uncommitted changes: commit or discard them first. Nothing was archived.'))
+      // Commit che non stanno né sulla base né su un remote (né sono la testa della PR): archiviare li lascerebbe solo in un worktree tolto.
+      // Se il conteggio non si legge NON si archivia: un errore qui non può valere "nessun commit solo qui".
+      const counted = await gitRead(root, ['rev-list', '--count', 'HEAD', '--not', '--remotes', baseRef]).catch(() => null)
+      if (counted === null || !/^\d+$/.test(counted.trim())) throw new Error(t('Could not check whether commits exist only in this worktree: nothing was archived.'))
+      const only = Number(counted.trim())
+      const head = (await resolveCommit(root, 'HEAD')) ?? ''
+      if (only > 0 && !(pr && headOid && head === headOid)) {
+        throw new Error(plural(only, '{n} commit exists only in this worktree: push it first. Nothing was archived.', '{n} commits exist only in this worktree: push them first. Nothing was archived.'))
+      }
+    }
+    // Dopo le chiamate di rete a gh e i controlli: l'agente può essersi messo al lavoro nel frattempo.
+    if (this.busySession(root)) throw busy()
+    this.mergedHandled.add(row.id)
+    const result = await this.archiveMerged(row, pr)
+    this.notifyFsChanged(root)
+    return result
   }
 
   shutdown(): void {

@@ -42,7 +42,9 @@ export function resetGh(): void {
 export class GhError extends Error {
   constructor(
     message: string,
-    readonly stderr: string
+    readonly stderr: string,
+    /** gh è stato fermato per il tempo scaduto: l'operazione potrebbe comunque essere andata a buon fine dall'altra parte. */
+    readonly timedOut = false
   ) {
     super(message)
   }
@@ -62,7 +64,7 @@ export async function gh(cwd: string, args: string[], timeout = 20000): Promise<
     return stdout
   } catch (error) {
     const stderr = String((error as { stderr?: string }).stderr ?? '').trim()
-    throw new GhError(stderr.split('\n')[0] || (error as Error).message, stderr)
+    throw new GhError(stderr.split('\n')[0] || (error as Error).message, stderr, (error as { killed?: boolean }).killed === true)
   }
 }
 
@@ -141,7 +143,7 @@ export async function defaultBranch(cwd: string): Promise<string> {
   return 'main'
 }
 
-interface RawCheck {
+export interface RawCheck {
   __typename?: string
   name?: string
   context?: string
@@ -152,7 +154,7 @@ interface RawCheck {
   targetUrl?: string
 }
 
-interface RawPr {
+export interface RawPr {
   number: number
   title: string
   url: string
@@ -160,13 +162,17 @@ interface RawPr {
   isDraft?: boolean
   mergeable?: string
   reviewDecision?: string
+  mergeStateStatus?: string
+  headRefOid?: string
+  headRefName?: string
+  isCrossRepository?: boolean
   baseRefName?: string
   updatedAt?: string
   statusCheckRollup?: RawCheck[] | null
   comments?: { author?: { login?: string }; body?: string; createdAt?: string; url?: string }[]
 }
 
-function checkState(check: RawCheck): MergeCheck['state'] {
+export function checkState(check: RawCheck): MergeCheck['state'] {
   if (check.__typename === 'StatusContext' || (check.state && !check.status)) {
     const state = (check.state ?? '').toUpperCase()
     if (state === 'SUCCESS') return 'passing'
@@ -180,7 +186,7 @@ function checkState(check: RawCheck): MergeCheck['state'] {
   return 'failing'
 }
 
-function rollup(checks: MergeCheck[]): PrStatus['checks'] {
+export function rollup(checks: MergeCheck[]): PrStatus['checks'] {
   const relevant = checks.filter((c) => c.state !== 'skipped')
   if (relevant.length === 0) return 'none'
   if (relevant.some((c) => c.state === 'failing')) return 'failing'
@@ -190,21 +196,17 @@ function rollup(checks: MergeCheck[]): PrStatus['checks'] {
 
 export interface PrDetails {
   status: PrStatus
+  /** `mergeStateStatus` di GitHub (LAD-69), e commit di testa della PR. */
+  mergeState: string | null
+  headOid: string | null
   checks: MergeCheck[]
   comments: ReviewComment[]
 }
 
-const PR_FIELDS = 'number,title,url,state,isDraft,mergeable,reviewDecision,baseRefName,updatedAt,statusCheckRollup,comments'
+const PR_FIELDS = 'number,title,url,state,isDraft,mergeable,mergeStateStatus,headRefOid,reviewDecision,baseRefName,updatedAt,statusCheckRollup,comments'
 
-/** PR aperta (o l'ultima) del branch. null se il branch non ha PR. */
-export async function prForBranch(cwd: string, branch: string): Promise<PrDetails | null> {
-  let raw: RawPr
-  try {
-    raw = JSON.parse(await gh(cwd, ['pr', 'view', branch, '--json', PR_FIELDS])) as RawPr
-  } catch (error) {
-    if (error instanceof GhError && /no (open )?pull requests? found|could not find/i.test(error.stderr || error.message)) return null
-    throw error
-  }
+/** Stato e check di una PR dal JSON di `gh pr view` (LAD-69: lo usa anche il controllo prima del merge). */
+export function prFromRaw(raw: RawPr): { status: PrStatus; checks: MergeCheck[] } {
   const checks: MergeCheck[] = (raw.statusCheckRollup ?? []).map((c) => ({
     name: c.name ?? c.context ?? t('check'),
     state: checkState(c),
@@ -223,6 +225,19 @@ export async function prForBranch(cwd: string, branch: string): Promise<PrDetail
     base: raw.baseRefName ?? 'main',
     updatedAt: raw.updatedAt ? Date.parse(raw.updatedAt) : Date.now()
   }
+  return { status, checks }
+}
+
+/** PR aperta (o l'ultima) del branch. null se il branch non ha PR. */
+export async function prForBranch(cwd: string, branch: string): Promise<PrDetails | null> {
+  let raw: RawPr
+  try {
+    raw = JSON.parse(await gh(cwd, ['pr', 'view', branch, '--json', PR_FIELDS])) as RawPr
+  } catch (error) {
+    if (error instanceof GhError && /no (open )?pull requests? found|could not find/i.test(error.stderr || error.message)) return null
+    throw error
+  }
+  const { status, checks } = prFromRaw(raw)
   const comments: ReviewComment[] = (raw.comments ?? []).map((c) => ({
     author: c.author?.login ?? t('user'),
     path: null,
@@ -256,7 +271,7 @@ export async function prForBranch(cwd: string, branch: string): Promise<PrDetail
     // Senza i commenti sulle righe il pannello mostra comunque PR e CI.
   }
   comments.sort((a, b) => a.at - b.at)
-  return { status, checks, comments }
+  return { status, mergeState: raw.mergeStateStatus ?? null, headOid: raw.headRefOid ?? null, checks, comments }
 }
 
 export async function listGithubIssues(cwd: string): Promise<IssueItem[]> {

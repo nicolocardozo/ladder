@@ -11,7 +11,7 @@ import type { Project, WorktreeFiles, WorktreeInfo } from '@shared/protocol'
 import { DEFAULT_BRANCH_PREFIX } from '@shared/worktree-prefs'
 import type { Db } from './db'
 import { cleanEnv, shellPath } from './agents/common'
-import { addWorktree, addWorktreeForBranch, fetchRef, gitRemoveWorktree, ignoredAmong, matchingUntracked, resolveCommit } from './git'
+import { addWorktree, addWorktreeForBranch, fetchRef, gitFailure, gitRemoveWorktree, ignoredAmong, matchingUntracked, resolveCommit } from './git'
 import { insideRoot } from './files'
 import { loadProjectSettings } from './project-settings'
 
@@ -204,14 +204,21 @@ export async function removeWorktree(
   project: Project,
   path: string,
   options: { port?: number | null; skipCleanup?: boolean; stopServices?: () => Promise<void> } = {}
-): Promise<{ removed: boolean; cleanup: CleanupResult | null }> {
-  if (!existsSync(path)) return { removed: false, cleanup: null }
+): Promise<{ removed: boolean; cleanup: CleanupResult | null; /** Perché git non l'ha tolto (stderr ripulito); null se è stato tolto o la cartella non c'era. */ error: string | null }> {
+  if (!existsSync(path)) return { removed: false, cleanup: null, error: null }
   // I servizi del worktree (LAD-66) si fermano per primi: lo script di pulizia, per esempio `docker compose down`, li trova già spenti e le porte libere.
   await options.stopServices?.().catch(() => undefined)
   const script = options.skipCleanup ? null : (await loadProjectSettings(project.path)).worktree.archive
   const cleanup = script ? await runCleanupScript(path, script, options.port ?? null) : null
-  const removed = await gitRemoveWorktree(project.path, path).then(() => true, () => false)
-  return { removed, cleanup }
+  let error: string | null = null
+  const removed = await gitRemoveWorktree(project.path, path).then(
+    () => true,
+    (failure) => {
+      error = gitFailure(failure)
+      return false
+    }
+  )
+  return { removed, cleanup, error }
 }
 
 const PORT_BASE = 4100

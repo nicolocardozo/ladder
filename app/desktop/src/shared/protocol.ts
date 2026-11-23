@@ -984,6 +984,27 @@ export interface MergeInfo {
   pr: PrStatus | null
   checks: MergeCheck[]
   comments: ReviewComment[]
+  // ── LAD-69 ──
+  /** Commit dell'upstream da scaricare (↓ dell'intestazione, come GitStatus.behind); 0 senza upstream. */
+  behindUpstream: number
+  /** Righe aggiunte/tolte dalle modifiche non committate (come GitStatus.added/removed). */
+  added: number
+  removed: number
+  /** Il repository ha almeno un remote git (senza, niente Push né Pubblica). */
+  hasRemote: boolean
+  /** Upstream del branch, per esempio "origin/feat" (come GitStatus.upstream); null se non pubblicato o HEAD staccato. */
+  upstream: string | null
+  /** Commit di testa della PR (`headRefOid` di GitHub, sha completo) come l'host l'ha letto ora; null senza PR. È ciò che l'utente vede: `pr.merge` lo vuole indietro in `expectedHeadOid`. */
+  prHeadOid?: string | null
+  /** `mergeStateStatus` di GitHub (CLEAN, BLOCKED, BEHIND, DIRTY, UNSTABLE, HAS_HOOKS, DRAFT, UNKNOWN…); null senza PR. */
+  mergeState: string | null
+  /** Una sessione sta lavorando nella cartella: Push, Merge e Archivia aspettano. */
+  agentBusy: boolean
+  /** Perché la PR non si può unire ora (vuoto = unibile o nessuna PR aperta). */
+  blocks: MergeBlock[]
+  /** Passo successivo e se è abilitato: calcolato in un solo punto lato host, stessa logica del chip dell'intestazione. */
+  nextAction: NextAction
+  // ── fine LAD-69 ──
 }
 
 // ── Collegamenti: GitHub, Claude Code e Codex ────────────────────────────────
@@ -1357,6 +1378,53 @@ export type HostCommand =
    */
   | { type: 'git.watch'; sessionId: string; on: boolean }
   // ── fine LAD-68 ──
+  // ── LAD-69 ──
+  /**
+   * Anteprima del push, leggera (solo git locale, nessuna rete): cosa verrebbe inviato, da mostrare nella conferma. Risponde
+   * GitPushPreview. `remote` serve solo quando il branch non ha upstream e il repo ha più remote (vedi `problem`).
+   * Destinazione: il push va SEMPRE a un branch con lo stesso nome di quello locale (`target`, per esempio "origin/feat"), mai a un
+   * branch con nome diverso. Se l'upstream punta a un altro branch (`git switch -c feat origin/main`) o a un altro remote di
+   * `branch.<b>.pushRemote`/`remote.pushDefault`, l'upstream NON è la destinazione: l'anteprima dice `willPublish: true` e
+   * `upstreamElsewhere` riporta l'upstream attuale (che dopo il push passa a `target`). Remote scelto: `remote` richiesto, poi
+   * `branch.<b>.pushRemote`, `remote.pushDefault`, il remote dell'upstream, l'unico remote.
+   * Errori (testo tradotto): HEAD staccato; cartella non repo git; `remote` che non è tra quelli del repo o diverso da quello
+   * dell'upstream; sessione senza cartella (progetto rimosso).
+   */
+  | { type: 'git.push.preview'; sessionId: string; remote?: string }
+  /**
+   * Push fatto da Ladder con git, SOLO su azione esplicita dell'utente (la UI chiede sempre conferma con branch e numero di commit
+   * dell'anteprima): mai su richiesta dell'agente. Branch con upstream: invia al branch dell'upstream; senza upstream o con
+   * `publish: true`: `git push -u <remote> <branch>`. Mai force. Risponde GitPushResult, manda `fs.changed` e rilegge lo stato
+   * (evento `git.status`). Una sola operazione alla volta per repo; rifiutato (errore tradotto) se l'agente di quella cartella sta
+   * lavorando. Un push rifiutato non modifica nulla (nemmeno la config dell'upstream).
+   * Errori tradotti: non fast-forward, credenziali mancanti o rifiutate, remote non raggiungibile, hook pre-push o remoto che rifiutano
+   * (con l'output, ultimi 4000 caratteri), HEAD staccato, nessun remote o più remote senza upstream, nulla da inviare, timeout di 3 minuti.
+   * `expectedHead`: lo sha completo di HEAD mostrato nell'anteprima (`GitPushPreview.head`); se HEAD è diverso il push è rifiutato
+   * ("Il branch è cambiato dopo l'anteprima: riapri la conferma") e non parte nulla. La UI lo passa sempre.
+   */
+  | { type: 'git.push'; sessionId: string; publish?: boolean; remote?: string; expectedHead?: string }
+  /**
+   * Merge della PR del branch della sessione con `gh pr merge`, SOLO su azione esplicita dell'utente (conferma con il metodo scelto).
+   * Controlli prima, senza chiamare merge se falliscono: gh collegato; PR aperta, non bozza, del branch della sessione, senza
+   * conflitti, senza blocchi di MergeBlock (CI in corso o fallita, review richiesta, branch non aggiornato). Mai --admin né --auto;
+   * `--match-head-commit` fissa il commit controllato. `deleteBranch` NON passa --delete-branch a gh: se true cancella, dopo il merge
+   * riuscito, solo il branch REMOTO della PR (mai quello locale; salta se la PR viene da un fork). Risponde PrMergeResult
+   * e aggiorna PR/stato (eventi `fs.changed`, `git.status`, `session.summary`).
+   * Rifiutata (errore tradotto) una PR da fork (`isCrossRepository`) e una PR la cui testa non coincide con l'upstream locale del branch
+   * (commit non ancora pubblicati o branch diverso). `expectedHeadOid`: lo sha di testa della PR che l'utente ha visto nel dialogo
+   * (`MergeInfo.prHeadOid`); se la PR riletta ha un oid diverso il merge è rifiutato ("la PR è cambiata: riapri la conferma"); a gh va
+   * sempre `--match-head-commit` con l'oid verificato. La UI lo passa sempre.
+   * Se gh non risponde entro 90 s l'errore dice di ricontrollare lo stato della PR (potrebbe essere stata unita) e lo stato si rilegge.
+   */
+  | { type: 'pr.merge'; sessionId: string; number: number; method: PrMergeMethod; deleteBranch?: boolean; expectedHeadOid?: string }
+  /**
+   * "Archivia" dopo il merge: chiude la sessione e, se è in un worktree che nessun'altra sessione usa, lo toglie (come
+   * l'archiviazione automatica a PR unita: script di pulizia compreso, il branch resta). Solo se la PR risulta unita o il branch
+   * è già nella base; mai con modifiche non committate o commit che esistono solo qui (errore tradotto, nulla viene toccato).
+   * Risponde GitArchiveResult.
+   */
+  | { type: 'git.archive'; sessionId: string }
+  // ── fine LAD-69 ──
   // ── fine LAD-59 commit ──
   // ── fine LAD-59 ──
 
@@ -1798,6 +1866,105 @@ export interface GitStatus {
   isWorktree: boolean
 }
 // ── fine LAD-68 ──
+
+// ── LAD-69 ──
+export type PrMergeMethod = 'merge' | 'squash' | 'rebase'
+
+/** Anteprima di `git.push.preview`. */
+export interface GitPushPreview {
+  branch: string
+  /** Remote a cui andrebbe il push; null se manca (vedi `problem`). */
+  remote: string | null
+  /** Remote del repository (`git remote`): per far scegliere quando `problem` è 'choose-remote'. */
+  remotes: string[]
+  /** Upstream attuale, per esempio "origin/feat"; null se il branch non è pubblicato (o l'upstream è sparito). */
+  upstream: string | null
+  /** Destinazione esatta del push, per esempio "origin/feat" (`<remote>/<branch locale>`); null se manca il remote (vedi `problem`). */
+  target: string | null
+  /** L'upstream attuale punta altrove (altro nome di branch o altro remote): NON è la destinazione e dopo il push diventa `target`. Altrimenti null. */
+  upstreamElsewhere: string | null
+  /** Sha completo di HEAD al momento dell'anteprima: la UI lo rimanda in `git.push.expectedHead`. '' se il branch non ha commit. */
+  head: string
+  /** Il push imposta l'upstream su `target` (`-u`): branch non pubblicato, o con upstream altrove. */
+  willPublish: boolean
+  /** Fino a 50 commit che verrebbero inviati, il più recente prima. */
+  commits: { hash: string; subject: string }[]
+  /** Numero totale dei commit da inviare (può superare commits.length). */
+  total: number
+  /** Commit dell'upstream che il branch non ha (da ultimo fetch): se > 0 e total > 0 il push verrebbe rifiutato. */
+  behind: number
+  /** Il push verrebbe rifiutato perché non è un fast-forward (behind > 0 e total > 0): serve prima integrare l'upstream. */
+  wouldBeRejected: boolean
+  /** no-remote: il repo non ha remote. choose-remote: più remote e nessun upstream, serve `remote`. */
+  problem: 'no-remote' | 'choose-remote' | null
+}
+
+/** Risposta di `git.push`. */
+export interface GitPushResult {
+  branch: string
+  remote: string
+  /** Commit inviati (contati prima del push sull'upstream o, se si pubblica, su ciò che il remote non ha). */
+  pushed: number
+  /** Upstream dopo il push, per esempio "origin/feat". */
+  upstream: string
+  /** Il branch è stato pubblicato con questo push (prima non aveva upstream). */
+  published: boolean
+}
+
+/** Risposta di `pr.merge`. */
+export interface PrMergeResult {
+  number: number
+  method: PrMergeMethod
+  /** PR riletta dopo il merge (di norma state 'merged'); null se gh non l'ha restituita. */
+  pr: PrStatus | null
+  /** Branch remoto cancellato (solo se richiesto con `deleteBranch`). */
+  branchDeleted: boolean
+  /** Perché il branch remoto non è stato cancellato, se richiesto e fallito (il merge è comunque riuscito). */
+  branchDeleteError: string | null
+}
+
+/** Risposta di `git.archive`. */
+export interface GitArchiveResult {
+  /** La sessione è stata archiviata. */
+  archived: true
+  worktreeRemoved: boolean
+  /** Perché il worktree è rimasto: 'none' (la sessione non ha un worktree), 'shared' (un'altra sessione lo usa), 'dirty' (file non committati), 'failed' (git l'ha rifiutato). Il branch resta sempre. */
+  worktreeKept: 'none' | 'shared' | 'dirty' | 'failed' | null
+  /** 'failed': perché git non l'ha tolto (stderr ripulito e accorciato); altrimenti assente o null. */
+  worktreeError?: string | null
+}
+
+/** Cosa impedisce di unire la PR, in ordine di priorità (il primo è il motivo mostrato nel tooltip di Merge). */
+export type MergeBlockKind = 'draft' | 'conflicts' | 'ci_failing' | 'ci_pending' | 'changes_requested' | 'review_required' | 'behind' | 'blocked'
+
+export interface MergeBlock {
+  kind: MergeBlockKind
+  /** conflicts: file in conflitto; ci_failing / ci_pending: numero di check. */
+  count?: number
+}
+
+/** Passo successivo del pannello: Commit → Push/Pubblica → Crea PR → Merge → Archivia. */
+export type NextActionKind = 'commit' | 'push' | 'publish' | 'create_pr' | 'merge' | 'archive' | 'none'
+
+/**
+ * Perché il passo è disabilitato (`blocked`) o la spiegazione di 'none'/'create_pr':
+ * detached (HEAD staccato), default_branch (niente PR sul branch predefinito), no_remote, no_commits (niente rispetto alla base),
+ * github_missing / github_unauthenticated / no_github_remote / github_error (gh non pronto), pr_closed (la PR precedente è chiusa:
+ * se ne apre un'altra), behind_upstream (l'upstream ha commit che il branch non ha: il push verrebbe rifiutato), agent_busy (l'agente
+ * sta lavorando), dirty / unpushed (Archivia con modifiche o commit non inviati), oppure il primo MergeBlockKind.
+ */
+export type NextActionReason =
+  | 'detached' | 'default_branch' | 'no_remote' | 'no_commits' | 'github_missing' | 'github_unauthenticated' | 'no_github_remote' | 'github_error'
+  | 'pr_closed' | 'behind_upstream' | 'agent_busy' | 'dirty' | 'unpushed'
+  | MergeBlockKind
+
+export interface NextAction {
+  kind: NextActionKind
+  /** Il pulsante principale è disabilitato (con `reason` nel tooltip). 'none' è sempre blocked. */
+  blocked: boolean
+  reason: NextActionReason | null
+}
+// ── fine LAD-69 ──
 
 /** Risposta di `text.pr`. `body` include già il collegamento all'issue (riga "Closes …") se c'è. */
 export interface GeneratedPr {

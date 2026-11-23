@@ -36,6 +36,11 @@ const IDENTITY = {
  */
 const BASE_ARGS = ['--no-optional-locks', '-c', 'core.quotePath=false', '-c', 'core.fsmonitor=false']
 
+/** Nome di remote accettato: come i nomi usuali di git (`origin`, `upstream`, `my-fork`). Mai un URL né qualcosa che inizia con `-`. */
+export function validRemoteName(name: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(name) && !name.includes('..')
+}
+
 export async function git(repo: string, args: string[], env: Record<string, string> = {}): Promise<string> {
   const { stdout } = await run('git', ['-C', repo, ...BASE_ARGS, ...args], {
     env: { ...cleanEnv(), ...env },
@@ -627,10 +632,22 @@ async function gitRaw(repo: string, args: string[], input?: string, timeoutMs = 
 }
 
 /** Ultime righe dell'output di git, senza colori, per un errore leggibile (gli hook possono scrivere molto). */
-function tailOutput(output: string): string {
+export function tailOutput(output: string): string {
   // eslint-disable-next-line no-control-regex
   const clean = output.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
   return clean.length > 4000 ? `…${clean.slice(-4000)}` : clean
+}
+
+/** Via le credenziali negli URL (`https://utente:token@host`): l'output di git e degli hook finisce in messaggi per l'utente. */
+export function redactUrls(text: string): string {
+  return text.replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, '$1***@')
+}
+
+/** Motivo leggibile di un comando git fallito: lo stderr ripulito (senza colori né credenziali) o, se manca, la prima riga dell'errore. */
+export function gitFailure(error: unknown): string {
+  const e = error as { stderr?: unknown; message?: unknown }
+  const text = String(e?.stderr ?? '').trim() || String(e?.message ?? '').split('\n')[0]
+  return redactUrls(tailOutput(text.trim()))
 }
 
 /**

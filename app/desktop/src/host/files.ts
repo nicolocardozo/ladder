@@ -12,6 +12,8 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.nex
 
 /** Percorso assoluto di `rel` dentro `root`. Rifiuta tutto ciò che esce dalla cartella. */
 export function insideRoot(root: string, rel: string): string {
+  // Root vuota (sessione di un progetto rimosso): resolve('', '/x') passerebbe per qualsiasi percorso.
+  if (!root) throw new Error(t('Folder unknown to Ladder.'))
   const absolute = resolve(root, rel)
   if (absolute !== root && !absolute.startsWith(root.endsWith(sep) ? root : root + sep)) {
     throw new Error(t('Path outside the session folder.'))
