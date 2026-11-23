@@ -1,5 +1,6 @@
 // Hero a riquadro: testi server-rendered (unico h1 della pagina), puntini e finestra animata
 // sono client component caricati dopo. Lo scroll guida claim e finestra via variabili CSS.
+import { Fragment } from "react"
 import { ArrowDown } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import { SITE } from "@/lib/site"
@@ -7,6 +8,20 @@ import { cn } from "@/lib/utils"
 import "./hero.css"
 import { HeroWaves, HeroWindow } from "./hero-lazy"
 import { HeroScroll } from "./hero-scroll"
+
+const LINE1 = "Every agent, every repo,"
+const LINE2 = "one calm window."
+
+// Ogni parola in un suo span, così può muoversi da sola verso la posizione finale
+const words = (text: string) =>
+  text.split(" ").map((w, i, arr) => (
+    <Fragment key={w + i}>
+      <span className="hw" data-hw>
+        {w}
+      </span>
+      {i < arr.length - 1 ? " " : null}
+    </Fragment>
+  ))
 
 const cta = "h-[42px] rounded-[10px] px-4 text-xs font-semibold uppercase tracking-[0.06em]"
 
@@ -20,12 +35,13 @@ export function Hero() {
 
         <div className="hero-claim">
           <h1 id="hero-title">
-            <span>Every agent, every repo,</span> <span className="hero-iris">one calm window.</span>
+            <span>{words(LINE1)}</span> <span className="hero-iris">{words(LINE2)}</span>
           </h1>
         </div>
-        {/* Stessa frase su una riga, centrata: compare quando sale la finestra (decorativa, l'h1 è uno solo) */}
+        {/* Impaginazione finale del claim (una riga, centrata), invisibile: HeroScroll ci misura le parole
+            e sposta ognuna dell'h1 verso il proprio posto. */}
         <p className="hero-claim1" aria-hidden>
-          Every agent, every repo, <span>one calm window.</span>
+          {words(LINE1)} <span className="hero-iris">{words(LINE2)}</span>
         </p>
 
         <p className="hero-foot hero-foot-l">
@@ -35,14 +51,14 @@ export function Hero() {
         <div className="hero-foot hero-foot-r">
           <a
             href={SITE.downloadUrl}
-            className={cn(buttonVariants({ variant: "outline" }), cta, "border-hairline bg-white hover:bg-white")}
+            className={cn(buttonVariants({ variant: "outline" }), cta, "border-hairline bg-surface hover:bg-surface")}
           >
             Download for macOS
           </a>
           <a
             href={SITE.downloadUrl}
             aria-label="Download Ladder for macOS"
-            className={cn(buttonVariants(), "size-[42px] rounded-[10px] bg-ink text-white hover:bg-ink/85")}
+            className={cn(buttonVariants(), "size-[42px] rounded-[10px] bg-ink text-page hover:bg-ink/85")}
           >
             <ArrowDown className="size-4" aria-hidden />
           </a>

@@ -27,7 +27,8 @@ export function StatementText() {
         scrollTrigger: { trigger: el, start: "top 85%", end: "bottom 60%", scrub: 0.3, invalidateOnRefresh: true },
       })
       spans.forEach((s, i) => {
-        tl.to(s, { color: s.dataset.hl ? "#5525cf" : "#181424", duration: 1 }, i * 0.6)
+        // anima solo --lit (0→1): il CSS ne ricava l'opacità della parola, così segue il tema
+        tl.fromTo(s, { "--lit": 0 }, { "--lit": 1, duration: 1 }, i * 0.6)
       })
     })
     // l'hero sticky e le parti caricate dopo cambiano l'altezza della pagina: ricalcola le posizioni
@@ -64,7 +65,7 @@ export function StatementText() {
           {i < arr.length - 1 ? " " : null}
         </span>
       ))}
-      <style>{`.statement-word{color:#d2cddc}@media (prefers-reduced-motion:reduce){.statement-word{color:#181424}.statement-word[data-hl]{color:#5525cf}}`}</style>
+      <style>{`.statement-word{color:var(--color-ink);opacity:calc(var(--dim) + (1 - var(--dim)) * var(--lit,0))}.statement-word[data-hl]{color:var(--color-iris)}@media (prefers-reduced-motion:reduce){.statement-word{--lit:1}}`}</style>
     </h2>
   )
 }

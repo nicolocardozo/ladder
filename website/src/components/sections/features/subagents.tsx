@@ -7,9 +7,9 @@ import { cn } from "@/lib/utils"
 import { useActive } from "./use-active"
 
 const SUBS = [
-  { x: 19, y: 68, label: "Map the host", kind: "Explore" },
+  { x: 24, y: 68, label: "Map the host", kind: "Explore" },
   { x: 50, y: 82, label: "Check renderer", kind: "Explore" },
-  { x: 81, y: 68, label: "Write tests", kind: "General" },
+  { x: 76, y: 68, label: "Write tests", kind: "General" },
 ]
 
 const NODE =
@@ -19,6 +19,14 @@ const NODE =
 export function SubagentsViz() {
   const ref = useRef<HTMLDivElement>(null)
   const active = useActive(ref)
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   // Stato statico completo: tutti visibili e finiti
   const [shownRaw, setShown] = useState([true, true, true])
   const [doneRaw, setDone] = useState([true, true, true])
@@ -59,28 +67,34 @@ export function SubagentsViz() {
 
   return (
     <div ref={ref} className="absolute inset-0">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full" aria-hidden>
-        {SUBS.map((n, i) => {
-          const y1 = n.y - 8
-          return (
-            <path
-              key={n.label}
-              d={`M50 26 C 50 ${(26 + y1) / 2}, ${n.x} ${(26 + y1) / 2}, ${n.x} ${y1}`}
-              fill="none"
-              pathLength={1}
-              strokeWidth={1.5}
-              strokeOpacity={0.6}
-              vectorEffect="non-scaling-stroke"
-              className={done[i] ? "stroke-c-success" : "stroke-c-accent"}
-              style={{
-                strokeDasharray: "1 1",
-                strokeDashoffset: shown[i] ? 0 : 1,
-                transition: shown[i] ? "stroke-dashoffset .7s cubic-bezier(.6,0,.2,1)" : "none",
-              }}
-            />
-          )
-        })}
-      </svg>
+      {/* Linee in pixel reali (non un viewBox deformato), così il tratteggio animato resta pulito */}
+      {size.w > 0 && (
+        <svg width={size.w} height={size.h} className="absolute inset-0" aria-hidden>
+          {SUBS.map((n, i) => {
+            const x0 = size.w / 2
+            const y0 = size.h * 0.2 + 17
+            const x1 = (size.w * n.x) / 100
+            const y1 = (size.h * n.y) / 100 - 17
+            const my = (y0 + y1) / 2
+            return (
+              <path
+                key={n.label}
+                d={`M${x0} ${y0} C ${x0} ${my}, ${x1} ${my}, ${x1} ${y1}`}
+                fill="none"
+                pathLength={1}
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                className={cn("transition-[stroke] duration-300", done[i] ? "stroke-c-success/70" : "stroke-c-accent/70")}
+                style={{
+                  strokeDasharray: "1 1",
+                  strokeDashoffset: shown[i] ? 0 : 1,
+                  transition: shown[i] ? "stroke-dashoffset .7s cubic-bezier(.6,0,.2,1), stroke .3s" : "none",
+                }}
+              />
+            )
+          })}
+        </svg>
+      )}
       <div className={cn(NODE, "left-1/2 top-[20%]")}>
         <AgentIcon agent="claude" className="size-4" />
         <b className="font-medium">Restore tabs</b>

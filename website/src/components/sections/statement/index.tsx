@@ -4,14 +4,14 @@ import { StatementText } from "./statement-text"
 // Sezione "problema": frase che si accende allo scroll, fibre dietro (asse z).
 export function Statement() {
   return (
-    <section id="statement" aria-labelledby="statement-title" className="relative isolate flex min-h-[100svh] items-center overflow-hidden bg-white py-24">
+    <section id="statement" aria-labelledby="statement-title" className="relative isolate flex min-h-[100svh] items-center overflow-hidden bg-page py-24">
       <FibersLazy />
       <div className="relative z-10 mx-auto w-full max-w-6xl px-4 sm:px-8">
         {/* Sfumatura bianca radiale dietro il testo, per la leggibilità */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -inset-x-[10%] -inset-y-16 -z-10"
-          style={{ background: "radial-gradient(ellipse 55% 60% at 50% 50%, rgba(255,255,255,0.92), rgba(255,255,255,0) 100%)" }}
+          style={{ background: "radial-gradient(ellipse 55% 60% at 50% 50%, color-mix(in srgb, var(--color-page) 92%, transparent), transparent 100%)" }}
         />
         <StatementText />
       </div>

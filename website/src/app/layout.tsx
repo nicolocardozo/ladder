@@ -46,9 +46,15 @@ export const viewport: Viewport = {
   themeColor: "#ffffff",
 }
 
+// Applica il tema salvato prima del primo paint (default chiaro)
+const themeScript = `try{if(localStorage.getItem("ladder-theme")==="dark")document.documentElement.classList.add("dark")}catch(e){}`
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${mona.variable} ${jetbrains.variable} antialiased`}>
+    <html lang="en" suppressHydrationWarning className={`${mona.variable} ${jetbrains.variable} antialiased`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className="min-h-dvh bg-page text-ink">
         <SiteHeader />
         {children}

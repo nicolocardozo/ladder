@@ -1,6 +1,7 @@
 // Header fisso: logo senza sfondo a sinistra, nav compatta a destra (pillola bianca sfocata).
 import Link from "next/link"
 import { Logo } from "@/components/brand/logo"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { SITE } from "@/lib/site"
 
 const LINKS = [
@@ -15,13 +16,13 @@ const item =
 
 export function SiteHeader() {
   return (
-    <header className="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-center justify-between px-5 pt-[calc(env(safe-area-inset-top,0px)+20px)] sm:px-7 sm:pt-[calc(env(safe-area-inset-top,0px)+28px)]">
+    <header className="pointer-events-none fixed inset-x-0 top-0 z-50 mx-auto flex max-w-[95%] items-center justify-between px-5 pt-[calc(env(safe-area-inset-top,0px)+20px)] sm:px-7 sm:pt-[calc(env(safe-area-inset-top,0px)+28px)]">
       <Link href="/" aria-label="Ladder, home" className="pointer-events-auto flex items-center text-iris">
-        <Logo className="h-6 w-auto" decorative />
+        <Logo variant="wordmark" className="h-7 w-auto" decorative />
       </Link>
       <nav
         aria-label="Main"
-        className="pointer-events-auto flex h-[46px] items-center gap-0.5 rounded-[14px] border border-hairline bg-white/75 p-1.5 shadow-[0_1px_2px_rgb(24_20_36/0.04)] backdrop-blur-[14px] backdrop-saturate-150"
+        className="pointer-events-auto flex h-[46px] items-center gap-0.5 rounded-[14px] border border-hairline bg-page/75 p-1.5 shadow-[0_1px_2px_rgb(24_20_36/0.04)] backdrop-blur-[14px] backdrop-saturate-150"
       >
         <div className="hidden items-center gap-0.5 md:flex">
           {LINKS.map((l) => (
@@ -33,9 +34,10 @@ export function SiteHeader() {
             GitHub
           </a>
         </div>
+        <ThemeToggle className={`${item} w-[34px] justify-center px-0 text-muted-ink hover:text-ink`} />
         <a
           href={SITE.downloadUrl}
-          className="inline-flex h-[34px] items-center rounded-[9px] bg-ink px-3.5 text-[13.5px] font-medium leading-none text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(24_20_36/0.2)] transition hover:-translate-y-px hover:bg-[#2a2340]"
+          className="inline-flex h-[34px] items-center rounded-[9px] bg-ink px-3.5 text-[13.5px] font-medium leading-none text-page shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(24_20_36/0.2)] transition hover:-translate-y-px hover:bg-ink/85"
         >
           Download
         </a>

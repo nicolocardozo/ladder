@@ -2,6 +2,9 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* dark: segue la classe .dark su <html> (scelta dell'utente), non il tema del sistema */
+@custom-variant dark (&:where(.dark, .dark *));
+
 
 /* Token del brand: pagina chiara */
 @theme {
@@ -12,6 +15,8 @@
   --color-frame: #f4f3f8;
   --color-iris: #5525cf;
   --color-iris-dot: #7b5cf0;
+  --color-surface: #ffffff; /* schede e tessere */
+  --color-dot: #dcd6e8; /* puntini delle schede */
 
   /* Palette Circuit (brand/themes.json) per le schermate dell'app */
   --color-c-bg: #181424;
@@ -75,7 +80,9 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* opacità delle parole spente della frase */
 :root {
+  --dim: 0.22;
   --background: var(--color-page);
   --foreground: var(--color-ink);
   --card: oklch(1 0 0);
@@ -111,6 +118,22 @@
 }
 
 
+/* Tema scuro: stessi token, valori notturni. Il viola Circuit resta il colore dell'app. */
+.dark {
+  color-scheme: dark;
+  --color-page: #0d0a14;
+  --color-ink: #f4f1fb;
+  --color-muted-ink: #a39eb1;
+  --color-hairline: #262033;
+  --color-frame: #130f1c;
+  --color-iris: #a58cff;
+  --color-iris-dot: #8f74ff;
+  --color-surface: #110d19;
+  --color-dot: #2a2338;
+  --dim: 0.32;
+  --primary-foreground: var(--color-page);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -129,3 +152,7 @@
     scroll-behavior: auto;
   }
 }
+
+/* Nessuna scrollbar visibile: la pagina scorre comunque con rotella, trackpad e tastiera */
+html { scrollbar-width: none; }
+html::-webkit-scrollbar { display: none; }

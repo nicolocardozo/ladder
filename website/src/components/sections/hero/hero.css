@@ -11,6 +11,7 @@
   --e: 0;
   --lift: 0;
   --fade: 1;
+  --x: 0; /* 1 = riquadro a tutto schermo, senza margine */
   position: relative;
   height: 250vh;
   height: 250svh;
@@ -28,11 +29,12 @@
 }
 .hero-frame {
   position: sticky;
-  top: 12px;
-  height: calc(100vh - 24px);
-  height: calc(100svh - 24px);
+  top: calc(12px * (1 - var(--x)));
+  height: calc(100vh - 24px * (1 - var(--x)));
+  height: calc(100svh - 24px * (1 - var(--x)));
+  margin-inline: calc(-12px * var(--x));
   overflow: hidden;
-  border-radius: var(--hero-r);
+  border-radius: calc(var(--hero-r) * (1 - var(--x)));
   background: var(--color-frame, #f4f3f8);
   isolation: isolate;
 }
@@ -47,12 +49,17 @@
   z-index: 1;
   left: var(--gut);
   right: var(--gut);
-  top: calc(30% * (1 - var(--e)) + 96px * var(--e));
-  transform-origin: 0 0;
-  transform: scale(calc(1 - (1 - var(--s-end)) * var(--e)));
-  opacity: clamp(0, calc(1 - (var(--e) - 0.1) * 2.4), 1);
+  top: 30%;
   pointer-events: none;
-  will-change: transform, opacity;
+}
+/* Ogni parola va dalla posizione iniziale a quella del claim su una riga: --dx/--dy/--s li misura HeroScroll */
+.hw {
+  display: inline-block;
+  line-height: 1;
+  transform-origin: 0 0;
+  transform: translate(calc(var(--dx, 0) * var(--e) * 1px), calc(var(--dy, 0) * var(--e) * 1px))
+    scale(calc(1 + (var(--s, 1) - 1) * var(--e)));
+  will-change: transform;
 }
 .hero-claim1 {
   position: absolute;
@@ -65,15 +72,12 @@
   text-wrap: balance;
   font-size: var(--fs1);
   line-height: 1.12;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.045em;
   font-weight: 620;
-  font-stretch: 106%;
-  color: var(--color-ink, #181424);
-  opacity: clamp(0, calc((var(--e) - 0.45) * 2.4), 1);
-  transform: translateY(calc((1 - var(--e)) * 10px));
+  font-stretch: 108%;
+  visibility: hidden;
   pointer-events: none;
 }
-.hero-claim1 span { color: var(--color-iris, #5525cf); }
 .hero-claim h1 {
   margin: 0;
   font-size: var(--fs);
@@ -83,10 +87,11 @@
   font-stretch: 108%;
   color: var(--color-ink, #181424);
 }
-.hero-claim h1 span {
+.hero-claim h1 > span {
   display: block;
 }
-.hero-claim h1 .hero-iris {
+.hero-claim .hero-iris,
+.hero-claim1 .hero-iris {
   color: var(--color-iris, #5525cf);
 }
 .hero-foot {
@@ -132,6 +137,11 @@
   box-shadow: 0 0 0 1px rgb(24 20 36 / 0.9), 0 2px 4px rgb(24 20 36 / 0.12), 0 40px 90px -20px rgb(60 30 160 / 0.45), 0 70px 140px -40px rgb(24 20 36 / 0.35);
 }
 
+/* Tema scuro: la finestra Circuit si stacca dal fondo con un bordo chiaro sottile */
+.dark .hero-win {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.09), 0 40px 90px -20px rgb(85 37 207 / 0.35), 0 70px 140px -40px rgb(0 0 0 / 0.6);
+}
+
 /* Movimento ridotto: stato finale, finestra al suo posto, nessuno scroll animato */
 @media (prefers-reduced-motion: reduce) {
   .hero {
@@ -140,6 +150,9 @@
     --fade: 0;
     height: calc(100svh);
   }
+  /* finché il client non ha misurato le parole, mostra direttamente l'impaginazione finale */
+  .hero:not([data-m]) .hero-claim { visibility: hidden; }
+  .hero:not([data-m]) .hero-claim1 { visibility: visible; color: var(--color-ink, #181424); }
 }
 
 /* ---------- Finestra di Ladder (Circuit) ---------- */

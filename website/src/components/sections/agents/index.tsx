@@ -16,7 +16,7 @@ const AGENTS = [
 ] as const
 
 const TILE =
-  "group flex items-center gap-3 rounded-xl border border-hairline bg-white p-3 transition-colors hover:border-iris/30"
+  "group flex items-center gap-3 rounded-xl border border-hairline bg-surface p-3 transition-colors hover:border-iris/30"
 
 export function Agents() {
   return (

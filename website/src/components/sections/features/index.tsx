@@ -11,7 +11,7 @@ function Card({ viz, title, wide, children }: { viz: ReactNode; title: string; w
   return (
     <article
       className={cn(
-        "flex flex-col overflow-hidden rounded-[18px] border border-hairline bg-white transition-[transform,box-shadow] duration-300",
+        "flex flex-col overflow-hidden rounded-[18px] border border-hairline bg-surface transition-[transform,box-shadow] duration-300",
         "hover:-translate-y-[3px] hover:shadow-[0_20px_50px_-20px_rgb(40_22_90/0.18)] motion-reduce:transition-none motion-reduce:hover:translate-y-0",
         wide && "min-[861px]:col-span-2",
       )}
@@ -19,13 +19,13 @@ function Card({ viz, title, wide, children }: { viz: ReactNode; title: string; w
       <div aria-hidden className="relative h-[300px] overflow-hidden border-b border-hairline bg-frame min-[861px]:data-[wide]:h-[330px]" data-wide={wide ? "" : undefined}>
         <div
           className="absolute inset-0 opacity-80"
-          style={{ backgroundImage: "radial-gradient(circle, #DCD6E8 1px, transparent 1.5px)", backgroundSize: "18px 18px" }}
+          style={{ backgroundImage: "radial-gradient(circle, var(--color-dot) 1px, transparent 1.5px)", backgroundSize: "18px 18px" }}
         />
         {viz}
       </div>
       <div className="px-6 pt-[22px] pb-[26px]">
         <h3 className="text-lg font-semibold tracking-[-0.015em]">{title}</h3>
-        <p className="mt-1.5 max-w-[56ch] text-[14.5px] leading-[1.55] text-muted-ink">{children}</p>
+        <p className={cn("mt-1.5 text-[14.5px]", wide ? "max-w-[96ch]" : "max-w-[56ch]", "leading-[1.55] text-muted-ink")}>{children}</p>
       </div>
     </article>
   )
