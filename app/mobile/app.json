@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "Ladder",
+    "slug": "ladder",
+    "owner": "manybitstech",
+    "scheme": "ladder",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "newArchEnabled": true,
+    "jsEngine": "hermes",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#181424"
+    },
+    "ios": {
+      "bundleIdentifier": "dev.nicolocardozo.ladder.mobile",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Ladder uses the camera to scan the pairing code shown on your Mac.",
+        "UIViewControllerBasedStatusBarAppearance": false
+      }
+    },
+    "android": {
+      "package": "dev.nicolocardozo.ladder.mobile",
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#181424"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.VIBRATE"
+      ],
+      "allowBackup": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      "expo-localization",
+      "expo-asset",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#181424",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 140
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
