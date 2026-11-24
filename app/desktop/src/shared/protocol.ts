@@ -707,6 +707,8 @@ export interface ProjectUiState {
   // ── Browser integrato (LAD-57) ──
   /** Tab browser aperte nel progetto, nell'ordine in cui si vedono: `id` è l'identità della tab, `url` l'ultimo indirizzo (si riapre lì al riavvio). */
   browserTabs?: { id: string; url: string; title?: string }[]
+  /** Colonna browser a destra delle chat: aperta o no, pagina attiva (tab salvata o di un agente; sparita = la prima), larghezza scelta in px (assente = 40%). */
+  browserColumn?: { open: boolean; active: string | null; width?: number }
   // ── Fine browser integrato ──
 
   // ── LAD-57 parte 2 ──
@@ -1235,6 +1237,11 @@ export type HostCommand =
   | { type: 'session.open'; sessionId: string }
   | { type: 'session.read'; sessionId: string }
   | { type: 'session.archive'; sessionId: string }
+  /**
+   * Chiude il processo dell'agente della sessione: il messaggio successivo riprende la stessa conversazione con un processo nuovo,
+   * che rilegge impostazioni e server MCP. Con un turno o sotto-agenti al lavoro il riavvio aspetta che finiscano.
+   */
+  | { type: 'session.restartAgent'; sessionId: string }
   | { type: 'draft.set'; key: DraftKey; text: string }
   | { type: 'ui.set'; projectId: string; state: ProjectUiState }
   // ── LAD-57 parte 2 ──

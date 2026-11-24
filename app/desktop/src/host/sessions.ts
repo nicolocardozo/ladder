@@ -110,6 +110,9 @@ interface PendingRequest {
   resolve: (response: RequestResponse) => void
 }
 
+/** Agenti che dopo la chiusura del processo riprendono la stessa conversazione (Claude con resume, Codex con thread/resume). */
+const RESTARTABLE_AGENTS = new Set(['claude-code', 'codex'])
+
 interface Runtime {
   adapter: AgentSession
   turnId: string | null
@@ -213,6 +216,8 @@ export class Host {
   /** Archiviazioni in corso, per sessione: un secondo archive() aspetta la stessa promessa e project.remove le aspetta tutte. */
   private readonly archiveRuns = new Map<string, Promise<void>>()
   private readonly restarting = new Set<string>()
+  /** Sessioni con un riavvio dell'agente chiesto a turno in corso: avviene alla prima fine turno senza lavoro aperto. */
+  private readonly restartAfterTurn = new Set<string>()
   private termStatus = new Map<string, TerminalStatus>()
   /** Sessioni che aspettano lo script di setup del worktree prima di partire. */
   private preparing = new Set<string>()
@@ -1019,6 +1024,9 @@ export class Host {
       }
       case 'session.archive':
         await this.archive(command.sessionId)
+        return null
+      case 'session.restartAgent':
+        this.restartAgent(command.sessionId)
         return null
       case 'draft.set':
         if (command.text.trim()) {
@@ -1874,6 +1882,66 @@ export class Host {
     if (archived.length) this.broadcast({ type: 'sessions.autoArchived', sessionIds: archived })
   }
 
+  /**
+   * Riavvio dell'agente (per esempio dopo aver aggiunto un server MCP): la conversazione resta su disco e il prossimo turno
+   * la riprende (resume) con un processo nuovo. Non interrompe niente: con un turno o sotto-agenti al lavoro aspetta la fine.
+   * Si perdono solo le approvazioni "per questa sessione" date nel processo vecchio: l'agente le richiederà.
+   */
+  private restartAgent(sessionId: string): void {
+    const row = this.mustRow(sessionId)
+    if (this.isGone(sessionId)) return
+    if (row.mode === 'terminal') throw new Error(t('Terminal sessions restart from their terminal.'))
+    // Solo gli agenti che riprendono la conversazione da un processo nuovo: gli altri ripartirebbero da zero.
+    if (!RESTARTABLE_AGENTS.has(row.agent)) throw new Error(t('This agent can’t continue the conversation after a restart.'))
+    const runtime = this.runtimes.get(sessionId)
+    if (runtime && this.agentBusy(sessionId, runtime)) {
+      if (this.restartAfterTurn.has(sessionId)) return
+      this.restartAfterTurn.add(sessionId)
+      const turn = runtime.adapter.isRunning || runtime.turnId !== null
+      this.noticeInfo(
+        sessionId,
+        turn
+          ? t('The agent restarts when the current turn ends. Stop the turn to restart it sooner.')
+          : t('The agent restarts when its background work ends, so nothing running in the background gets lost.')
+      )
+      return
+    }
+    this.restartAfterTurn.delete(sessionId)
+    if (runtime) this.closeRuntime(sessionId)
+    this.noticeInfo(sessionId, t('Agent restarted. The next message continues the conversation with settings and MCP servers loaded again.'))
+    this.emitSummary(sessionId)
+  }
+
+  /**
+   * Il processo serve ancora: turno aperto o in chiusura, sotto-agenti o comandi in background vivi,
+   * o un sotto-agente appena finito il cui risultato l'agente non ha ancora ricevuto (turno implicito in arrivo).
+   * ownClosing: chiusure di turno da non contare (da onTurnEnd, la propria).
+   */
+  private agentBusy(sessionId: string, runtime: Runtime, ownClosing = 0): boolean {
+    return (
+      runtime.adapter.isRunning ||
+      runtime.turnId !== null ||
+      runtime.closing > ownClosing ||
+      runtime.adapter.hasBackgroundWork === true ||
+      this.subagents.hasRunning(sessionId) ||
+      this.agentsIdle.has(sessionId) ||
+      this.agentsWait.has(sessionId)
+    )
+  }
+
+  /** Chiude il processo dell'agente senza toccare la sessione: come l'archiviazione, prima la revoca del browser dell'agente. */
+  private closeRuntime(sessionId: string): void {
+    this.browserAgent.revoke(sessionId)
+    this.runtimes.get(sessionId)?.adapter.close()
+    this.runtimes.delete(sessionId)
+    this.agentsIdle.delete(sessionId)
+  }
+
+  private noticeInfo(sessionId: string, text: string): void {
+    this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: 'system', at: Date.now(), tone: 'info', text })
+    this.flush()
+  }
+
   /** `cleanup: false` quando il chiamante toglie il worktree: lo script di pulizia parte da removeWorktree. */
   private async archive(sessionId: string, options: { cleanup?: boolean } = {}): Promise<void> {
     // Doppio clic, archiviazione automatica e PR unita: chi arriva dopo aspetta la stessa archiviazione, lo script di pulizia parte una volta sola.
@@ -1915,6 +1983,7 @@ export class Host {
   }
 
   private async archiveSession(sessionId: string, row: SessionRow): Promise<void> {
+    this.restartAfterTurn.delete(sessionId)
     // Prima la revoca: scioglie le conferme del browser dell'agente ancora aperte (expireRequest ha bisogno del runtime).
     this.browserAgent.revoke(sessionId)
     this.runtimes.get(sessionId)?.adapter.close()
@@ -2359,6 +2428,15 @@ export class Host {
     const row = this.mustRow(sessionId)
     // Browser per l'agente: il server deve già ascoltare quando nasce il runtime (solo se l'interruttore è acceso).
     if (this.isGone(sessionId)) return
+    // Riavvio rimandato che non ha trovato una fine turno libera (sotto-agenti in background finiti senza turno): avviene ora, prima del messaggio.
+    const previous = this.runtimes.get(sessionId)
+    // Senza processo il prossimo nasce già nuovo: un riavvio rimandato non serve più.
+    if (!previous) this.restartAfterTurn.delete(sessionId)
+    else if (this.restartAfterTurn.has(sessionId) && !this.agentBusy(sessionId, previous)) {
+      this.restartAfterTurn.delete(sessionId)
+      this.closeRuntime(sessionId)
+      this.noticeInfo(sessionId, t('Agent restarted. The next message continues the conversation with settings and MCP servers loaded again.'))
+    }
     const browserReady = this.runtimes.has(sessionId) ? null : this.browserAgent.prepare(row.project_id)
     if (browserReady) await browserReady
     // L'archiviazione può essere arrivata mentre si aspettava il browser.
@@ -2784,6 +2862,7 @@ export class Host {
           // Turno ancora aperto all'uscita: non è "fatto" (interrotto se l'hai chiesto tu, altrimenti errore).
           this.finishCommand(sessionId, runtime, runtime.interrupting ? 'interrupted' : 'error', runtime.interrupting ? null : error ?? t('{agent} exited', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? '') }))
           this.runtimes.delete(sessionId)
+          this.restartAfterTurn.delete(sessionId)
           this.browserAgent.revoke(sessionId)
           if (error) {
             const notice = this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime.turnId ?? 'system', at: Date.now(), tone: 'error', text: t('{agent} exited: {error}', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? ''), error }) })
@@ -3084,6 +3163,13 @@ export class Host {
     // Messaggi inseriti non ancora uniti a un turno girano da soli (turno implicito, già o a momenti aperto):
     // la coda riparte alla fine di quel turno.
     if (superseded || runtime.adapter.isRunning || runtime.exited) return
+    // Riavvio chiesto a turno in corso: ora che il lavoro è finito; il primo messaggio in coda parte già col processo nuovo.
+    if (this.restartAfterTurn.has(sessionId) && this.runtimes.get(sessionId) === runtime && !this.agentBusy(sessionId, runtime, 1)) {
+      this.restartAfterTurn.delete(sessionId)
+      this.closeRuntime(sessionId)
+      this.noticeInfo(sessionId, t('Agent restarted. The next message continues the conversation with settings and MCP servers loaded again.'))
+      this.emitSummary(sessionId)
+    }
     const queue = JSON.parse(this.mustRow(sessionId).queue) as QueuedMessage[]
     const next = queue.shift()
     if (next && (result.status !== 'error' || wasInterrupting)) {
@@ -3095,11 +3181,13 @@ export class Host {
         // Il messaggio non è partito: torna in testa alla coda e la sessione non resta "in corso".
         const current = JSON.parse(this.mustRow(sessionId).queue) as QueuedMessage[]
         current.unshift(next)
-        if (!runtime.adapter.isRunning) {
-          runtime.turnId = null
-          runtime.activity = null
+        // Dopo un riavvio il turno è partito (o ha provato) su un runtime nuovo: si sistema quello, non il vecchio chiuso.
+        const live = this.runtimes.get(sessionId) ?? runtime
+        if (!live.adapter.isRunning) {
+          live.turnId = null
+          live.activity = null
         }
-        this.updateRow(sessionId, { queue: JSON.stringify(current), ...(runtime.adapter.isRunning ? {} : { run_state: 'idle' }) })
+        this.updateRow(sessionId, { queue: JSON.stringify(current), ...(live.adapter.isRunning ? {} : { run_state: 'idle' }) })
         this.emitSummary(sessionId)
         this.noticeError(sessionId, (error as Error).message)
       }

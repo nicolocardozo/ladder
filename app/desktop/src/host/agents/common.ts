@@ -32,6 +32,8 @@ export interface AgentSession {
   setEffort(effort: Effort): Promise<void>
   /** Voci dei sotto-agenti che l'agente dà per vivi (Claude, background_tasks_changed). Assente o null: a turno chiuso vale solo il tempo dall'ultimo aggiornamento. */
   liveAgentIds?(): Set<string> | null
+  /** Task in background ancora vivi di qualsiasi tipo (comandi, monitor, sotto-agenti; Claude). Chiudere il processo li ucciderebbe. */
+  readonly hasBackgroundWork?: boolean
   close(): void
 }
 

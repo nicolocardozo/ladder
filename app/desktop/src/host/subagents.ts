@@ -161,6 +161,12 @@ export class SubagentBoard {
     return changed
   }
 
+  /** Qualche sotto-agente della sessione sta ancora lavorando (anche in background, a turno chiuso). */
+  hasRunning(sessionId: string): boolean {
+    for (const agent of this.bySession.get(sessionId)?.values() ?? []) if (agent.status === 'running') return true
+    return false
+  }
+
   /** L'agente si è fermato (interruzione, processo chiuso): chi era al lavoro risulta fermato. */
   stopRunning(sessionId: string, { foregroundOnly = false } = {}): boolean {
     const agents = this.bySession.get(sessionId)

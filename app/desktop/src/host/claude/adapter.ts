@@ -270,6 +270,8 @@ export class ClaudeSession {
   private bgTasks = new Set<string>()
   /** Insieme dei task in background vivi dall'ultimo background_tasks_changed (null: mai ricevuto). */
   private liveTasks: Set<string> | null = null
+  /** Task in background vivi di ogni tipo (comandi in background, monitor, sotto-agenti) dall'ultimo background_tasks_changed. */
+  private liveBackground = 0
   private bgTimer: ReturnType<typeof setTimeout> | null = null
   /** Sotto-agenti seguiti dagli eventi task_*: la fine la dice task_notification, non il tool_result. */
   private trackedTasks = new Set<string>()
@@ -732,12 +734,15 @@ export class ClaudeSession {
   private syncBackground(tasks: unknown): void {
     if (!Array.isArray(tasks)) return
     const live = new Set<string>()
+    let background = 0
     for (const entry of tasks as Block[]) {
       const id = str(entry?.task_id)
-      const agent = entry?.task_type === 'local_agent' || entry?.task_type === 'remote_agent'
-      if (id && agent && entry.ambient !== true) live.add(id)
+      if (!id || entry.ambient === true) continue
+      background++
+      if (entry?.task_type === 'local_agent' || entry?.task_type === 'remote_agent') live.add(id)
     }
     this.liveTasks = live
+    this.liveBackground = background
     if (this.bgTimer || ![...this.bgTasks].some((task) => !live.has(task))) return
     // Solo i task già mancanti ora: se sono ancora assenti alla scadenza della tolleranza, sono finiti.
     const missing = [...this.bgTasks].filter((task) => !live.has(task))
@@ -752,6 +757,10 @@ export class ClaudeSession {
         this.events.subagent({ id, status: 'stopped' })
       }
     }, BG_GRACE_MS)
+  }
+
+  get hasBackgroundWork(): boolean {
+    return this.liveBackground > 0
   }
 
   /** Voci dei sotto-agenti nell'ultimo background_tasks_changed (null: mai ricevuto): la rete di sicurezza dell'host non le tocca. */
