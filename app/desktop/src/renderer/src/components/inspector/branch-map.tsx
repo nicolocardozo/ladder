@@ -2,7 +2,8 @@
 // da lì parte un raccordo per ogni branch, che finisce in un pallino pieno col colore dello stato e un anello del colore dello sfondo.
 // I branch uniti sono un cerchio vuoto con la spunta. Le righe stanno in gruppi (Working, Ready to merge, Merged, altri); la riga della
 // sessione aperta porta sotto di sé le azioni di unione (`detail`). Il colore non è mai l'unico segnale: ci sono la forma e la parola dello stato.
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type MutableRefObject, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { ArrowDown, ArrowUp, FolderOpen } from 'lucide-react'
 import type { BranchMap as BranchMapData, BranchMapEntry, SessionSummary } from '@shared/protocol'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -12,7 +13,7 @@ import { relativeAge } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 import { plural, t } from '@shared/i18n'
-import { baseSha, FAR_BEHIND, groupRows, hasNoSession, kindOf, kindWord, MERGED_SHOWN, problemText, visibleEntries, type GroupId, type MapKind, type Row } from './branch-map-layout'
+import { FAR_BEHIND, groupRows, hasNoSession, kindOf, kindWord, MERGED_SHOWN, problemText, visibleEntries, type GroupId, type MapKind, type Row } from './branch-map-layout'
 
 /** Osserva la mappa del progetto solo finché `enabled`: iscrizione all'host con pulizia, nessuna richiesta a ogni render. */
 export function useBranchMap(projectId: string | null, enabled: boolean) {
@@ -103,9 +104,13 @@ const commits = (e: BranchMapEntry) => ({ ahead: e.ahead ?? 0, behind: e.behind 
 /** Frase per gli screen reader: titolo o branch, stato, distanza da main. */
 function entryLabel(e: BranchMapEntry, word: string, base: string): string {
   const { ahead, behind } = commits(e)
-  const parts = [e.mainCheckout ? (e.branch ?? t('Detached HEAD')) : hasNoSession(e) ? (e.branch ?? t('Detached HEAD')) : e.title]
-  if (e.mainCheckout) parts.push(t('main checkout'))
-  else parts.push(e.branch ?? t('Detached HEAD'))
+  const branch = e.branch ?? t('Detached HEAD')
+  const parts = [e.mainCheckout || hasNoSession(e) ? branch : e.title]
+  if (e.mainCheckout) {
+    parts.push(t('main checkout'))
+    // Il checkout principale con una sessione vera: si dice anche il titolo, se non è il nome del branch.
+    if (!hasNoSession(e) && e.title !== e.branch) parts.push(e.title)
+  } else parts.push(branch)
   parts.push(word)
   const problem = problemText(e)
   if (problem) parts.push(problem)
@@ -201,18 +206,22 @@ interface BranchRowProps {
   canOpen: boolean
   onOpen: (e: MouseEvent) => void
   onKey: (e: KeyboardEvent) => void
-  /** Azioni di unione sotto la riga, solo per la sessione aperta. */
-  detail?: ReactNode
+  /** Dove stanno le azioni di unione: solo la riga della sessione aperta ha lo slot (il contenuto vi viene proiettato, non si rimonta). */
+  slotRef?: (el: HTMLDivElement | null) => void
+  /** Ultima sessione già portata in vista: non si riporta se è la stessa. */
+  scrolled: MutableRefObject<string | null>
 }
 
-function BranchRow({ row, base, current, canOpen, onOpen, onKey, detail }: BranchRowProps) {
+function BranchRow({ row, base, current, canOpen, onOpen, onKey, slotRef, scrolled }: BranchRowProps) {
   const { entry, kind, group } = row
   const word = stateWord(kind, group)
   const ref = useRef<HTMLLIElement>(null)
   // La sessione aperta si porta in vista quando la scheda si apre o la sessione cambia: con molti branch non resta fuori schermo.
   useEffect(() => {
-    if (current) ref.current?.scrollIntoView({ block: 'nearest' })
-  }, [current])
+    if (!current || scrolled.current === entry.sessionId) return
+    scrolled.current = entry.sessionId
+    ref.current?.scrollIntoView({ block: 'nearest' })
+  }, [current, entry.sessionId, scrolled])
   const title = entry.mainCheckout || hasNoSession(entry) ? (entry.branch ?? t('Detached HEAD')) : entry.title
   return (
     <li ref={ref} className="relative pr-2" style={{ paddingLeft: GUTTER }}>
@@ -243,7 +252,7 @@ function BranchRow({ row, base, current, canOpen, onOpen, onKey, detail }: Branc
           <EntryTip entry={entry} word={word} />
         </TooltipContent>
       </Tooltip>
-      {detail && <div className="-mr-2 mt-1">{detail}</div>}
+      {slotRef && <div ref={slotRef} className="-mr-2 mt-1 empty:hidden" />}
     </li>
   )
 }
@@ -251,13 +260,13 @@ function BranchRow({ row, base, current, canOpen, onOpen, onKey, detail }: Branc
 function groupTitle(id: GroupId): string {
   switch (id) {
     case 'working':
-      return t('Working')
+      return t('In progress')
     case 'ready':
       return t('Ready to merge')
     case 'merged':
       return t('Merged')
     default:
-      return t('Other')
+      return t('Others')
   }
 }
 
@@ -290,8 +299,18 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
     return groupRows(visibleEntries(map.entries, Date.now()), (e) => kindOf(e, sessions[e.sessionId] as SessionSummary | undefined))
   }, [map, sessions])
   const total = groups.reduce((n, g) => n + g.rows.length, 0)
-  const hasCurrent = groups.some((g) => g.rows.some((r) => r.entry.sessionId === currentKey))
-  const sha = useMemo(() => (map ? baseSha(map.entries, map.baseAt) : null), [map])
+  const sha = map?.baseSha ? map.baseSha.slice(0, 7) : null
+
+  // Le azioni di unione hanno UNA istanza, sempre sotto lo stesso genitore: si proiettano con un portale in un nodo che si sposta nello slot
+  // della riga aperta (o in cima, se la riga non c'è). Cambi di gruppo, arrivo della mappa e rimontaggi delle righe non toccano il suo stato.
+  const host = useMemo(() => document.createElement('div'), [])
+  const topSlot = useRef<HTMLDivElement>(null)
+  const [rowSlot, setRowSlot] = useState<HTMLDivElement | null>(null)
+  const scrolled = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    const target = rowSlot?.isConnected ? rowSlot : topSlot.current
+    if (target && host.parentNode !== target) target.appendChild(host)
+  })
 
   // Richiesta fallita senza mappa, o mappa vuota con l'errore dell'host: si mostra l'errore, mai lo stato vuoto o "Reading branches…".
   const failed = isElectron && (map ? Boolean((map as MapWithError).error) && map.entries.length === 0 : Boolean(fetchError))
@@ -299,7 +318,8 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
 
   return (
     <section aria-label={t('Branches against {base}', { base })} className="flex flex-col pb-2">
-      {!hasCurrent && detail}
+      <div ref={topSlot} />
+      {detail !== undefined && createPortal(detail, host)}
       {failed && (
         <div role="alert" className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-xs text-muted-foreground">
           <p className="min-w-0">{t('Couldn’t read the branches.')}</p>
@@ -333,10 +353,10 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
                 <ul aria-labelledby={headingId} className="m-0 flex list-none flex-col p-0">
                   {shown.map((row) => {
                     const current = row.entry.sessionId === currentKey
-                    return <BranchRow key={row.entry.sessionId} row={row} base={base} current={current} canOpen={canOpen(row.entry)} onOpen={(e) => open(row.entry, e)} onKey={(e) => onKey(row.entry, e)} detail={current ? detail : undefined} />
+                    return <BranchRow key={row.entry.sessionId} row={row} base={base} current={current} canOpen={canOpen(row.entry)} onOpen={(e) => open(row.entry, e)} onKey={(e) => onKey(row.entry, e)} slotRef={current ? setRowSlot : undefined} scrolled={scrolled} />
                   })}
                 </ul>
-                {group.id === 'merged' && group.rows.length > MERGED_SHOWN && (
+                {group.id === 'merged' && group.rows.length > MERGED_SHOWN && (hidden > 0 || showAllMerged) && (
                   <div style={{ paddingLeft: GUTTER + 8 }} className="pt-0.5">
                     <button
                       type="button"
@@ -344,7 +364,7 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
                       onClick={() => setShowAllMerged((v) => !v)}
                       className="inline-flex h-6 items-center rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
-                      {showAllMerged ? t('Show fewer') : t('Show {n} more', { n: hidden })}
+                      {showAllMerged ? t('Show fewer') : plural(hidden, 'Show {n} more branch', 'Show {n} more branches')}
                     </button>
                   </div>
                 )}

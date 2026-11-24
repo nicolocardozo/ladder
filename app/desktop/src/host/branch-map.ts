@@ -207,7 +207,7 @@ export class BranchMapService {
   private async compute(projectId: string): Promise<BranchMap> {
     // Se il progetto non c'è più lancia: non è una mappa da mostrare.
     const source = await this.hooks.source(projectId)
-    const empty: BranchMap = { projectId, base: null, baseAt: null, entries: [], hidden: 0 }
+    const empty: BranchMap = { projectId, base: null, baseAt: null, baseSha: null, entries: [], hidden: 0 }
     if (!source.root || !source.base || !validRefName(source.base)) return empty
     try {
       return await this.mapOf(projectId, source as BranchMapSource & { base: string })
@@ -261,7 +261,7 @@ export class BranchMapService {
       if (!inMain.some((r) => !r.archived)) entry.activityAt = entry.lastCommit?.at ?? entry.activityAt
     }
     const entries = [...shown, ...rest].sort((a, b) => b.activityAt - a.activityAt)
-    return { projectId, base: source.base, baseAt: baseRef && baseRef.at > 0 ? baseRef.at : null, entries, hidden }
+    return { projectId, base: source.base, baseAt: baseRef && baseRef.at > 0 ? baseRef.at : null, baseSha: baseRef?.sha ?? null, entries, hidden }
   }
 
   /** Le righe della mappa per queste sessioni (con i fatti git dei branch). */

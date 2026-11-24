@@ -109,10 +109,3 @@ export function groupRows(entries: BranchMapEntry[], kindFor: (e: BranchMapEntry
   })
   return order.map((id) => ({ id, rows: rows.filter((r) => r.group === id) })).filter((g) => g.rows.length > 0)
 }
-
-/** Sha corto della testa del ramo principale, se un branch si è staccato proprio da lì (l'host non lo manda da solo). */
-export function baseSha(entries: BranchMapEntry[], baseAt: number | null): string | null {
-  if (baseAt === null) return null
-  const hit = entries.find((e) => e.mergeBase && e.mergeBaseAt === baseAt)
-  return hit?.mergeBase ? hit.mergeBase.slice(0, 7) : null
-}

@@ -2120,6 +2120,8 @@ export interface BranchMap {
   base: string | null
   /** Data dell'ultimo commit del ramo principale (fine della linea di main); null se non si legge. */
   baseAt: number | null
+  /** Sha completo dell'ultimo commit del ramo principale (la stessa ref di `baseAt`); null se non si legge. */
+  baseSha: string | null
   /** Al massimo 50 righe di worktree (attivi o uniti), le più recenti, più le ultime 20 sessioni sul ramo principale; le altre non ci sono (`hidden`). */
   entries: BranchMapEntry[]
   /** Righe che avrebbero un posto sulla mappa (worktree attivi o uniti) ma non ci sono per il limite di 50; stima per difetto. */
