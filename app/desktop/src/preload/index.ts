@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { DEFAULT_THEME, THEMES } from '@shared/themes.generated'
 import type { AppPrefs, Attachment, AttentionEvent, BrowserAction, BrowserBounds, BrowserNavigateResult, BrowserShortcut, BrowserState, EditorAvailability, EditorId, IssueList, WindowView } from '@shared/protocol'
+import type { UpdateState } from '@shared/updates'
 
 // La porta verso l'host arriva dal processo main e va girata al mondo della pagina:
 // con contextIsolation il renderer non vede ipcRenderer, ma riceve la porta con window.postMessage.
@@ -132,6 +133,16 @@ const api = {
       const handler = (_event: unknown, state: BrowserState) => listener(state)
       ipcRenderer.on('ladder:browser-event', handler)
       return () => ipcRenderer.off('ladder:browser-event', handler)
+    }
+  },
+  updates: {
+    state: (): Promise<UpdateState> => ipcRenderer.invoke('ladder:update-state'),
+    check: (): Promise<UpdateState> => ipcRenderer.invoke('ladder:update-check'),
+    install: (): Promise<void> => ipcRenderer.invoke('ladder:update-install'),
+    onChange: (cb: (state: UpdateState) => void): (() => void) => {
+      const handler = (_event: unknown, state: UpdateState) => cb(state)
+      ipcRenderer.on('ladder:update', handler)
+      return () => ipcRenderer.off('ladder:update', handler)
     }
   },
   debug: {

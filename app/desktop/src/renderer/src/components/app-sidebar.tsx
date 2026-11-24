@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, UserRound, X, type LucideIcon } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, RefreshCw, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, UserRound, X, type LucideIcon } from 'lucide-react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { shortcutLabel } from '@shared/shortcuts'
 import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
@@ -32,6 +32,7 @@ import { NO_GROUP, pickClick, startSessionDrag, useSessionDrag, usePick } from '
 import { isUnreadState, noteTone, prNote, projectAttention, sessionNote, sessionState, sidebarSessions } from '@/lib/session-state'
 import { SidebarResizer } from '@/components/sidebar-resizer'
 import { cn } from '@/lib/utils'
+import { installUpdate, useUpdate } from '@/lib/updates'
 import { canNavigate, useApp, type AwaySummary } from '@/store/app-store'
 
 /** Elemento che aveva il focus prima di aprire "In attesa": ci torna alla chiusura (il composer, con la bozza). */
@@ -330,6 +331,7 @@ export function AppSidebar() {
         </div>
       </ScrollArea>
 
+      <UpdateReady />
       <footer className="flex items-center gap-1 border-t border-sidebar-border p-2">
         <AccountButton />
         <IconButton icon={Settings} label={t('Settings')} shortcut={shortcutLabel('app.openSettings')} onClick={() => useSettings.getState().setSettingsOpen(true)} />
@@ -1176,6 +1178,35 @@ function AwayRow({ projectId, summary }: { projectId: string; summary: AwaySumma
       >
         <X className="size-3" />
       </button>
+    </div>
+  )
+}
+
+/** Aggiornamento scaricato: una riga sopra il footer che riavvia Ladder. Se non la usi, si installa alla prossima chiusura. */
+function UpdateReady() {
+  const update = useUpdate()
+  const working = useApp((s) => Object.values(s.sessions).some((session) => session.run === 'running' || session.run === 'starting' || session.run === 'waiting'))
+  if (update?.status !== 'ready') return null
+  return (
+    <div className="border-t border-sidebar-border px-2 pt-2">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              onClick={() => void installUpdate()}
+              className="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2.5 py-1.5 text-left text-sm outline-none hover:bg-sidebar-accent/70 focus-visible:ring-2 focus-visible:ring-ring/50"
+            />
+          }
+        >
+          <RefreshCw aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{t('Ladder {version} is ready', { version: update.next })}</span>
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">{t('Restart')}</span>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          {working ? t('Restarts Ladder now: agents that are working get interrupted. Otherwise it installs when you quit.') : t('Restarts Ladder with the new version. Otherwise it installs when you quit.')}
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }

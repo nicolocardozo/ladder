@@ -35,7 +35,7 @@ if (!process.argv.includes('--dmg-only')) {
   for (const arch of archs) {
     // Electron arm64 è già in node_modules: niente download, che ogni tanto fallisce. Quello Intel lo scarica electron-builder (poi resta in cache).
     const dist = arch === 'arm64' ? ['-c.electronDist=node_modules/electron/dist'] : []
-    run('npx', ['electron-builder', '--mac', `--${arch}`, '-c', 'electron-builder.release.yml', `-c.mac.identity=${identity}`, ...dist])
+    run('npx', ['electron-builder', '--mac', `--${arch}`, '--publish', 'never', '-c', 'electron-builder.release.yml', `-c.mac.identity=${identity}`, ...dist])
   }
 }
 
@@ -51,4 +51,4 @@ for (const arch of archs) {
   run('xcrun', ['stapler', 'staple', dmg])
   ready.push(dmg)
 }
-console.log(`\nPronti:\n${ready.join('\n')}`)
+console.log(`\nPronti:\n${ready.join('\n')}\n\nPer pubblicarli (DMG, zip per gli aggiornamenti e latest-mac.yml): node scripts/publish-release.mjs`)

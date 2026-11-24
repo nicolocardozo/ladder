@@ -1,4 +1,4 @@
-// Impostazioni → Data and system: archiviazione automatica, dati di Ladder (cartella, copie e esportazione), avvio al login e Mac sveglio.
+// Impostazioni → Data and system: archiviazione automatica, dati di Ladder (cartella, copie e esportazione), avvio al login, Mac sveglio e aggiornamenti.
 import { useCallback, useEffect, useState } from 'react'
 import { Download, FolderOpen } from 'lucide-react'
 import { localeTag, plural, t } from '@shared/i18n'
@@ -9,6 +9,7 @@ import { Outcome, SettingRow, SettingsBlock, settingsButton, Toggle } from '@/co
 import { usePrefs } from '@/hooks/use-prefs'
 import { request } from '@/lib/host-client'
 import { formatBytes, system } from '@/lib/system-bridge'
+import { checkForUpdate, installUpdate, useUpdate } from '@/lib/updates'
 
 const NEVER = 'never'
 const ARCHIVE_DAYS = [7, 14, 30, 60, 90, 180, 365]
@@ -25,6 +26,7 @@ export function SystemSection() {
         <div className="min-w-0">
           <ArchiveBlock />
           <SystemBlock />
+          <UpdatesBlock />
         </div>
         <div className="min-w-0">
           <DataBlock />
@@ -164,6 +166,47 @@ function SystemBlock() {
       <div className="mt-3 flex flex-col divide-y divide-border rounded-lg border border-border">
         <Toggle label={t('Open Ladder at login')} description={t('Starts with your Mac. Works in the installed app only.')} checked={prefs.openAtLogin} onChange={(openAtLogin) => update({ openAtLogin })} />
         <Toggle label={t('Keep the Mac awake while an agent works')} description={t('The screen can still turn off. The Mac sleeps again when no session is working.')} checked={prefs.keepAwake} onChange={(keepAwake) => update({ keepAwake })} />
+      </div>
+    </SettingsBlock>
+  )
+}
+
+/** Versione installata e aggiornamenti: Ladder controlla da solo ogni qualche ora; qui si può controllare subito o riavviare. */
+function UpdatesBlock() {
+  const update = useUpdate()
+  const version = update?.version ?? '…'
+  const time = (at: number) => new Date(at).toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' })
+  const hint = (() => {
+    switch (update?.status) {
+      case undefined:
+      case 'unsupported':
+        return t('Updates work in the installed app only.')
+      case 'idle':
+        return update.checkedAt ? t('Up to date. Last checked at {time}.', { time: time(update.checkedAt) }) : t('Ladder checks for updates every few hours.')
+      case 'checking':
+        return t('Checking for updates…')
+      case 'downloading':
+        return t('Downloading {version}… {percent}%', { version: update.next, percent: update.percent })
+      case 'ready':
+        return t('{version} is ready. It installs when you restart or quit Ladder.', { version: update.next })
+      case 'error':
+        return null
+    }
+  })()
+  const ready = update?.status === 'ready'
+  return (
+    <SettingsBlock id="updates-title" title={t('Updates')}>
+      <div className="mt-3 flex flex-col divide-y divide-border rounded-lg border border-border">
+        <SettingRow label={t('Ladder {version}', { version })} hint={hint} warning={update?.status === 'error' ? t('Couldn’t check for updates: {message}', { message: update.message }) : null}>
+          <button
+            type="button"
+            disabled={!update || update.status === 'unsupported' || update.status === 'checking' || update.status === 'downloading'}
+            onClick={() => void (ready ? installUpdate() : checkForUpdate())}
+            className={settingsButton}
+          >
+            {ready ? t('Restart') : t('Check now')}
+          </button>
+        </SettingRow>
       </div>
     </SettingsBlock>
   )

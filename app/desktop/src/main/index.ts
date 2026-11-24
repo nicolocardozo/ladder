@@ -26,6 +26,7 @@ import { destroyAgentTabs, destroyWindowTabs, onAgentTabClosed, registerBrowserI
 import { runAgentOp } from './browser-agent'
 import { registerFileProtocol, registerFileScheme, revealFile, setFileRoots } from './file-protocol'
 import { linearIssues, linearStatus, setLinearKey } from './linear'
+import { registerUpdater } from './updater'
 
 app.setName('Ladder')
 // LAD-70: lo schema ladder-file va dichiarato privilegiato prima di app.ready.
@@ -623,6 +624,13 @@ app.whenReady().then(() => {
   registerFileProtocol()
   startHost()
   createWindow()
+  // Quando parte l'installazione di un aggiornamento: come una chiusura normale, l'host non va riavviato mentre le finestre si chiudono.
+  registerUpdater(
+    () => windows,
+    () => {
+      quitting = true
+    }
+  )
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

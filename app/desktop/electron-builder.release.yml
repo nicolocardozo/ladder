@@ -4,12 +4,24 @@ directories:
   output: dist/release
   buildResources: resources
 mac:
-  # L'architettura (arm64 o x64) la sceglie scripts/release-mac.mjs, che costruisce un DMG per ciascuna.
-  target: dmg
+  # L'architettura (arm64 o x64) la sceglie scripts/release-mac.mjs, che costruisce DMG e zip per ciascuna.
+  # Il DMG è per il primo download dal sito, lo zip per gli aggiornamenti automatici.
+  target:
+    - dmg
+    - zip
+  # Vale per lo zip; il DMG ha il suo nome più sotto.
+  artifactName: ${productName}-${version}-${arch}-mac.${ext}
   hardenedRuntime: true
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   notarize: true
+# Aggiornamenti automatici: l'app legge latest-mac.yml dalle release pubbliche di ladder-releases (il codice resta privato).
+# Pubblica scripts/publish-release.mjs, non electron-builder.
+publish:
+  provider: github
+  owner: nicolocardozo
+  repo: ladder-releases
+  releaseType: release
 # Finestra del DMG: sfondo chiaro Circuit (sorgente e note in resources/dmg/background.svg), l'app a sinistra e Applicazioni a destra.
 dmg:
   title: Ladder
