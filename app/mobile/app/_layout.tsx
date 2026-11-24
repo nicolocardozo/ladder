@@ -12,6 +12,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useBoot } from '@/boot'
 import { startDevDriver } from '@/dev-driver'
 import { installForegroundHook } from '@/host/controller'
+import { configureNotifications, ensureChannel } from '@/host/push'
+import { useNotificationTaps } from '@/host/push-taps'
 import { applyLocale } from '@/i18n'
 import { HomePane } from '@/features/home/HomePane'
 import { usePrefs } from '@/store/prefs'
@@ -21,6 +23,8 @@ import { ToastHost } from '@/ui/ToastHost'
 import { WIDE } from '@/ui/Sheet'
 
 void SplashScreen.preventAutoHideAsync()
+// Come si mostrano le notifiche con l'app aperta e canale Android: prima di qualunque notifica (anche quella che ha aperto l'app).
+configureNotifications()
 
 const fonts = {
   'MonaSans-Regular': require('../assets/fonts/MonaSans-Regular.ttf'),
@@ -77,7 +81,10 @@ function Shell() {
   const language = usePrefs((s) => s.language)
   useEffect(() => {
     applyLocale(language)
+    // Il nome del canale Android è tradotto: si aggiorna con la lingua.
+    void ensureChannel()
   }, [language])
+  useNotificationTaps()
   // Da 600 pt in su la Home resta fissa a sinistra; sotto, è la prima schermata della pila.
   const kind = useApp((s) => s.conn.kind)
   const router = useRouter()

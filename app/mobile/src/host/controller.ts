@@ -8,6 +8,7 @@ import { getLocale } from '@shared/i18n'
 import type { ChatItem, RemoteAuthErrorCode, RemoteCommand, RemotePage, RemotePairingPayload, RemoteSnapshot, SubagentInfo } from '@shared/protocol'
 import { fromBase64Url } from '@shared/remote/pairing'
 import { FakeHost } from '@/demo/fake-host'
+import { pushLinkReady, startPush, stopPush } from '@/host/push'
 import { RemoteClient, type ConnState, type FirstMessage } from '@/remote/client'
 import type { LinkFactory } from '@/remote/link'
 import { relayLinkFactory } from '@/remote/relay-link'
@@ -46,6 +47,8 @@ function stopAll(): number {
   pairingRun++
   pairingClient?.stop()
   pairingClient = null
+  // Le notifiche seguono il collegamento: senza client (o nella demo) non si ascolta né si manda nulla.
+  void stopPush(false)
   client?.stop()
   client = null
   unsubDemo?.()
@@ -131,6 +134,9 @@ function makeClient(opts: {
         s.setMac(hello.mac)
         // Dopo (ri)connessione: di nuovo in ascolto sulle sessioni seguite e chat rilette ("Updating messages").
         await Promise.all(watched.map((id) => followNow(id).catch(() => {})))
+        // Token, preferenze e stato (primo piano) delle notifiche, a ogni connessione: dopo le riletture, che riempiono il secchio delle
+        // richieste del client, e senza aspettarli (non rallentano il "connected").
+        pushLinkReady()
       }
     },
     opts.first
@@ -149,6 +155,8 @@ export async function startRemote(pairing: Pairing): Promise<void> {
   retryPairing = null
   store.getState().reset()
   store.setState({ mode: 'remote', conn: { kind: 'connecting', since: Date.now() }, macName: pairing.macName })
+  // Prima di qualunque attesa: al tocco su una notifica (app appena aperta) il Mac abbinato è già noto.
+  startPush((command) => (client ? client.request(command) : Promise.reject(new Error('offline'))), pairing.macKey)
   await readCache()
   if (gen !== generation) return
   let deviceKey: Awaited<ReturnType<typeof loadDeviceKey>>
@@ -289,6 +297,8 @@ export function startDemo(): void {
  * compresi (chiavi nel portachiavi), copia cifrata delle chat, bozze e sezioni aperte. Tema e lingua sono del telefono e restano.
  */
 export async function disconnect(): Promise<void> {
+  // Prima di fermare il client: se il collegamento c'è ancora, il Mac riceve il token nullo e smette di notificare questo telefono.
+  await stopPush(true)
   stopAll()
   store.getState().reset()
   store.setState({ mode: 'none', conn: { kind: 'connecting', since: Date.now() } })

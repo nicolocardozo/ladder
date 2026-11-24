@@ -1,4 +1,4 @@
-// Solo sviluppo: esegue i comandi di scripts/dev-driver.mjs (demo, tema, lingua, schermata, sheet).
+// Solo sviluppo: esegue i comandi di scripts/dev-driver.mjs (demo, tema, lingua, schermata, sheet, azioni, notifiche).
 import { router } from 'expo-router'
 import { Platform } from 'react-native'
 import { applyLocale } from '@/i18n'
@@ -6,6 +6,7 @@ import { readPairingLink } from '@/lib/pair-link'
 import { usePairFlow } from '@/store/pair-flow'
 import { startDemo, disconnect } from '@/host/controller'
 import { actions } from '@/host/actions'
+import { devLocalNotification, requestPermission } from '@/host/push'
 import { useApp } from '@/store/app'
 import type { RequestItem } from '@/lib/turns'
 import { useDev, type DevSheet } from '@/store/dev'
@@ -28,6 +29,12 @@ interface Cmd {
   password?: string
   auto?: boolean
   sheet?: DevSheet
+  /** Notifica locale con i `data` di un push vero (prova del tocco): kind, sessione, richiesta e ritardo in secondi. `mac` forza un Mac diverso. */
+  /** Chiede il permesso delle notifiche come "Turn on notifications" (la finestra di sistema si conferma a mano o con adb / AppleScript). */
+  askPush?: boolean
+  /** Cambia le preferenze delle notifiche (come i toggle di Impostazioni). */
+  notifyPrefs?: Parameters<ReturnType<typeof usePrefs.getState>['setNotify']>[0]
+  notify?: { kind: 'request' | 'turn' | 'error' | 'agents'; sessionId: string; itemId?: string | null; delayS?: number; mac?: string }
   /** Scorre la chat aperta a questa distanza dal fondo (px). */
   scroll?: number
   /** Azione come l'utente: approve | deny | send | steer | stop | perm | answer. */
@@ -90,6 +97,9 @@ function act(a: NonNullable<Cmd['act']>) {
 function run(cmd: Cmd) {
   if (cmd.target && cmd.target !== Platform.OS) return
   if (cmd.act) act(cmd.act)
+  if (cmd.notifyPrefs) usePrefs.getState().setNotify(cmd.notifyPrefs)
+  if (cmd.askPush) void requestPermission()
+  if (cmd.notify) void devLocalNotification(cmd.notify)
   if (cmd.scroll !== undefined) useDev.getState().scrollChat?.(cmd.scroll)
   const prefs = usePrefs.getState()
   if (cmd.reset) void disconnect()

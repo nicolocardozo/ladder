@@ -12,10 +12,12 @@ import { TurnSheet } from '@/features/session/TurnSheet'
 import { RequestSheet } from '@/features/request/RequestSheet'
 import { actions } from '@/host/actions'
 import { canAct, follow } from '@/host/controller'
+import { clearSessionNotifications } from '@/host/push'
 import { stateLabel } from '@/lib/format'
 import { sessionState } from '@/lib/session-state'
 import { buildChatRows, openRequests, type TurnSummary } from '@/lib/turns'
 import { useDev } from '@/store/dev'
+import { usePush } from '@/store/push'
 import { useApp } from '@/store/app'
 import { useTheme } from '@/theme/theme'
 import { AgentMark, useModelLabel } from '@/ui/AgentMark'
@@ -50,9 +52,33 @@ export default function SessionScreen() {
     }, [id, unread, online])
   )
 
+  // Le notifiche di questa sessione, già nel Centro notifiche, non servono più.
+  useFocusEffect(
+    useCallback(() => {
+      void clearSessionNotifications(id)
+    }, [id])
+  )
+
   const request = useMemo(() => (items ? openRequests(items)[0] : null), [items]) ?? null
   // Fallback: la richiesta del riepilogo, finché la chat non è arrivata.
   const pinned = request ?? (session?.request && session.request.state === 'open' ? session.request : null)
+
+  // Aperta da una notifica "ti aspetta": si apre il foglio della richiesta, se è ancora aperta, ma solo dopo che la chat è stata riletta
+  // dal Mac dopo il tocco (push-taps.ts azzera `loaded`) e il collegamento è pieno: una chat vecchia non dice se la richiesta c'è ancora.
+  // Si lascia perdere se la sessione non esiste (più), se la richiesta è chiusa o se è passato troppo tempo.
+  const wanted = usePush((p) => p.openRequest)
+  const loaded = useApp((s) => !!s.loaded[id])
+  useEffect(() => {
+    if (!wanted || wanted.sessionId !== id) return
+    const drop = () => usePush.getState().set({ openRequest: null })
+    if (Date.now() - wanted.at > 60_000) return drop()
+    if (!online) return
+    const open = (items ? openRequests(items) : []).find((r) => r.requestId === wanted.requestId) ?? (session?.request?.state === 'open' && session.request.requestId === wanted.requestId ? session.request : null)
+    if (open && loaded) {
+      setReviewing(open.requestId)
+      drop()
+    } else if (loaded || !session) drop()
+  }, [wanted, id, items, session, loaded, online])
 
   // Solo sviluppo: apre lo sheet richiesto dal deep link ladder://dev?sheet=…
   const devSheet = useDev((d) => d.sheet)

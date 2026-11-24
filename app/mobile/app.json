@@ -44,6 +44,14 @@
       "expo-localization",
       "expo-asset",
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#5525CF",
+          "defaultChannel": "sessions"
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac.",
@@ -58,7 +66,8 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 140
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": false

@@ -6,7 +6,9 @@ import { t, LOCALES } from '@shared/i18n'
 import { disconnect } from '@/host/controller'
 import { resetTo } from '@/lib/nav'
 import { useApp } from '@/store/app'
+import { pushStatusLabel } from '@/host/push'
 import { usePrefs } from '@/store/prefs'
+import { usePush } from '@/store/push'
 import { themeById } from '@/theme/theme'
 import { useTheme } from '@/theme/theme'
 import { Group, Row } from '@/ui/List'
@@ -20,6 +22,8 @@ export default function Settings() {
   const language = usePrefs((s) => s.language)
   const mode = useApp((s) => s.mode)
   const macName = useApp((s) => s.macName)
+  const permission = usePush((s) => s.permission)
+  const tokenFailed = usePush((s) => s.tokenFailed)
   const themeValue = prefs.matchSystem ? t('Match system') : prefs.choice === 'mac' ? t('Same as Mac') : themeById(prefs.choice).name
   const languageValue = language === 'system' ? t('System') : (LOCALES.find((l) => l.id === language)?.name ?? '')
   return (
@@ -29,6 +33,11 @@ export default function Settings() {
         <Group>
           <Row label={t('Mac and connection')} value={macName ?? ''} onPress={() => router.push('/mac')} last />
         </Group>
+        {mode === 'remote' ? (
+          <Group>
+            <Row label={t('Notifications')} value={pushStatusLabel(permission, tokenFailed)} onPress={() => router.push('/notifications')} last />
+          </Group>
+        ) : null}
         <Group title={t('Appearance')}>
           <Row label={t('Theme')} value={themeValue} detail={prefs.matchSystem || prefs.choice !== 'mac' ? undefined : info.name} onPress={() => router.push('/theme')} />
           <Row label={t('Language')} value={languageValue} onPress={() => router.push('/language')} last />
