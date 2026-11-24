@@ -1,13 +1,13 @@
-// Avviso discreto quando il terminale del progetto stampa un indirizzo locale: propone di aprirlo nella tab Browser,
-// ma non apre niente da solo. Sulla tab Browser lo stesso avviso sta nella sua barra (browser-view.tsx).
+// Avviso discreto quando il terminale del progetto stampa un indirizzo locale: propone di aprirlo nella colonna browser,
+// ma non apre niente da solo. Con la colonna aperta lo stesso avviso sta nella sua barra (browser-view.tsx).
 import { Globe, X } from 'lucide-react'
 import { t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
 import { browserAddress } from '@/lib/browser-tabs'
-import { useApp } from '@/store/app-store'
+import { isBrowserColumnOpen, useApp } from '@/store/app-store'
 
 export function DevServerNotice({ projectId }: { projectId: string }) {
-  const server = useApp((s) => (s.selection.projectId === projectId && s.selection.kind !== 'browser' ? s.devServers[projectId] : undefined))
+  const server = useApp((s) => (s.selection.projectId === projectId && !isBrowserColumnOpen(s, projectId) ? s.devServers[projectId] : undefined))
   const available = Boolean(window.ladder?.browser)
   const dismiss = useApp((s) => s.dismissDevServer)
   if (!server || !available) return null

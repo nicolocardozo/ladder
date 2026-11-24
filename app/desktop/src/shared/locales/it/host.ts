@@ -425,7 +425,7 @@ const it: Record<string, string> = {
   'This address is outside localhost. The agent browser is isolated from your accounts and cookies.': 'Questo indirizzo è fuori da localhost. Il browser dell’agente è isolato dai tuoi account e dai tuoi cookie.',
   'The agent wants to interact with the page in its browser.': 'L’agente vuole interagire con la pagina nel suo browser.',
   '{agent} cannot use the browser tools: it does not support MCP servers over HTTP.': '{agent} non può usare gli strumenti del browser: non supporta server MCP su HTTP.',
-  'The agent browser only opens localhost by itself. Open other addresses in your own Browser tab.': 'Il browser dell’agente apre da solo solo localhost. Apri gli altri indirizzi in una tua tab Browser.',
+  'The agent browser only opens localhost by itself. Open other addresses in a page of your own in the browser.': 'Il browser dell’agente apre da solo solo localhost. Apri gli altri indirizzi in una tua pagina del browser.',
   'The user stopped the agent browser.': 'L’utente ha fermato il browser dell’agente.',
   '{host} is not allowed in the agent browser.': '{host} non è ammesso nel browser dell’agente.',
   'The page tried to go to {host}, which is not allowed in the agent browser. Ask the user before opening it.': 'La pagina ha provato ad aprire {host}, che non è ammesso nel browser dell’agente. Chiedi all’utente prima di aprirlo.',
@@ -521,6 +521,11 @@ const it: Record<string, string> = {
   'Open Copilot CLI and type /logout at its prompt. This removes the token stored on this Mac.': 'Apri Copilot CLI e scrivi /logout al suo prompt. Il token salvato su questo Mac viene rimosso.',
   // Mappa dei branch (LAD-80)
   'Could not read the branches': 'Impossibile leggere i branch',
+  'Terminal sessions restart from their terminal.': 'Le sessioni da terminale si riavviano dal loro terminale.',
+  'The agent restarts when the current turn ends. Stop the turn to restart it sooner.': 'L’agente si riavvia quando finisce il turno in corso. Ferma il turno per riavviarlo prima.',
+  'The agent restarts when its background work ends, so nothing running in the background gets lost.': 'L’agente si riavvia quando finisce il lavoro in background, così non si perde niente di quello che sta girando.',
+  'This agent can’t continue the conversation after a restart.': 'Questo agente non può continuare la conversazione dopo un riavvio.',
+  'Agent restarted. The next message continues the conversation with settings and MCP servers loaded again.': 'Agente riavviato. Il prossimo messaggio continua la conversazione con impostazioni e server MCP ricaricati.'
 }
 
 export default it

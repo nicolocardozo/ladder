@@ -1,11 +1,11 @@
-// Comandi / del composer: quelli dell'agente (dall'host) più i tre di Ladder, che gestisce la UI.
+// Comandi / del composer: quelli dell'agente (dall'host) più quelli di Ladder, che gestisce la UI.
 import { t } from '@shared/i18n'
 import type { SlashCommand } from '@shared/protocol'
 
 export type CommandSource = SlashCommand['source'] | 'ladder'
 
 /** Comandi che Ladder risolve da sé: aprono i selettori o cambiano sessione, non vanno all'agente. */
-export type LadderCommandName = 'model' | 'effort' | 'new'
+export type LadderCommandName = 'model' | 'effort' | 'new' | 'restart'
 
 export interface CommandEntry {
   name: string
@@ -19,7 +19,8 @@ export interface CommandEntry {
 const LADDER_COMMANDS: (CommandEntry & { name: LadderCommandName })[] = [
   { name: 'model', description: 'Choose the model, or set it with /model <name>', hint: '<model>', source: 'ladder' },
   { name: 'effort', description: 'Choose the effort, or set it with /effort <level>', hint: '<level>', source: 'ladder' },
-  { name: 'new', description: 'Start a new session in this project', hint: null, source: 'ladder' }
+  { name: 'new', description: 'Start a new session in this project', hint: null, source: 'ladder' },
+  { name: 'restart', description: 'Restart the agent to load new MCP servers and settings', hint: null, source: 'ladder' }
 ]
 
 /** Descrizione da mostrare: quelle di Ladder passano dal catalogo, quelle dell'agente arrivano già nella sua lingua. */
@@ -32,6 +33,8 @@ export function commandDescription(entry: CommandEntry): string {
       return t('Choose the effort, or set it with /effort <level>')
     case 'new':
       return t('Start a new session in this project')
+    case 'restart':
+      return t('Restart the agent to load new MCP servers and settings')
     default:
       return entry.description
   }

@@ -39,7 +39,6 @@ export type Selection =
   | { kind: 'new'; projectId: string | null }
   | { kind: 'session'; projectId: string; sessionId: string }
   | { kind: 'file'; projectId: string; root: string; path: string }
-  | { kind: 'browser'; projectId: string; tabId: string }
 
 interface AppState {
   connected: boolean
@@ -256,10 +255,17 @@ interface AppState {
   queueComposerAttachment: (key: string, attachment: Attachment) => void
   /** Il composer ha preso le immagini in coda. */
   takeComposerAttachments: (key: string) => Attachment[]
-  /** Apre la tab browser del progetto (la prima se c'è già, altrimenti una nuova); `fresh` ne apre sempre una nuova. Con `url` ci naviga. */
+  /** Apre la colonna browser del progetto sulla sua pagina attiva (o sulla prima, o ne crea una); `fresh` ne apre sempre una nuova. Con `url` ci naviga. Non cambia la selezione. */
   openBrowser: (projectId: string, options?: { url?: string; fresh?: boolean }) => string
-  /** Chiude la tab browser e ne distrugge la vista nativa. */
+  /** Chiude la pagina e ne distrugge la vista nativa. Chiusa l'ultima, si chiude anche la colonna. */
   closeBrowser: (projectId: string, tabId: string) => void
+  /** Apre la colonna browser (con `tabId` su quella pagina). Non cambia la selezione e non crea pagine. */
+  showBrowserColumn: (projectId: string, tabId?: string) => void
+  closeBrowserColumn: (projectId: string) => void
+  /** Apre o chiude la colonna; aperta senza pagine ne crea una. */
+  toggleBrowserColumn: (projectId: string) => void
+  /** Larghezza scelta della colonna; `undefined` torna al predefinito. */
+  setBrowserColumnWidth: (projectId: string, width: number | undefined) => void
   setBrowserState: (state: BrowserState) => void
   /** Sostituisce lo stato del browser dell'agente di una sessione; con `closed` lo toglie. Apre e mostra la vista alla prima volta. */
   applyAgentBrowser: (state: AgentBrowserState) => void
@@ -509,7 +515,6 @@ function mergeItems(current: ChatItem[] | undefined, incoming: ChatItem[]): Chat
 export function sameSelection(a: Selection, b: Selection): boolean {
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
   if (a.kind === 'file' && b.kind === 'file') return a.root === b.root && a.path === b.path
-  if (a.kind === 'browser' && b.kind === 'browser') return a.tabId === b.tabId
   return a.kind === b.kind && a.projectId === b.projectId
 }
 
@@ -518,12 +523,8 @@ export function isLiveSession(state: Pick<AppState, 'projects'>, session: Sessio
   return Boolean(session && !session.archived && state.projects.some((p) => p.id === session.projectId))
 }
 
-function isValidEntry(state: Pick<AppState, 'projects' | 'sessions' | 'ui' | 'agentBrowser' | 'agentForeign'>, entry: Selection): boolean {
+function isValidEntry(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, entry: Selection): boolean {
   if (entry.kind === 'session') return isLiveSession(state, state.sessions[entry.sessionId])
-  // La tab dell'agente vale finché l'host la tiene.
-  if (entry.kind === 'browser' && isAgentTabId(entry.tabId)) { const agent = state.agentBrowser[agentTabSession(entry.tabId)]; return hasAgentTab(agent) && state.agentForeign[agent.sessionId] !== agent.tabId }
-  // Una tab browser chiusa non si riapre tornando indietro: ⌘⇧T è il modo per riaprirla.
-  if (entry.kind === 'browser') return Boolean(state.ui[entry.projectId]?.browserTabs?.some((tab) => tab.id === entry.tabId))
   return entry.projectId === null ? state.projects.length === 0 : state.projects.some((p) => p.id === entry.projectId)
 }
 
@@ -571,15 +572,6 @@ function selectionPatch(state: AppState, selection: Selection): Partial<AppState
     const ui = state.ui[selection.projectId] ?? emptyUi()
     const known = ui.fileTabs?.some((f) => f.root === selection.root && f.path === selection.path)
     const nextUi = { ...ui, fileTabs: known ? ui.fileTabs : [...(ui.fileTabs ?? []), { root: selection.root, path: selection.path }], activeTab: fileTabId(selection.root, selection.path) }
-    persistUi(selection.projectId, nextUi)
-    return { selection, ui: { ...state.ui, [selection.projectId]: nextUi }, heldUnread: null, pendingSplit: null }
-  }
-  // La tab dell'agente è effimera: non entra in `browserTabs` e non diventa la tab attiva salvata.
-  if (selection.kind === 'browser' && isAgentTabId(selection.tabId)) return { selection, heldUnread: null, pendingSplit: null }
-  if (selection.kind === 'browser') {
-    const ui = state.ui[selection.projectId] ?? emptyUi()
-    const known = ui.browserTabs?.some((tab) => tab.id === selection.tabId)
-    const nextUi: ProjectUiState = { ...ui, browserTabs: known ? ui.browserTabs : [...(ui.browserTabs ?? []), { id: selection.tabId, url: '' }], activeTab: selection.tabId }
     persistUi(selection.projectId, nextUi)
     return { selection, ui: { ...state.ui, [selection.projectId]: nextUi }, heldUnread: null, pendingSplit: null }
   }
@@ -676,7 +668,6 @@ function selectionForProject(state: Pick<AppState, 'projects' | 'sessions' | 'ui
   const file = parseFileTab(ui?.activeTab)
   if (file && ui?.fileTabs?.some((f) => f.root === file.root && f.path === file.path)) return { kind: 'file', projectId, ...file }
   const active = ui?.activeTab
-  if (isBrowserTabId(active) && ui?.browserTabs?.some((tab) => tab.id === active)) return { kind: 'browser', projectId, tabId: active }
   if (active && !file && isLiveSession(state, state.sessions[active])) return { kind: 'session', projectId, sessionId: active }
   return { kind: 'new', projectId }
 }
@@ -686,6 +677,49 @@ function patchUi(state: AppState, projectId: string, change: (ui: ProjectUiState
   const next = change(state.ui[projectId] ?? emptyUi())
   persistUi(projectId, next)
   return { ui: { ...state.ui, [projectId]: next } }
+}
+
+/** Pagine della colonna browser: prima le tab salvate, poi quelle degli agenti ancora vive e di questa finestra. */
+export function browserColumnTabs(state: Pick<AppState, 'ui' | 'agentBrowser' | 'agentForeign' | 'sessions'>, projectId: string): string[] {
+  const saved = (state.ui[projectId]?.browserTabs ?? []).map((tab) => tab.id)
+  const agents = Object.values(state.agentBrowser)
+    .filter((agent) => agent.projectId === projectId && hasAgentTab(agent) && state.agentForeign[agent.sessionId] !== agent.tabId && Boolean(state.sessions[agent.sessionId]) && !state.sessions[agent.sessionId].archived)
+    .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+    .map((agent) => agent.tabId!)
+  return [...saved, ...agents]
+}
+
+/** Pagina mostrata dalla colonna: quella salvata come attiva se c'è ancora, altrimenti la prima. */
+export function browserColumnActive(state: Pick<AppState, 'ui' | 'agentBrowser' | 'agentForeign' | 'sessions'>, projectId: string): string | null {
+  const tabs = browserColumnTabs(state, projectId)
+  const active = state.ui[projectId]?.browserColumn?.active
+  return active && tabs.includes(active) ? active : (tabs[0] ?? null)
+}
+
+/** La colonna si vede: è aperta e ha almeno una pagina. */
+export function isBrowserColumnOpen(state: Pick<AppState, 'ui' | 'agentBrowser' | 'agentForeign' | 'sessions'>, projectId: string): boolean {
+  return Boolean(state.ui[projectId]?.browserColumn?.open) && browserColumnTabs(state, projectId).length > 0
+}
+
+/** Stato salvato da una versione che apriva il browser come tab a schermo intero: la tab attiva diventa la pagina della colonna e la chat torna a essere la selezione. */
+function migrateBrowserUi(ui: Record<string, ProjectUiState>): Record<string, ProjectUiState> {
+  let out = ui
+  for (const [projectId, state] of Object.entries(ui)) {
+    if (!isBrowserTabId(state.activeTab)) continue
+    if (out === ui) out = { ...ui }
+    const known = state.browserTabs?.some((tab) => tab.id === state.activeTab)
+    out[projectId] = { ...state, activeTab: state.tabs[state.tabs.length - 1] ?? null, ...(known && !state.browserColumn ? { browserColumn: { open: true, active: state.activeTab } } : {}) }
+  }
+  return out
+}
+
+/** Dopo un cambio nelle pagine (un agente se n'è andato): se la colonna era aperta e non resta niente si chiude, altrimenti la pagina attiva sparita lascia il posto alla prima. */
+function settleBrowserColumn(state: AppState, projectId: string): Partial<AppState> {
+  const column = state.ui[projectId]?.browserColumn
+  if (!column) return {}
+  const tabs = browserColumnTabs(state, projectId)
+  const next = tabs.length === 0 ? { ...column, open: false, active: null } : column.active && !tabs.includes(column.active) ? { ...column, active: tabs[0] } : column
+  return next === column ? {} : patchUi(state, projectId, (ui) => ({ ...ui, browserColumn: next }))
 }
 
 let errorTimer: ReturnType<typeof setTimeout> | undefined
@@ -818,7 +852,7 @@ export const useApp = create<AppState>((set, get) => ({
           for (const s of event.sessions) sessions[s.id] = s
           const terminals: Record<string, TerminalInfo> = {}
           for (const t of event.terminals) terminals[t.id] = t
-          const loaded = { projects: event.projects, sessions, ui: event.ui }
+          const loaded = { projects: event.projects, sessions, ui: migrateBrowserUi(event.ui) }
           // All'avvio si torna sull'ultimo progetto guardato, sulla tab che aveva.
           let patch: Partial<AppState> = {}
           if (state.selection.kind === 'new' && !state.selection.projectId) {
@@ -1037,22 +1071,58 @@ export const useApp = create<AppState>((set, get) => ({
   openBrowser: (projectId, options = {}) => {
     const state = get()
     const tabs = state.ui[projectId]?.browserTabs ?? []
-    const existing = options.fresh ? undefined : tabs.find((tab) => tab.id === (state.selection.kind === 'browser' && state.selection.projectId === projectId ? state.selection.tabId : '')) ?? tabs[0]
+    const active = browserColumnActive(state, projectId)
+    // Solo pagine degli agenti e nessun indirizzo da aprire: basta mostrare la colonna su quella attiva.
+    if (!options.fresh && !options.url && tabs.length === 0 && active) {
+      get().showBrowserColumn(projectId, active)
+      return active
+    }
+    const existing = options.fresh ? undefined : (tabs.find((tab) => tab.id === active) ?? tabs[0])
     const tabId = existing?.id ?? newBrowserTabId()
     if (!existing) {
-      // La tab nasce con il suo indirizzo: la vista lo carica alla prima apertura.
+      // La pagina nasce con il suo indirizzo: la vista lo carica alla prima apertura.
       set((current) => patchUi(current, projectId, (ui) => ({ ...ui, browserTabs: [...(ui.browserTabs ?? []), { id: tabId, url: storableUrl(options.url ?? '') }] })))
     } else if (options.url) {
-      // Tab già viva: si naviga lì, la vista si aggiorna da sola con l'evento del main.
+      // Pagina già viva: si naviga lì, la vista si aggiorna da sola con l'evento del main.
       void window.ladder?.browser.navigate(tabId, options.url)
       set((current) => patchUi(current, projectId, (ui) => ({ ...ui, browserTabs: (ui.browserTabs ?? []).map((tab) => (tab.id === tabId ? { ...tab, url: storableUrl(options.url!) } : tab)) })))
     }
     // L'avviso del server di sviluppo ha fatto il suo lavoro.
     const { [projectId]: _used, ...devServers } = get().devServers
     set({ devServers })
-    get().select({ kind: 'browser', projectId, tabId })
+    get().showBrowserColumn(projectId, tabId)
     return tabId
   },
+
+  showBrowserColumn: (projectId, tabId) =>
+    set((state) => {
+      const active = tabId ?? browserColumnActive(state, projectId)
+      const column = state.ui[projectId]?.browserColumn
+      if (column?.open && column.active === active) return {}
+      return patchUi(state, projectId, (ui) => ({ ...ui, browserColumn: { ...ui.browserColumn, open: true, active } }))
+    }),
+
+  closeBrowserColumn: (projectId) =>
+    set((state) => {
+      const column = state.ui[projectId]?.browserColumn
+      if (!column?.open) return {}
+      return patchUi(state, projectId, (ui) => ({ ...ui, browserColumn: { ...column, open: false } }))
+    }),
+
+  toggleBrowserColumn: (projectId) => {
+    if (isBrowserColumnOpen(get(), projectId)) get().closeBrowserColumn(projectId)
+    // Senza pagine ne nasce una vuota; con pagine si riapre dove era.
+    else if (browserColumnTabs(get(), projectId).length === 0) get().openBrowser(projectId, { fresh: true })
+    else get().showBrowserColumn(projectId)
+  },
+
+  setBrowserColumnWidth: (projectId, width) =>
+    set((state) =>
+      patchUi(state, projectId, (ui) => {
+        const { width: _old, ...column } = ui.browserColumn ?? { open: false, active: null }
+        return { ...ui, browserColumn: width === undefined ? column : { ...column, width: Math.round(width) } }
+      })
+    ),
 
   closeBrowser: (projectId, tabId) => {
     // Chiudere la tab dell'agente è uno stop, non una chiusura come le altre.
@@ -1067,29 +1137,22 @@ export const useApp = create<AppState>((set, get) => ({
       const ui = state.ui[projectId] ?? emptyUi()
       const closing = ui.browserTabs?.find((tab) => tab.id === tabId)
       if (!closing) return {}
+      const before = browserColumnTabs(state, projectId)
+      const wasActive = browserColumnActive(state, projectId) === tabId
       const browserTabs = (ui.browserTabs ?? []).filter((tab) => tab.id !== tabId)
-      const nextUi: ProjectUiState = { ...ui, browserTabs, activeTab: ui.activeTab === tabId ? null : ui.activeTab }
+      let nextUi: ProjectUiState = { ...ui, browserTabs, activeTab: ui.activeTab === tabId ? null : ui.activeTab }
+      const rest = browserColumnTabs({ ...state, ui: { ...state.ui, [projectId]: nextUi } }, projectId)
+      const column = ui.browserColumn
+      // Chiusa l'ultima pagina la colonna si chiude; chiusa quella attiva passa alla vicina (la precedente, se c'è).
+      if (column && rest.length === 0) nextUi = { ...nextUi, browserColumn: { ...column, open: false, active: null } }
+      else if (column && wasActive) nextUi = { ...nextUi, browserColumn: { ...column, active: rest[Math.max(0, before.indexOf(tabId) - 1)] ?? rest[0] } }
       persistUi(projectId, nextUi)
-      const next = { ...state, ui: { ...state.ui, [projectId]: nextUi } }
       const browserStates = { ...state.browserStates }
       const last = browserStates[tabId]?.url || closing.url
       delete browserStates[tabId]
       // ⌘⇧T la riapre sullo stesso indirizzo.
       const closedTabs = withClosedTab(state.closedTabs, projectId, { kind: 'browser', tabId, url: last })
-      const wasActive = state.selection.kind === 'browser' && state.selection.tabId === tabId
-      if (!wasActive) return { ui: next.ui, browserStates, closedTabs }
-      // Si passa al browser aperto prima, poi ai file, poi all'ultima chat, poi alla nuova chat.
-      const lastBrowser = browserTabs[browserTabs.length - 1]
-      const lastFile = (nextUi.fileTabs ?? [])[(nextUi.fileTabs ?? []).length - 1]
-      const lastLive = [...nextUi.tabs].reverse().find((s) => isLiveSession(state, state.sessions[s]))
-      const selection: Selection = lastBrowser
-        ? { kind: 'browser', projectId, tabId: lastBrowser.id }
-        : lastFile
-          ? { kind: 'file', projectId, ...lastFile }
-          : lastLive
-            ? { kind: 'session', projectId, sessionId: lastLive }
-            : { kind: 'new', projectId }
-      return { ui: next.ui, browserStates, closedTabs, ...selectionPatch(next, selection), ...pushHistory(state, selection) }
+      return { ui: { ...state.ui, [projectId]: nextUi }, browserStates, closedTabs }
     })
   },
 
@@ -1131,11 +1194,9 @@ export const useApp = create<AppState>((set, get) => ({
       const agentForeign = state.agentForeign[sessionId] && state.agentForeign[sessionId] !== incoming.tabId ? omitKey(state.agentForeign, sessionId) : state.agentForeign
       const browserStates = { ...state.browserStates }
       if (lostTab) delete browserStates[lostTab]
-      // La tab che si guardava non c'è più: si torna alla sessione dell'agente (o alla nuova chat del progetto).
-      const viewing = state.selection.kind === 'browser' && lostTab !== null && state.selection.tabId === lostTab
-      if (!viewing) return { agentBrowser, agentForeign, browserStates }
-      const selection: Selection = isLiveSession(state, state.sessions[sessionId]) ? { kind: 'session', projectId: incoming.projectId, sessionId } : { kind: 'new', projectId: incoming.projectId }
-      return { agentBrowser, agentForeign, browserStates, ...selectionPatch(state, selection), ...pushHistory(state, selection) }
+      const next = { ...state, agentBrowser, agentForeign, browserStates }
+      // La pagina dell'agente che c'era non c'è più: la colonna passa a un'altra pagina o, se non resta niente, si chiude. La selezione non cambia.
+      return { agentBrowser, agentForeign, browserStates, ...(lostTab ? settleBrowserColumn(next, incoming.projectId) : {}) }
     })
     if (gone || !incoming.tabId || incoming.stopped) return
     // Stessa tab: solo se era di un'altra finestra si riprova (può essere cambiata la finestra che la possiede).
@@ -1143,8 +1204,8 @@ export const useApp = create<AppState>((set, get) => ({
       if (get().agentForeign[sessionId] === incoming.tabId) void get().probeAgentBrowser(sessionId)
       return
     }
-    // Vista nuova: si apre dal main (che la restituisce già creata) e, se si sta già guardando un browser del progetto, si mostra subito.
-    // Altrimenti la tab compare accanto alla chat con un avviso "Mostra": la chat in cui si scrive non si tocca.
+    // Vista nuova: si apre dal main (che la restituisce già creata) e, se la colonna browser del progetto è già aperta, si mostra subito.
+    // Altrimenti resta un avviso "Mostra" accanto alle tab: né la chat in cui si scrive né la colonna si toccano.
     void get().probeAgentBrowser(sessionId, true)
   },
 
@@ -1167,17 +1228,14 @@ export const useApp = create<AppState>((set, get) => ({
         if (view) {
           if (get().agentForeign[sessionId]) set((s) => ({ agentForeign: omitKey(s.agentForeign, sessionId) }))
           get().setBrowserState(view)
-          // Vista nuova e si sta già guardando un browser del progetto: si mostra subito.
-          const current = get().selection
-          if (force && current.kind === 'browser' && current.projectId === latest.projectId) get().showAgentBrowser(sessionId)
+          // Vista nuova e la colonna del progetto è già aperta: si mostra subito.
+          if (force && isBrowserColumnOpen(get(), latest.projectId)) get().showAgentBrowser(sessionId)
           return
         }
-        // Nessuna vista qui ma lo stato è attivo: appartiene a un'altra finestra. Non si mostra; se la si guardava si torna alla chat.
+        // Nessuna vista qui ma lo stato è attivo: appartiene a un'altra finestra. Non si mostra e sparisce dalla colonna.
         set((s) => {
           const agentForeign = { ...s.agentForeign, [sessionId]: tabId }
-          if (!(s.selection.kind === 'browser' && s.selection.tabId === tabId)) return { agentForeign }
-          const selection: Selection = isLiveSession(s, s.sessions[sessionId]) ? { kind: 'session', projectId: latest.projectId, sessionId } : { kind: 'new', projectId: latest.projectId }
-          return { agentForeign, ...selectionPatch(s, selection), ...pushHistory(s, selection) }
+          return { agentForeign, ...settleBrowserColumn({ ...s, agentForeign }, latest.projectId) }
         })
       },
       () => {
@@ -1211,11 +1269,11 @@ export const useApp = create<AppState>((set, get) => ({
         .probeAgentBrowser(sessionId, true)
         .then(() => {
           const latest = get().agentBrowser[sessionId]
-          if (hasAgentTab(latest) && get().agentForeign[sessionId] !== latest.tabId) get().select({ kind: 'browser', projectId: latest.projectId, tabId: latest.tabId })
+          if (hasAgentTab(latest) && get().agentForeign[sessionId] !== latest.tabId) get().showBrowserColumn(latest.projectId, latest.tabId)
         })
       return
     }
-    get().select({ kind: 'browser', projectId: state.projectId, tabId: state.tabId })
+    get().showBrowserColumn(state.projectId, state.tabId)
   },
 
   closeAgentBrowser: (sessionId) => {
@@ -1398,7 +1456,6 @@ export const useApp = create<AppState>((set, get) => ({
       state.reorderTab(projectId, id, to)
       return true
     }
-    if (selection.kind === 'browser') return move((ui.browserTabs ?? []).map((tab) => tab.id), selection.tabId)
     if (selection.kind === 'file') return move((ui.fileTabs ?? []).map((f) => fileTabId(f.root, f.path)), fileTabId(selection.root, selection.path))
     return move(ui.tabs.filter((id) => isLiveSession(state, state.sessions[id])), selection.sessionId)
   },
@@ -1410,10 +1467,6 @@ export const useApp = create<AppState>((set, get) => ({
     const order: Selection[] = [
       ...ui.tabs.filter((id) => isLiveSession(state, state.sessions[id])).map((sessionId): Selection => ({ kind: 'session', projectId, sessionId })),
       ...(ui.fileTabs ?? []).map((file): Selection => ({ kind: 'file', projectId, root: file.root, path: file.path })),
-      ...(ui.browserTabs ?? []).map((tab): Selection => ({ kind: 'browser', projectId, tabId: tab.id })),
-      ...Object.values(state.agentBrowser)
-        .filter((agent) => agent.projectId === projectId && hasAgentTab(agent))
-        .map((agent): Selection => ({ kind: 'browser', projectId, tabId: agent.tabId! }))
     ]
     if (order.length === 0) return false
     const at = state.selection.projectId === projectId ? order.findIndex((entry) => sameSelection(entry, state.selection)) : -1
@@ -1638,12 +1691,7 @@ export const useApp = create<AppState>((set, get) => ({
     const projectId = selection.projectId
     const split = cleanSplit(state, projectId)
     if (split && split.sessions.length >= MAX_COLUMNS) return
-    const candidate = splitCandidate(state, projectId, selection.sessionId)
-    if (candidate) {
-      state.openSplit(projectId, candidate)
-      return
-    }
-    // Nessuna chat da affiancare: si apre una nuova chat, che finisce accanto a questa appena nasce.
+    // Sempre una chat nuova accanto a quella aperta: prevedibile. Una chat già aperta si affianca dal menu Affianca o con ⌘clic sulla sua tab.
     state.select({ kind: 'new', projectId })
     set({ pendingSplit: { projectId, base: split?.active ?? selection.sessionId } })
   },

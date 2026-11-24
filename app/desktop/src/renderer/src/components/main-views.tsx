@@ -1,4 +1,6 @@
+import { BrowserColumn } from '@/components/browser/browser-column'
 import { DevServerNotice } from '@/components/browser/dev-server-notice'
+import { BrowserToggle, SplitMenu } from '@/components/top-bar-actions'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { shortcutLabel } from '@shared/shortcuts'
@@ -56,7 +58,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { request, send } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 import { useSettings } from '@/hooks/use-theme'
-import { liveColumns, useApp } from '@/store/app-store'
+import { isBrowserColumnOpen, liveColumns, useApp } from '@/store/app-store'
+import { MIN_CONTENT_WIDTH } from '@/lib/panel-size'
 import { COMPACT_WIDTH, useElementWidth } from '@/lib/use-element-width'
 import { plural, t } from '@shared/i18n'
 import { cleanBranchPrefix, DEFAULT_BRANCH_PREFIX } from '@shared/worktree-prefs'
@@ -234,6 +237,8 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
       {project && (
         <>
           <RunButtons project={project} session={session} />
+          {session && <SplitMenu projectId={project.id} />}
+          <BrowserToggle projectId={project.id} />
           <BarIcon label={terminalOpen ? t('Hide terminal') : t('Terminal')} shortcut={shortcutLabel('terminal.toggle')} active={terminalOpen} onClick={() => {
               if (!terminalOpen) focusNextTerminal()
               setPanel(project.id, { open: !terminalOpen })
@@ -265,21 +270,25 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
   )
 }
 
-/** Colonna centrale con il pannello terminale in basso e l'ispettore a destra. */
+/** Colonna centrale con il pannello terminale in basso, la colonna browser e l'ispettore a destra. */
 export function Workspace({ project, session, root, composerKey, children }: { project: Project; session: SessionSummary | null; root: string; composerKey: string | null; children: ReactNode }) {
   const inspectorOpen = useApp((s) => Boolean(s.ui[project.id]?.inspector?.open))
   const terminalOpen = useApp((s) => Boolean(s.ui[project.id]?.terminal?.open))
   const terminalRight = useApp((s) => s.ui[project.id]?.terminal?.side === 'right')
+  // Con la colonna browser aperta le chat tengono la loro larghezza minima: a stringersi è il browser.
+  const browserOpen = useApp((s) => isBrowserColumnOpen(s, project.id))
   const terminal = terminalOpen ? <TerminalPanel projectId={project.id} sessionId={session?.id ?? null} cwd={root} composerKey={composerKey} /> : null
   return (
     <main className="flex min-w-0 flex-1 bg-background">
       {/* data-split-area: la vista su cui si trascina una tab per affiancarla (bordo destro o in basso). */}
-      <div data-split-area className="relative flex min-w-0 flex-1 flex-col">
+      <div data-split-area className="relative flex min-w-0 flex-1 flex-col" style={browserOpen ? { minWidth: MIN_CONTENT_WIDTH } : undefined}>
         {children}
         {!terminalRight && terminal}
         <SplitDropHint />
         <DevServerNotice projectId={project.id} />
       </div>
+      {/* Una sola colonna browser per progetto: tra il contenuto e il resto del pannello di destra. */}
+      <BrowserColumn projectId={project.id} />
       {terminalRight && terminal}
       {inspectorOpen && <Inspector projectId={project.id} root={root} isGit={project.isGit} session={session} composerKey={composerKey} />}
     </main>
@@ -795,10 +804,8 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               models={agentStatus.models}
               model={explicitModel}
               onModelChange={(value) => setModelChoice({ agent: chatAgent, value })}
-              onModelReset={() => setModelChoice(null)}
               effort={explicitEffort}
               onEffortChange={(value) => setEffortChoice({ agent: chatAgent, value })}
-              onEffortReset={() => setEffortChoice(null)}
               showEffort={supportsEffort(chatAgent)}
               permission={permission}
               onPermissionChange={setPermissionChoice}
@@ -1144,8 +1151,6 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
               onModelChange={(model) => send({ type: 'session.model.set', sessionId, model })}
               effort={session.effort}
               effortEffective={session.effortEffective}
-              onModelReset={(model) => send({ type: 'session.model.set', sessionId, model })}
-              onEffortReset={(effort) => send({ type: 'session.effort.set', sessionId, effort })}
               onEffortChange={(effort) => send({ type: 'session.effort.set', sessionId, effort })}
               permission={permissionChange.shown}
               permissionNext={permissionChange.next}

@@ -287,8 +287,9 @@
 }
 .chat-scroll {
   container-type: inline-size;
-  /* Il gutter è sempre riservato: testo e composer (che sta fuori dalla zona che scorre) restano centrati sullo stesso asse. */
-  scrollbar-gutter: stable;
+  /* Il gutter della barra è riservato su entrambi i lati: il testo resta al centro della colonna e il composer
+     (fuori dalla zona che scorre) ha lo stesso margine a sinistra e a destra, anche nelle colonne strette. */
+  scrollbar-gutter: stable both-edges;
 }
 /* Margini laterali e spazio utile (vista meno margini), calcolato qui perché cqi guarda la zona che scorre. */
 .chat-col {
@@ -299,9 +300,9 @@
 .chat-col[data-compact] {
   --chat-pad: 12px;
 }
-/* Fuori dalla zona che scorre (composer, note): stesso margine a destra più il gutter della barra (10 px, globals.css). */
+/* Fuori dalla zona che scorre (composer, note): stesso margine più il gutter della barra (10 px per lato, globals.css). */
 .chat-col.chat-gutter {
-  padding-inline-end: calc(var(--chat-pad) + 10px);
+  padding-inline: calc(var(--chat-pad) + 10px);
 }
 /* Il font della chat vive solo qui, perché ch ne dipende; .chat-reset restituisce ai figli il font dell'app. */
 .chat-measure,

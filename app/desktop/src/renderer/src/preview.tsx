@@ -878,8 +878,6 @@ function Preview() {
             profileId={previewCase === 'codex' || usageProfile === 'default' ? undefined : PREVIEW_CLAUDE_WORK}
             key={locale}
             onEffortChange={setEffort}
-            onEffortReset={() => setEffort(null)}
-            onModelReset={() => setModel(null)}
             effortEffective={previewCase === 'unknown' ? undefined : 'medium'}
             draftKey="preview"
             sessionId={subagents.length ? PREVIEW_SESSION : undefined}

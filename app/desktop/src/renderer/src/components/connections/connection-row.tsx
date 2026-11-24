@@ -20,8 +20,10 @@ export const ROW_GRID = 'grid grid-cols-[18px_minmax(0,1fr)_auto] items-start ga
 export const ROW_GRID_PLAIN = 'grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2.5'
 export const ROW_ACTIONS_PLAIN = 'col-start-3 flex shrink-0 items-center justify-end gap-1 @max-[819px]:col-start-2 @max-[819px]:justify-start'
 /** I bottoni stanno all'ultima colonna, allineati al bordo destro; nel pannello stretto sotto il resto, a sinistra. */
-export const ROW_ACTIONS = 'col-start-3 flex shrink-0 items-center justify-end gap-1 @max-[819px]:col-start-2 @max-[819px]:justify-start @[820px]:col-start-4'
+export const ROW_ACTIONS = 'col-start-3 flex shrink-0 items-center justify-end gap-1 @max-[819px]:col-start-2 @max-[819px]:justify-start @[820px]:col-start-4 @[820px]:flex-col @[820px]:items-end'
 /** Limiti d'uso: sotto il testo, o nella terza colonna. */
+/** "Esci": ghost in rosso (il rosso di errore del tema), più deciso al passaggio. */
+export const SIGN_OUT = 'text-sm text-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/30'
 export const ROW_USAGE = 'col-start-2 row-start-2 min-w-0 max-w-[420px] @[820px]:col-start-3 @[820px]:row-start-1'
 
 /** Segno del servizio, decorativo: il nome sta accanto. */
@@ -354,7 +356,7 @@ export function ConnectionRow({ id, status, actions, showTool, profileId, name: 
             <Button data-primary variant="ghost" size="sm" className="text-sm" disabled={busy} aria-label={t('Switch account on {name}', { name })} onClick={(e) => openConfirm('switch', e)}>
               {t('Switch account')}
             </Button>
-            <Button variant="ghost" size="sm" className="text-sm" disabled={busy} aria-label={t('Sign out of {name}', { name })} onClick={(e) => (sharesLogin ? openConfirm('logout', e) : run(() => actions.logout(id, profileId)))}>
+            <Button variant="ghost" size="sm" className={SIGN_OUT} disabled={busy} aria-label={t('Sign out of {name}', { name })} onClick={(e) => (sharesLogin ? openConfirm('logout', e) : run(() => actions.logout(id, profileId)))}>
               {t('Sign out')}
             </Button>
           </>

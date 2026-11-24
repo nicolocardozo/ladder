@@ -190,7 +190,10 @@ const it: Record<string, string> = {
   'Works in a worktree on the branch': 'Lavora in un worktree sul branch',
   'Worktree on the PR branch': 'Worktree sul branch della PR',
   'Prompt editable before sending': 'Prompt modificabile prima di inviare',
-  'Resize sidebar': 'Ridimensiona la barra laterale'
+  'Resize sidebar': 'Ridimensiona la barra laterale',
+  'New chat beside this one': 'Nuova chat accanto a questa',
+  'Put beside this one': 'Affianca a questa',
+  'Maximum three columns. Close one to add another.': 'Massimo tre colonne. Chiudine una per aggiungerne un’altra.',
 }
 
 export default it

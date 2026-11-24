@@ -2,7 +2,6 @@ import { FileTabView, UnsavedFileDialog } from '@/components/file-tab'
 import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import { AppSidebar } from '@/components/app-sidebar'
-import { BrowserTabView } from '@/components/browser/browser-view'
 import { CommandPalette } from '@/components/command-palette'
 import { NewChat, SessionView } from '@/components/main-views'
 import { Onboarding } from '@/components/connections/onboarding'
@@ -218,8 +217,6 @@ export function App() {
           <SessionView sessionId={selection.sessionId} />
         ) : selection.kind === 'file' ? (
           <FileTabView key={`${selection.root}\n${selection.path}`} projectId={selection.projectId} root={selection.root} path={selection.path} />
-        ) : selection.kind === 'browser' ? (
-          <BrowserTabView key={selection.tabId} projectId={selection.projectId} tabId={selection.tabId} />
         ) : (
           <NewChat projectId={selection.projectId} />
         )}

@@ -925,11 +925,11 @@ function initialsOf(name: string): string {
 /** Segno di un servizio nel footer. Scollegato o con il login scaduto: attenuato con un puntino; vicino ai limiti d'uso: triangolo come l'icona dell'uso nel composer. */
 function FooterServiceMark({ service }: { service: FooterService }) {
   return (
-    <span data-service={service.key} data-linked={service.linked} className="relative grid size-[14px] shrink-0 place-items-center">
-      <MaskIcon icon={service.icon} name={service.name} size={14} className={cn(service.linked ? 'text-foreground' : 'text-muted-foreground opacity-65')} />
-      {!service.linked && <span aria-hidden data-dot className="absolute -top-[3px] -right-[3px] size-[7px] rounded-full bg-attention ring-2 ring-sidebar" />}
+    <span data-service={service.key} data-linked={service.linked} className="relative grid size-3 shrink-0 place-items-center">
+      <MaskIcon icon={service.icon} name={service.name} size={12} className={cn(service.linked ? 'text-foreground/75' : 'text-muted-foreground opacity-60')} />
+      {!service.linked && <span aria-hidden data-dot className="absolute -top-[3px] -right-[3px] size-[6px] rounded-full bg-attention ring-[1.5px] ring-sidebar" />}
       {service.alert && (
-        <TriangleAlert aria-hidden data-alert strokeWidth={2.5} className={cn('absolute -top-[5px] -right-[5px] size-[9px] rounded-[2px] bg-sidebar', service.alert.limited ? 'text-destructive' : 'text-attention')} />
+        <TriangleAlert aria-hidden data-alert strokeWidth={2.5} className={cn('absolute -top-[4px] -right-[4px] size-[8px] rounded-[2px] bg-sidebar', service.alert.limited ? 'text-destructive' : 'text-attention')} />
       )}
     </span>
   )
@@ -957,18 +957,21 @@ export function AccountButton() {
         onClick={() => useSettings.getState().openSection('subscriptions')}
         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
-        <span aria-hidden data-avatar className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/10 text-xs font-semibold text-foreground">
-          {userName ? initialsOf(userName) : <UserRound className="size-3.5" />}
+        <span aria-hidden data-avatar className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-xs font-semibold text-foreground">
+          {userName ? initialsOf(userName) : <UserRound className="size-4" />}
         </span>
-        <span data-account-name className="block min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
-        {shown.length > 0 && (
-          <span data-services className="flex shrink-0 items-center gap-1.5">
-            {shown.map((service) => (
-              <FooterServiceMark key={service.key} service={service} />
-            ))}
-            {more > 0 && <span className="text-xs tabular-nums text-muted-foreground">+{more}</span>}
-          </span>
-        )}
+        {/* Nome sopra, abbonamenti collegati sotto: il nome ha tutta la riga e non si tronca per far posto alle icone. */}
+        <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+          <span data-account-name className="block min-w-0 truncate text-sm leading-tight font-medium">{label}</span>
+          {shown.length > 0 && (
+            <span data-services className="flex min-w-0 items-center gap-1">
+              {shown.map((service) => (
+                <FooterServiceMark key={service.key} service={service} />
+              ))}
+              {more > 0 && <span className="text-[11px] leading-none tabular-nums text-muted-foreground">+{more}</span>}
+            </span>
+          )}
+        </span>
       </TooltipTrigger>
       <TooltipContent side="top" align="start">
         {services.length === 0 ? (

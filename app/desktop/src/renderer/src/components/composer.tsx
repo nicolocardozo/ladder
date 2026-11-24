@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { matchesCommand, shortcutLabel } from '@shared/shortcuts'
-import { ArrowUp, AtSign, ChevronDown, Clock, ImagePlus, Plus, RotateCcw, ShieldCheck, Square } from 'lucide-react'
+import { ArrowUp, AtSign, Clock, ImagePlus, Plus, ShieldCheck, Square } from 'lucide-react'
 import type { AgentId, Attachment, Effort, PermissionLevel, QueuedMessage, SessionSummary, SlashCommand } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { formatTokens } from '@/components/subagent-bits'
@@ -10,7 +10,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -50,11 +49,8 @@ interface ComposerProps {
   /** Scelta esplicita: null = nessuna, parte il predefinito (di Ladder, poi dell'agente). */
   model: string | null
   onModelChange: (model: string) => void
-  /** Torna al predefinito; senza, la voce "Reset to default" non compare. */
-  onModelReset?: (defaultModel: string) => void
   effort: Effort | null
   onEffortChange: (effort: Effort) => void
-  onEffortReset?: (defaultEffort: Effort) => void
   /** Effort davvero in uso quando la sessione non ne ha scelto uno (SessionSummary.effortEffective). */
   effortEffective?: Effort | null
   permission: PermissionLevel
@@ -123,15 +119,15 @@ const terminalToken = (title: string) => `@terminal:${title.trim().replace(/\s+/
 /*
  * Barra sotto il campo di testo: i gradini seguono la larghezza della colonna (container query sul contenitore `bar`),
  * non quella della finestra. Unica fonte dei gradini, la barra non va mai a capo e l'invio resta sempre a destra:
- *   largo   (>= 540 px di contenuto): come sempre, agente, modello, effort e permessi per esteso;
- *   medio   (400 a 540 px):           agente solo logo, modello abbreviato, permessi con icona e nome breve;
+ *   largo   (>= 540 px di contenuto): logo dell'agente, modello ed effort; permessi per esteso;
+ *   medio   (400 a 540 px):           logo e modello, permessi con icona e nome breve;
  *   stretto (< 400 px):               solo icone (il modello abbreviato resta finché entra, poi sparisce: è nel tooltip e nell'aria-label).
  * Quello che sparisce dalla barra resta nell'aria-label e nel menu del selettore. Le soglie sono sul contenuto della barra
  * (larghezza del composer meno 20 px di padding), cioè 560 e 420 px di composer.
  */
-/** Visibile solo nel gradino largo, solo dal medio in su, solo nel medio; il modello abbreviato sparisce sotto i 320 px di contenuto, dove non entra nemmeno un nome corto. Stringhe intere: Tailwind le legge a build. */
+/** Visibile solo nel gradino largo, solo dal medio in su, solo nel medio; il modello (senza "Claude") sparisce sotto i 320 px di contenuto, dove non entra nemmeno un nome corto. Stringhe intere: Tailwind le legge a build. */
 const showWide = 'hidden @min-[540px]/bar:inline'
-const showShortModel = 'hidden @min-[320px]/bar:inline @min-[540px]/bar:hidden'
+const showModel = 'hidden @min-[320px]/bar:inline'
 const showFromMedium = 'hidden @min-[400px]/bar:inline'
 const showMedium = 'hidden @min-[400px]/bar:inline @min-[540px]/bar:hidden'
 
@@ -140,13 +136,18 @@ const shortLevelName = (id: PermissionLevel) => (id === 'full' ? t('Full access 
 /** Modello abbreviato per i gradini stretti: senza il prefisso "Claude". */
 const shortModelName = (name: string) => name.replace(/^claude\s+/i, '')
 
-const chip =
-  'no-drag inline-flex h-7 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border border-input/70 px-2 text-xs text-secondary-foreground outline-none ' +
+/** Selettore di agente e modello: una pill piena e compatta (logo, modello, effort più chiaro). */
+const modelPill =
+  'no-drag inline-flex h-6 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-secondary px-2 text-xs text-foreground outline-none ' +
   'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-60'
+/** Selettore dei permessi: ghost, si colora solo al passaggio o quando il menu è aperto. */
+const ghost =
+  'no-drag inline-flex h-6 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md px-1.5 text-xs text-muted-foreground outline-none ' +
+  'hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent data-[popup-open]:text-foreground disabled:opacity-60'
 
 export function Composer(props: ComposerProps) {
   useShortcutsRevision()
-  const { draftKey, projectId, agentName, models, model, onModelChange, onModelReset, effort, onEffortChange, onEffortReset, effortEffective, permission, permissionNext, onPermissionChange } = props
+  const { draftKey, projectId, agentName, models, model, onModelChange, effort, onEffortChange, effortEffective, permission, permissionNext, onPermissionChange } = props
   const { running, onSubmit, onStop, queue = [], onQueueChange, canSteer = false, onDeliver, queueReason, queueWorking = running, context, disabledReason, autoFocus, className } = props
   const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession } = props
   const levels = allowedLevels(maxPermission)
@@ -183,7 +184,7 @@ export function Composer(props: ComposerProps) {
   const shownEffort = effort ?? defaultEffort.value
   const effortLevels: Effort[] = (models.find((m) => m.id === shownModel)?.efforts ?? EFFORTS.map((e) => e.id)).filter((level) => EFFORTS.some((e) => e.id === level))
   const modelName = models.find((m) => m.id === shownModel)?.label ?? prettyModel(null, shownModel) ?? t('Default model')
-  const effortName = shownEffort && showEffort ? t(EFFORTS.find((e) => e.id === shownEffort)?.label ?? '').toLowerCase() : ''
+  const effortName = shownEffort && showEffort ? t(EFFORTS.find((e) => e.id === shownEffort)?.label ?? '') : ''
   const agentSummary = t('Agent and model: {summary}', { summary: [agentName, modelName, effortName].filter(Boolean).join(' · ') })
   const permissionSummary = permissionNext
     ? `${t('Permissions: {level}', { level: levelLabel(level.id) })}. ${t('{level} from next turn', { level: levelLabel(permissionNext) })}`
@@ -205,8 +206,8 @@ export function Composer(props: ComposerProps) {
   const trigger = mention ?? slash
   const mode = mention ? 'mention' : 'command'
   const commandList = useMemo(
-    () => mergeCommands(onCommand ? agentCommands : undefined, { model: true, effort: showEffort, new: Boolean(onNewSession) }),
-    [agentCommands, onCommand, onNewSession, showEffort]
+    () => mergeCommands(onCommand ? agentCommands : undefined, { model: true, effort: showEffort, new: Boolean(onNewSession), restart: Boolean(props.sessionId) && (agent === 'claude-code' || agent === 'codex') }),
+    [agentCommands, onCommand, onNewSession, showEffort, props.sessionId, agent]
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const menuFromCommand = useRef(false)
@@ -410,6 +411,12 @@ export function Composer(props: ComposerProps) {
       setNotice(null)
       clearDraft()
       onNewSession?.(args)
+      return
+    }
+    if (entry.name === 'restart') {
+      setNotice(null)
+      clearDraft()
+      if (props.sessionId) void request({ type: 'session.restartAgent', sessionId: props.sessionId }).catch((e: Error) => setNotice(e.message))
       return
     }
     if (entry.name === 'model') {
@@ -763,13 +770,10 @@ export function Composer(props: ComposerProps) {
               }
             }}
           >
-            <DropdownMenuTrigger className={chip} disabled={disabled} aria-label={agentSummary} title={agentSummary}>
-              <AgentMark agent={agent} size={13} className="shrink-0 text-foreground" />
-              <span className={cn(showWide, 'font-semibold text-foreground')}>{agentName}</span>
-              <span className={cn(showWide, 'min-w-0 truncate text-muted-foreground')}>· {modelName}</span>
-              <span className={cn(showShortModel, 'min-w-0 truncate text-muted-foreground')}>{shortModelName(modelName)}</span>
-              {effortName && <span className={cn(showWide, 'text-muted-foreground')}>· {effortName}</span>}
-              <ChevronDown className="size-3 shrink-0 text-faint" />
+            <DropdownMenuTrigger className={modelPill} disabled={disabled} aria-label={agentSummary} title={agentSummary}>
+              <AgentMark agent={agent} size={12} className="shrink-0" />
+              <span className={cn(showModel, 'min-w-0 truncate font-medium')}>{shortModelName(modelName)}</span>
+              {effortName && <span className={cn(showWide, 'text-muted-foreground')}>{effortName}</span>}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={6} className="max-h-[60vh] w-80">
               <DropdownMenuGroup>
@@ -783,27 +787,21 @@ export function Composer(props: ComposerProps) {
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
-                {model && defaultModel.value && model !== defaultModel.value && onModelReset && (
-                  <DropdownMenuItem onClick={() => onModelReset(defaultModel.value!)} className="text-muted-foreground">
-                    <RotateCcw aria-hidden className="size-3.5" />
-                    {t('Reset to default')}
-                  </DropdownMenuItem>
-                )}
               </DropdownMenuGroup>
               {showEffort && effortLevels.length > 0 && <DropdownMenuSeparator />}
-              {showEffort && effortLevels.length > 0 && <EffortSlider levels={effortLevels} value={shownEffort} chosen={Boolean(effort)} defaultLevel={defaultEffort.value} defaultSource={defaultEffort.source} agentName={agentName} onChange={onEffortChange} onReset={effort && defaultEffort.value && effort !== defaultEffort.value && onEffortReset ? () => onEffortReset(defaultEffort.value!) : undefined} />}
+              {showEffort && effortLevels.length > 0 && <EffortSlider levels={effortLevels} value={shownEffort} chosen={Boolean(effort)} defaultLevel={defaultEffort.value} defaultSource={defaultEffort.source} agentName={agentName} onChange={onEffortChange} />}
               {running && <p className="px-2 pt-1 pb-1.5 text-xs text-muted-foreground">{t('Changes apply from the next message.')}</p>}
             </DropdownMenuContent>
           </DropdownMenu>
 
           <DropdownMenu>
             <DropdownMenuTrigger
-              className={chip}
+              className={ghost}
               aria-label={permissionSummary}
               title={permissionSummary}
               disabled={disabled}
             >
-              <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground" />
+              <ShieldCheck className="size-3.5 shrink-0" />
               <span className={showWide}>{levelLabel(level.id)}</span>
               <span className={showMedium}>{shortLevelName(level.id)}</span>
               {permissionNext ? (
@@ -812,11 +810,16 @@ export function Composer(props: ComposerProps) {
                   <span className={cn(showWide, 'text-muted-foreground')}>→ {levelLabel(permissionNext)}</span>
                 </>
               ) : null}
-              <ChevronDown className="size-3 shrink-0 text-faint" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={6} className="w-80">
               <DropdownMenuGroup>
-                <DropdownMenuLabel>{t('Permissions · ⇧Tab to switch')}</DropdownMenuLabel>
+                <DropdownMenuLabel className="flex items-center gap-2">
+                  {t('Permissions')}
+                  <span className="ml-auto flex items-center gap-1 font-normal">
+                    <Kbd separator="+">{shortcutLabel('composer.cyclePermission').replace('⇥', 'tab')}</Kbd>
+                    {t('to switch')}
+                  </span>
+                </DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={permission} onValueChange={(value) => onPermissionChange(value as PermissionLevel)}>
                   {permissionLevels.map((p) => (
                     <DropdownMenuRadioItem key={p.id} value={p.id} disabled={!levels.includes(p.id)} className="items-start py-1.5">

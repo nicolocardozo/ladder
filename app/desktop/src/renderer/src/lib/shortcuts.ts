@@ -99,7 +99,6 @@ const ACTIONS: Partial<Record<CommandId, Action>> = {
     const current = state.selection
     if (current.kind === 'session') state.closeTab(current.projectId, current.sessionId)
     else if (current.kind === 'file') state.closeFile(current.projectId, current.root, current.path)
-    else if (current.kind === 'browser') state.closeBrowser(current.projectId, current.tabId)
     else return false
     return true
   },

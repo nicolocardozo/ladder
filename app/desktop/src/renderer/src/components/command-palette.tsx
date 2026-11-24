@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { Command as CommandPrimitive } from 'cmdk'
-import { BellOff, Bookmark, ChevronLeft, ChevronRight, CircleAlert, Columns2, FileDiff, FileSearch, Folder, FolderPlus, FolderSearch, FolderTree, Globe, Keyboard, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, PanelRight, PanelRightClose, Search, Sparkles, SquarePen, SquareTerminal, Undo2 } from 'lucide-react'
+import { BellOff, Bookmark, ChevronLeft, ChevronRight, CircleAlert, Columns2, FileDiff, FileSearch, Folder, FolderPlus, FolderSearch, FolderTree, Globe, Keyboard, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, PanelRight, PanelRightClose, RotateCw, Search, Sparkles, SquarePen, SquareTerminal, Undo2 } from 'lucide-react'
 import type { SearchHit } from '@shared/protocol'
 import { localeTag, plural, t } from '@shared/i18n'
 import { openInbox } from '@/components/app-sidebar'
@@ -222,7 +222,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       : []),
     {
       id: 'split',
-      label: t('Open side by side'),
+      label: t('New chat beside this one'),
       icon: Columns2,
       keywords: 'split side by side column columns tile affianca colonna colonne',
       command: 'chat.split',
@@ -291,6 +291,13 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             keywords: 'regenerate title rename generate name session rigenera titolo rinomina genera nome sessione',
             disabled: activeChat.titleGenerating,
             perform: () => run(() => useApp.getState().regenerateTitle(activeChat.id))
+          },
+          {
+            id: 'restart-agent',
+            label: t('Restart agent'),
+            icon: RotateCw,
+            keywords: 'restart agent reload mcp server settings process riavvia agente ricarica server mcp impostazioni processo',
+            perform: () => run(() => void request({ type: 'session.restartAgent', sessionId: activeChat.id }).catch(() => undefined))
           }
         ]
       : []),

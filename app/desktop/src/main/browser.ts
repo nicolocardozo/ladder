@@ -408,7 +408,7 @@ export function registerBrowserIpc(): void {
     const target = normalize(input)
     if ('error' in target) return { ok: false, error: target.error }
     // Browser dell'agente: l'utente non lo guida da qui (aprirebbe domini che l'agente poi leggerebbe); i suoi indirizzi passano dall'agente.
-    if (tab.agent && !agentAllows(tab.agent, target.url)) return { ok: false, error: t('The agent browser only opens localhost by itself. Open other addresses in your own Browser tab.') }
+    if (tab.agent && !agentAllows(tab.agent, target.url)) return { ok: false, error: t('The agent browser only opens localhost by itself. Open other addresses in a page of your own in the browser.') }
     void tab.view.webContents.loadURL(target.url).catch(() => undefined)
     return { ok: true, url: target.url }
   })

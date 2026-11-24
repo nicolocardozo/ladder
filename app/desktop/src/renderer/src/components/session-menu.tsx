@@ -1,6 +1,6 @@
 // Menu di sessioni e progetti: le stesse azioni per il clic destro (sidebar e tab) e per il pulsante "…" della riga.
 import { useMemo, useRef, useState } from 'react'
-import { Archive, ArrowDown, ArrowUp, Bookmark, Check, CheckCheck, CircleDot, Columns2, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, ListPlus, Pencil, Sparkles, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDown, ArrowUp, Bookmark, Check, CheckCheck, CircleDot, Columns2, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, ListPlus, Pencil, RotateCw, Sparkles, SquarePen, Trash2 } from 'lucide-react'
 import type { Project, SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import { DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownM
 import { chooseEditor, EDITORS, EDITOR_NAME, openInEditor, useEditorOf, useInstalledEditors } from '@/components/inspector/open-file'
 import { layoutProjects } from '@/lib/project-groups'
 import { openSavePreset } from '@/lib/session-presets'
+import { request } from '@/lib/host-client'
 import { liveColumns, useApp } from '@/store/app-store'
 
 type Variant = 'context' | 'dropdown'
@@ -94,6 +95,13 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
         <Item className={itemClass} disabled={session.titleGenerating} onClick={() => regenerateTitle(sessionId)}>
           <Sparkles />
           {session.titleGenerating ? t('Generating title…') : t('Regenerate title')}
+        </Item>
+      )}
+      {session.mode === 'chat' && (session.agent === 'claude-code' || session.agent === 'codex') && (
+        // Solo gli agenti che riprendono la conversazione da un processo nuovo. Dopo aver aggiunto un server MCP o cambiato le impostazioni dell'agente: il prossimo messaggio riparte con un processo nuovo.
+        <Item className={itemClass} onClick={() => void request({ type: 'session.restartAgent', sessionId }).catch(() => undefined)}>
+          <RotateCw />
+          {t('Restart agent')}
         </Item>
       )}
       <Item className={itemClass} disabled={!canSplit} onClick={() => openSplit(session.projectId, sessionId)}>

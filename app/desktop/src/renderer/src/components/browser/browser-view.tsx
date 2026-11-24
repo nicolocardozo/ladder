@@ -1,4 +1,4 @@
-// Browser integrato in una tab (LAD-57). La pagina è una vista nativa del main sopra un segnaposto DOM: qui si comunicano
+// Browser integrato (LAD-57), nella colonna a destra delle chat. La pagina è una vista nativa del main sopra un segnaposto DOM: qui si comunicano
 // rettangolo e visibilità, e si disegna tutto il resto (barra, errori, stati vuoti). Con un popup, la palette o un
 // trascinamento sopra l'area la vista si nasconde, perché la vista nativa starebbe sopra l'HTML.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
@@ -6,8 +6,6 @@ import { ArrowLeft, ArrowRight, Bot, Camera, CircleAlert, CircleCheck, ExternalL
 import type { AgentBrowserState, BrowserAction, BrowserState } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { describeLoadError } from '@/components/browser/load-error'
-import { TopBar, Workspace } from '@/components/main-views'
-import { TabBar } from '@/components/tab-bar'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -46,20 +44,8 @@ function BarButton({ label, onClick, disabled, feedback, children }: { label: st
   )
 }
 
-export function BrowserTabView({ projectId, tabId }: { projectId: string; tabId: string }) {
-  const project = useApp((s) => s.projects.find((p) => p.id === projectId) ?? null)
-  if (!project) return null
-  return (
-    <Workspace project={project} session={null} root={project.path} composerKey={`new:${project.id}`}>
-      <TopBar project={project} session={null} root={project.path}>
-        <TabBar projectId={project.id} activeSessionId={null} activeBrowser={tabId} />
-      </TopBar>
-      <BrowserBody projectId={projectId} tabId={tabId} />
-    </Workspace>
-  )
-}
-
-function BrowserBody({ projectId, tabId }: { projectId: string; tabId: string }) {
+/** Barra, avvisi e pagina nativa di una pagina del browser: va dentro un contenitore flex in colonna (la colonna browser). */
+export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: string }) {
   const api = window.ladder?.browser
   // Modalità agente: la tab è dell'agente di una sessione. Effimera (niente URL salvato), indirizzo in sola lettura, stop sempre a portata.
   const agentSession = isAgentTabId(tabId) ? agentTabSession(tabId) : null
@@ -232,7 +218,7 @@ function BrowserBody({ projectId, tabId }: { projectId: string; tabId: string })
 
   return (
     <>
-      <div role="toolbar" aria-label={t('Browser')} className="relative flex h-10 shrink-0 items-center gap-0.5 border-y border-border px-2">
+      <div role="toolbar" aria-label={t('Browser')} className="relative flex h-10 shrink-0 items-center gap-0.5 border-b border-border px-2">
         {agentSession ? (
           // La pagina la guida l'agente: niente indietro, avanti o ricarica; l'indirizzo è solo da leggere.
           <span className="no-drag ml-0.5 flex h-6 shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 text-xs font-medium text-foreground">
@@ -480,7 +466,7 @@ function AgentEmpty({ missing }: { missing: boolean }) {
           <h2 className="text-lg font-semibold">{missing ? t('This browser is closed') : t('The agent’s browser')}</h2>
           <p className="text-sm text-muted-foreground">
             {missing
-              ? t('The agent’s browser isn’t open any more. To let the agent use it again, choose “Resume the agent’s browser” in the command palette or the + menu.')
+              ? t('The agent’s browser isn’t open any more. To let the agent use it again, choose “Resume the agent’s browser” in the command palette or the menu next to +.')
               : t('The agent shows here what it opens. It uses a separate browser without your cookies, and only reaches localhost unless you allow another site.')}
           </p>
         </div>

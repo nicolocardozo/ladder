@@ -11,7 +11,7 @@ import { useSettings } from '@/hooks/use-theme'
 import { loadOtherAgents, loginOtherAgent, logoutOtherAgent, refreshOtherAgent, showOtherAgentTerminal } from '@/lib/other-agents'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
-import { ROW_ACTIONS_PLAIN, ROW_GRID_PLAIN } from './connection-row'
+import { ROW_ACTIONS_PLAIN, ROW_GRID_PLAIN, SIGN_OUT } from './connection-row'
 import { TrailingSpace } from './profile-parts'
 
 function messageOf(error: unknown): string {
@@ -228,7 +228,7 @@ function OtherAgentRow({ agent }: { agent: OtherAgentConnection }) {
               </Button>
             )}
             {agent.auth === 'connected' && agent.logoutCommand && (
-              <Button variant="ghost" size="sm" className="text-sm" disabled={busy !== null} aria-label={t('Sign out of {name}', { name: agent.name })} onClick={() => run('logout', () => logoutOtherAgent(agent.id))}>
+              <Button variant="ghost" size="sm" className={SIGN_OUT} disabled={busy !== null} aria-label={t('Sign out of {name}', { name: agent.name })} onClick={() => run('logout', () => logoutOtherAgent(agent.id))}>
                 {t('Sign out')}
               </Button>
             )}

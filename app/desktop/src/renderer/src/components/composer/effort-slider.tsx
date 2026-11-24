@@ -1,6 +1,6 @@
 // Effort come cursore a tacche, nel menu del modello: si clicca, si trascina o si usano le frecce ← →.
 import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
-import { Gauge, RotateCcw } from 'lucide-react'
+import { Gauge } from 'lucide-react'
 import type { Effort } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -127,10 +127,9 @@ interface EffortSliderMenuProps extends Omit<EffortSliderProps, 'value'> {
   defaultLevel?: Effort | null
   defaultSource?: DefaultSource | null
   agentName?: string
-  onReset?: () => void
 }
 
-export function EffortSlider({ levels, value, chosen, defaultLevel = null, defaultSource = null, agentName = '', onChange, onReset }: EffortSliderMenuProps) {
+export function EffortSlider({ levels, value, chosen, defaultLevel = null, defaultSource = null, agentName = '', onChange }: EffortSliderMenuProps) {
   const name = effortName(levels, value)
   const onKeyDown = (event: KeyboardEvent) => {
     const next = stepWithArrows(event, levels, value, !chosen && value !== null)
@@ -146,12 +145,6 @@ export function EffortSlider({ levels, value, chosen, defaultLevel = null, defau
         {value && value === defaultLevel && <DefaultBadge source={defaultSource} agentName={agentName} />}
         <EffortTrack levels={levels} value={value} pinned={!chosen && value !== null} onChange={onChange} />
       </DropdownMenuItem>
-      {chosen && onReset && (
-        <DropdownMenuItem onClick={onReset} className="text-muted-foreground">
-          <RotateCcw aria-hidden className="size-3.5" />
-          {t('Reset to default')}
-        </DropdownMenuItem>
-      )}
     </>
   )
 }

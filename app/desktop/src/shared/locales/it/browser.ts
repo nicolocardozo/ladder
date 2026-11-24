@@ -120,10 +120,17 @@ const it: Record<string, string> = {
   'Last action: ': 'Ultima azione: ',
   'This browser is closed': 'Questo browser è chiuso',
   'The agent’s browser': 'Il browser dell’agente',
-  'The agent’s browser isn’t open any more. To let the agent use it again, choose “Resume the agent’s browser” in the command palette or the + menu.': 'Il browser dell’agente non è più aperto. Per farlo usare di nuovo all’agente, scegli “Riattiva il browser dell’agente” nella palette comandi o nel menu +.',
+  'The agent’s browser isn’t open any more. To let the agent use it again, choose “Resume the agent’s browser” in the command palette or the menu next to +.': 'Il browser dell’agente non è più aperto. Per farlo usare di nuovo all’agente, scegli “Riattiva il browser dell’agente” nella palette comandi o nel menu accanto a +.',
   'Resume the agent’s browser': 'Riattiva il browser dell’agente',
   'Resume the agent’s browser · {title}': 'Riattiva il browser dell’agente · {title}',
-  'The agent shows here what it opens. It uses a separate browser without your cookies, and only reaches localhost unless you allow another site.': 'Qui compare ciò che l’agente apre. Usa un browser separato, senza i tuoi cookie, e raggiunge solo localhost a meno che tu non ammetta un altro sito.'
+  'The agent shows here what it opens. It uses a separate browser without your cookies, and only reaches localhost unless you allow another site.': 'Qui compare ciò che l’agente apre. Usa un browser separato, senza i tuoi cookie, e raggiunge solo localhost a meno che tu non ammetta un altro sito.',
+  'Hide browser': 'Nascondi il browser',
+  'Close browser': 'Chiudi il browser',
+  'New page': 'Nuova pagina',
+  'Browser pages': 'Pagine del browser',
+  'Resize browser': 'Ridimensiona il browser',
+  'Agent browsers': 'Browser degli agenti',
+  'Show browser': 'Mostra il browser',
 }
 
 export default it
