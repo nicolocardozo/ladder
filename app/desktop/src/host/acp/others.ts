@@ -17,13 +17,16 @@ import { loadRegistry, pathSpec, type RegistryEntry } from './registry'
  * - gemini: nessun sottocomando; l'accesso con Google parte lanciando `gemini` (lo dice l'issue LAD-79). Uscita: nessun comando noto.
  * - github-copilot-cli: `copilot login` (docs.github.com, "Authenticate Copilot CLI"); l'uscita è solo `/logout` dentro la CLI.
  * - cursor: `cursor-agent login` / `cursor-agent logout` (cursor.com/docs/cli, authentication; `agent` è lo stesso programma).
+ * - grok-build: `grok login` (docs.x.ai/build/overview).
  * - opencode, kiro, qwen-code, cline, goose, junie, factory-droid, amp-acp: non verificati (le pagine non erano leggibili, nessuna
  *   di queste CLI è installata qui per `--help`): vuoto di proposito. OpenCode e Kiro hanno probabilmente `auth login` / `login`: da confermare.
  */
 const COMMANDS: Record<string, { login?: string[]; logout?: string[]; logoutHelp?: () => string }> = {
   gemini: { login: [], logoutHelp: () => t('Gemini CLI has no sign-out command. Open it and use /auth to choose another way to sign in.') },
   'github-copilot-cli': { login: ['login'], logoutHelp: () => t('Open Copilot CLI and type /logout at its prompt. This removes the token stored on this Mac.') },
-  cursor: { login: ['login'], logout: ['logout'] }
+  cursor: { login: ['login'], logout: ['logout'] },
+  // LAD-85: `grok login` (docs.x.ai/build/overview; `--device-auth` solo senza browser). Nessun comando di uscita documentato.
+  'grok-build': { login: ['login'] }
 }
 
 /** Adattatori ACP nativi di Claude e Codex (es. claude-acp, codex-acp): hanno la loro riga, non sono "altri agenti". */

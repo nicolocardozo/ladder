@@ -30,7 +30,9 @@ export const CURATED: { id: string; exe: string; site: string; hosts: string[]; 
   { id: 'kiro', exe: 'kiro-cli', site: 'https://kiro.dev/cli/', hosts: ['prod.download.cli.kiro.dev'], cmd: 'kirocli/bin/kiro-cli', team: '94KV3E626L' },
   { id: 'junie', exe: 'junie', site: 'https://junie.jetbrains.com', hosts: ['github.com/JetBrains/'], cmd: 'Applications/junie.app/Contents/MacOS/junie', team: '2ZEFAR8TH3' },
   // Nel registro è solo npx: nessun URL di archivio da leggere, quindi il dominio del vendor.
-  { id: 'factory-droid', exe: 'droid', site: 'https://factory.ai/product/cli', hosts: ['factory.ai', '*.factory.ai'] }
+  { id: 'factory-droid', exe: 'droid', site: 'https://factory.ai/product/cli', hosts: ['factory.ai', '*.factory.ai'] },
+  // LAD-85: solo npx nel registro (@xai-official/grok, `agent stdio`); con `grok` nel PATH parte come `grok agent stdio`.
+  { id: 'grok-build', exe: 'grok', site: 'https://x.ai/cli', hosts: ['x.ai', '*.x.ai'] }
 ]
 
 export const UNKNOWN_LOGIN: AgentLogin = { state: 'unknown', methods: [], checkedAt: null }
