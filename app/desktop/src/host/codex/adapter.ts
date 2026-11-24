@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs'
 import { relative } from 'node:path'
 import { t } from '@shared/i18n'
 import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, SlashCommand } from '@shared/protocol'
-import { AUTONOMY_HINT, BROWSER_MCP_NAME, clip, displayCommand, firstLine, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
+import { agentInstructions, BROWSER_MCP_NAME, clip, displayCommand, firstLine, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
 import { accountEmail, accountLabel, codexEnv, describeLimits, codexModels, describeUsage, parseModels, type CodexModel } from './environment'
 import { CodexRpc, type ServerReply, type ServerRequest } from './rpc'
 
@@ -185,7 +185,7 @@ export class CodexSession implements AgentSession {
       : await rpc.request<{ thread: { id: string }; model: string }>('thread/start', {
           ...common,
           // Solo su un thread nuovo: un thread ripreso tiene le istruzioni con cui è nato (e un cambio di permesso dopo non le cambia).
-          ...(this.options.autonomyHint && (this.permission === 'edit' || this.permission === 'full') ? { developerInstructions: AUTONOMY_HINT } : {})
+          developerInstructions: agentInstructions(this.options.autonomyHint && (this.permission === 'edit' || this.permission === 'full'))
         })
     this.threadId = result.thread.id
     this.events.init({ externalId: result.thread.id, model: this.model ?? result.model ?? null })

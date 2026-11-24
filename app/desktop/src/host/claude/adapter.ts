@@ -14,7 +14,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import { localeTag, t } from '@shared/i18n'
 import type { AgentStatus, Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, SlashCommand, ToolKind, UsageWindow } from '@shared/protocol'
-import { AUTONOMY_HINT, BROWSER_MCP_NAME } from '../agents/common'
+import { agentInstructions, BROWSER_MCP_NAME } from '../agents/common'
 import type { SubagentUpdate } from '../subagents'
 import { claudeAccountLabel, claudeEnv, claudeModels, claudeUsage, readClaudeDefaults } from './environment'
 
@@ -344,7 +344,7 @@ export class ClaudeSession {
         systemPrompt: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
-          ...(autonomyHint && (permission === 'edit' || permission === 'full') ? { append: AUTONOMY_HINT } : {})
+          append: agentInstructions(autonomyHint && (permission === 'edit' || permission === 'full'))
         },
         // Sempre attivo: senza, una sessione nata in Ask non potrebbe passare a Full access (setPermissionMode verrebbe rifiutato).
         allowDangerouslySkipPermissions: true,

@@ -59,6 +59,18 @@ export const BROWSER_MCP_NAME = 'ladder-browser'
 export const AUTONOMY_HINT =
   'When the user gives you a long or multi-step task, work through it autonomously until it is done. Do not stop to ask for confirmation or out of caution when the next step is clear. If you do stop, say why and what you need from the user to continue.'
 
+/**
+ * Sempre, con ogni permesso: i turni che l'agente apre da solo (fine di un sotto-agente in background, resoconti) arrivano con
+ * avvisi in inglese, e senza questa riga il modello risponderebbe in inglese anche a chi gli scrive in italiano.
+ */
+export const LANGUAGE_HINT =
+  'Always write to the user in the language they write to you in. This applies to every text the user sees: replies, questions and answer options you ask through tools, plans and summaries. Keep that language in every turn, including turns that start from background task notifications, tool results or subagent reports written in another language.'
+
+/** Istruzioni aggiunte al prompt dell'agente: la lingua sempre, l'autonomia solo se richiesta e con un permesso che la consente. */
+export function agentInstructions(autonomy: boolean | undefined): string {
+  return autonomy ? `${LANGUAGE_HINT}\n\n${AUTONOMY_HINT}` : LANGUAGE_HINT
+}
+
 let loginPath: Promise<string> | null = null
 
 /** PATH della shell di login: le app aperte dal Finder non vedono npx, uvx e le CLI installate. */
