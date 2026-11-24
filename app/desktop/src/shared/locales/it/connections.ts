@@ -93,6 +93,7 @@ const it: Record<string, string> = {
   'Optional. It stays on this Mac and shows at the bottom left of the sidebar.': 'Facoltativo. Resta solo su questo Mac e si legge in basso a sinistra nella sidebar.',
   'Your name': 'Il tuo nome',
   'Your subscriptions': 'I tuoi abbonamenti',
+  'Link a subscription': 'Collega un abbonamento',
   'not signed in': 'non collegato',
 
   // LAD-79: altri agenti con stato di accesso e login dalla loro CLI.

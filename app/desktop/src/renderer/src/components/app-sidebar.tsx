@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, RefreshCw, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, UserRound, X, type LucideIcon } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, RefreshCw, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { shortcutLabel } from '@shared/shortcuts'
 import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
@@ -8,7 +8,7 @@ import type { AgentId, AgentStatus, ConnectionStatus, Project, ProjectGroup, Ses
 import { plural, t } from '@shared/i18n'
 import { IconButton } from '@/components/icon-button'
 import { GroupMenuContent, ProjectGroupMenuContent, ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
-import { agentIcon, AgentMark, MaskIcon, otherAgentIcon, useAgentLine, firstGrapheme } from '@/components/agent-mark'
+import { agentIcon, AgentMark, MaskIcon, otherAgentIcon, useAgentLine } from '@/components/agent-mark'
 import { usageAlert, usageAlertText } from '@/components/composer/usage-button'
 import { isDefaultProfileId, isProfileAgent, normalizeProfileId, profilesOf, projectProfileId, useSessionProfileName } from '@/lib/profiles'
 import { AllSessionsButton } from '@/components/all-sessions'
@@ -907,27 +907,12 @@ function useFooterServices(): FooterService[] {
   }, [entries, github, others])
 }
 
-/** Iniziali per l'avatar: il primo grafema delle prime due parole del nome, in maiuscolo (al massimo 2 grafemi). */
-function initialsOf(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => {
-      const first = firstGrapheme(word)
-      const upper = first.toUpperCase()
-      // «ß» in maiuscolo diventa «SS»: se le lettere raddoppiano si tiene quella originale, per restare a 1 grafema per parola.
-      return firstGrapheme(upper) === upper ? upper : first
-    })
-    .join('')
-}
-
 /** Segno di un servizio nel footer. Scollegato o con il login scaduto: attenuato con un puntino; vicino ai limiti d'uso: triangolo come l'icona dell'uso nel composer. */
 function FooterServiceMark({ service }: { service: FooterService }) {
   return (
-    <span data-service={service.key} data-linked={service.linked} className="relative grid size-3 shrink-0 place-items-center">
-      <MaskIcon icon={service.icon} name={service.name} size={12} className={cn(service.linked ? 'text-foreground/75' : 'text-muted-foreground opacity-60')} />
-      {!service.linked && <span aria-hidden data-dot className="absolute -top-[3px] -right-[3px] size-[6px] rounded-full bg-attention ring-[1.5px] ring-sidebar" />}
+    <span data-service={service.key} data-linked={service.linked} className="relative grid size-3.5 shrink-0 place-items-center">
+      {/* Accesso scaduto o scollegato: il segno diventa rosso (il perché è nel tooltip e nell'etichetta del pulsante). */}
+      <MaskIcon icon={service.icon} name={service.name} size={14} className={cn(service.linked ? 'text-foreground/75' : 'text-destructive')} />
       {service.alert && (
         <TriangleAlert aria-hidden data-alert strokeWidth={2.5} className={cn('absolute -top-[4px] -right-[4px] size-[8px] rounded-[2px] bg-sidebar', service.alert.limited ? 'text-destructive' : 'text-attention')} />
       )}
@@ -944,34 +929,29 @@ const FOOTER_ICONS = 5
  */
 export function AccountButton() {
   const services = useFooterServices()
-  const userName = useApp((s) => s.prefs?.userName?.trim() || null)
   // Gli altri agenti collegati compaiono nel footer: l'elenco lo legge una volta lib/other-agents (all'avvio e a ogni riconnessione con l'host).
   const shown = services.slice(0, FOOTER_ICONS)
   const more = services.length - shown.length
-  const label = userName ?? t('Your subscriptions')
+  const label = t('Your subscriptions')
+  // Niente nome né avatar: l'app è di una persona sola. Restano gli abbonamenti, che dicono qualcosa (collegati, scaduti, al limite).
   return (
     <Tooltip>
       <TooltipTrigger
         render={<button type="button" />}
         aria-label={[label, ...services.map((s) => s.summary)].join('. ')}
         onClick={() => useSettings.getState().openSection('subscriptions')}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
-        <span aria-hidden data-avatar className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-xs font-semibold text-foreground">
-          {userName ? initialsOf(userName) : <UserRound className="size-4" />}
-        </span>
-        {/* Nome sopra, abbonamenti collegati sotto: il nome ha tutta la riga e non si tronca per far posto alle icone. */}
-        <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-          <span data-account-name className="block min-w-0 truncate text-sm leading-tight font-medium">{label}</span>
-          {shown.length > 0 && (
-            <span data-services className="flex min-w-0 items-center gap-1">
-              {shown.map((service) => (
-                <FooterServiceMark key={service.key} service={service} />
-              ))}
-              {more > 0 && <span className="text-[11px] leading-none tabular-nums text-muted-foreground">+{more}</span>}
-            </span>
-          )}
-        </span>
+        {shown.length > 0 ? (
+          <span data-services className="flex min-w-0 items-center gap-2">
+            {shown.map((service) => (
+              <FooterServiceMark key={service.key} service={service} />
+            ))}
+            {more > 0 && <span className="text-[11px] leading-none tabular-nums text-muted-foreground">+{more}</span>}
+          </span>
+        ) : (
+          <span className="truncate text-sm text-muted-foreground">{t('Link a subscription')}</span>
+        )}
       </TooltipTrigger>
       <TooltipContent side="top" align="start">
         {services.length === 0 ? (

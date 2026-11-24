@@ -217,7 +217,7 @@ const MODES: { id: Mode; label: string }[] = [
   { id: 'agents', label: '100 sotto-agenti' },
   { id: 'agents-tree', label: '3 agenti + 1 figlio' },
   { id: 'agents-12', label: '12 agenti' },
-  { id: 'agents-45', label: '45 agenti (solo lista)' },
+  { id: 'agents-45', label: '45 agenti' },
   { id: 'agents-idle', label: 'Agenti conclusi' },
   { id: 'agents-errors', label: 'Solo errori' },
   { id: 'notice-done', label: 'Avviso: agenti finiti' },

@@ -1,8 +1,9 @@
-// Grafico dei sotto-agenti: la sessione in cima, un nodo per agente, i figli sui livelli sotto, collegamenti curvi colorati per stato.
+// Grafico dei sotto-agenti: albero da sinistra a destra, la sessione a sinistra e i figli impilati in colonna a destra.
+// I collegamenti hanno un solo colore pieno (come le linee della mappa dei branch): lo stato sta sulle card.
 // Sta nel popover del badge (agent-map.tsx) e, ingrandito con zoom e trascinamento, in un dialogo quasi a tutto schermo.
 // Semantica ad albero (tree/treeitem con aria-level); la lista resta l'alternativa completa.
 import { Bot, Maximize, Minus, Plus, X } from 'lucide-react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { plural, t } from '@shared/i18n'
 import type { SubagentInfo } from '@shared/protocol'
 import { Spinner } from '@/components/chat/bits'
@@ -12,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useNow } from '@/components/chat/chat-context'
-import { GRAPH_MAX, layoutAgentGraph, neighbor, nodeWidth, NODE_HEIGHT, SESSION_NODE, type GraphEdge, type GraphLayout, type GraphNode } from '@/lib/agent-graph'
+import { GRAPH_MAX, layoutAgentGraph, neighbor, NODE_HEIGHT, SESSION_NODE, type GraphLayout, type GraphNode } from '@/lib/agent-graph'
 import { agentElapsed, buildForest, useSubagentList } from '@/lib/subagents'
 import type { AgentId } from '@shared/protocol'
 import { cn } from '@/lib/utils'
@@ -25,45 +26,14 @@ const STATUS_TEXT: Record<SubagentInfo['status'], () => string> = {
   stopped: () => t('Stopped')
 }
 
-/**
- * Colore e tratto del collegamento per stato: l'in corso e il completato sono pieni, l'errore tratteggiato corto, il fermato lungo.
- * Colori pieni, senza trasparenza: sui temi chiari con l'opacità il verde scendeva a 2,4:1 sul fondo, pieno resta sopra 4,8:1.
- */
-const EDGE: Record<SubagentInfo['status'], { className: string; dash?: string }> = {
-  running: { className: 'stroke-running' },
-  done: { className: 'stroke-success' },
-  error: { className: 'stroke-destructive', dash: '2 3' },
-  stopped: { className: 'stroke-muted-foreground', dash: '6 4' }
-}
+/** Colore dei collegamenti: pieno, lo stesso delle linee della mappa dei branch. Niente trasparenze, che si sommano dove i tratti si toccano. */
+const LINE = 'color-mix(in oklab, var(--muted-foreground) 45%, var(--background))'
 
 const NODE_RING: Record<SubagentInfo['status'], string> = {
   running: 'ring-running/45',
   done: 'ring-border',
   error: 'ring-destructive/45',
   stopped: 'ring-border'
-}
-
-/** Il font dei nodi, letto da una sonda invisibile con le stesse classi: la larghezza dei nodi si misura con quello vero. */
-function useNodeFont(): [ReactNode, string] {
-  const [el, setEl] = useState<HTMLSpanElement | null>(null)
-  const [font, setFont] = useState('')
-  useLayoutEffect(() => {
-    if (!el) return
-    let alive = true
-    const read = () => {
-      if (!alive) return
-      const style = getComputedStyle(el)
-      setFont(`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`)
-    }
-    read()
-    // Il font può arrivare dopo il primo disegno.
-    void document.fonts?.ready.then(read)
-    return () => {
-      alive = false
-    }
-  }, [el])
-  const probe = <span ref={setEl} aria-hidden className="pointer-events-none invisible absolute text-sm" />
-  return [probe, font]
 }
 
 interface CanvasProps {
@@ -110,14 +80,14 @@ const GraphCanvas = memo(function GraphCanvas({ layout, now, modelOf, onOpen, on
       ref={rootRef}
       role="tree"
       aria-label={t('Agent graph')}
-      aria-description={t('Up arrow goes to the parent, down arrow to the first child, left and right arrows to siblings, Home and End to the first and last sibling, Enter opens the details')}
+      aria-description={t('Left arrow goes to the parent, right arrow to the first child, up and down arrows to siblings, Home and End to the first and last sibling, Enter opens the details')}
       onKeyDown={onKeyDown}
       className="relative text-sm"
       style={{ width: layout.width, height: layout.height }}
     >
       <svg width={layout.width} height={layout.height} className="pointer-events-none absolute inset-0" aria-hidden>
         {layout.edges.map((edge) => (
-          <Edge key={edge.to} edge={edge} />
+          <path key={edge.from} d={edge.d} fill="none" strokeWidth={2} strokeLinejoin="round" style={{ stroke: LINE }} />
         ))}
       </svg>
       {layout.nodes.map((node) =>
@@ -145,11 +115,6 @@ const GraphCanvas = memo(function GraphCanvas({ layout, now, modelOf, onOpen, on
     </div>
   )
 })
-
-function Edge({ edge }: { edge: GraphEdge }) {
-  const style = EDGE[edge.status]
-  return <path d={edge.d} fill="none" strokeWidth={1.5} strokeLinecap="round" strokeDasharray={style.dash} className={style.className} />
-}
 
 const NODE_BOX = 'absolute flex flex-col justify-center rounded-lg bg-muted/60 px-3 text-left outline-none ring-1 transition-colors focus-visible:ring-2 focus-visible:ring-ring'
 
@@ -196,6 +161,8 @@ function AgentNodeView({
 }) {
   const duration = formatDuration(agentElapsed(agent, now))
   const label = [agent.title, agent.kind, STATUS_TEXT[agent.status](), duration].filter(Boolean).join(', ')
+  // Seconda riga: tipo e token, solo se il modello li ha; senza niente, lo stato.
+  const second = [agent.kind, agent.tokens != null && t('{tokens} tokens', { tokens: formatTokens(agent.tokens) })].filter(Boolean).join(' · ') || STATUS_TEXT[agent.status]()
   const facts = [agent.kind, model, agent.tokens != null && t('{tokens} tokens', { tokens: formatTokens(agent.tokens) }), agent.toolUses != null && plural(agent.toolUses, '1 tool', '{n} tools'), agent.background && t('background')]
     .filter(Boolean)
     .join(' · ')
@@ -222,7 +189,7 @@ function AgentNodeView({
           <span className={cn('min-w-0 flex-1 truncate', agent.status === 'running' ? 'text-foreground' : 'text-foreground/85')}>{agent.title}</span>
           <span className="shrink-0 text-xs text-faint tabular-nums">{duration}</span>
         </span>
-        <span className="truncate pl-6 text-xs text-muted-foreground">{agent.kind ?? STATUS_TEXT[agent.status]()}</span>
+        <span className="truncate pl-6 text-xs text-muted-foreground tabular-nums">{second}</span>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="flex-col items-start gap-0.5 break-words">
         <span className="font-medium">{agent.title}</span>
@@ -248,12 +215,21 @@ export function AgentGraph({
   onOpen: (id: string) => void
 }) {
   const modelOf = useAgentModel(agent, model)
-  const [probe, font] = useNodeFont()
   const forest = useMemo(() => buildForest(agents), [agents])
-  const layout = useMemo(() => layoutAgentGraph(forest, (a) => nodeWidth(a, font)), [forest, font])
+  const layout = useMemo(() => layoutAgentGraph(forest), [forest])
+  // Un albero alto si apre con la sessione a metà altezza, non in cima fra i primi figli: una volta, alla prima misura.
+  const scroller = useRef<HTMLDivElement>(null)
+  const centered = useRef(false)
+  useLayoutEffect(() => {
+    const el = scroller.current
+    const root = layout.byId.get(SESSION_NODE)
+    if (!el || !root || centered.current || !el.clientHeight) return
+    centered.current = true
+    el.scrollTop = root.y + NODE_HEIGHT / 2 - el.clientHeight / 2
+  }, [layout])
   return (
-    <div className="relative max-h-[min(60vh,440px)] min-h-0 overflow-auto overscroll-contain px-1.5 pb-1.5">
-      {probe}
+    // Il grafico chiede più spazio della lista: il popover si allarga fino a mostrare tutte le colonne e si alza fino a 560px.
+    <div ref={scroller} className="relative max-h-[min(70vh,560px)] min-h-0 overflow-auto overscroll-contain px-1.5 pb-1.5" style={{ width: `min(${layout.width + 12}px, calc(100vw - 2rem), 56rem)`, minWidth: '100%' }}>
       <div className="mx-auto w-fit shrink-0">
         {/* Con il focus da tastiera il nodo si porta in vista a mano: lo scorrimento nativo non basta con pochi nodi. */}
         <GraphCanvas layout={layout} now={now} modelOf={modelOf} onOpen={onOpen} onFocusNode={(_, el) => el.scrollIntoView({ block: 'nearest', inline: 'nearest' })} />
@@ -336,12 +312,11 @@ function GraphDialogBody({
   const running = useMemo(() => agents.filter((a) => a.status === 'running').length, [agents])
   const now = useNow(1000, running > 0)
   const modelOf = useAgentModel(agent, model)
-  const [probe, font] = useNodeFont()
   // Il riquadro sta in un portale e può montarsi dopo questo componente: un ref a callback, e gli effetti lo aspettano.
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const forest = useMemo(() => buildForest(agents), [agents])
-  const layout = useMemo(() => layoutAgentGraph(forest, (a) => nodeWidth(a, font)), [forest, font])
+  const layout = useMemo(() => layoutAgentGraph(forest), [forest])
 
   // La vista vive in un ref e si scrive sul transform direttamente: trascinare e zoomare non rifà il render del grafico.
   // Lo stato tiene solo la scala, per la percentuale e i pulsanti.
@@ -413,17 +388,20 @@ function GraphDialogBody({
     const k = clampZoom(Math.max(READABLE_ZOOM, Math.min(1, (size.w - 48) / layout.width, (size.h - 48) / layout.height)))
     const root = layout.byId.get(SESSION_NODE)
     const centered = (size.w - layout.width * k) / 2
-    // Troppo largo: si parte centrati sulla sessione, senza lasciare vuoto da una parte.
+    // Troppo largo (molti livelli): si parte dal lato della sessione, senza lasciare vuoto da una parte.
     const x = centered >= 24 ? centered : Math.min(24, Math.max(size.w - layout.width * k - 24, size.w / 2 - ((root?.x ?? 0) + (root?.w ?? 0) / 2) * k))
-    setView({ k, x, y: Math.max(24, (size.h - layout.height * k) / 2) })
+    // Troppo alto: si parte con la sessione a metà finestra, così si vede da dove nascono i rami; altrimenti il grafico è centrato.
+    const cy = (root?.y ?? 0) + NODE_HEIGHT / 2
+    const tall = layout.height * k > size.h - 48
+    setView({ k, x, y: tall ? Math.min(24, Math.max(size.h - layout.height * k - 24, size.h / 2 - cy * k)) : (size.h - layout.height * k) / 2 })
   }, [size.w, size.h, layout, setView])
   // Si inquadra tutto una volta, appena ci sono le misure; poi decide l'utente (o "Fit to view").
   const fitted = useRef(false)
   useEffect(() => {
-    if (fitted.current || !size.w || !agents.length || !font) return
+    if (fitted.current || !size.w || !agents.length) return
     fitted.current = true
     fit()
-  }, [fit, size.w, agents.length, font])
+  }, [fit, size.w, agents.length])
 
   const zoomAt = useCallback(
     (factor: number, px: number, py: number) => {
@@ -575,7 +553,6 @@ function GraphDialogBody({
         }}
         className={cn('relative min-h-0 flex-1 touch-none overflow-hidden border-t border-border/60 select-none', dragging ? 'cursor-grabbing' : 'cursor-grab')}
       >
-        {probe}
         {agents.length === 0 && (list !== undefined || total === 0) ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">{t('No agents yet')}</p>
         ) : list === undefined ? (

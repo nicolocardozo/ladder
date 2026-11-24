@@ -8,7 +8,6 @@ import { AgentCatalog } from '@/components/agents/agent-catalog'
 import { liveAgentCatalogActions } from '@/lib/agent-catalog'
 import { ConnectionList } from '@/components/connections/connection-list'
 import { OtherAgents } from '@/components/connections/other-agents'
-import { YouBlock } from '@/components/connections/you-block'
 import { refreshConnections } from '@/lib/connections'
 import { useApp } from '@/store/app-store'
 import type { ThemeInfo } from '@shared/themes.generated'
@@ -453,7 +452,6 @@ function SubscriptionsSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Sign in with the plans you already pay for. Ladder opens your browser and you come back connected, without installing anything or using the Terminal.')}
       </DialogDescription>
-      <YouBlock />
       <SettingsBlock id="services-title" title={t('Services')}>
         <div className="mt-3">
           <ConnectionList showTool manageProfiles />

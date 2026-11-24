@@ -58,7 +58,7 @@ const it: Record<string, string> = {
   'The graph is available up to {n} agents. Use the list.': 'Il grafico è disponibile fino a {n} agenti. Usa la lista.',
   Expand: 'Ingrandisci',
   'Agent graph': 'Grafico degli agenti',
-  'Up arrow goes to the parent, down arrow to the first child, left and right arrows to siblings, Home and End to the first and last sibling, Enter opens the details': 'Freccia su va al genitore, freccia giù al primo figlio, frecce sinistra e destra ai fratelli, Home e End al primo e all’ultimo fratello, Invio apre il dettaglio',
+  'Left arrow goes to the parent, right arrow to the first child, up and down arrows to siblings, Home and End to the first and last sibling, Enter opens the details': 'Freccia sinistra va al genitore, freccia destra al primo figlio, frecce su e giù ai fratelli, Home e End al primo e all’ultimo fratello, Invio apre il dettaglio',
   'No agents yet': 'Ancora nessun agente',
   'This session, {summary}': 'Questa sessione, {summary}',
   'Zoom in': 'Aumenta lo zoom',

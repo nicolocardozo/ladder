@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { RunningRing } from '@/components/status'
 import { Spinner } from '@/components/chat/bits'
-import { GRAPH_DEFAULT_MAX, GRAPH_MAX } from '@/lib/agent-graph'
+import { GRAPH_MAX } from '@/lib/agent-graph'
 import { agentElapsed, bucketOf, buildForest, orderedAgents, useSubagentDialog, useSubagentList, type AgentNode, type Bucket } from '@/lib/subagents'
 import { cn } from '@/lib/utils'
 
@@ -37,7 +37,7 @@ const ALL = '__all__'
 type MapView = 'graph' | 'list'
 const VIEW_KEY = 'ladder.agentMapView'
 
-/** La vista scelta dall'utente, ricordata fra le aperture; senza scelta decide il numero di agenti. */
+/** La vista scelta dall'utente, ricordata fra le aperture; senza scelta il predefinito è la lista. */
 function readView(): MapView | null {
   try {
     const value = localStorage.getItem(VIEW_KEY)
@@ -85,7 +85,7 @@ export function AgentBadge({
         <span aria-hidden className="@min-[400px]/bar:hidden">{count}</span>
         {failed > 0 && <span aria-hidden className="size-1.5 rounded-full bg-destructive" />}
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" sideOffset={8} className="w-[min(34rem,calc(100vw-2rem))] gap-0 p-0">
+      <PopoverContent side="top" align="end" sideOffset={8} className="w-auto min-w-[min(34rem,calc(100vw-2rem))] max-w-[min(56rem,calc(100vw-2rem))] gap-0 p-0">
         <AgentMap
           sessionId={sessionId}
           agent={agent}
@@ -205,12 +205,11 @@ function AgentMap({
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState(ALL)
   const [status, setStatus] = useState(ALL)
-  // La vista e la possibilità del grafico si decidono una volta, all'apertura del popover: non cambiano sotto il cursore
-  // se gli agenti aumentano. Se superano 40 a popover aperto resta il grafico fino alla prossima apertura.
+  // La possibilità del grafico si decide una volta, all'apertura del popover: non cambia sotto il cursore
+  // se gli agenti aumentano. La vista è la scelta ricordata, altrimenti la lista.
   const [chosen, setChosen] = useState<MapView | null>(readView)
-  const [opened] = useState(() => ({ graphAllowed: total <= GRAPH_MAX, view: (total <= GRAPH_DEFAULT_MAX ? 'graph' : 'list') as MapView }))
-  const graphAllowed = opened.graphAllowed
-  const view: MapView = !graphAllowed ? 'list' : (chosen ?? opened.view)
+  const [graphAllowed] = useState(() => total <= GRAPH_MAX)
+  const view: MapView = !graphAllowed ? 'list' : (chosen ?? 'list')
   const chooseView = (next: MapView) => {
     setChosen(next)
     try {
@@ -436,7 +435,10 @@ function ViewSwitch({ view, graphAllowed, onChange }: { view: MapView; graphAllo
   const reason = t('The graph is available up to {n} agents. Use the list.', { n: GRAPH_MAX })
   return (
     <div role="group" aria-label={t('Agents view')} className="flex shrink-0 items-center gap-0.5 rounded-md bg-muted p-0.5">
-      {graphAllowed ? (
+      <button type="button" aria-pressed={view === 'list'} onClick={() => onChange('list')} className={cn(base, view === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+        {t('List')}
+      </button>
+          {graphAllowed ? (
         <button type="button" aria-pressed={view === 'graph'} onClick={() => onChange('graph')} className={cn(base, view === 'graph' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
           {t('Graph')}
         </button>
@@ -451,10 +453,7 @@ function ViewSwitch({ view, graphAllowed, onChange }: { view: MapView; graphAllo
           <TooltipContent side="top">{reason}</TooltipContent>
         </Tooltip>
       )}
-      <button type="button" aria-pressed={view === 'list'} onClick={() => onChange('list')} className={cn(base, view === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
-        {t('List')}
-      </button>
-    </div>
+</div>
   )
 }
 

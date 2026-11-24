@@ -6,7 +6,6 @@ import { AccountButton } from '@/components/app-sidebar'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { ConnectionList } from '@/components/connections/connection-list'
 import { OtherAgents } from '@/components/connections/other-agents'
-import { YouBlock } from '@/components/connections/you-block'
 import { SettingsBlock } from '@/components/settings-parts'
 import { Onboarding } from '@/components/connections/onboarding'
 import { SignInNotice } from '@/components/connections/sign-in-notice'
@@ -163,7 +162,6 @@ export function ConnectionsPreview() {
               </p>
             </div>
             <div>
-              <YouBlock />
               <SettingsBlock id="services-title" title={t('Services')}>
                 <div className="mt-3">
                   <ConnectionList statuses={statuses} profiles={profiles} profileStatuses={profileStatuses} actions={actions} showTool manageProfiles focus={null} />
