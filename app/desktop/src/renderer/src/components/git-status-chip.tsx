@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { BranchSwitcherPanel } from '@/components/branch-switcher'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ArrowDown, ArrowUp, CloudOff, GitBranch, GitFork } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { changesLabel, describeGit, type GitStatusView } from '@/lib/git-status'
@@ -27,7 +29,7 @@ const zone =
 
 /**
  * Blocco git della barra: un gruppo con bordo e due zone cliccabili separate da un filetto.
- * Il branch (con ↑ ↓, worktree, nuvola barrata) apre Merge; i numeri `+N −M` aprono Changes e non compaiono senza modifiche.
+ * Il branch (con ↑ ↓, worktree, nuvola barrata) apre Merge, oppure, nel checkout principale (`switcherProjectId`), il menu per cambiare branch (Merge è nel menu); i numeri `+N −M` aprono Changes e non compaiono senza modifiche.
  * Il nome del branch si tronca, i numeri no. Senza `status` mostra solo il nome (prima della risposta dell'host, o senza host).
  */
 export function GitBlock({
@@ -37,6 +39,7 @@ export function GitBlock({
   mergeActive,
   changesActive,
   flash,
+  switcherProjectId,
   onOpenMerge,
   onOpenChanges
 }: {
@@ -46,9 +49,12 @@ export function GitBlock({
   mergeActive: boolean
   changesActive: boolean
   flash: boolean
+  /** Con un progetto, il branch è un menu per cambiare il branch del checkout principale; senza (sessione in worktree) apre Merge. */
+  switcherProjectId?: string | null
   onOpenMerge: () => void
   onOpenChanges: () => void
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
   const view = status ? describeGit(status) : null
   const name = view?.label ?? fallbackBranch
   if (!name) return null
@@ -57,31 +63,52 @@ export function GitBlock({
   // Solo modifiche senza righe (binari, file vuoti, rinomine, permessi): la zona resta e mostra i file.
   const hasLines = view !== null && view.added + view.removed > 0
   const changes = showNumbers ? changesLabel(view) : ''
+  const branchLabel = (
+    <>
+      <GitBranch aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
+      <span className={cn('truncate', view?.detached && 'italic')}>{name}</span>
+      {view && <GitMarks view={view} dot={view.dirty > 0 && !showNumbers} />}
+    </>
+  )
+  const branchTip = (hint: string | null) => (
+    <TooltipContent side="bottom" className="max-w-xs">
+      {view ? (
+        <div className="flex flex-col gap-0.5">
+          {view.lines.map((line) => (
+            <span key={line} className="break-words">{line}</span>
+          ))}
+          {hint && <span className="text-faint">{hint}</span>}
+        </div>
+      ) : (
+        <span className="break-all">{title ?? name}</span>
+      )}
+    </TooltipContent>
+  )
   return (
     <div role="group" aria-label={t('Git')} className={cn('mr-1 flex h-7 min-w-0 shrink items-stretch overflow-hidden rounded-md border border-border')}>
-      <Tooltip>
-        <TooltipTrigger
-          aria-label={aria}
-          aria-pressed={mergeActive}
-          onClick={onOpenMerge}
-          className={cn(zone, 'max-w-[240px] shrink', mergeActive && 'bg-accent text-foreground')}
-        >
-          <GitBranch aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
-          <span className={cn('truncate', view?.detached && 'italic')}>{name}</span>
-          {view && <GitMarks view={view} dot={view.dirty > 0 && !showNumbers} />}
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-xs">
-          {view ? (
-            <div className="flex flex-col gap-0.5">
-              {view.lines.map((line) => (
-                <span key={line} className="break-words">{line}</span>
-              ))}
-            </div>
-          ) : (
-            <span className="break-all">{title ?? name}</span>
-          )}
-        </TooltipContent>
-      </Tooltip>
+      {switcherProjectId ? (
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <Tooltip>
+            <TooltipTrigger
+              render={<PopoverTrigger aria-label={aria} />}
+              className={cn(zone, 'max-w-[240px] shrink', menuOpen && 'bg-accent text-foreground')}
+            >
+              {branchLabel}
+            </TooltipTrigger>
+            {!menuOpen && branchTip(t('Click to change branch'))}
+          </Tooltip>
+          <PopoverContent align="start" className="w-80 gap-0 p-0">
+            <BranchSwitcherPanel projectId={switcherProjectId} onDone={() => setMenuOpen(false)} onOpenMerge={onOpenMerge} />
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger aria-label={aria} aria-pressed={mergeActive} onClick={onOpenMerge} className={cn(zone, 'max-w-[240px] shrink', mergeActive && 'bg-accent text-foreground')}>
+            {branchLabel}
+          </TooltipTrigger>
+          {branchTip(null)}
+        </Tooltip>
+      )}
       {showNumbers && (
         <Tooltip>
           <TooltipTrigger

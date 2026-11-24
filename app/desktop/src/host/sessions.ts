@@ -20,6 +20,7 @@ import type {
   IssueList,
   GitArchiveResult,
   BranchMap,
+  BranchSwitchResult,
   MergeInfo,
   PrStatus,
   RequestItemData,
@@ -35,6 +36,7 @@ import type {
   ProjectSettings,
   GeneratedCommit,
   GeneratedPr,
+  ProjectBranches,
   ProjectUiState,
   QueuedMessage,
   Attachment,
@@ -69,10 +71,11 @@ import { codexText, codexTitle, smallCodexModel } from './codex/title'
 import { clipTitle, inTitleQueue, issueRef, teamPrefixes, titlePrompt, withIssue } from './titles'
 import { insideRoot, listTree, mediaInfo, readText, RootWatcher, writeText } from './files'
 import { BranchMapService, type BranchMapRow, type BranchMapSource } from './branch-map'
+import { createBranch, listLocalBranches, switchBranch } from './branches'
 import { FileRoots } from './file-roots'
-import { aheadBehind, changedFiles, commitChanges, createCheckpoint, ensureExcluded, fetchRef, git, gitRead, gitStatus, listBranches, listFiles, mergeConflicts, repoInfo, resolveCommit } from './git'
+import { aheadBehind, changedFiles, commitChanges, createCheckpoint, dirtyCount, ensureExcluded, fetchRef, git, gitRead, gitStatus, listBranches, listFiles, mergeConflicts, repoInfo, resolveCommit } from './git'
 import { GitStatusTracker } from './git-status'
-import { pushBranch, pushPreview } from './git-push'
+import { pushBranch, pushPreview, validBranchName } from './git-push'
 import { withRepoLock } from './repo-lock'
 import { mergePullRequest } from './pr-merge'
 import { mergeBlocks, nextAction } from './merge-flow'
@@ -90,7 +93,7 @@ import { ProjectGroups } from './project-groups'
 import { Shortcuts } from './keybindings'
 import { cleanBranchPrefix, DEFAULT_BRANCH_PREFIX } from '@shared/worktree-prefs'
 import { backupDatabase, dataInfo } from './data'
-import { createWorktree, freePort, portIsFree, Ports, removeWorktree, runCleanupScript, worktreeIncludeFiles, type CleanupResult, type WorktreeBranch } from './worktrees'
+import { createWorktree, freePort, portIsFree, Ports, removeWorktree, runCleanupScript, worktreeIncludeFiles, worktreesRoot, type CleanupResult, type WorktreeBranch } from './worktrees'
 import { BRANCH_SYSTEM, BRANCH_TIMEOUT_MS, COMMIT_LABEL, COMMIT_SYSTEM, COMMIT_TIMEOUT_MS, PR_LABEL, PR_SYSTEM, branchPrompt, branchSubjects, cleanBranch, commitPrompt, conversationExcerpt, diffExcerpt, prPrompt, projectRules, recentSubjects, splitText, textErrors, type TextModel } from './writing'
 
 
@@ -221,6 +224,8 @@ export class Host {
   private termStatus = new Map<string, TerminalStatus>()
   /** Sessioni che aspettano lo script di setup del worktree prima di partire. */
   private preparing = new Set<string>()
+  /** Progetti con un cambio di branch in corso nel checkout principale: le loro sessioni lì mettono i messaggi in coda finché non finisce. */
+  private switchingBranch = new Set<string>()
   private stopped = false
   private prefs: HostPrefs = { generatedTitles: true, generatedText: true, autonomyHint: true, stallHint: false, worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null }
   /** Sessioni con un titolo in generazione: un solo tentativo alla volta. */
@@ -1290,6 +1295,12 @@ export class Host {
         return null
       }
       // ── fine LAD-80 ──
+      case 'project.branches':
+        return this.projectBranches(command.projectId)
+      case 'project.branch.switch':
+        return this.changeBranch(command.projectId, (project, idle) => switchBranch(project.path, command.branch, { dirty: command.dirty, assertIdle: idle }))
+      case 'project.branch.create':
+        return this.changeBranch(command.projectId, (project, idle) => createBranch(project.path, command.name.trim(), { assertIdle: idle }))
       case 'git.watch': {
         if (command.on) this.subscribeGit(origin, command.sessionId, this.mustCwd(this.mustRow(command.sessionId)))
         else this.unsubscribeGit(command.sessionId, origin)
@@ -1386,6 +1397,63 @@ export class Host {
     this.touchBranchMapOf(root)
   }
 
+  /** Sessione non archiviata che lavora nel checkout principale del progetto (non in un worktree) con un turno, sotto-agenti o un'attesa in corso. */
+  private mainCheckoutBusy(project: Project): SessionRow | null {
+    for (const row of this.rows.values()) {
+      if (row.archived || row.project_id !== project.id || row.worktree || this.cwdOf(row) !== project.path) continue
+      const runtime = this.runtimes.get(row.id)
+      if (this.isBusyNow(row.id) || row.run_state === 'running' || row.run_state === 'starting' || row.run_state === 'waiting' || (runtime && this.agentBusy(row.id, runtime))) return row
+    }
+    return null
+  }
+
+  /** Branch locali del progetto per il menu del branch e per il punto di partenza di un worktree. */
+  private async projectBranches(projectId: string): Promise<ProjectBranches> {
+    const project = this.mustProject(projectId)
+    const busy = this.mainCheckoutBusy(project)
+    const folder = join(worktreesRoot(this.prefs.worktreesDir), project.name)
+    const home = homedir()
+    const worktreesFolder = folder === home || folder.startsWith(home + sep) ? `~${folder.slice(home.length)}` : folder
+    const empty: ProjectBranches = { projectId, current: null, branches: [], dirty: 0, busy: busy ? { sessionId: busy.id, title: busy.title } : null, worktreesFolder }
+    if (!project.path || !project.isGit || !existsSync(project.path)) return empty
+    const [{ current, branches }, dirty] = await Promise.all([listLocalBranches(project.path), dirtyCount(project.path).catch(() => 0)])
+    return { ...empty, current, branches, dirty }
+  }
+
+  /**
+   * Cambio o creazione di branch nel checkout principale. Il rifiuto per la sessione al lavoro si rilegge dentro il lock, subito
+   * prima di scrivere. Dopo, il progetto, le sessioni del checkout principale, lo stato git e la mappa si aggiornano come per un cambio fatto altrove.
+   */
+  private async changeBranch(projectId: string, run: (project: Project, assertIdle: () => void) => Promise<BranchSwitchResult>): Promise<BranchSwitchResult> {
+    const project = this.mustProject(projectId)
+    if (!project.path || !project.isGit || !existsSync(project.path)) throw new Error(t('The project is not a git repository.'))
+    if (this.switchingBranch.has(projectId)) throw new Error(t('The branch is already being changed in this project. Wait a moment.'))
+    // Da qui nessun turno nuovo parte nel checkout principale (i messaggi vanno in coda); quelli già in corso li vede `assertIdle`.
+    this.switchingBranch.add(projectId)
+    const assertIdle = () => {
+      const busy = this.mainCheckoutBusy(project)
+      if (busy) throw new Error(t('“{title}” has an agent at work in the main checkout. Wait for it to finish or stop it, then change branch.', { title: busy.title }))
+    }
+    try {
+      return await run(project, assertIdle)
+    } finally {
+      this.switchingBranch.delete(projectId)
+      // I messaggi arrivati durante il cambio ripartono ora, nel branch nuovo.
+      for (const row of this.rows.values()) if (row.project_id === projectId && !row.worktree && !row.archived) this.startFirstQueued(row.id)
+      // Riuscito o no, ciò che si vede si rilegge: git può aver cambiato HEAD anche prima di un errore tardivo.
+      const info = await repoInfo(project.path).catch(() => null)
+      if (info && this.projects.has(projectId)) {
+        const current = this.mustProject(projectId)
+        if (current.branch !== info.branch) {
+          this.projects.set(projectId, { ...current, branch: info.branch })
+          this.broadcast({ type: 'project.upsert', project: this.mustProject(projectId) })
+          for (const row of this.rows.values()) if (row.project_id === projectId && !row.worktree && !row.archived) this.emitSummary(row.id)
+        }
+      }
+      this.notifyFsChanged(project.path)
+    }
+  }
+
   /** LAD-80: la mappa nuova va solo alle connessioni iscritte a quel progetto. */
   private emitBranchMap(projectId: string, map: BranchMap): void {
     const event: HostEvent = { type: 'project.branchMap', projectId, map }
@@ -1398,7 +1466,8 @@ export class Host {
     if (this.branchMapSubs.size === 0) return
     const row = [...this.rows.values()].find((r) => this.cwdOf(r) === root)
     const projectId = row?.project_id ?? [...this.projects.values()].find((p) => p.path === root)?.id
-    if (projectId) this.branchMaps.touch(projectId)
+    // Solo un cambio nel checkout principale rende vecchio il conteggio dei suoi file non committati.
+    if (projectId) this.branchMaps.touch(projectId, [...this.projects.values()].some((p) => p.id === projectId && p.path === root))
   }
 
   /** Righe e ramo principale per la mappa dei branch (LAD-80): dati dell'host e cache delle PR, nessuna chiamata a gh (nemmeno per la base). */
@@ -1605,8 +1674,17 @@ export class Host {
     command = { ...command, permission: clampPermission(command.permission, settings.agents.permissionsMax) }
     const notices: string[] = []
     // Un branch esistente già estratto nel checkout principale non può avere un worktree: si lavora lì.
-    const wanted: WorktreeBranch | null = command.branch ?? null
+    let wanted: WorktreeBranch | null = command.branch ?? null
+    // Nome scelto nella nuova chat: usato così com'è. Un branch che esiste già non si riusa di nascosto (lo farebbe `wanted` come "esistente").
+    const chosenName = !wanted && command.worktree && typeof command.newBranch === 'string' ? command.newBranch.trim() : ''
+    if (chosenName) {
+      if (!validBranchName(chosenName)) throw new Error(t('“{name}” is not a valid branch name: use letters, digits and . _ / @ + -, and no spaces.', { name: chosenName }))
+      if (await resolveCommit(project.path, `refs/heads/${chosenName}`)) throw new Error(t('A branch named “{name}” already exists.', { name: chosenName }))
+      wanted = { name: chosenName, existing: false }
+    }
+    const startFrom = !command.branch && command.worktree && typeof command.baseBranch === 'string' ? command.baseBranch.trim() : ''
     const useWorktree = Boolean(command.worktree) && !(wanted?.existing && wanted.name === project.branch)
+    if (!useWorktree && this.switchingBranch.has(project.id)) throw new Error(t('The branch of the main checkout is being changed. Try again in a moment.'))
     if (command.worktree && !useWorktree) notices.push(t('Branch {branch} is already checked out in the main checkout: the session works there.', { branch: wanted!.name }))
     if (useWorktree) {
       if (!project.isGit) throw new Error(t('A worktree requires a git repository.'))
@@ -1615,7 +1693,7 @@ export class Host {
       const ref = wanted ? null : issueRef(command.text, this.teamsOf(project.id))
       // Senza issue citata e con i titoli generati accesi, il nome del branch lo propone il modello piccolo (timeout breve: si ricade sul titolo).
       const named = !wanted && !ref && mode === 'chat' ? await this.branchName(project.id, command.agent, profileId, command.text) : null
-      const created = await createWorktree(project, withIssue(named ?? title, ref, ' '), settings.worktree.copy, wanted, { dir: this.prefs.worktreesDir, branchPrefix: this.prefs.branchPrefix })
+      const created = await createWorktree(project, withIssue(named ?? title, ref, ' '), settings.worktree.copy, wanted, { dir: this.prefs.worktreesDir, branchPrefix: this.prefs.branchPrefix, startFrom: startFrom || undefined, strictName: Boolean(chosenName) })
       worktree = created.info
       // Lo slot di porte si sceglie ora, saltando i blocchi la cui base è occupata da qualcun altro.
       await this.ports.reserve(worktree.path)
@@ -2214,6 +2292,14 @@ export class Host {
 
   /** La sessione non può avviare un turno adesso: sta lavorando, aspetta una risposta o il setup. */
   private isBusy(sessionId: string): boolean {
+    const row = this.mustRow(sessionId)
+    // Durante un cambio di branch del checkout principale nessun turno parte lì: il messaggio va in coda e riparte a cambio finito.
+    if (!row.worktree && this.switchingBranch.has(row.project_id)) return true
+    return this.isBusyNow(sessionId)
+  }
+
+  /** Come `isBusy`, senza il cambio di branch in corso (che è ciò che il controllo del cambio stesso deve ignorare). */
+  private isBusyNow(sessionId: string): boolean {
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
     // Il turno host resta aperto finché onTurnEnd non ha finito: un invio in quel tempo va in coda e lo prende lo svuotamento finale.

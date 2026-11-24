@@ -525,7 +525,24 @@ const it: Record<string, string> = {
   'The agent restarts when the current turn ends. Stop the turn to restart it sooner.': 'L’agente si riavvia quando finisce il turno in corso. Ferma il turno per riavviarlo prima.',
   'The agent restarts when its background work ends, so nothing running in the background gets lost.': 'L’agente si riavvia quando finisce il lavoro in background, così non si perde niente di quello che sta girando.',
   'This agent can’t continue the conversation after a restart.': 'Questo agente non può continuare la conversazione dopo un riavvio.',
-  'Agent restarted. The next message continues the conversation with settings and MCP servers loaded again.': 'Agente riavviato. Il prossimo messaggio continua la conversazione con impostazioni e server MCP ricaricati.'
+  'Agent restarted. The next message continues the conversation with settings and MCP servers loaded again.': 'Agente riavviato. Il prossimo messaggio continua la conversazione con impostazioni e server MCP ricaricati.',
+  // Branch del checkout principale
+  '“{branch}” is already checked out in another worktree{folder}. Open that session, or remove the worktree, to use the branch here.':
+    '“{branch}” è già estratto in un altro worktree{folder}. Apri quella sessione, o togli il worktree, per usare qui il branch.',
+  'Git cannot carry your uncommitted changes onto “{branch}”: the same files differ there. Commit them or set them aside (stash), then switch.':
+    'Git non può portare le tue modifiche non committate su “{branch}”: gli stessi file sono diversi lì. Committale o mettile da parte (stash), poi cambia branch.',
+  'Git is in the middle of another operation (rebase, merge or similar) in the project folder. Finish or abort it first.':
+    'Git è nel mezzo di un’altra operazione (rebase, merge o simili) nella cartella del progetto. Concludila o annullala prima.',
+  'The branch “{branch}” does not exist in this project.': 'Il branch “{branch}” non esiste in questo progetto.',
+  '“{name}” is not a valid branch name: use letters, digits and . _ / @ + -, and no spaces.': '“{name}” non è un nome di branch valido: usa lettere, cifre e . _ / @ + -, senza spazi.',
+  'A branch named “{name}” already exists.': 'Esiste già un branch chiamato “{name}”.',
+  'Could not set the changes aside: {output}': 'Non sono riuscito a mettere da parte le modifiche: {output}',
+  'Git set the changes aside but then reported an error: {output} Your changes are in the stash {sha} (“{message}”). Restore them with git stash apply {sha}.': 'Git ha messo da parte le modifiche ma poi ha segnalato un errore: {output} Le tue modifiche sono nello stash {sha} (“{message}”). Riprendile con git stash apply {sha}.',
+  'The branch is already being changed in this project. Wait a moment.': 'In questo progetto il branch si sta già cambiando. Aspetta un attimo.',
+  'The branch of the main checkout is being changed. Try again in a moment.': 'Il branch del checkout principale si sta cambiando. Riprova tra un attimo.',
+  'Could not set the changes aside: git saved nothing.': 'Non sono riuscito a mettere da parte le modifiche: git non ha salvato nulla.',
+  '{reason} Your changes are in the stash {sha} (“{message}”). Restore them with git stash apply {sha}.': '{reason} Le tue modifiche sono nello stash {sha} (“{message}”). Riprendile con git stash apply {sha}.',
+  '“{title}” has an agent at work in the main checkout. Wait for it to finish or stop it, then change branch.': '“{title}” ha un agente al lavoro nel checkout principale. Aspetta che finisca o fermalo, poi cambia branch.'
 }
 
 export default it

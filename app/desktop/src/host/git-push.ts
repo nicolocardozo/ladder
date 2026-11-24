@@ -1,5 +1,6 @@
 // Push di Ladder (LAD-69): solo su azione esplicita dell'utente, mai force, con anteprima di ciò che parte. Niente shell, niente
 // interpolazione: nomi di branch e remote validati, argomenti passati a git come lista, `--` prima di remote e refspec.
+import { validBranchName } from '@shared/branch-name'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
@@ -14,17 +15,7 @@ export const PUSH_TIMEOUT_MS = 3 * 60_000
 /** Commit mostrati nell'anteprima. */
 const MAX_PREVIEW_COMMITS = 50
 
-/**
- * Nome di branch accettato per il push: lettere e cifre Unicode, `. _ / @ + -`, non inizia con `-` o `.`, niente `..`, `@{`, `//`,
- * componenti che iniziano con `.` o finiscono con `.lock`. Più stretto di git (niente spazi, `;`, `~^:?*[\`, controlli, emoji):
- * quello che non passa non si invia da Ladder.
- */
-export function validBranchName(name: string): boolean {
-  if (name.length === 0 || name.length > 255) return false
-  if (!/^[\p{L}\p{N}][\p{L}\p{N}._/@+-]*$/u.test(name)) return false
-  if (name.includes('..') || name.includes('@{') || name.includes('//') || name.endsWith('/') || name.endsWith('.')) return false
-  return !name.split('/').some((part) => part.startsWith('.') || part.endsWith('.lock'))
-}
+export { validBranchName }
 
 export { validRemoteName }
 

@@ -5,11 +5,12 @@
 // ricalcolano solo quando cambia una coppia (sha del branch, sha del ramo principale) e restano in cache.
 import type { AgentId, BranchMap, BranchMapEntry, BranchMapProblem, PrStatus, RunState } from '@shared/protocol'
 import { t } from '@shared/i18n'
-import { gitRead } from './git'
+import { currentBranch } from './branches'
+import { dirtyCount, gitRead } from './git'
 
 /** Righe di worktree al massimo nella mappa (attivi o uniti): le sessioni più recenti. */
 export const MAX_BRANCH_MAP_ENTRIES = 50
-/** Sessioni sul ramo principale al massimo (non costano letture git): servono solo a dire "sei su main". */
+/** Sessioni del checkout principale al massimo (non costano letture git): servono a dire "sei su main" quando il checkout è sul ramo principale. */
 const MAX_BASE_ENTRIES = 20
 /** Righe di worktree esaminate al massimo per riempire la mappa: una sessione archiviata si sa se è unita solo leggendo git. */
 const MAX_EXAMINED = 200
@@ -96,6 +97,8 @@ export class BranchMapService {
   /** Un solo calcolo alla volta per progetto: chi arriva durante lo condivide. */
   private readonly inflight = new Map<string, Promise<BranchMap>>()
   private readonly watched = new Map<string, Watched>()
+  /** File non committati del checkout principale quando il tracker non lo guarda: si rileggono solo se la cartella è cambiata o col poll, non a ogni calcolo. */
+  private readonly mainDirty = new Map<string, { value: number | null; stale: boolean }>()
   private stopped = false
 
   constructor(private readonly hooks: BranchMapHooks) {}
@@ -119,7 +122,7 @@ export class BranchMapService {
       current.count++
       return
     }
-    const poll = setInterval(() => this.touch(projectId), POLL_MS)
+    const poll = setInterval(() => this.touch(projectId, true), POLL_MS)
     poll.unref()
     this.watched.set(projectId, { count: 1, last: null, timer: null, poll, running: false, again: false })
     this.touch(projectId)
@@ -138,10 +141,16 @@ export class BranchMapService {
     clearInterval(entry.poll)
     if (entry.timer) clearTimeout(entry.timer)
     this.watched.delete(projectId)
+    this.mainDirty.delete(projectId)
   }
 
   /** Qualcosa che può cambiare la mappa è successo: se c'è un iscritto si rilegge (a raffiche, una volta sola) e si manda se è cambiata. */
-  touch(projectId: string): void {
+  touch(projectId: string, mainChanged = false): void {
+    // Il segno resta anche senza iscritti: il prossimo calcolo rilegge i file non committati.
+    if (mainChanged) {
+      const cached = this.mainDirty.get(projectId)
+      if (cached) cached.stale = true
+    }
     const entry = this.watched.get(projectId)
     if (!entry || this.stopped) return
     if (entry.running) {
@@ -214,7 +223,12 @@ export class BranchMapService {
     // Il limite si applica solo a ciò che la UI mostra: i worktree. Le sessioni sul checkout principale non lo consumano
     // (ne servono poche, per "sei su main"); quelle su un altro branch senza worktree non si disegnano e non si mandano.
     const worktrees = recent.filter((r) => r.isWorktree)
-    const onBase = recent.filter((r) => !r.isWorktree && r.branch === source.base).slice(0, MAX_BASE_ENTRIES)
+    // Il branch del checkout principale si legge da git, non dalle sessioni (il loro `branch` è quello visto all'ultimo snapshot, e senza
+    // sessioni non c'è nulla da leggere): se non è il ramo principale compare come una riga a sé, altrimenti valgono le sessioni "sei su main".
+    const head = await currentBranch(source.root)
+    const inMain = recent.filter((r) => !r.isWorktree)
+    const onBase = (head === null ? inMain.filter((r) => r.branch === source.base) : head === source.base ? inMain.map((r) => ({ ...r, branch: head })) : []).slice(0, MAX_BASE_ENTRIES)
+    const mainRow = head !== null && head !== source.base && validRefName(head) ? mainCheckoutRow(projectId, source, head, inMain) : null
     const baseRef = await readBaseRef(source.root, source.base)
 
     // Una sessione archiviata che non è unita è un lavoro abbandonato: non ha una curva. Se è unita lo si sa solo leggendo git
@@ -229,7 +243,24 @@ export class BranchMapService {
     const shown = kept.slice(0, MAX_BRANCH_MAP_ENTRIES)
     // Quelle che avrebbero posto ma non ci sono: l'avanzo e le righe non esaminate che certamente contano (stima per difetto).
     const hidden = kept.length - shown.length + worktrees.slice(next).filter((r) => !r.archived || r.prMerged || r.saved).length
-    const entries = [...shown, ...(await this.entriesFor(source, baseRef, onBase))].sort((a, b) => b.activityAt - a.activityAt)
+    const rest = await this.entriesFor(source, baseRef, mainRow ? [...onBase, mainRow] : onBase)
+    if (mainRow) {
+      const entry = rest[rest.length - 1]
+      entry.mainCheckout = true
+      // Il tracker conosce solo le cartelle che una finestra guarda: senza sessioni aperte nel checkout principale i file non committati si contano qui.
+      if (entry.dirty === null) {
+        const cached = this.mainDirty.get(projectId)
+        if (cached && !cached.stale) entry.dirty = cached.value
+        else {
+          const value = await dirtyCount(source.root).catch(() => null)
+          this.mainDirty.set(projectId, { value, stale: false })
+          entry.dirty = value
+        }
+      }
+      // Senza sessioni la riga non ha un'attività propria: vale l'ultimo commit del branch.
+      if (!inMain.some((r) => !r.archived)) entry.activityAt = entry.lastCommit?.at ?? entry.activityAt
+    }
+    const entries = [...shown, ...rest].sort((a, b) => b.activityAt - a.activityAt)
     return { projectId, base: source.base, baseAt: baseRef && baseRef.at > 0 ? baseRef.at : null, entries, hidden }
   }
 
@@ -275,6 +306,33 @@ export class BranchMapService {
       entry.mergedAt = row.saved.at ?? entry.lastCommit?.at ?? row.activityAt
     })
     return entries
+  }
+}
+
+/**
+ * Dati della riga del checkout principale su `head` (un branch che non è il ramo principale). La sessione è la più recente non archiviata del
+ * checkout principale (la riga si apre su quella); senza sessioni ha un id sintetico e non si apre. Lo stato è il più urgente tra quelle non archiviate.
+ */
+function mainCheckoutRow(projectId: string, source: BranchMapSource, head: string, inMain: BranchMapRow[]): BranchMapRow {
+  const live = inMain.filter((r) => !r.archived)
+  const latest = live[0] ?? null
+  const run: RunState = live.some((r) => r.run === 'waiting') ? 'waiting' : live.some((r) => r.run === 'running' || r.run === 'starting') ? 'running' : (latest?.run ?? 'idle')
+  return {
+    sessionId: latest?.sessionId ?? `main-checkout:${projectId}`,
+    title: latest?.title ?? head,
+    agent: latest?.agent ?? 'claude-code',
+    run,
+    archived: false,
+    activityAt: latest?.activityAt ?? 0,
+    // PR e unione registrata sono di un branch di una sessione: per il branch letto adesso non valgono.
+    prState: null,
+    isWorktree: false,
+    worktreeMissing: false,
+    cwd: source.root,
+    branch: head,
+    start: null,
+    prMerged: null,
+    saved: null
   }
 }
 

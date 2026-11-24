@@ -37,6 +37,10 @@ import { addProjectFromDialog, ShowSidebarButton } from '@/components/app-sideba
 import { ChatView } from '@/components/chat/chat-view'
 import { LadderEngraved } from '@/components/brand/logo'
 import { Composer } from '@/components/composer'
+import { BranchSwitcherPanel } from '@/components/branch-switcher'
+import { branchNameProblem, WorktreeStart } from '@/components/worktree-start'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { useProjectBranches } from '@/lib/use-project-branches'
 import { GitBlock, useFirstChangeFlash, useGitStatus } from '@/components/git-status-chip'
 import { Inspector } from '@/components/inspector/inspector'
 import { ColumnHeader, SplitColumns, SplitDropHint } from '@/components/split-view'
@@ -183,7 +187,10 @@ function SessionGit({ project, session, root }: { project: Project; session: Ses
       mergeActive={mergeOpen}
       changesActive={changesOpen}
       flash={flash}
-      onOpenMerge={() => toggleInspector(project.id, 'merge')}
+      // Il branch si cambia solo nel checkout principale: quello di un worktree resta informativo e apre Merge.
+      switcherProjectId={!session.worktree && project.isGit ? project.id : null}
+      // Dal menu del branch Merge si apre e basta; sul branch di un worktree il clic è un interruttore.
+      onOpenMerge={() => (!session.worktree && project.isGit ? useApp.getState().openInspector(project.id, 'merge') : toggleInspector(project.id, 'merge'))}
       // I numeri sono le modifiche non committate della cartella: Changes si apre sulla stessa vista, così i conti tornano.
       onOpenChanges={() => (changesOpen ? toggleInspector(project.id, 'changes') : useApp.getState().openInspector(project.id, 'changes', { scope: { kind: 'uncommitted' } }))}
     />
@@ -367,7 +374,16 @@ export function NewChat({ projectId }: { projectId: string | null }) {
   // Hai cambiato a mano il worktree dopo aver scelto il profilo: la nota di ripiego non lo riguarda più.
   const [worktreeEdited, setWorktreeEdited] = useState(false)
   const [launch, setLaunch] = useState<Launch>({ mode: 'chat' })
-  const [worktree, setWorktree] = useState(false)
+  // Ultima scelta fatta in questo progetto (dove lavora la sessione e, con un worktree, da quale branch parte): si riparte da lì.
+  const remembered = useApp((s) => (project ? s.ui[project.id]?.newChat : undefined))
+  const rememberedWorktree = Boolean(remembered?.worktree && project?.isGit)
+  const [worktree, setWorktree] = useState(rememberedWorktree)
+  // Branch di partenza scelto (null = quello attuale del checkout principale) e nome del branch nuovo (vuoto = generato dall'host).
+  const [baseChoice, setBaseChoice] = useState<string | null>(remembered?.baseBranch ?? null)
+  const [branchName, setBranchName] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const branchesState = useProjectBranches(project?.isGit ? project.id : null, true, project?.branch)
+  const branchList = branchesState.data
   // Con lo script di setup: null = come dice il progetto (setupWait), altrimenti la scelta di questa sessione (true = parte subito).
   const [startNow, setStartNow] = useState<boolean | null>(null)
   const [pending, setPending] = useState(false)
@@ -446,6 +462,11 @@ export function NewChat({ projectId }: { projectId: string | null }) {
     setDraftKept(false)
     setWorktreeEdited(false)
     presetPrompt.current = null
+    // Il nuovo progetto riparte dalla sua ultima scelta (un profilo di sessione, se c'è, la riscrive subito dopo).
+    const next = project ? useApp.getState().ui[project.id]?.newChat : undefined
+    setWorktree(Boolean(next?.worktree && project?.isGit))
+    setBaseChoice(next?.baseBranch ?? null)
+    setBranchName('')
   }, [project?.id])
   // Sceglie un profilo: le tue scelte nel composer decadono e il profilo dà i valori; la bozza iniziale, se c'è, non parte da sola.
   const choosePreset = (id: string | null) => {
@@ -497,7 +518,7 @@ export function NewChat({ projectId }: { projectId: string | null }) {
       setWorktree(presetWorktree.current)
     } else if (hadPreset.current) {
       // Senza profilo si torna al predefinito, ma solo se il valore è ancora quello messo dal profilo (non tuo, non di un'issue).
-      if (!worktreeEdited && !source && worktree === presetWorktree.current) setWorktree(false)
+      if (!worktreeEdited && !source && worktree === presetWorktree.current) setWorktree(rememberedWorktree)
       setWorktreeEdited(false)
     }
     hadPreset.current = Boolean(activePreset)
@@ -536,6 +557,21 @@ export function NewChat({ projectId }: { projectId: string | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey, project?.id])
 
+  // Branch da cui parte il worktree: la scelta se esiste ancora tra i branch locali, altrimenti quello attuale del checkout principale.
+  const currentBranch = branchList?.current ?? project?.branch ?? null
+  // La scelta ricordata parte comunque, anche se l'elenco non è ancora arrivato (o è fallito): l'host la valida. Con l'elenco, una che non esiste più si scarta.
+  const explicitBase = baseChoice && (!branchList || branchList.branches.some((b) => b.name === baseChoice)) ? baseChoice : null
+  const startBranch = explicitBase ?? currentBranch
+  // Salva la scelta nello stato del progetto (come `lastAgent`): `ui.set` lo conserva così com'è.
+  const remember = (patch: { worktree?: boolean; baseBranch?: string | null }) => {
+    if (!project) return
+    const current = useApp.getState().ui[project.id] ?? { tabs: [], activeTab: null, scroll: {} }
+    const state = { ...current, newChat: { worktree: false, ...current.newChat, ...patch } }
+    useApp.getState().setUi(project.id, state)
+    send({ type: 'ui.set', projectId: project.id, state })
+  }
+  const nameProblem = branchNameProblem(branchName, branchList?.branches ?? [])
+
   if (!project) {
     return (
       <main className="flex min-w-0 flex-1 flex-col bg-background">
@@ -558,6 +594,10 @@ export function NewChat({ projectId }: { projectId: string | null }) {
 
   const create = async (text: string, attachments: Attachment[]) => {
     setError(null)
+    if (worktree && !source && nameProblem) {
+      setError(nameProblem)
+      return
+    }
     setPending(true)
     try {
       const session = await request<SessionSummary>({
@@ -576,6 +616,8 @@ export function NewChat({ projectId }: { projectId: string | null }) {
         worktree,
         ...(worktree && settings?.worktree.setup && startNow !== null ? { setupWait: !startNow } : {}),
         branch: source && worktree ? branchFor(source, prefix) : null,
+        ...(worktree && !source && explicitBase ? { baseBranch: explicitBase } : {}),
+        ...(worktree && !source && branchName.trim() ? { newBranch: branchName.trim() } : {}),
         source: source ? { kind: source.source, ref: source.ref, title: source.title, url: source.url } : null,
         title: source ? (source.source === 'branch' ? source.ref : source.title) : undefined
       })
@@ -615,10 +657,16 @@ export function NewChat({ projectId }: { projectId: string | null }) {
           <LadderEngraved className="mx-auto mb-12 h-28 w-auto" />
           <div className="mb-2 flex flex-wrap items-center gap-0.5 pl-1">
             {project.branch && (
-              <span className={contextButton}>
-                <GitBranch className="size-3.5" />
-                {project.branch}
-              </span>
+              <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+                <PopoverTrigger className={cn(contextButton, 'max-w-[240px]')} aria-label={t('Branch {branch}', { branch: project.branch })}>
+                  <GitBranch aria-hidden className="size-3.5 shrink-0" />
+                  <span className="truncate">{project.branch}</span>
+                  <ChevronDown aria-hidden className="size-3 shrink-0 text-faint" />
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-80 gap-0 p-0">
+                  <BranchSwitcherPanel projectId={project.id} onDone={() => setMenuOpen(false)} />
+                </PopoverContent>
+              </Popover>
             )}
             <DropdownMenu>
               <DropdownMenuTrigger className={contextButton} disabled={!project.isGit}>
@@ -629,24 +677,31 @@ export function NewChat({ projectId }: { projectId: string | null }) {
               <DropdownMenuContent className="w-80">
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>{t('Where the session works')}</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => { setWorktree(false); setWorktreeEdited(true) }} className="items-start">
+                  <DropdownMenuItem onClick={() => { setWorktree(false); setWorktreeEdited(true); remember({ worktree: false }) }} className="items-start">
                     <Check className={cn('mt-0.5 size-3.5', worktree && 'opacity-0')} />
                     <span className="flex flex-col">
                       {t('Main checkout')}
-                      <span className="text-xs text-muted-foreground">{t('The dev server you already have open sees the changes')}</span>
+                      <span className="text-xs text-muted-foreground">{t('Works in your project folder on {branch}. The dev server you already have open sees the changes.', { branch: currentBranch ?? 'HEAD' })}</span>
                     </span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => { setWorktree(true); setWorktreeEdited(true) }} className="items-start">
+                  <DropdownMenuItem onClick={() => { setWorktree(true); setWorktreeEdited(true); remember({ worktree: true }) }} className="items-start">
                     <Check className={cn('mt-0.5 size-3.5', !worktree && 'opacity-0')} />
-                    <span className="flex flex-col">
+                    <span className="flex min-w-0 flex-col">
                       {t('New worktree')}
                       <span className="text-xs text-muted-foreground">
                         {source
-                          ? t(branchFor(source, prefix).existing ? 'Branch {branch} (existing)' : 'Branch {branch}', { branch: branchFor(source, prefix).name })
-                          : t('Branch {prefix}… from {base}', { prefix, base: project.branch ?? 'HEAD' })}
-                        {settings?.worktree.setup ? t(', then “{setup}”', { setup: settings.worktree.setup }) : ''}
-                        {settings?.worktree.copy.length ? t(', copies {files}', { files: settings.worktree.copy.join(', ') }) : ''}
+                          ? branchFor(source, prefix).existing
+                            ? t('Checks out {branch} in a separate folder. Local only until you push.', { branch: branchFor(source, prefix).name })
+                            : t('New branch {branch} in a separate folder. Local only until you push.', { branch: branchFor(source, prefix).name })
+                          : t('New branch {branch} from {base}, in a separate folder. Local only until you push.', { branch: branchName.trim() || `${prefix}…`, base: startBranch ?? 'HEAD' })}
+                        {settings?.worktree.setup ? ` ${t('Then runs “{setup}”.', { setup: settings.worktree.setup })}` : ''}
+                        {settings?.worktree.copy.length ? ` ${t('Copies {files}.', { files: settings.worktree.copy.join(', ') })}` : ''}
                       </span>
+                      {branchList?.worktreesFolder && (
+                        <span title={t('Worktrees of this project live in {path}', { path: branchList.worktreesFolder })} className="truncate font-mono text-[0.6875rem] text-faint">
+                          {branchList.worktreesFolder}
+                        </span>
+                      )}
                     </span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -663,6 +718,20 @@ export function NewChat({ projectId }: { projectId: string | null }) {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+            {worktree && !source && project.isGit && branchList && (
+              <WorktreeStart
+                branches={branchList.branches}
+                base={startBranch}
+                onBase={(b) => {
+                  setBaseChoice(b.name === branchList.current ? null : b.name)
+                  remember({ baseBranch: b.name === branchList.current ? null : b.name })
+                }}
+                name={branchName}
+                onName={setBranchName}
+                prefix={prefix}
+                className={contextButton}
+              />
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger className={contextButton}>
                 {launch.mode === 'chat' ? <AgentMark agent={chatAgent} size={14} /> : <SquareTerminal className="size-3.5" />}

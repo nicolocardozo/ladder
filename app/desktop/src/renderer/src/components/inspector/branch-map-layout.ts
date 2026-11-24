@@ -15,7 +15,8 @@ export const MAX_CURVES = 6
 export function kindOf(entry: BranchMapEntry, session: SessionSummary | undefined): MapKind {
   if (entry.merged) return 'merged'
   if (entry.archived) return 'archived'
-  if (session) {
+  // La riga del checkout principale riassume tutte le sue sessioni (l'host sceglie lo stato più urgente): non vale quello della sola più recente.
+  if (session && !entry.mainCheckout) {
     const state = sessionState(session)
     if (state === 'waiting') return 'waiting'
     if (state === 'error') return 'error'
@@ -63,24 +64,34 @@ export function problemText(entry: BranchMapEntry): string | null {
 /** Una riga si disegna come curva solo se ha un punto di stacco da main. */
 export const isDrawable = (e: BranchMapEntry): boolean => e.problem === null && e.mergeBaseAt !== null && e.branch !== null
 
+/** Sessione senza una sessione vera dietro: la riga del checkout principale quando nessuna sessione ci lavora (non si apre). */
+export const hasNoSession = (e: BranchMapEntry): boolean => e.sessionId.startsWith('main-checkout:')
+
 /**
- * Righe della mappa intera: solo worktree (le sessioni sul checkout principale non sono curve), niente archiviati non uniti,
- * niente uniti da più di 7 giorni. Le più recenti prima.
+ * Righe della mappa intera: i worktree e, se è su un branch diverso dal ramo principale, il checkout principale (una riga sola). Le
+ * sessioni sul ramo principale non sono curve. Niente archiviati non uniti, niente uniti da più di 7 giorni (il checkout principale resta:
+ * è dove lavori adesso). Le più recenti prima.
  */
 export function visibleEntries(entries: BranchMapEntry[], now: number): BranchMapEntry[] {
   return entries
-    .filter((e) => e.isWorktree && !e.isBase)
+    .filter((e) => (e.isWorktree || e.mainCheckout) && !e.isBase)
     .filter((e) => !(e.archived && !e.merged))
-    .filter((e) => !(e.merged && now - (e.mergedAt ?? e.activityAt) > MERGED_VISIBLE_MS))
+    .filter((e) => e.mainCheckout || !(e.merged && now - (e.mergedAt ?? e.activityAt) > MERGED_VISIBLE_MS))
     .sort((a, b) => b.activityAt - a.activityAt)
 }
 
-/** Curve da disegnare: le prime `MAX_CURVES` con una curva possibile, e la sessione aperta anche se è più vecchia. */
+/** Curve da disegnare: le prime `MAX_CURVES` con una curva possibile, e la sessione aperta e il checkout principale anche se più vecchi. */
 export function pickCurves(rows: BranchMapEntry[], currentId: string | null): BranchMapEntry[] {
   const drawable = rows.filter(isDrawable)
   const picked = drawable.slice(0, MAX_CURVES)
-  const current = currentId ? drawable.find((e) => e.sessionId === currentId) : undefined
-  if (current && !picked.includes(current)) picked[MAX_CURVES - 1] = current
+  const keep = [currentId ? drawable.find((e) => e.sessionId === currentId) : undefined, drawable.find((e) => e.mainCheckout)].filter((e): e is BranchMapEntry => !!e)
+  for (const wanted of keep) {
+    if (picked.includes(wanted)) continue
+    // Prende il posto dell'ultima curva che non è da tenere.
+    let at = picked.length - 1
+    while (at > 0 && keep.includes(picked[at])) at--
+    picked[Math.max(0, Math.min(at, MAX_CURVES - 1))] = wanted
+  }
   // Una corsia per branch, la più vecchia più vicina a main: i nuovi arrivano all'esterno e non spostano gli altri.
   return picked.sort((a, b) => (validTime(a.mergeBaseAt) ?? 0) - (validTime(b.mergeBaseAt) ?? 0) || a.sessionId.localeCompare(b.sessionId))
 }

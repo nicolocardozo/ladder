@@ -8,6 +8,7 @@ import { homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
 import { t } from '@shared/i18n'
 import type { Project, WorktreeFiles, WorktreeInfo } from '@shared/protocol'
+import { validBranchName } from '@shared/branch-name'
 import { DEFAULT_BRANCH_PREFIX } from '@shared/worktree-prefs'
 import type { Db } from './db'
 import { cleanEnv, shellPath } from './agents/common'
@@ -47,6 +48,10 @@ export interface WorktreeBranch {
 export interface WorktreeOptions {
   dir?: string | null
   branchPrefix?: string
+  /** Branch locale da cui parte un worktree con un branch nuovo; assente = il commit attuale del checkout principale. Non esiste: errore. */
+  startFrom?: string
+  /** Il nome del branch nuovo l'ha scelto l'utente: se esiste già (creato nel frattempo) è un errore, non lo si estrae in silenzio. */
+  strictName?: boolean
 }
 
 const INCLUDE_FILE = '.worktreeinclude'
@@ -81,7 +86,11 @@ export async function createWorktree(
   wanted?: WorktreeBranch | null,
   options: WorktreeOptions = {}
 ): Promise<{ info: WorktreeInfo; copied: string[]; missing: string[] }> {
-  const head = await resolveCommit(project.path, 'HEAD')
+  const start = options.startFrom && !wanted?.existing ? options.startFrom : null
+  // Il punto di partenza scelto è un branch locale: un nome valido, mai un'opzione o una revisione (`main~3`, `HEAD^`).
+  if (start && !validBranchName(start)) throw new Error(t('The branch “{branch}” does not exist in this project.', { branch: start }))
+  const head = await resolveCommit(project.path, start ? `refs/heads/${start}` : 'HEAD')
+  if (start && !head) throw new Error(t('The branch “{branch}” does not exist in this project.', { branch: start }))
   if (!head) throw new Error(t('The project has no commits yet: a worktree starts from a commit.'))
   const prefix = options.branchPrefix ?? DEFAULT_BRANCH_PREFIX
   const slug = slugify((wanted?.name.startsWith(prefix) && prefix ? wanted.name.slice(prefix.length) : wanted?.name.replace(/^ladder\//, '')) ?? title)
@@ -89,6 +98,7 @@ export async function createWorktree(
   let branch = wanted?.name ?? `${prefix}${slug}`
   // Un branch "nuovo" che esiste già (una seconda sessione sulla stessa issue) si estrae invece di ricrearlo.
   const existing = wanted?.existing || (wanted ? Boolean(await resolveCommit(project.path, `refs/heads/${wanted.name}`)) : false)
+  if (options.strictName && wanted && !wanted.existing && existing) throw new Error(t('A branch named “{name}” already exists.', { name: wanted.name }))
   if (wanted && existing) {
     // Il branch aggiornato da origin; se la PR viene da un fork, il suo ref pull/N/head in un branch locale.
     await fetchRef(project.path, wanted.name).catch(() => undefined)

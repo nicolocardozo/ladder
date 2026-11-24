@@ -595,12 +595,12 @@ export const GIT_COMMIT_TIMEOUT_MS = 5 * 60_000
  * Esito di un git "grezzo": codice e testo di stdout+stderr insieme (gli hook scrivono su entrambi). Si ferma, con
  * tutto il gruppo di processi (hook compresi), se non finisce entro `timeoutMs`.
  */
-async function gitRaw(repo: string, args: string[], input?: string, timeoutMs = GIT_COMMIT_TIMEOUT_MS): Promise<{ code: number; output: string }> {
+async function gitRaw(repo: string, args: string[], input?: string, timeoutMs = GIT_COMMIT_TIMEOUT_MS, literalPathspecs = true): Promise<{ code: number; output: string }> {
   // Gli hook (husky, lint-staged) chiamano pnpm, npx, node: nell'app pacchettizzata servono il PATH della shell di login.
   const PATH = await shellPath().catch(() => process.env.PATH)
   return new Promise((resolve, reject) => {
     // Nessuna identità forzata (autore dalle config dell'utente) e nessuna richiesta interattiva.
-    const child = spawn('git', ['-C', repo, '--literal-pathspecs', '-c', 'core.quotePath=false', ...args], {
+    const child = spawn('git', ['-C', repo, ...(literalPathspecs ? ['--literal-pathspecs'] : []), '-c', 'core.quotePath=false', ...args], {
       env: { ...cleanEnv(), PATH, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' },
       detached: true
     })
@@ -629,6 +629,17 @@ async function gitRaw(repo: string, args: string[], input?: string, timeoutMs = 
     child.stdin.on('error', () => {})
     child.stdin.end(input ?? '')
   })
+}
+
+/**
+ * Scrittura git (switch, stash): hook compresi, PATH della shell di login, mai interattiva, con timeout. Restituisce l'output;
+ * se git esce con errore lancia con l'output (ripulito da colori e credenziali), che il chiamante può tradurre.
+ */
+export async function gitWrite(repo: string, args: string[], timeoutMs = GIT_COMMIT_TIMEOUT_MS): Promise<string> {
+  // Senza `--literal-pathspecs`: con `stash push -u` git lo passa al suo `git clean` interno e i file non tracciati restano al loro posto. Gli argomenti sono nostri, mai percorsi dell'utente.
+  const { code, output } = await gitRaw(repo, args, undefined, timeoutMs, false)
+  if (code !== 0) throw new Error(redactUrls(tailOutput(output)) || t('git {command} exited with {code}', { command: args[0], code: String(code) }))
+  return output
 }
 
 /** Ultime righe dell'output di git, senza colori, per un errore leggibile (gli hook possono scrivere molto). */

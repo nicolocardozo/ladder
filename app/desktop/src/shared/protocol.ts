@@ -703,6 +703,8 @@ export interface ProjectUiState {
    * (la colonna che riceve le scorciatoie). Assente: una sola colonna. Gli id di sessioni sparite si ignorano alla lettura.
    */
   split?: { sessions: string[]; active: string }
+  /** Ultima scelta della nuova chat in questo progetto: dove lavora la sessione e, con un worktree, da quale branch parte (assente = quello attuale). */
+  newChat?: { worktree: boolean; baseBranch?: string | null }
 
   // ── Browser integrato (LAD-57) ──
   /** Tab browser aperte nel progetto, nell'ordine in cui si vedono: `id` è l'identità della tab, `url` l'ultimo indirizzo (si riapre lì al riavvio). */
@@ -1176,6 +1178,10 @@ export type HostCommand =
       setupWait?: boolean
       /** Branch del worktree: nuovo (da HEAD) o esistente da estrarre (PR, branch scelto). */
       branch?: { name: string; existing: boolean; pr?: number } | null
+      /** Solo con `worktree` e senza `branch`: branch locale da cui parte il worktree (predefinito: quello attuale del checkout principale). Sconosciuto: errore. */
+      baseBranch?: string | null
+      /** Solo con `worktree` e senza `branch`: nome scelto per il nuovo branch, usato così com'è (nessun prefisso aggiunto). Vuoto o assente: nome generato. Non valido o già esistente: errore. */
+      newBranch?: string | null
       source?: SessionSource | null
       title?: string
     }
@@ -1520,6 +1526,21 @@ export type HostCommand =
    */
   | { type: 'project.branchMap.watch'; projectId: string; on: boolean }
   // ── fine LAD-80 ──
+  // ── Branch del checkout principale ──
+  /** Branch locali del progetto (con quello attuale, i file non committati e l'eventuale sessione al lavoro nel checkout principale). Risponde ProjectBranches; un progetto non git risponde un elenco vuoto. */
+  | { type: 'project.branches'; projectId: string }
+  /**
+   * Cambia il branch del checkout principale (`git switch --no-guess <branch>`, mai un checkout di file). Rifiuta, con un messaggio tradotto, se:
+   * una sessione del progetto che lavora nel checkout principale (non in worktree) ha un turno o dei sotto-agenti in corso; il branch non esiste
+   * in locale; è già estratto in un worktree; HEAD è a metà di un'operazione che git non lascia interrompere; git non riesce a portare le modifiche.
+   * `dirty` decide cosa fare delle modifiche non committate (anche non tracciate): 'carry' (predefinito) prova lo switch normale, che le porta con sé se git lo consente;
+   * 'stash' prima fa `git stash push -u -m "ladder: before switching to <branch>"`, mai uno stash silenzioso. Se lo switch fallisce dopo lo stash, lo stash viene ripreso.
+   * Risponde BranchSwitchResult e manda `fs.changed` e `project.upsert`, come per un cambio fatto altrove.
+   */
+  | { type: 'project.branch.switch'; projectId: string; branch: string; dirty?: 'carry' | 'stash' }
+  /** Crea un branch dal commit attuale e lo estrae (`git switch -c`): le modifiche non committate restano dove sono. Stesse protezioni di `project.branch.switch`; il nome si valida come per il push e non deve esistere già. */
+  | { type: 'project.branch.create'; projectId: string; name: string }
+  // ── fine Branch del checkout principale ──
   // ── LAD-69 ──
   /**
    * Anteprima del push, leggera (solo git locale, nessuna rete): cosa verrebbe inviato, da mostrare nella conferma. Risponde
@@ -2081,6 +2102,13 @@ export interface BranchMapEntry {
   removed: number | null
   /** File con modifiche non committate, solo se il tracker git ha già letto la cartella; altrimenti null. */
   dirty: number | null
+  /**
+   * Riga del checkout principale su un branch che NON è il ramo principale (per esempio `development` con `main` come base): una sola
+   * per progetto, letta dal git (compare anche senza sessioni). `sessionId` è la sessione più recente non archiviata del checkout
+   * principale, o `main-checkout:<projectId>` se non ce n'è (allora non si apre); `isWorktree` è false e `branch` il branch estratto.
+   * `dirty` sono i file non committati del checkout principale. Con HEAD staccato la riga non c'è.
+   */
+  mainCheckout?: true
 }
 
 export interface BranchMap {
@@ -2100,6 +2128,42 @@ export interface BranchMap {
   error?: string | null
 }
 // ── fine LAD-80 ──
+
+// ── Branch del checkout principale ──
+/** Un branch locale del progetto, per il menu del branch e per la scelta del punto di partenza di un worktree. */
+export interface LocalBranch {
+  name: string
+  /** Data (ms) e titolo dell'ultimo commit. */
+  at: number
+  subject: string
+  /** È il branch estratto nel checkout principale. */
+  current: boolean
+  /** Cartella del worktree che lo ha estratto (non il checkout principale): git vieta di estrarlo anche altrove. Null se libero. */
+  worktree: string | null
+}
+
+/** Risposta di `project.branches`. */
+export interface ProjectBranches {
+  projectId: string
+  /** Branch del checkout principale; null con HEAD staccato. */
+  current: string | null
+  /** Branch locali, l'ultimo commit più recente prima. */
+  branches: LocalBranch[]
+  /** File con modifiche non committate nel checkout principale (anche non tracciati). */
+  dirty: number
+  /** Sessione del checkout principale (non in worktree) con un turno o dei sotto-agenti al lavoro: finché c'è, il cambio di branch è rifiutato. */
+  busy: { sessionId: string; title: string } | null
+  /** Cartella in cui finiscono i worktree di questo progetto (con `~` al posto della cartella di casa), per mostrarla nella nuova chat. */
+  worktreesFolder: string
+}
+
+/** Risposta di `project.branch.switch` e `project.branch.create`. */
+export interface BranchSwitchResult {
+  branch: string
+  /** Messaggio dello stash creato prima del cambio (`git stash push -u`); null se non c'è stato. */
+  stash: string | null
+}
+// ── fine Branch del checkout principale ──
 
 // ── LAD-69 ──
 export type PrMergeMethod = 'merge' | 'squash' | 'rebase'

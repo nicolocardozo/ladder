@@ -4,7 +4,7 @@
 // Il disegno è in pixel e le etichette sono HTML: il testo non si rimpicciolisce mai, quando il pannello si stringe si accorcia con i puntini.
 // Le etichette sono anche l'elenco accessibile (un <li> con un bottone per branch); la lista completa ("+N") ha le stesse informazioni.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, GitBranch } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, GitBranch, HardDrive } from 'lucide-react'
 import type { BranchMap as BranchMapData, BranchMapEntry, SessionSummary } from '@shared/protocol'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { isElectron } from '@/lib/host-client'
@@ -13,7 +13,7 @@ import { relativeAge } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 import { plural, t } from '@shared/i18n'
-import { kindOf, kindWord, layoutMap, pickCurves, problemText, visibleEntries, type CurveGeometry, type MapKind } from './branch-map-layout'
+import { hasNoSession, kindOf, kindWord, layoutMap, pickCurves, problemText, visibleEntries, type CurveGeometry, type MapKind } from './branch-map-layout'
 
 /** Osserva la mappa del progetto solo finché `enabled`: iscrizione all'host con pulizia, nessuna richiesta a ogni render. */
 export function useBranchMap(projectId: string | null, enabled: boolean) {
@@ -97,13 +97,24 @@ const commits = (e: BranchMapEntry) => ({ ahead: e.ahead ?? 0, behind: e.behind 
 /** Frase per gli screen reader: branch, stato, distanza da main e titolo della sessione. */
 function entryLabel(e: BranchMapEntry, kind: MapKind, base: string): string {
   const { ahead, behind } = commits(e)
-  const parts = [e.branch ?? t('Detached HEAD'), kindWord(kind)]
+  const parts = [e.branch ?? t('Detached HEAD'), ...(e.mainCheckout ? [t('main checkout')] : []), kindWord(kind)]
   if (e.problem === null) {
     parts.push(plural(ahead, '{n} commit ahead of {base}', '{n} commits ahead of {base}', { base }))
     parts.push(plural(behind, '{n} commit behind {base}', '{n} commits behind {base}', { base }))
   }
-  parts.push(e.title)
+  if (!hasNoSession(e) && !(e.mainCheckout && e.title === e.branch)) parts.push(e.title)
   return parts.join(', ')
+}
+
+/** Nome del branch nell'etichetta; il checkout principale ha in più il segno della cartella e la scritta, per distinguerlo da un worktree. */
+function BranchName({ entry }: { entry: BranchMapEntry }) {
+  return (
+    <>
+      {entry.mainCheckout && <HardDrive aria-hidden className="size-3 shrink-0 text-muted-foreground" strokeWidth={1.75} />}
+      <span className="min-w-0 truncate font-mono">{entry.branch ?? t('Detached HEAD')}</span>
+      {entry.mainCheckout && <span className="shrink-0 whitespace-nowrap font-normal text-muted-foreground">· {t('main checkout')}</span>}
+    </>
+  )
 }
 
 function Distance({ entry, className }: { entry: BranchMapEntry; className?: string }) {
@@ -126,14 +137,19 @@ function Distance({ entry, className }: { entry: BranchMapEntry; className?: str
 /** Contenuto del tooltip, anche da tastiera: titolo, agente, righe cambiate, ultimo commit, file non committati. */
 function EntryTip({ entry, kind }: { entry: BranchMapEntry; kind: MapKind }) {
   const agent = useApp((s) => s.agents.find((a) => a.agent === entry.agent)?.name ?? entry.agent)
+  const openable = useApp((s) => Boolean(s.sessions[entry.sessionId] && !s.sessions[entry.sessionId].archived))
   const mod = isMac ? '⌘' : 'Ctrl'
+  // Il checkout principale senza sessioni non ha né titolo né agente: si dice dov'è e basta.
+  const bare = hasNoSession(entry)
   return (
     <div className="flex min-w-0 max-w-64 flex-col gap-0.5">
-      <p className="break-words font-medium">{entry.title}</p>
-      <p className="break-all font-mono opacity-80">{entry.branch ?? t('Detached HEAD')}</p>
+      <p className="break-words font-medium">{entry.mainCheckout ? t('{branch} · main checkout', { branch: entry.branch ?? t('Detached HEAD') }) : entry.title}</p>
+      {entry.mainCheckout ? <p className="opacity-80">{t('Your project folder, not a worktree')}</p> : <p className="break-all font-mono opacity-80">{entry.branch ?? t('Detached HEAD')}</p>}
       <p>
-        {agent} · {kindWord(kind)}
+        {bare ? '' : `${agent} · `}
+        {kindWord(kind)}
       </p>
+      {entry.mainCheckout && !bare && entry.title !== entry.branch && <p className="break-words opacity-80">{entry.title}</p>}
       {entry.added !== null && entry.removed !== null && (
         <p className="tabular-nums">
           {t('{lines} lines changed', { lines: `+${entry.added} −${entry.removed}` })}
@@ -146,7 +162,7 @@ function EntryTip({ entry, kind }: { entry: BranchMapEntry; kind: MapKind }) {
       )}
       {entry.dirty !== null && <p>{entry.dirty > 0 ? plural(entry.dirty, '{n} uncommitted file', '{n} uncommitted files') : t('No uncommitted changes')}</p>}
       {entry.worktreeMissing && <p>{t('The worktree folder is missing')}</p>}
-      <p className="opacity-70">{t('{mod}click to open side by side', { mod })}</p>
+      {openable && <p className="opacity-70">{t('{mod}click to open side by side', { mod })}</p>}
     </div>
   )
 }
@@ -185,21 +201,27 @@ export function BranchMap({ projectId, currentSessionId, variant = 'full' }: Bra
   }, [box])
 
   const base = map?.base ?? 'main'
+  // La sessione aperta nel checkout principale evidenzia la riga del checkout principale (che porta l'id della più recente, non sempre questa).
+  const currentInMain = useApp((s) => (currentSessionId && s.sessions[currentSessionId] ? !s.sessions[currentSessionId].worktree : false))
+  const currentKey = useMemo(() => {
+    if (!currentSessionId || !currentInMain) return currentSessionId
+    return map?.entries.find((e) => e.mainCheckout)?.sessionId ?? currentSessionId
+  }, [currentSessionId, currentInMain, map])
   const { rows, curves } = useMemo(() => {
     if (!map) return { rows: [] as BranchMapEntry[], curves: [] as BranchMapEntry[] }
     if (compact) {
-      const own = map.entries.filter((e) => e.sessionId === currentSessionId && e.isWorktree && !e.isBase)
-      return { rows: own, curves: pickCurves(own, currentSessionId) }
+      const own = map.entries.filter((e) => e.sessionId === currentKey && (e.isWorktree || e.mainCheckout) && !e.isBase)
+      return { rows: own, curves: pickCurves(own, currentKey) }
     }
     const visible = visibleEntries(map.entries, Date.now())
-    return { rows: visible, curves: pickCurves(visible, currentSessionId) }
-  }, [map, compact, currentSessionId])
+    return { rows: visible, curves: pickCurves(visible, currentKey) }
+  }, [map, compact, currentKey])
   const rest = rows.filter((e) => !curves.includes(e))
   const onBase = Boolean(map?.entries.some((e) => e.isBase && e.sessionId === currentSessionId))
   const geometry = useMemo(() => (width > 0 ? layoutMap(curves, width, base, map?.baseAt ?? null) : null), [curves, width, base, map?.baseAt])
   const kinds = useMemo(() => new Map(rows.map((e) => [e.sessionId, kindOf(e, sessions[e.sessionId] as SessionSummary | undefined)])), [rows, sessions])
   const kindFor = (e: BranchMapEntry): MapKind => kinds.get(e.sessionId) ?? 'idle'
-  const hasCurrent = curves.some((e) => e.sessionId === currentSessionId)
+  const hasCurrent = curves.some((e) => e.sessionId === currentKey)
 
   // Animazione solo quando cambia qualcosa: un branch nuovo si disegna, un'unione fa rientrare la curva. Il primo render e i
   // refresh identici non animano; con movimento ridotto niente.
@@ -223,7 +245,7 @@ export function BranchMap({ projectId, currentSessionId, variant = 'full' }: Bra
 
   const summary = useMemo(() => {
     const lines = curves.map((e) => entryLabel(e, kindFor(e), base))
-    return plural(curves.length, 'Branch map against {base}: {n} worktree. {list}', 'Branch map against {base}: {n} worktrees. {list}', { base, list: lines.join('. ') })
+    return plural(curves.length, 'Branch map against {base}: {n} branch. {list}', 'Branch map against {base}: {n} branches. {list}', { base, list: lines.join('. ') })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curves, base, kinds])
 
@@ -266,7 +288,7 @@ export function BranchMap({ projectId, currentSessionId, variant = 'full' }: Bra
               {geo.curves.map((c) => {
                 const entry = curves.find((e) => e.sessionId === c.id)!
                 const kind = kindFor(entry)
-                const current = c.id === currentSessionId
+                const current = c.id === currentKey
                 const dim = hasCurrent && !current
                 return (
                   <g key={c.id} className={cn(TONE[kind].text, 'transition-opacity motion-reduce:transition-none', dim && 'opacity-75')} onMouseEnter={() => setTip(c.id)} onMouseLeave={() => setTip((v) => (v === c.id ? null : v))}>
@@ -286,7 +308,7 @@ export function BranchMap({ projectId, currentSessionId, variant = 'full' }: Bra
               {geo.curves.map((c) => {
                 const entry = curves.find((e) => e.sessionId === c.id)!
                 const kind = kindFor(entry)
-                const current = c.id === currentSessionId
+                const current = c.id === currentKey
                 return (
                   <li key={c.id} className="absolute flex" style={{ left: c.labelLeft, top: c.labelTop, height: 20, maxWidth: geo.width - c.labelLeft - 8 }}>
                     <Tooltip open={tip === c.id} onOpenChange={(o) => setTip((v) => (o ? c.id : v === c.id ? null : v))}>
@@ -303,7 +325,7 @@ export function BranchMap({ projectId, currentSessionId, variant = 'full' }: Bra
                           canOpen(entry) ? 'cursor-pointer' : 'cursor-default'
                         )}
                       >
-                        <span className="min-w-0 truncate font-mono">{entry.branch}</span>
+                        <BranchName entry={entry} />
                         <span className={cn('shrink-0 whitespace-nowrap font-normal', TONE[kind].word)}>{kindWord(kind)}</span>
                         <Distance entry={entry} />
                       </TooltipTrigger>
@@ -334,7 +356,7 @@ export function BranchMap({ projectId, currentSessionId, variant = 'full' }: Bra
       {!compact && (expanded || (curves.length === 0 && rest.length > 0)) && (
         <ul className="m-0 flex list-none flex-col p-0 pb-1">
           {rows.map((entry) => (
-            <FullRow key={entry.sessionId} entry={entry} kind={kindFor(entry)} base={base} current={entry.sessionId === currentSessionId} canOpen={canOpen(entry)} onOpen={(e) => open(entry, e)} onKey={(e) => onKey(entry, e)} />
+            <FullRow key={entry.sessionId} entry={entry} kind={kindFor(entry)} base={base} current={entry.sessionId === currentKey} canOpen={canOpen(entry)} onOpen={(e) => open(entry, e)} onKey={(e) => onKey(entry, e)} />
           ))}
         </ul>
       )}
@@ -375,12 +397,14 @@ function FullRow({ entry, kind, base, current, canOpen, onOpen, onKey }: { entry
       >
         <span className="flex w-full min-w-0 items-center gap-1.5">
           <MarkerIcon kind={kind} />
+          {entry.mainCheckout && <HardDrive aria-hidden className="size-3 shrink-0 text-muted-foreground" strokeWidth={1.75} />}
           <span className={cn('min-w-0 truncate font-mono', current && 'font-semibold')}>{entry.branch ?? t('Detached HEAD')}</span>
+          {entry.mainCheckout && <span className="shrink-0 whitespace-nowrap text-muted-foreground">· {t('main checkout')}</span>}
           <span className={cn('shrink-0 whitespace-nowrap', TONE[kind].word)}>{kindWord(kind)}</span>
           <Distance entry={entry} />
         </span>
         <span className="w-full min-w-0 truncate pl-[18px] text-muted-foreground">
-          {entry.title}
+          {hasNoSession(entry) ? t('Your project folder, not a worktree') : entry.title}
           {problem ? ` · ${problem}` : entry.lastCommit ? ` · ${relativeAge(entry.lastCommit.at)}` : ''}
           {entry.worktreeMissing ? ` · ${t('worktree folder missing')}` : ''}
         </span>
