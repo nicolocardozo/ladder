@@ -1,4 +1,4 @@
-// "Pronto per il merge" (⌘⌥4): stato git in una riga, un pulsante principale che avanza (Commit, Push o Pubblica, Crea PR, Merge, Archivia),
+// Azioni di unione (scheda Branches, ⌘⌥4), sotto la riga della sessione aperta: stato git in una riga, un pulsante principale che avanza (Commit, Push o Pubblica, Crea PR, Merge, Archivia),
 // cose da fare con la loro azione, CI e commenti compatti. Ladder fa commit, push, merge e archivia SOLO su azione esplicita e confermata
 // dell'utente (Commit dal suo campo, gli altri dopo un dialogo di conferma), mai su richiesta dell'agente. "Risolvi i conflitti", "Correggi la CI"
 // e "Invia i commenti" restano prompt modificabili per l'agente. Il passo successivo lo calcola l'host (`MergeInfo.nextAction`): qui si mostra.
@@ -39,7 +39,6 @@ import { plural, t } from '@shared/i18n'
 import { PanelNote } from './changes-panel'
 import { CommitBox } from './commit-box'
 import { CreatePrDialog } from './create-pr-dialog'
-import { BranchMap } from './branch-map'
 import { ArchiveDialog, MergeDialog, PushDialog } from './merge-dialogs'
 
 /** "updated 5 min ago", ma "updated just now" e "updated yesterday" dove "ago" non regge. */
@@ -287,8 +286,8 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
   const showReady = na.kind === 'merge' && !na.blocked && blocks.length === 0
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-col gap-1.5 border-b border-border px-3 py-2 text-sm">
+    <div className="flex flex-col">
+      <div className="flex flex-col gap-1.5 border-b border-border px-3 py-2 text-sm">
         <div className="flex items-center gap-1.5">
           <GitBranch aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           <span className={cn('min-w-0 truncate font-mono text-xs', view.detached && 'italic')}>{info.branch ?? t('Detached HEAD')}</span>
@@ -341,10 +340,7 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
           {pr && <PrChip pr={pr} />}
         </div>
       </div>
-      {/* LAD-80: distanza da main, versione ridotta della mappa dei branch */}
-      {session && <BranchMap projectId={projectId} currentSessionId={session.id} variant="compact" />}
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div>
         <Block title={t('Next step')}>
           <div className="flex items-center gap-1.5">
             {primary && (

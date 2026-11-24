@@ -34,7 +34,7 @@ function inspectorActions(run: (perform: () => void) => void): Action[] {
     { id: 'changes', label: t('Show changes'), icon: FileDiff, keywords: 'changes diff turn session restore comments modifiche turno sessione ripristina commenti', command: 'inspector.changes', perform: open('changes') },
     { id: 'files', label: t('Show files'), icon: FolderTree, keywords: 'files explorer tree folder viewer file albero cartella', command: 'inspector.files', perform: open('files') },
     { id: 'history', label: t('History and checkpoints'), icon: History, keywords: 'history checkpoint commit restore cronologia ripristina', command: 'inspector.history', perform: open('history') },
-    { id: 'merge', label: t('Ready to merge'), icon: GitMerge, keywords: 'merge pr pull request ci review comments conflicts create pr commenti conflitti crea', command: 'inspector.merge', perform: open('merge') },
+    { id: 'merge', label: t('Branches'), icon: GitMerge, keywords: 'branches branch worktree map rami merge pr pull request ci review comments conflicts create pr commenti conflitti crea', command: 'inspector.merge', perform: open('merge') },
     {
       id: 'panel',
       label: t('Show or hide the right panel'),

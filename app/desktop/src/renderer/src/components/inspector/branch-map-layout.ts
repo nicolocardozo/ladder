@@ -1,4 +1,4 @@
-// Mappa dei branch (LAD-80): scelta delle righe, stato a parole e geometria. Funzioni pure, nessun React.
+// Scheda Branches: scelta delle righe, stato a parole e raggruppamento. Funzioni pure, nessun React.
 import type { BranchMapEntry, SessionSummary } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { sessionState } from '@/lib/session-state'
@@ -8,8 +8,10 @@ export type MapKind = 'working' | 'waiting' | 'error' | 'merged' | 'idle' | 'arc
 
 /** Gli uniti da più di 7 giorni spariscono dalla mappa. */
 export const MERGED_VISIBLE_MS = 7 * 24 * 60 * 60_000
-/** Curve disegnate: gli ultimi 6 attivi, gli altri stanno nella lista completa ("+N"). */
-export const MAX_CURVES = 6
+/** Da questo scarto in poi "indietro" rispetto a main si evidenzia. */
+export const FAR_BEHIND = 10
+/** Uniti mostrati prima di "Show N more". */
+export const MERGED_SHOWN = 1
 
 /** Stesse regole della sidebar (`sessionState`): in esecuzione, ti aspetta, errore, ferma. L'unito viene dal git, non dalla sessione. */
 export function kindOf(entry: BranchMapEntry, session: SessionSummary | undefined): MapKind {
@@ -38,7 +40,7 @@ export function kindWord(kind: MapKind): string {
     case 'error':
       return t('error')
     case 'merged':
-      return t('Merged')
+      return t('merged')
     case 'archived':
       return t('archived')
     default:
@@ -61,15 +63,12 @@ export function problemText(entry: BranchMapEntry): string | null {
   }
 }
 
-/** Una riga si disegna come curva solo se ha un punto di stacco da main. */
-export const isDrawable = (e: BranchMapEntry): boolean => e.problem === null && e.mergeBaseAt !== null && e.branch !== null
-
 /** Sessione senza una sessione vera dietro: la riga del checkout principale quando nessuna sessione ci lavora (non si apre). */
 export const hasNoSession = (e: BranchMapEntry): boolean => e.sessionId.startsWith('main-checkout:')
 
 /**
  * Righe della mappa intera: i worktree e, se è su un branch diverso dal ramo principale, il checkout principale (una riga sola). Le
- * sessioni sul ramo principale non sono curve. Niente archiviati non uniti, niente uniti da più di 7 giorni (il checkout principale resta:
+ * sessioni sul ramo principale non sono righe. Niente archiviati non uniti, niente uniti da più di 7 giorni (il checkout principale resta:
  * è dove lavori adesso). Le più recenti prima.
  */
 export function visibleEntries(entries: BranchMapEntry[], now: number): BranchMapEntry[] {
@@ -80,115 +79,40 @@ export function visibleEntries(entries: BranchMapEntry[], now: number): BranchMa
     .sort((a, b) => b.activityAt - a.activityAt)
 }
 
-/** Curve da disegnare: le prime `MAX_CURVES` con una curva possibile, e la sessione aperta e il checkout principale anche se più vecchi. */
-export function pickCurves(rows: BranchMapEntry[], currentId: string | null): BranchMapEntry[] {
-  const drawable = rows.filter(isDrawable)
-  const picked = drawable.slice(0, MAX_CURVES)
-  const keep = [currentId ? drawable.find((e) => e.sessionId === currentId) : undefined, drawable.find((e) => e.mainCheckout)].filter((e): e is BranchMapEntry => !!e)
-  for (const wanted of keep) {
-    if (picked.includes(wanted)) continue
-    // Prende il posto dell'ultima curva che non è da tenere.
-    let at = picked.length - 1
-    while (at > 0 && keep.includes(picked[at])) at--
-    picked[Math.max(0, Math.min(at, MAX_CURVES - 1))] = wanted
-  }
-  // Una corsia per branch, la più vecchia più vicina a main: i nuovi arrivano all'esterno e non spostano gli altri.
-  return picked.sort((a, b) => (validTime(a.mergeBaseAt) ?? 0) - (validTime(b.mergeBaseAt) ?? 0) || a.sessionId.localeCompare(b.sessionId))
+export type GroupId = 'working' | 'ready' | 'merged' | 'other'
+
+export interface Row {
+  entry: BranchMapEntry
+  kind: MapKind
+  group: GroupId
 }
 
-// ── Geometria ────────────────────────────────────────────────────────────────
-
-export const LANE = 40
-export const LABEL_H = 20
-const RIGHT_PAD = 16
-const MIN_SPAN = 56
-const MIN_MERGED_SPAN = 80
-
-export interface CurveGeometry {
-  id: string
-  up: boolean
-  /** Prima parte: dallo stacco da main alla fine (o al punto da cui rientra). */
-  d: string
-  /** Rientro in main, solo per gli uniti. */
-  back: string | null
-  xs: number
-  ys: number
-  /** Dove sta il segno di stato: sul pallino finale, o su main per gli uniti. */
-  markX: number
-  markY: number
-  labelLeft: number
-  labelTop: number
-  /** Chiave della forma: cambia solo se cambia la geometria. */
-  key: string
+export interface Group {
+  id: GroupId
+  rows: Row[]
 }
 
-export interface MapGeometry {
-  width: number
-  height: number
-  mainY: number
-  lineStart: number
-  labelWidth: number
-  curves: CurveGeometry[]
+/** Gruppo naturale di una riga: al lavoro (o in attesa, o in errore), pronta all'unione (ferma con commit avanti), unita, altro. */
+export function groupOf(entry: BranchMapEntry, kind: MapKind): GroupId {
+  if (kind === 'working' || kind === 'waiting' || kind === 'error') return 'working'
+  if (kind === 'merged') return 'merged'
+  if (entry.problem === null && (entry.ahead ?? 0) > 0) return 'ready'
+  return 'other'
 }
 
-const r1 = (n: number) => Math.round(n * 10) / 10
-
-/** Un tempo vale solo se è un numero finito e positivo: 0, NaN, negativi e Infinity (date non lette) contano come assenti. */
-export const validTime = (n: number | null | undefined): number | null => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : null)
-
-/** Fine della curva: il primo tempo valido tra quelli possibili, mai prima dello stacco; null se non ce n'è nessuno. */
-function endOf(e: BranchMapEntry): number | null {
-  const start = validTime(e.mergeBaseAt)
-  const end = e.merged ? (validTime(e.mergedAt) ?? validTime(e.lastCommit?.at) ?? validTime(e.activityAt)) : (validTime(e.lastCommit?.at) ?? validTime(e.activityAt))
-  if (end === null) return start
-  return start === null ? end : Math.max(start, end)
-}
-
-export function layoutMap(curves: BranchMapEntry[], width: number, baseLabel: string, baseAt: number | null): MapGeometry {
-  const labelWidth = Math.min(84, Math.max(32, Math.ceil(baseLabel.length * 7.4) + 6))
-  const lineStart = labelWidth + 4
-  const left = lineStart + 12
-  const right = Math.max(left + MIN_SPAN, width - RIGHT_PAD)
-  const upCount = Math.ceil(curves.length / 2)
-  const downCount = Math.floor(curves.length / 2)
-  const mainY = upCount > 0 ? upCount * LANE + LABEL_H + 5 : 16
-  const height = downCount > 0 ? mainY + downCount * LANE + LABEL_H + 8 : mainY + 16
-
-  const starts = curves.map((e) => validTime(e.mergeBaseAt))
-  const ends = curves.map(endOf)
-  const baseTime = validTime(baseAt)
-  const times = [...starts, ...ends, ...(baseTime !== null && curves.length > 0 ? [baseTime] : [])].filter((n): n is number => n !== null)
-  const tMin = times.length > 0 ? Math.min(...times) : 0
-  const tMax = times.length > 0 ? Math.max(...times) : 0
-  // Tutti uguali (o quasi, o senza tempi validi): niente asse, posizioni equidistanti.
-  const flat = !(tMax - tMin > 1000)
-  const span = right - left
-  const xOf = (time: number | null, i: number, kind: 'start' | 'end' | 'merge') => {
-    if (!flat && time !== null) return left + ((time - tMin) / (tMax - tMin)) * span
-    const step = Math.min(24, (span * 0.3) / Math.max(1, curves.length))
-    if (kind === 'start') return left + span * 0.04 + i * step
-    return left + span * (kind === 'merge' ? 0.9 : 0.7)
-  }
-
-  const out: CurveGeometry[] = curves.map((e, i) => {
-    const up = i % 2 === 0
-    const level = Math.floor(i / 2) + 1
-    const ys = up ? mainY - level * LANE : mainY + level * LANE
-    const merged = Boolean(e.merged)
-    const need = merged ? MIN_MERGED_SPAN : MIN_SPAN
-    const xs = Math.min(xOf(starts[i], i, 'start'), right - need)
-    const xe = Math.min(right, Math.max(xs + need, xOf(ends[i], i, merged ? 'merge' : 'end')))
-    const h = Math.min(26 + level * 8, (xe - xs) / 3)
-    const c = h / 2
-    const d = `M${r1(xs)} ${mainY} C${r1(xs + c)} ${mainY}, ${r1(xs + c)} ${ys}, ${r1(xs + h)} ${ys}`
-    const labelLeft = Math.max(lineStart, Math.min(xs + h * 0.5, width - 250))
-    const labelTop = up ? ys - 3 - LABEL_H : ys + 3
-    const common = { id: e.sessionId, up, xs: r1(xs), ys, labelLeft: r1(labelLeft), labelTop }
-    if (merged) {
-      const back = `M${r1(xe - h)} ${ys} C${r1(xe - c)} ${ys}, ${r1(xe - c)} ${mainY}, ${r1(xe)} ${mainY}`
-      return { ...common, d: `${d} H${r1(xe - h)}`, back, markX: r1(xe), markY: mainY, key: `${d}|${back}` }
-    }
-    return { ...common, d: `${d} H${r1(xe)}`, back: null, markX: r1(xe), markY: ys, key: `${d}|${r1(xe)}` }
+/** Righe in gruppi, nell'ordine Working, Ready to merge, Merged, altri; i gruppi vuoti non ci sono. */
+export function groupRows(entries: BranchMapEntry[], kindFor: (e: BranchMapEntry) => MapKind): Group[] {
+  const order: GroupId[] = ['working', 'ready', 'merged', 'other']
+  const rows: Row[] = entries.map((entry) => {
+    const kind = kindFor(entry)
+    return { entry, kind, group: groupOf(entry, kind) }
   })
-  return { width, height, mainY, lineStart, labelWidth, curves: out }
+  return order.map((id) => ({ id, rows: rows.filter((r) => r.group === id) })).filter((g) => g.rows.length > 0)
+}
+
+/** Sha corto della testa del ramo principale, se un branch si è staccato proprio da lì (l'host non lo manda da solo). */
+export function baseSha(entries: BranchMapEntry[], baseAt: number | null): string | null {
+  if (baseAt === null) return null
+  const hit = entries.find((e) => e.mergeBase && e.mergeBaseAt === baseAt)
+  return hit?.mergeBase ? hit.mergeBase.slice(0, 7) : null
 }

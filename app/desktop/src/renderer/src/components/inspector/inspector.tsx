@@ -1,4 +1,4 @@
-// Ispettore a destra: Modifiche (⌘⌥1), File (⌘⌥2), Cronologia (⌘⌥3), Merge (⌘⌥4) sulla cartella della sessione.
+// Ispettore a destra: Modifiche (⌘⌥1), File (⌘⌥2), Cronologia (⌘⌥3), Branches (⌘⌥4) sulla cartella della sessione.
 import { shortcutLabel, type CommandId } from '@shared/shortcuts'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -14,7 +14,7 @@ import { t } from '@shared/i18n'
 import { ChangesPanel } from './changes-panel'
 import { FilesPanel } from './files-panel'
 import { HistoryPanel } from './history-panel'
-import { MergePanel } from './merge-panel'
+import { BranchesPanel } from './branches-panel'
 
 const NO_ITEMS: ChatItem[] = []
 
@@ -22,7 +22,7 @@ const TABS: { id: InspectorTab; label: string; command: CommandId }[] = [
   { id: 'changes', label: 'Changes', command: 'inspector.changes' },
   { id: 'files', label: 'Files', command: 'inspector.files' },
   { id: 'history', label: 'History', command: 'inspector.history' },
-  { id: 'merge', label: 'Merge', command: 'inspector.merge' }
+  { id: 'merge', label: 'Branches', command: 'inspector.merge' }
 ]
 
 const readWidth = () => readSize(INSPECTOR_WIDTH.key, INSPECTOR_WIDTH.default, INSPECTOR_WIDTH.min, Infinity)
@@ -73,7 +73,7 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
   if (tab === 'changes') body = <ChangesPanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} items={items} request={openRequest} />
   else if (tab === 'files') body = <FilesPanel key={root} projectId={projectId} root={root} items={items} composerKey={composerKey} request={openRequest} />
   else if (tab === 'history') body = <HistoryPanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} />
-  else body = <MergePanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} />
+  else body = <BranchesPanel key={root} projectId={projectId} root={root} isGit={isGit} session={session} />
 
   return (
     <aside ref={panel} aria-label={t('Inspector')} className="relative flex shrink-0 flex-col border-l border-border bg-background" style={{ width, minWidth: INSPECTOR_WIDTH.min, maxWidth: `calc(100% - ${MIN_CONTENT_WIDTH}px)` }}>

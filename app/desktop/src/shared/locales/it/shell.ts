@@ -133,7 +133,6 @@ const it: Record<string, string> = {
   'Show changes': 'Mostra le modifiche',
   'Show files': 'Mostra i file',
   'History and checkpoints': 'Cronologia e checkpoint',
-  'Ready to merge': 'Pronto per il merge',
   'Show or hide the right panel': 'Mostra o nascondi il pannello di destra',
   'Search Ladder': 'Cerca in Ladder',
   'Sessions from all projects, projects and actions.': 'Sessioni di tutti i progetti, progetti e azioni.',

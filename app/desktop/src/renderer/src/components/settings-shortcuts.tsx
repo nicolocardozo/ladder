@@ -66,7 +66,7 @@ const LABELS: Record<CommandId, string> = {
   'inspector.changes': 'Show changes',
   'inspector.files': 'Show files',
   'inspector.history': 'History and checkpoints',
-  'inspector.merge': 'Ready to merge',
+  'inspector.merge': 'Branches',
   'inspector.toggle': 'Show or hide the right panel',
   'terminal.toggle': 'Show or hide terminal',
   'file.save': 'Save file',
