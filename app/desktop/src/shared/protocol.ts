@@ -567,7 +567,8 @@ export interface SlashCommand {
 }
 
 export type RequestResponse = { optionId: string; message?: string } | { answers: Record<string, string> }
-export type ResponseVia = 'chat' | 'inbox' | 'notification'
+/** 'phone': risposta arrivata da un client remoto (LAD-49); la chat del Mac può mostrarla come "from phone". */
+export type ResponseVia = 'chat' | 'inbox' | 'notification' | 'phone'
 export type RequestItemData = Extract<ChatItem, { kind: 'request' }>
 
 /** Una finestra dei limiti del piano: quanto ne hai usato e quando si azzera. */
@@ -1662,6 +1663,137 @@ export type FromHost =
   | { kind: 'event'; event: HostEvent }
   | { kind: 'result'; rid: string; ok: true; data?: unknown }
   | { kind: 'result'; rid: string; ok: false; error: string }
+
+// ── LAD-49: canale remoto (telefono) ─────────────────────────────────────────
+//
+// Un client remoto parla con l'host lo stesso protocollo della finestra (comandi con rid, risultati, eventi), ma:
+// - solo i comandi di RemoteCommand: gli altri li rifiuta il gateway remoto, prima di Host.handle;
+// - riceve solo gli eventi di RemoteEvent, e session.items / session.subagents solo per le sessioni che segue (`session.watch`);
+// - la chat arriva a pagine con `session.page`, mai per intero.
+// Trasporto: Noise_NK_25519_ChaChaPoly_SHA256 (shared/remote/noise.ts), un messaggio Noise per frame binario.
+// Il testo in chiaro di ogni messaggio Noise dopo l'handshake è un frame (vedi REMOTE_FRAME_*): un JSON lungo si spezza su più frame.
+
+/** Versione del canale remoto: va nei payload dell'handshake; una versione diversa chiude la connessione. */
+export const REMOTE_PROTOCOL_VERSION = 1
+
+/** Prologo Noise: lega l'handshake a Ladder e alla versione del canale. */
+export const REMOTE_NOISE_PROLOGUE = 'ladder-remote-v1'
+
+/** Payload del primo messaggio dell'handshake (client → Mac), JSON UTF-8. */
+export interface RemoteClientHello {
+  v: number
+  /** Nome leggibile del dispositivo, per il log e (LAD-51) l'elenco dei dispositivi. */
+  device: string
+  /** Lingua dell'app sul telefono; non cambia la lingua dell'host. */
+  locale?: Locale
+}
+
+/** Payload della risposta dell'handshake (Mac → client), JSON UTF-8. */
+export interface RemoteServerHello {
+  v: number
+  /** Nome del Mac (nome del computer, ripulito). */
+  mac: string
+  /** Versione di Ladder sul Mac. */
+  app: string
+}
+
+/** Comandi della finestra ammessi anche dal client remoto. È un'allowlist: un comando nuovo non arriva al telefono senza aggiungerlo qui. */
+export type RemoteAllowedType =
+  | 'hello'
+  | 'session.read'
+  | 'session.send'
+  | 'session.interrupt'
+  | 'session.respond'
+  | 'session.queue.set'
+  | 'session.queue.deliver'
+  | 'session.permission.set'
+  | 'subagent.list'
+
+/**
+ * Comandi del client remoto. Rispetto alla finestra:
+ * - `hello` risponde RemoteSnapshot (non lo snapshot completo), solo come risultato: l'evento `snapshot` non parte;
+ * - `session.send` ignora gli allegati e `session.respond` vale sempre `via: 'phone'` (li forza il gateway);
+ * - `session.permission.set` resta limitato dal massimo del progetto, come per la finestra;
+ * - `session.queue.set` conta solo id e testo (gli allegati accodati restano quelli salvati sul Mac);
+ * - `session.queue.deliver` consegna anche gli allegati che erano stati accodati sul Mac: il telefono non li vede, ma partono;
+ * - il gateway limita le richieste (circa 20 al secondo, a raffica 40): oltre, la richiesta torna con un errore.
+ */
+export type RemoteCommand =
+  | Extract<HostCommand, { type: RemoteAllowedType }>
+  /**
+   * Una pagina di chat, dalla fine all'indietro. Risponde RemotePage.
+   * `before`: seq esclusivo da cui partire (assente = dalla fine); `limit` predefinito 60, massimo 200 item.
+   */
+  | { type: 'session.page'; sessionId: string; before?: number; limit?: number }
+  /**
+   * Segue (on) o smette di seguire (off) una sessione: con on arrivano gli eventi session.items (anche replace: true,
+   * per esempio dopo /compact) e session.subagents di quella sessione. Al massimo 8 sessioni seguite per connessione:
+   * oltre, la meno recente smette di essere seguita. Le iscrizioni spariscono con la connessione.
+   * Un `session.items` con replace: true (anche quello che il Mac manda quando apri la chat) arriva al telefono ridotto
+   * all'ultima pagina, come `session.page` senza parametri, sempre con replace: true: la chat intera non viaggia mai.
+   */
+  | { type: 'session.watch'; sessionId: string; on: boolean }
+
+export interface RemotePage {
+  sessionId: string
+  /** In ordine di seq crescente. */
+  items: ChatItem[]
+  /** Ci sono item più vecchi del primo restituito. */
+  hasMore: boolean
+}
+
+/** Istantanea per il client remoto: solo ciò che serve alla Home (sidebar) e alle sessioni. */
+export interface RemoteSnapshot {
+  type: 'snapshot'
+  projects: Project[]
+  /** Sessioni non archiviate, come nello snapshot della finestra. */
+  sessions: SessionSummary[]
+  /** Di ProjectUiState solo gruppi di sessioni e `seenAt` ("While you were away"). */
+  ui: Record<string, Pick<ProjectUiState, 'groups' | 'groupOf' | 'seenAt'>>
+  projectGroups?: ProjectGroupsState
+  /** Agenti e modelli, per le righe di sessione e il permesso. */
+  agents: AgentStatus[]
+}
+
+/** Eventi inoltrati al client remoto; tutti gli altri restano sul Mac. */
+export type RemoteEvent =
+  | RemoteSnapshot
+  | Extract<
+      HostEvent,
+      {
+        type:
+          | 'session.upsert'
+          | 'session.items'
+          | 'session.subagents'
+          | 'sessions.autoArchived'
+          | 'project.upsert'
+          | 'project.removed'
+          | 'projectGroups.changed'
+          | 'agent.status'
+      }
+    >
+
+export type ToRemoteHost = { rid?: string; command: RemoteCommand }
+export type FromRemoteHost =
+  | { kind: 'event'; event: RemoteEvent }
+  | { kind: 'result'; rid: string; ok: true; data?: unknown }
+  | { kind: 'result'; rid: string; ok: false; error: string }
+
+/**
+ * Frame del canale remoto: testo in chiaro di un messaggio Noise dopo l'handshake. Il primo byte vale
+ * REMOTE_FRAME_MORE se il JSON continua nel frame successivo, REMOTE_FRAME_END se finisce qui; il resto è UTF-8.
+ * Un messaggio Noise porta al massimo 65535 byte (65519 di testo con il tag), quindi un JSON lungo si spezza.
+ * I frame MORE sono sempre pieni (65519 byte): uno più corto chiude la connessione.
+ * Il client chiude la connessione se un JSON ricomposto supera REMOTE_MAX_MESSAGE byte; l'host, che riceve solo comandi
+ * piccoli, già a REMOTE_MAX_COMMAND.
+ */
+export const REMOTE_FRAME_END = 0
+export const REMOTE_FRAME_MORE = 1
+export const REMOTE_MAX_MESSAGE = 16 * 1024 * 1024
+/** Massimo di un messaggio del client verso l'host (comandi, non snapshot). */
+export const REMOTE_MAX_COMMAND = 1024 * 1024
+
+// ── fine LAD-49 ──
 
 // ── Host ↔ processo main: notifiche, badge del Dock e preferenze ─────────────
 

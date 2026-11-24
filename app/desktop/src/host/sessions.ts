@@ -23,6 +23,7 @@ import type {
   BranchSwitchResult,
   MergeInfo,
   PrStatus,
+  RemotePage,
   RequestItemData,
   SessionSource,
   DraftKey,
@@ -51,6 +52,7 @@ import type {
 } from '@shared/protocol'
 import { tx, type Db, type ProjectRow, type SessionRow } from './db'
 import { plural, setLocale, t, translations } from '@shared/i18n'
+import { pageItems as pageItemsOf } from './remote/paging'
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
 import { acpAuthenticate, AcpSession } from './acp/adapter'
 import { BrowserAgent } from './browser-agent'
@@ -3068,8 +3070,11 @@ export class Host {
     if (!pending || !runtime || !item || item.kind !== 'request') {
       throw new Error(t('This request is no longer active.'))
     }
+    // Una risposta che non è tra le opzioni non risolve niente (non finisce come "Approved"); il testo si calcola prima di toccare lo stato.
+    if ('optionId' in response && !item.options.some((o) => o.id === response.optionId)) throw new Error(t('That option is not available for this request.'))
+    const text = resolution ?? describeResponse(item, response)
     runtime.pending.delete(requestId)
-    this.upsertItem(sessionId, { ...item, state: 'resolved', resolution: resolution ?? describeResponse(item, response), via })
+    this.upsertItem(sessionId, { ...item, state: 'resolved', resolution: text, via })
     if (runtime.pending.size === 0) this.updateRow(sessionId, { run_state: 'running' })
     this.emitSummary(sessionId)
     this.attention({ kind: 'resolved', sessionId, itemId: requestId })
@@ -3391,6 +3396,12 @@ export class Host {
     this.db
       .prepare('insert into items (session_id, id, seq, json) values (?, ?, ?, ?) on conflict(session_id, id) do update set json = excluded.json')
       .run(sessionId, item.id, item.seq, JSON.stringify(item))
+  }
+
+  /** Una pagina di chat per il client remoto (LAD-49): vedi remote/paging.ts. */
+  pageItems(sessionId: string, before?: number, limit?: number): RemotePage {
+    this.mustRow(sessionId)
+    return pageItemsOf(this.db, this.liveItems.get(sessionId), sessionId, before, limit)
   }
 
   private loadItems(sessionId: string): ChatItem[] {

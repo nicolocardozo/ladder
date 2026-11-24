@@ -265,9 +265,11 @@ function applyLoginItem(): void {
 
 /** Avvia l'host delle sessioni. Se cade, lo riavvia e ricollega le finestre. */
 function startHost(): void {
-  const env: NodeJS.ProcessEnv = { ...process.env, LADDER_DB_PATH: join(app.getPath('userData'), 'ladder.db'), LADDER_HOST_PREFS: JSON.stringify(hostPrefs()) }
+  const env: NodeJS.ProcessEnv = { ...process.env, LADDER_DB_PATH: join(app.getPath('userData'), 'ladder.db'), LADDER_APP_VERSION: app.getVersion(), LADDER_HOST_PREFS: JSON.stringify(hostPrefs()) }
   // Un registro ACP diverso è solo per sviluppo: nelle build pacchettizzate non arriva all'host.
   if (app.isPackaged) delete env.LADDER_ACP_REGISTRY
+  // Il canale remoto è solo per sviluppo, finché non arrivano abbinamento e relay (LAD-51, LAD-50).
+  if (app.isPackaged) delete env.LADDER_REMOTE_PORT
   host = utilityProcess.fork(join(__dirname, 'host.js'), [], { serviceName: 'Ladder Host', stdio: 'pipe', env })
   host.on('message', (message: HostToMain) => {
     if (message?.type === 'attention') attention.handle(message.event)

@@ -542,7 +542,12 @@ const it: Record<string, string> = {
   'The branch of the main checkout is being changed. Try again in a moment.': 'Il branch del checkout principale si sta cambiando. Riprova tra un attimo.',
   'Could not set the changes aside: git saved nothing.': 'Non sono riuscito a mettere da parte le modifiche: git non ha salvato nulla.',
   '{reason} Your changes are in the stash {sha} (“{message}”). Restore them with git stash apply {sha}.': '{reason} Le tue modifiche sono nello stash {sha} (“{message}”). Riprendile con git stash apply {sha}.',
-  '“{title}” has an agent at work in the main checkout. Wait for it to finish or stop it, then change branch.': '“{title}” ha un agente al lavoro nel checkout principale. Aspetta che finisca o fermalo, poi cambia branch.'
+  '“{title}” has an agent at work in the main checkout. Wait for it to finish or stop it, then change branch.': '“{title}” ha un agente al lavoro nel checkout principale. Aspetta che finisca o fermalo, poi cambia branch.',
+  // Canale remoto (telefono).
+  'That option is not available for this request.': 'Questa opzione non è disponibile per la richiesta.',
+  'Too many requests. Slow down.': 'Troppe richieste. Rallenta.',
+  'Invalid request.': 'Richiesta non valida.',
+  'This request is not available from the phone.': 'Questa richiesta non è disponibile dal telefono.'
 }
 
 export default it

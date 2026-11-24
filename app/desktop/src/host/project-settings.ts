@@ -238,6 +238,8 @@ export function agentKey(name: string): string {
 
 /** Il livello più alto ammesso dal progetto. */
 export function clampPermission(level: PermissionLevel, max: PermissionLevel | null): PermissionLevel {
+  // Un livello sconosciuto non passa mai: vale il massimo del progetto, o il livello prudente se non ce n'è.
+  if (!LEVELS.includes(level)) return max ?? 'ask'
   if (!max) return level
   return LEVELS.indexOf(level) > LEVELS.indexOf(max) ? max : level
 }
