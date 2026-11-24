@@ -6,13 +6,13 @@ import { SITE } from "@/lib/site"
 export const metadata: Metadata = {
   title: "Privacy",
   description:
-    "Ladder runs entirely on your Mac: no account, no server, no telemetry. What the app and this website do with your data, in plain words.",
+    "Ladder runs on your Mac: no account, no telemetry, and an optional end-to-end encrypted relay for the phone app. What the apps and this website do with your data, in plain words.",
   alternates: { canonical: "/privacy" },
   openGraph: { url: "/privacy" },
 }
 
 // Da aggiornare a ogni cambio che tocca i dati (analytics, aggiornamenti automatici, nuovi servizi)
-const UPDATED = "2026-11-23"
+const UPDATED = "2026-11-24"
 
 export default function Page() {
   return (
@@ -20,10 +20,10 @@ export default function Page() {
       <PageHeader
         eyebrow="Privacy"
         title="Your code and your accounts stay on your Mac"
-        lead="Ladder has no account, no server and no telemetry. This page explains what the app and this website do with data, in plain words."
+        lead="Ladder has no account and no telemetry. The only server involved is an optional relay that lets your phone reach your Mac, and it can't read what passes through it. This page explains what the apps and this website do with data, in plain words."
       />
       <p className="mt-6 font-mono text-[12.5px] text-muted-ink">
-        Last updated <time dateTime={UPDATED}>November 23, 2026</time>
+        Last updated <time dateTime={UPDATED}>November 24, 2026</time>
       </p>
 
       <div className="mt-16 space-y-16">
@@ -57,7 +57,45 @@ export default function Page() {
               <li>the public ACP registry, to list the agents you can add;</li>
               <li>the agent vendor&apos;s download host, when you install an agent;</li>
               <li>GitHub and Linear, when you use those integrations;</li>
-              <li>web pages you open in Ladder&apos;s built-in browser.</li>
+              <li>web pages you open in Ladder&apos;s built-in browser;</li>
+              <li>the relay and Expo&apos;s push service, only if you turn on access from your phone (see below).</li>
+            </ul>
+          </Prose>
+        </Section>
+
+        <Section id="phone" title="The phone app and access from your phone">
+          <Prose className="mt-5">
+            <p>
+              The Ladder app for iPhone and Android is a remote control for Ladder on your Mac. Access from your phone is off
+              until you turn it on in Ladder&apos;s settings.
+            </p>
+            <ul>
+              <li>
+                <strong>No account.</strong> You pair the phone by scanning a code shown by your Mac. Each phone gets its own
+                key, kept in the phone&apos;s secure storage; your Mac keeps its keys in its data folder. You can revoke a
+                phone or regenerate the Mac&apos;s key at any time.
+              </li>
+              <li>
+                <strong>End-to-end encrypted.</strong> Sessions, messages, requests and answers travel encrypted between your
+                phone and your Mac. They pass through a relay hosted on Cloudflare, by us or by you if you run your own, which
+                forwards them without being able to read them.
+              </li>
+              <li>
+                <strong>What the relay sees.</strong> IP addresses, connection times, message sizes and a random identifier
+                derived from your Mac&apos;s key. It stores only when your Mac was last online and why it went away (asleep,
+                closed, key changed). It keeps no messages and no logs of their content.
+              </li>
+              <li>
+                <strong>Notifications.</strong> Your Mac sends them through Expo&apos;s push service to Apple or Google. They
+                contain only a generic sentence in your language, like &quot;A session is waiting for you&quot;, and random
+                identifiers. Project names, session titles and messages are never included. Your phone&apos;s push token is
+                stored only on your Mac and is deleted when you revoke the phone.
+              </li>
+              <li>
+                <strong>On the phone.</strong> The app collects no analytics or crash reports. To show your sessions when the
+                Mac is unreachable it keeps a short encrypted copy of recent conversations on the phone, excluded from
+                backups. Forgetting the Mac in the app deletes the copy and the phone&apos;s keys.
+              </li>
             </ul>
           </Prose>
         </Section>
