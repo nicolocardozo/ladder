@@ -36,6 +36,8 @@ export interface RemoteGatewayOptions {
   log?: (message: string) => void
   /** Silenzio massimo dopo l'handshake; solo le prove lo cambiano. */
   idleTimeoutMs?: number
+  /** LAD-54: chiamata quando cambia il numero di telefoni collegati (handshake riuscito o connessione chiusa). */
+  onClients?: (count: number) => void
 }
 
 export const MAX_WATCHED = 8
@@ -97,6 +99,13 @@ export class RemoteGateway {
     return this.connections.size
   }
 
+  /** Telefoni collegati: connessioni con handshake completato. */
+  get clients(): number {
+    let n = 0
+    for (const conn of this.connections) if (conn.session) n++
+    return n
+  }
+
   /** Prende in carico una connessione nuova: handshake, poi comandi. */
   accept(link: RemoteLink): void {
     if (this.connections.size >= MAX_CONNECTIONS) {
@@ -122,6 +131,7 @@ export class RemoteGateway {
           conn.device = client.device.slice(0, 80)
           link.send(reply)
           this.options.log?.(`connection opened (device: ${JSON.stringify(conn.device)})`)
+          this.options.onClients?.(this.clients)
           return
         }
         const message = conn.session.open<unknown>(bytes)
@@ -200,6 +210,7 @@ export class RemoteGateway {
     if (conn.idleTimer) clearTimeout(conn.idleTimer)
     this.connections.delete(conn)
     conn.watched.clear()
+    if (conn.session) this.options.onClients?.(this.clients)
     try {
       conn.link.close()
     } catch {

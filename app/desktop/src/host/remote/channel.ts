@@ -13,6 +13,8 @@ export interface RemoteChannelOptions {
   /** Cartella dati dell'app (identità e chiave del relay). */
   dataDir: string
   appVersion: string
+  /** LAD-54: telefoni collegati, a ogni cambiamento (il canale ne riporta anche lo zero quando si spegne). */
+  onClients?: (count: number) => void
 }
 
 /** Relay da usare: LADDER_RELAY_URL (solo sviluppo) vale più delle preferenze; spento se né l'uno né le altre lo chiedono. */
@@ -89,7 +91,7 @@ export class RemoteChannel {
       const identity = loadOrCreateIdentity(this.options.dataDir)
       // Nome del Mac senza caratteri di controllo e di lunghezza limitata.
       const macName = hostname().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 64) || 'Mac'
-      this.gateway_ = new RemoteGateway({ host: this.options.host, identity, macName, appVersion: this.options.appVersion, log: (message) => console.log(`[remote] ${message}`) })
+      this.gateway_ = new RemoteGateway({ host: this.options.host, identity, macName, appVersion: this.options.appVersion, onClients: this.options.onClients, log: (message) => console.log(`[remote] ${message}`) })
     }
     if (localPort !== null && !this.localStarted) {
       this.localStarted = true

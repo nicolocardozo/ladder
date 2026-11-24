@@ -1832,8 +1832,13 @@ export type HostToMain =
   | { type: 'shortcuts'; preset: ShortcutPreset; overrides: Keybinding[] }
   /** Apre keybindings.json (il main sa il percorso) nell'app di sistema. */
   | { type: 'open-keybindings' }
-  /** Sessioni che stanno lavorando (turno in corso, non in attesa di te), a ogni cambiamento del numero: il main tiene il Mac sveglio se AppPrefs.keepAwake. */
-  | { type: 'activity'; running: number }
+  /**
+   * Sessioni che stanno lavorando (turno in corso, non in attesa di te) e telefoni collegati al canale remoto, a ogni cambiamento di uno dei due:
+   * il main tiene il Mac sveglio se AppPrefs.keepAwake (e c'è lavoro o un telefono) e mostra lo stato nel menu della barra. `phones` assente = 0.
+   */
+  | { type: 'activity'; running: number; phones?: number }
+  /** LAD-54: risposta a `power` con state 'quit': il relay è stato avvisato (o non c'era), il main può chiudere l'host. */
+  | { type: 'power-ack'; state: 'quit' }
   /** Apre una cartella o un file nel Finder / app di sistema: il main lo fa solo dentro la cartella dati dell'app. */
   | { type: 'open-path'; path: string }
   // ── LAD-57 parte 2 ──
@@ -1878,6 +1883,8 @@ export interface HostPrefs {
 export type MainToHost =
   | { type: 'connect' }
   | { type: 'prefs'; prefs: HostPrefs }
+  /** LAD-54: stato del Mac per il canale remoto (i telefoni vedono "dorme" / "Ladder chiuso"). Con 'quit' l'host risponde `power-ack`. */
+  | { type: 'power'; state: 'asleep' | 'awake' | 'quit' }
   // ── LAD-57 parte 2 ──
   | { type: 'browser-agent-result'; rid: string; result: BrowserAgentResult }
   /** La vista dell'agente non c'è più (l'utente ha chiuso la tab o la finestra): l'host revoca gli strumenti della sessione. */
@@ -1959,6 +1966,8 @@ export interface AppPrefs {
   openAtLogin: boolean
   /** Tiene il Mac sveglio (powerSaveBlocker 'prevent-app-suspension': lo schermo può spegnersi) finché almeno una sessione sta lavorando. Predefinito false. */
   keepAwake: boolean
+  /** LAD-54/51: canale remoto per il telefono (vedi HostPrefs.remote). Assente = spento. Con il canale acceso Ladder resta nella barra dei menu a finestre chiuse. */
+  remote?: { enabled: boolean; relayUrl: string | null }
   /** Suono delle notifiche quando `sound` è attivo: 'default' o il nome di un suono di sistema di macOS. Predefinito 'default'. */
   soundName: RequestSound
 }

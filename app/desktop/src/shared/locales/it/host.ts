@@ -546,6 +546,13 @@ const it: Record<string, string> = {
   // Canale remoto (telefono).
   'That option is not available for this request.': 'Questa opzione non è disponibile per la richiesta.',
   'Too many requests. Slow down.': 'Troppe richieste. Rallenta.',
+  // Menu della barra dei menu (Ladder in background, LAD-54).
+  '1 session working': '1 sessione al lavoro',
+  '{n} sessions working': '{n} sessioni al lavoro',
+  'Phone connected': 'Telefono collegato',
+  'Ladder is running in the background': 'Ladder è in esecuzione in background',
+  'Open Ladder': 'Apri Ladder',
+  'Quit Ladder': 'Esci da Ladder',
   'Invalid request.': 'Richiesta non valida.',
   'This request is not available from the phone.': 'Questa richiesta non è disponibile dal telefono.'
 }

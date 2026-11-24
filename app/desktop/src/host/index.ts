@@ -41,14 +41,29 @@ async function main(): Promise<void> {
   const dbPath = process.env.LADDER_DB_PATH
   if (!dbPath) throw new Error('LADDER_DB_PATH mancante')
   // Notifiche e badge li mostra il main: qui partono solo gli eventi.
-  const toMain = (message: HostToMain) => process.parentPort.postMessage(message)
+  // LAD-54: il numero di sessioni al lavoro e quello dei telefoni viaggiano insieme nel messaggio `activity`.
+  let running = 0
+  let phones = 0
+  const toMain = (message: HostToMain) => {
+    if (message.type === 'activity') running = message.running
+    process.parentPort.postMessage(message.type === 'activity' ? { ...message, phones } : message)
+  }
   const host = new Host(openDb(dbPath), broadcast, toMain, sendTo)
   hostRef = host
   // Le preferenze arrivano prima dell'avvio (variabile d'ambiente) e poi a ogni cambio.
   const initialPrefs: HostPrefs | null = process.env.LADDER_HOST_PREFS ? JSON.parse(process.env.LADDER_HOST_PREFS) : null
   if (initialPrefs) host.setPrefs(initialPrefs)
   await host.init()
-  remote = new RemoteChannel({ host, dataDir: dirname(dbPath), appVersion: process.env.LADDER_APP_VERSION ?? '' })
+  remote = new RemoteChannel({
+    host,
+    dataDir: dirname(dbPath),
+    appVersion: process.env.LADDER_APP_VERSION ?? '',
+    onClients: (count) => {
+      if (count === phones) return
+      phones = count
+      toMain({ type: 'activity', running })
+    }
+  })
   await remote.configure(initialPrefs?.remote)
 
   process.parentPort.on('message', (event) => {
@@ -56,6 +71,14 @@ async function main(): Promise<void> {
     if (message?.type === 'prefs') {
       host.setPrefs(message.prefs)
       void remote?.configure(message.prefs.remote)
+      return
+    }
+    // LAD-54: il Mac dorme, si sveglia o l'app sta uscendo; con 'quit' si risponde appena il relay è stato avvisato (al massimo mezzo secondo).
+    if (message?.type === 'power') {
+      if (message.state === 'quit') {
+        const done = remote ? Promise.race([remote.setMacState('quit'), new Promise<void>((resolve) => setTimeout(resolve, 400))]) : Promise.resolve()
+        void done.catch(() => undefined).finally(() => process.parentPort.postMessage({ type: 'power-ack', state: 'quit' } satisfies HostToMain))
+      } else void remote?.setMacState(message.state).catch(() => undefined)
       return
     }
     // LAD-57 parte 2: risposte e avvisi del main sul browser dell'agente.

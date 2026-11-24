@@ -165,7 +165,7 @@ function SystemBlock() {
     <SettingsBlock id="system-title" title={t('System')}>
       <div className="mt-3 flex flex-col divide-y divide-border rounded-lg border border-border">
         <Toggle label={t('Open Ladder at login')} description={t('Starts with your Mac. Works in the installed app only.')} checked={prefs.openAtLogin} onChange={(openAtLogin) => update({ openAtLogin })} />
-        <Toggle label={t('Keep the Mac awake while an agent works')} description={t('The screen can still turn off. The Mac sleeps again when no session is working.')} checked={prefs.keepAwake} onChange={(keepAwake) => update({ keepAwake })} />
+        <Toggle label={t('Keep the Mac awake while agents work or a phone is connected')} description={t('The screen can still turn off. The Mac sleeps again when no session is working and no phone is connected.')} checked={prefs.keepAwake} onChange={(keepAwake) => update({ keepAwake })} />
       </div>
     </SettingsBlock>
   )

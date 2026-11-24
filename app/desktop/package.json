@@ -9,7 +9,7 @@
     "dev:web": "vite",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "test:remote": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"src/shared/remote/*.test.ts\" \"src/host/remote/*.test.ts\"",
+    "test:remote": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"src/shared/remote/*.test.ts\" \"src/host/remote/*.test.ts\" \"src/main/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "node scripts/postinstall.mjs",
     "dist": "electron-vite build && electron-builder --mac --dir",
