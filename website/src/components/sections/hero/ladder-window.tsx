@@ -7,20 +7,26 @@ import {
   AtSign,
   Check,
   CircleAlert,
+  Columns2,
   FileText,
-  Files,
   Folder,
   FolderOpen,
   FolderPlus,
+  FolderTree,
+  Globe,
   Inbox,
   PanelLeft,
+  PanelRight,
   Pencil,
   Plus,
   Search,
-  Shield,
+  Settings,
+  ShieldCheck,
   SlidersHorizontal,
   SquarePen,
+  SquareTerminal,
   Terminal,
+  X,
 } from "lucide-react"
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { AgentIcon } from "@/components/brand/agent-icon"
@@ -465,10 +471,17 @@ export default function LadderWindow() {
             All sessions <span>· 14</span>
           </div>
           <div className="lw-sfoot">
-            <span className="lw-av">A</span>
-            <span className="n">
-              ada@itsladder.dev<small>Claude Max · ChatGPT Plus</small>
+            <span className="lw-av" aria-hidden>
+              AL
             </span>
+            <span className="n">
+              Ada Lovelace
+              <span className="lw-svc" role="img" aria-label="Claude and ChatGPT subscriptions linked">
+                <Am agent="claude" className="size-3" />
+                <Am agent="codex" className="size-3" />
+              </span>
+            </span>
+            <Settings className="i lw-gear" aria-hidden />
           </div>
         </aside>
 
@@ -482,12 +495,14 @@ export default function LadderWindow() {
               <span className="lw-tab act">
                 <Am agent="codex" className="size-3" />
                 <span className="lbl">Rate limit webhooks</span>
+                <X className="i lw-x" aria-hidden />
               </span>
             ) : (
               <>
                 <span className="lw-tab act">
                   <Am agent="claude" className="size-3" />
                   <span className="lbl">Restore tabs</span>
+                  <X className="i lw-x" aria-hidden />
                 </span>
                 <span className="lw-tab">
                   <Am agent="codex" className="size-3" />
@@ -507,10 +522,21 @@ export default function LadderWindow() {
               <Plus className="i" aria-hidden />
             </span>
             <span className="lw-rt">
-              <Terminal className="i" aria-hidden />
-              <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <Files className="i" aria-hidden />
+              <span className="lw-ib lw-opt">
+                <Columns2 className="i" aria-hidden />
+              </span>
+              <span className="lw-ib lw-opt">
+                <Globe className="i" aria-hidden />
+              </span>
+              <span className="lw-ib">
+                <SquareTerminal className="i" aria-hidden />
+              </span>
+              <span className="lw-fl">
+                <FolderTree className="i" aria-hidden />
                 Files
+              </span>
+              <span className="lw-ib">
+                <PanelRight className="i" aria-hidden />
               </span>
             </span>
           </div>
@@ -596,12 +622,13 @@ export default function LadderWindow() {
                 </svg>
                 {s.use}%
               </span>
-              <span className="lw-pk">
-                <Am agent="claude" className="size-3.5" />
-                Claude Code <span>· Opus 5.5</span>
+              <span className="lw-pill">
+                <Am agent="claude" className="size-3" />
+                <b>Opus 5.5</b>
+                <span>Medium</span>
               </span>
-              <span className="lw-pk">
-                <Shield className="i" aria-hidden />
+              <span className="lw-gh">
+                <ShieldCheck className="i" aria-hidden />
                 Full access
               </span>
               <span className={`lw-send${s.sendGo ? " go" : ""}`}>
