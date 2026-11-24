@@ -4,7 +4,7 @@
     "slug": "ladder",
     "owner": "manybitstech",
     "scheme": "ladder",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
@@ -17,9 +17,9 @@
     },
     "ios": {
       "bundleIdentifier": "dev.nicolocardozo.ladder.mobile",
-      "supportsTablet": true,
+      "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
+        "ITSAppUsesNonExemptEncryption": true,
         "NSCameraUsageDescription": "Ladder uses the camera to scan the pairing code shown on your Mac.",
         "UIViewControllerBasedStatusBarAppearance": false
       }
