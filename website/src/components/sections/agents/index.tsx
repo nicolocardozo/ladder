@@ -2,17 +2,18 @@ import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 import { AgentIcon } from "@/components/brand/agent-icon"
 
-// Agenti mostrati, con il modo in cui girano in Ladder
+// Agenti mostrati con il comando di accesso, solo quelli presenti nel codice dell'app
+// (host/connections.ts, host/acp/others.ts). Dove non c'è un comando verificato: null.
 const AGENTS = [
-  { id: "claude", name: "Claude Code", how: "Built in" },
-  { id: "codex", name: "Codex", how: "Built in" },
-  { id: "gemini", name: "Gemini CLI", how: "ACP · binary" },
-  { id: "opencode", name: "OpenCode", how: "ACP · npx" },
-  { id: "goose", name: "Goose", how: "ACP · binary" },
-  { id: "qwen", name: "Qwen Code", how: "ACP · npx" },
-  { id: "amp", name: "Amp", how: "ACP · npx" },
-  { id: "cline", name: "Cline", how: "ACP · npx" },
-  { id: "kimi", name: "Kimi CLI", how: "ACP · binary" },
+  { id: "claude", name: "Claude Code", login: "claude auth login" },
+  { id: "codex", name: "Codex", login: "codex login" },
+  { id: "gemini", name: "Gemini CLI", login: "gemini" },
+  { id: "opencode", name: "OpenCode", login: null },
+  { id: "goose", name: "Goose", login: null },
+  { id: "qwen", name: "Qwen Code", login: null },
+  { id: "amp", name: "Amp", login: null },
+  { id: "cline", name: "Cline", login: null },
+  { id: "kimi", name: "Kimi CLI", login: null },
 ] as const
 
 const TILE =
@@ -27,11 +28,15 @@ export function Agents() {
       <div className="lg:pt-2">
         <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-iris">Agents</p>
         <h2 className="mt-4 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          Works with the agents you already use
+          Use the subscriptions you already have
         </h2>
         <p className="mt-4 text-base text-muted-ink sm:text-lg">
-          Bring your subscriptions, skills and configuration. Claude Code, Codex and any agent from
-          the ACP registry.
+          Ladder does not sell tokens and does not ask for another subscription. Each agent signs in
+          with your own account, the same way it does in a terminal.
+        </p>
+        <p className="mt-4 rounded-xl border border-hairline bg-surface p-4 text-[15px] text-ink">
+          No resold tokens. No extra quotas. Your plan&apos;s limits stay yours, and Ladder shows
+          them before you run out.
         </p>
         <Link
           href="/agents"
@@ -41,7 +46,7 @@ export function Agents() {
         </Link>
       </div>
 
-      <ul className="grid grid-cols-2 gap-2">
+      <ul className="grid gap-2 min-[480px]:grid-cols-2">
         {AGENTS.map((a) => (
           <li key={a.id} className="contents">
             <div className={TILE}>
@@ -50,7 +55,7 @@ export function Agents() {
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-[15px] font-medium text-ink">{a.name}</span>
-                <span className="block truncate font-mono text-[11px] text-muted-ink">{a.how}</span>
+                <span className="block break-words font-mono text-[11px] text-muted-ink">{a.login ? <span className="text-ink">{a.login}</span> : "Sign in from its app"}</span>
               </span>
             </div>
           </li>
