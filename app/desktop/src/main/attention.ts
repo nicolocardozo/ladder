@@ -64,8 +64,9 @@ export class Attention {
     switch (event.kind) {
       case 'request': {
         const view = this.focused()
-        // La stai guardando: nessuna notifica. Stesso progetto, altra tab: c'è l'avviso nella barra delle tab.
-        if (view?.sessionId === event.sessionId || view?.projectId === event.projectId) return
+        // Nessuna notifica solo se la sessione che ti aspetta è davanti a te (anche in una colonna affiancata).
+        // Un'altra sessione dello stesso progetto notifica comunque: l'avviso nella barra delle tab da solo passava inosservato.
+        if (view && (view.visibleSessionIds?.includes(event.sessionId) ?? view.sessionId === event.sessionId)) return
         this.show({ kind: 'request', sessionId: event.sessionId, projectId: event.projectId, itemId: event.itemId }, event.title, event.body, this.prefs().sound)
         return
       }
