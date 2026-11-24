@@ -1,6 +1,6 @@
 // File generato da scripts/sync-brand.mjs a partire da brand/themes.json: non modificarlo a mano.
 
-export type ThemeId = 'circuit' | 'night-shift' | 'blue-hour' | 'deep-current' | 'graphite' | 'atomic' | 'daylight' | 'porcelain' | 'azure-ink' | 'candor' | 'copperwire' | 'mono-light' | 'mono-dark'
+export type ThemeId = 'circuit' | 'night-shift' | 'blue-hour' | 'deep-current' | 'graphite' | 'atomic' | 'carbon' | 'fern' | 'daylight' | 'porcelain' | 'azure-ink' | 'candor' | 'copperwire' | 'mono-light' | 'mono-dark'
 
 export interface ThemeInfo {
   id: ThemeId
@@ -220,6 +220,66 @@ export const THEMES: ThemeInfo[] = [
         "magenta": "#C678DD",
         "cyan": "#56B6C2"
       }
+    }
+  },
+  {
+    "id": "carbon",
+    "name": "Carbon",
+    "appearance": "dark",
+    "palette": {
+      "primary": "#93C2FF",
+      "secondary": "#141414",
+      "highlight": "#6DD494"
+    },
+    "tokens": {
+      "background": "#191919",
+      "surface": "#202020",
+      "sidebar": "#141414",
+      "text": "#F5F5F5",
+      "textMuted": "#B5B5B5",
+      "border": "#2B2B2B",
+      "controlBorder": "#717171",
+      "accent": "#93C2FF",
+      "onAccent": "#0E1726",
+      "selection": "#2C2C2C",
+      "onSelection": "#F5F5F5",
+      "focusRing": "#93C2FF",
+      "codeBackground": "#141414",
+      "running": "#93C2FF",
+      "waiting": "#FDAB56",
+      "success": "#6DD494",
+      "error": "#FF8681",
+      "unread": "#93C2FF"
+    }
+  },
+  {
+    "id": "fern",
+    "name": "Fern",
+    "appearance": "dark",
+    "palette": {
+      "primary": "#7CCBA0",
+      "secondary": "#141716",
+      "highlight": "#20744A"
+    },
+    "tokens": {
+      "background": "#181B1A",
+      "surface": "#1E2120",
+      "sidebar": "#141716",
+      "text": "#F2F4F3",
+      "textMuted": "#A1A5A4",
+      "border": "#252B2A",
+      "controlBorder": "#6E7473",
+      "accent": "#7CCBA0",
+      "onAccent": "#0E1A14",
+      "selection": "#272A29",
+      "onSelection": "#F2F4F3",
+      "focusRing": "#7CCBA0",
+      "codeBackground": "#141716",
+      "running": "#7CCBA0",
+      "waiting": "#C09664",
+      "success": "#6CB17B",
+      "error": "#D8847B",
+      "unread": "#7CCBA0"
     }
   },
   {
