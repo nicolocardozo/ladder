@@ -3,7 +3,7 @@
 //   node scripts/remote-host-harness.ts [--relay ws://127.0.0.1:8787] [--port 7777] [--data <cartella>]
 //
 // Almeno uno tra --relay e --port (WebSocket locale). Stampa il link di abbinamento `ladder://pair#…` (LAD-51): si passa a
-// `scripts/remote-client.ts pair <link>`. Comandi da stdin: "pair [password]" (nuovo link, con password opzionale), "devices", "revoke <id>",
+// `scripts/remote-client.ts pair <link>`. Comandi da stdin: "pair [password]" (nuovo link, con password opzionale), "devices" (anche token push, preferenze, primo piano), "revoke <id>",
 // "log", "regen" (rigenera la chiave), "sleep" / "wake".
 // Stampa anche l'id del Mac e il file di identità da passare a scripts/remote-client.ts (--id, --identity). La cartella dati conserva le chiavi:
 // con la stessa cartella l'id resta uguale tra un avvio e l'altro. Ctrl+C / SIGTERM: avvisa il relay ("quit") ed esce.
@@ -106,7 +106,10 @@ process.stdin.on('data', (data) => {
   if (word === 'sleep') void client?.setMacState('asleep')
   else if (word === 'wake') void client?.setMacState('awake')
   else if (word === 'pair') void pair(arg)
-  else if (word === 'devices') for (const d of access.devices()) console.log(`[harness] device ${d.id} ${d.name} connected=${gateway.connectedDevices().has(d.id)}`)
+  else if (word === 'devices')
+    // Token push mai per intero (solo se c'è e il prefisso), preferenze e lingua come le ha mandate il telefono, stato in primo piano.
+    for (const d of access.devices())
+      console.log(`[harness] device ${d.id} ${d.name} connected=${gateway.connectedDevices().has(d.id)} foreground=${gateway.foregroundDevices().has(d.id)} platform=${d.platform} locale=${d.locale} push=${d.pushToken ? `${d.pushToken.slice(0, 18)}…` : 'none'} notify=${JSON.stringify(d.notify)}`)
   else if (word === 'revoke' && arg) {
     console.log(`[harness] revoke ${arg}: ${access.revoke(arg)}`)
     gateway.disconnectDevice(arg)
