@@ -18,6 +18,7 @@ import { hasLinkedAgent, refreshConnections } from '@/lib/connections'
 import { liveColumns, useApp } from '@/store/app-store'
 import type { AgentBrowserState, HostEvent } from '@shared/protocol'
 import { t } from '@shared/i18n'
+import { UpdateToast } from '@/components/update-toast'
 
 export function App() {
   const selection = useApp((s) => s.selection)
@@ -223,6 +224,7 @@ export function App() {
           </>
         )}
       </div>
+      <UpdateToast />
       {!sidebarOpen && sidebarNotice && (
         <div role="alert" className="fixed bottom-3 left-3 z-50 flex min-h-7 max-w-80 items-center rounded-md border border-border bg-popover pr-1 pl-2.5 text-xs text-destructive shadow-md">
           <span className="min-w-0 flex-1 py-1">{sidebarNotice}</span>
