@@ -11,8 +11,9 @@ import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 
 export const NOISE_PROTOCOL_NAME = 'Noise_NK_25519_ChaChaPoly_SHA256'
-/** Massimo di un messaggio Noise (handshake o trasporto), tag compreso. */
-export const NOISE_MAX_MESSAGE = 65535
+import { NOISE_MAX_MESSAGE } from './limits.ts'
+
+export { NOISE_MAX_MESSAGE }
 export const NOISE_TAG_LEN = 16
 const DH_LEN = 32
 const HASH_LEN = 32

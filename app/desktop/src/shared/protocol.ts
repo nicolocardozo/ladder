@@ -1795,6 +1795,20 @@ export const REMOTE_MAX_COMMAND = 1024 * 1024
 
 // ── fine LAD-49 ──
 
+// ── LAD-50: relay ──
+// Il relay (app/relay, su Cloudflare) inoltra byte cifrati tra Mac e telefono; il formato dei suoi messaggi sta in shared/remote/relay-protocol.ts.
+
+/** Relay predefinito di Ladder, usato quando HostPrefs.remote.relayUrl è null. Segnaposto: l'indirizzo vero si conferma prima del rilascio. */
+export const REMOTE_DEFAULT_RELAY_URL = 'wss://relay.ladder.app'
+
+/** Perché il Mac non è raggiungibile, per quanto il relay ne sa (arriva al telefono con lo stato del Mac). */
+export type RemoteOfflineReason = 'offline' | 'asleep' | 'quit' | 'unknown'
+
+/** Stato del Mac visto dal telefono attraverso il relay. `since` = ultima volta che il relay ha visto il Mac (ms), null se mai. */
+export type RemoteMacStatus = { online: true } | { online: false; since: number | null; reason: RemoteOfflineReason }
+
+// ── fine LAD-50 ──
+
 // ── Host ↔ processo main: notifiche, badge del Dock e preferenze ─────────────
 
 /** Eventi che possono diventare una notifica di macOS. Decide il main, che sa cosa stai guardando. */
@@ -1854,6 +1868,11 @@ export interface HostPrefs {
   /** Browser per l'agente, globale (vedi AppPrefs.agentBrowser). Predefinito false. */
   agentBrowser?: boolean
   // ── Fine LAD-57 parte 2 ──
+  /**
+   * LAD-50: canale remoto per il telefono attraverso il relay. Assente = spento.
+   * `relayUrl`: indirizzo del relay (wss://…); null = quello predefinito (REMOTE_DEFAULT_RELAY_URL). Chi ospita il proprio relay mette il suo.
+   */
+  remote?: { enabled: boolean; relayUrl: string | null }
 }
 
 export type MainToHost =

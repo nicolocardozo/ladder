@@ -29,6 +29,7 @@
     "src/preload/**/*",
     "src/host/**/*",
     "src/shared/**/*",
-    "scripts/remote-client.ts"
+    "scripts/remote-client.ts",
+    "scripts/remote-host-harness.ts"
   ]
 }

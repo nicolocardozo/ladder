@@ -4,6 +4,10 @@
 //   LADDER_REMOTE_PORT=7777 node scripts/remote-client.ts watch <sessionId>      pagina finale + item dal vivo
 //   LADDER_REMOTE_PORT=7777 node scripts/remote-client.ts approve <sessionId>    approva la prima richiesta aperta (anche una che arriva dopo)
 //
+// Attraverso il relay (LAD-50), al posto della porta locale:
+//   node scripts/remote-client.ts --relay ws://127.0.0.1:8787 --id <id del Mac> [list | watch <id> | approve <id>] [--wait]
+// L'id lo stampa l'host all'avvio ("[remote] relay …, id …"). Con --wait, se il Mac è offline il client aspetta che torni (altrimenti esce).
+//
 // Chiave pubblica del Mac: LADDER_REMOTE_PUBKEY (base64url) oppure il file di identità (LADDER_REMOTE_IDENTITY o --identity <file>).
 // Dal file si legge solo `publicKey`: la chiave privata non serve al client e non viene mai letta né stampata.
 // Senza indicazioni il file si cerca nella cartella dati di Ladder: ~/Library/Application Support/Ladder/remote-identity.json.
@@ -12,6 +16,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import WebSocket from 'ws'
 import type { ChatItem, FromRemoteHost, RemoteCommand, RemotePage, RemoteSnapshot, ToRemoteHost } from '../src/shared/protocol.ts'
+import { RelayTransport } from '../src/shared/remote/relay-transport.ts'
 import { clientHandshake, type RemoteSession } from '../src/shared/remote/session.ts'
 
 const args = process.argv.slice(2)
@@ -23,6 +28,10 @@ const flag = (name: string): string | undefined => {
 }
 
 const identityFlag = flag('--identity')
+const relayFlag = flag('--relay')
+const idFlag = flag('--id')
+const waitFlag = args.includes('--wait')
+if (waitFlag) args.splice(args.indexOf('--wait'), 1)
 
 function macPublicKey(): Uint8Array {
   const fromEnv = process.env.LADDER_REMOTE_PUBKEY
@@ -43,13 +52,18 @@ function fail(message: string): never {
 }
 
 const port = Number(process.env.LADDER_REMOTE_PORT)
-if (!Number.isInteger(port) || port <= 0) fail('Imposta LADDER_REMOTE_PORT con la porta del canale remoto.')
+if (relayFlag) {
+  if (!idFlag) fail('Con --relay serve anche --id <id del Mac>.')
+} else if (!Number.isInteger(port) || port <= 0) fail('Imposta LADDER_REMOTE_PORT con la porta del canale remoto (oppure usa --relay e --id).')
 const [cmd = 'list', target] = args
 if ((cmd === 'watch' || cmd === 'approve') && !target) fail(`Uso: remote-client.ts ${cmd} <sessionId>`)
 if (!['list', 'watch', 'approve'].includes(cmd)) fail('Comandi: list | watch <sessionId> | approve <sessionId>')
 
-const handshake = clientHandshake({ macPublicKey: macPublicKey(), hello: { device: 'ladder remote-client (test)', locale: 'en' } })
-const ws = new WebSocket(`ws://127.0.0.1:${port}`)
+const macKey = macPublicKey()
+const newHandshake = () => clientHandshake({ macPublicKey: macKey, hello: { device: 'ladder remote-client (test)', locale: 'en' } })
+let handshake = newHandshake()
+// Un solo trasporto per volta: WebSocket locale o relay; il resto del client usa solo ws.send / ws.close.
+const ws: { send(bytes: Uint8Array): void; close(): void } = relayFlag ? relayLink() : localLink()
 let session: RemoteSession | null = null
 let nextRid = 0
 const pending = new Map<string, { resolve: (data: unknown) => void; reject: (error: Error) => void }>()
@@ -147,10 +161,7 @@ async function run(): Promise<void> {
   }
 }
 
-ws.binaryType = 'nodebuffer'
-ws.on('open', () => ws.send(handshake.start()))
-ws.on('message', (data: Buffer) => {
-  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.length)
+function onBytes(bytes: Uint8Array): void {
   try {
     if (!session) {
       const done = handshake.finish(bytes)
@@ -169,6 +180,45 @@ ws.on('message', (data: Buffer) => {
   } catch (error) {
     fail(`connection error: ${error instanceof Error ? error.message : String(error)}`)
   }
-})
-ws.on('close', () => process.exit(0))
-ws.on('error', (error) => fail(`cannot connect: ${error.message}`))
+}
+
+function localLink() {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`)
+  socket.binaryType = 'nodebuffer'
+  socket.on('open', () => socket.send(handshake.start()))
+  socket.on('message', (data: Buffer) => onBytes(new Uint8Array(data.buffer, data.byteOffset, data.length)))
+  socket.on('close', () => process.exit(0))
+  socket.on('error', (error) => fail(`cannot connect: ${error.message}`))
+  return { send: (bytes: Uint8Array) => socket.send(bytes), close: () => socket.close() }
+}
+
+function relayLink() {
+  const transport = new RelayTransport({ relayUrl: relayFlag!, macId: idFlag! })
+  let first = true
+  const when = (since: number | null) => (since ? new Date(since).toISOString() : 'never seen')
+  transport.onStatus((status) => {
+    if (status.online) {
+      // Ogni "online" è un collegamento nuovo con il Mac: sessione e handshake da capo.
+      console.log(first ? 'relay: Mac online' : 'relay: Mac back online, new handshake')
+      first = false
+      session = null
+      pending.clear()
+      handshake = newHandshake()
+      transport.send(handshake.start())
+      return
+    }
+    console.log(`relay: Mac offline (reason: ${status.reason}, last seen: ${when(status.since)})`)
+    session = null
+    if (first && !waitFlag) {
+      transport.close()
+      process.exit(3)
+    }
+    first = false
+  })
+  transport.onBytes(onBytes)
+  transport.onClose((code, reason) => {
+    if (code === 1000) process.exit(0)
+    fail(`relay connection lost (${code}${reason ? `: ${reason}` : ''})`)
+  })
+  return { send: (bytes: Uint8Array) => transport.send(bytes), close: () => transport.close() }
+}
