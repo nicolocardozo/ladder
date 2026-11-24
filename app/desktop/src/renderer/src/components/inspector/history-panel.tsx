@@ -26,13 +26,13 @@ function EntryMark({ kind }: { kind: HistoryEntry['kind'] }) {
     <svg aria-hidden width={20} height={20} viewBox="0 0 20 20" className="pointer-events-none absolute text-primary" style={{ left: RAIL - 10, top: DOT_Y - 10 }}>
       {kind === 'commit' ? (
         <>
-          <circle cx={10} cy={10} r={6} fill="currentColor" className="stroke-background" strokeWidth={4} style={ringed} />
-          <circle cx={10} cy={10} r={2.2} className="fill-background" />
+          <circle cx={10} cy={10} r={5} fill="currentColor" className="stroke-background" strokeWidth={3} style={ringed} />
+          <circle cx={10} cy={10} r={1.8} className="fill-background" />
         </>
       ) : kind === 'restore' ? (
-        <rect x={5.5} y={5.5} width={9} height={9} rx={1.5} transform="rotate(45 10 10)" fill="currentColor" className="stroke-background" strokeWidth={4} style={ringed} />
+        <rect x={6} y={6} width={8} height={8} rx={1.5} transform="rotate(45 10 10)" fill="currentColor" className="stroke-background" strokeWidth={3} style={ringed} />
       ) : (
-        <circle cx={10} cy={10} r={4} fill="currentColor" className="stroke-background" strokeWidth={4} style={ringed} />
+        <circle cx={10} cy={10} r={3.5} fill="currentColor" className="stroke-background" strokeWidth={3} style={ringed} />
       )}
     </svg>
   )
@@ -146,7 +146,7 @@ export function HistoryPanel({ projectId, root, isGit, session }: HistoryPanelPr
             return (
               <li key={entry.id} className="group relative py-1.5 pr-3" style={{ paddingLeft: GUTTER }}>
                 {/* Un tratto di linea per voce: la prima parte dal suo pallino, l'ultima finisce nel suo. */}
-                {!(first && last) && <span aria-hidden className="absolute w-0.5 rounded-full bg-primary/50" style={{ left: RAIL - 1, top: first ? DOT_Y : 0, bottom: last ? `calc(100% - ${DOT_Y}px)` : 0 }} />}
+                {!(first && last) && <span aria-hidden className="absolute w-0.5" style={{ left: RAIL - 1, top: first ? DOT_Y : 0, bottom: last ? `calc(100% - ${DOT_Y}px)` : 0, background: 'color-mix(in oklab, var(--muted-foreground) 45%, var(--background))' }} />}
                 <EntryMark kind={entry.kind} />
                 <p className="truncate text-sm leading-[18px]" title={entry.title}>
                   {entry.title}

@@ -30,10 +30,15 @@ export function useBranchMap(projectId: string | null, enabled: boolean) {
 type MapWithError = BranchMapData & { error?: string | null }
 
 // Geometria in pixel del disegno a sinistra: la linea di main sta a RAIL, i pallini dei branch a DOT, le righe sono alte ROW.
-const RAIL = 8
-const DOT = 19
+const RAIL = 9
+const RAIL_WIDTH = 2
+const DOT = 22
+const DOT_R = 4.5
 const ROW = 36
 const GUTTER = 28
+
+/** Colore delle linee (main e raccordi): pieno, il grigio del testo secondario mescolato con lo sfondo. Niente trasparenze, che si sommano dove i tratti si toccano. */
+const LINE = 'color-mix(in oklab, var(--muted-foreground) 45%, var(--background))'
 
 /** Colori di stato, solo dai token del tema: in corso, ti aspetta, errore, pronto all'unione, unito (accento), fermo. */
 function tone(kind: MapKind, group: GroupId): string {
@@ -49,20 +54,24 @@ const wordTone = (kind: MapKind, group: GroupId) => cn(tone(kind, group), kind =
 /** Parola dello stato mostrata nella riga: "ready to merge" per i fermi con commit avanti, altrimenti quella di sempre. */
 const stateWord = (kind: MapKind, group: GroupId) => (kind === 'idle' && group === 'ready' ? t('ready to merge') : kindWord(kind))
 
-/** Raccordo dalla linea di main al pallino del branch, e il pallino: pieno con anello di sfondo; cerchio vuoto con spunta se unito. */
+/**
+ * Raccordo dalla linea di main al pallino del branch, e il pallino: pieno con anello di sfondo; cerchio vuoto con spunta se unito.
+ * Linea di main e raccordi hanno lo stesso colore pieno (LINE) e lo stesso spessore: il raccordo nasce dal centro della linea e curva
+ * verso il pallino, così la giunta non si vede. Il colore dello stato sta solo sul pallino.
+ */
 function RowMark({ kind, group }: { kind: MapKind; group: GroupId }) {
   const cy = ROW / 2
   const merged = kind === 'merged'
   return (
-    <svg aria-hidden width={GUTTER} height={ROW} viewBox={`0 0 ${GUTTER} ${ROW}`} className={cn('pointer-events-none absolute top-0 left-0', tone(kind, group), merged && 'opacity-80')}>
-      <path d={`M${RAIL} 5 C${RAIL} ${cy - 3}, ${RAIL + 3} ${cy}, ${DOT} ${cy}`} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" opacity={merged ? 0.45 : 0.7} />
+    <svg aria-hidden width={GUTTER} height={ROW} viewBox={`0 0 ${GUTTER} ${ROW}`} className={cn('pointer-events-none absolute top-0 left-0', tone(kind, group))}>
+      <path d={`M${RAIL} ${cy - 9} Q${RAIL} ${cy} ${RAIL + 9} ${cy} L${DOT - DOT_R} ${cy}`} fill="none" strokeWidth={RAIL_WIDTH} style={{ stroke: LINE }} />
       {merged ? (
         <>
-          <circle cx={DOT} cy={cy} r={5.5} className="fill-background" stroke="currentColor" strokeWidth={1.5} />
-          <path d={`M${DOT - 2.6} ${cy + 0.2} L${DOT - 0.7} ${cy + 2.1} L${DOT + 2.8} ${cy - 2}`} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx={DOT} cy={cy} r={DOT_R} className="fill-background" strokeWidth={1.5} stroke="currentColor" />
+          <path d={`M${DOT - 2.2} ${cy + 0.1} L${DOT - 0.6} ${cy + 1.7} L${DOT + 2.3} ${cy - 1.6}`} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
         </>
       ) : (
-        <circle cx={DOT} cy={cy} r={5} fill="currentColor" className="stroke-background" strokeWidth={4} style={{ paintOrder: 'stroke' }} />
+        <circle cx={DOT} cy={cy} r={DOT_R} fill="currentColor" className="stroke-background" strokeWidth={3} style={{ paintOrder: 'stroke' }} />
       )}
     </svg>
   )
@@ -308,7 +317,7 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
       {!failed && map && !empty && (
         <div className="relative">
           {/* La linea del ramo principale: dall'alto fino al suo pallino, che sta in fondo alla riga di `base`. */}
-          <span aria-hidden className="absolute w-0.5 rounded-full bg-primary/70" style={{ left: RAIL - 1, top: 0, bottom: ROW / 2 }} />
+          <span aria-hidden className="absolute" style={{ left: RAIL - RAIL_WIDTH / 2, width: RAIL_WIDTH, top: 0, bottom: ROW / 2, background: LINE }} />
           {groups.map((group) => {
             // Gli uniti si piegano a uno solo, ma la sessione aperta resta sempre in vista.
             const folded = group.id === 'merged' && !showAllMerged
@@ -346,7 +355,7 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
           {/* Fondo della linea: il ramo principale, col suo sha corto se si sa. */}
           <div className="relative mt-1 flex items-center gap-1.5 pr-3 text-xs" style={{ height: ROW, paddingLeft: GUTTER + 8 }}>
             <svg aria-hidden width={GUTTER} height={ROW} viewBox={`0 0 ${GUTTER} ${ROW}`} className="pointer-events-none absolute top-0 left-0 text-primary">
-              <circle cx={RAIL} cy={ROW / 2} r={5.5} fill="currentColor" className="stroke-background" strokeWidth={4} style={{ paintOrder: 'stroke' }} />
+              <circle cx={RAIL} cy={ROW / 2} r={5} fill="currentColor" className="stroke-background" strokeWidth={3} style={{ paintOrder: "stroke" }} />
             </svg>
             <span className="min-w-0 truncate font-mono font-medium text-foreground" title={base}>
               {base}
