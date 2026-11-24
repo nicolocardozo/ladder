@@ -18,11 +18,14 @@ const HOST_COMMANDS = {
 /** Comandi propri del canale remoto, che non passano da Host.handle. */
 const REMOTE_ONLY = {
   'session.page': true,
-  'session.watch': true
+  'session.watch': true,
+  'device.push.set': true,
+  'project.sessions.archived': true
 } satisfies Record<Exclude<RemoteCommand['type'], RemoteAllowedType>, true>
 
 /** Eventi dell'host inoltrati as-is; `snapshot` no: si ricostruisce come RemoteSnapshot. */
 const EVENTS = {
+  'remote.prefs': true,
   'session.upsert': true,
   'session.items': true,
   'session.subagents': true,
@@ -40,6 +43,7 @@ const MAX_ID = 256
 const MAX_TEXT = 200_000
 const MAX_QUEUE = 50
 const MAX_ANSWERS = 32
+const MAX_PUSH_TOKEN = 512
 
 const has = (table: object, key: string): boolean => Object.prototype.hasOwnProperty.call(table, key)
 
@@ -123,6 +127,10 @@ export function parseRemoteMessage(value: unknown, messages: { invalid: string; 
       return ok(isId(command.sessionId) && (command.before === undefined || isCount(command.before)) && (command.limit === undefined || isCount(command.limit)))
     case 'session.watch':
       return ok(isId(command.sessionId) && typeof command.on === 'boolean')
+    case 'project.sessions.archived':
+      return ok(isId(command.projectId) && (command.before === undefined || isCount(command.before)) && (command.limit === undefined || isCount(command.limit)))
+    case 'device.push.set':
+      return ok((command.token === null || (isString(command.token) && command.token.length > 0 && command.token.length <= MAX_PUSH_TOKEN)) && (command.platform === 'ios' || command.platform === 'android'))
     default:
       // session.read, session.interrupt, subagent.list: solo sessionId.
       return ok(isId(command.sessionId))

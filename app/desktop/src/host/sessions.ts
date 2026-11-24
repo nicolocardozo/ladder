@@ -229,7 +229,7 @@ export class Host {
   /** Progetti con un cambio di branch in corso nel checkout principale: le loro sessioni lì mettono i messaggi in coda finché non finisce. */
   private switchingBranch = new Set<string>()
   private stopped = false
-  private prefs: HostPrefs = { generatedTitles: true, generatedText: true, autonomyHint: true, stallHint: false, worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null }
+  private prefs: HostPrefs = { generatedTitles: true, generatedText: true, autonomyHint: true, stallHint: false, worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, busySend: 'steer' }
   /** Sessioni con un titolo in generazione: un solo tentativo alla volta. */
   private titling = new Set<string>()
   /** LAD-57 parte 2: browser per l'agente (server MCP, stato, canale verso il main). */
@@ -799,7 +799,7 @@ export class Host {
   /** Preferenze dal processo main. */
   setPrefs(prefs: HostPrefs): void {
     if (prefs.locale) setLocale(prefs.locale)
-    this.prefs = { generatedTitles: prefs.generatedTitles ?? this.prefs.generatedTitles, generatedText: prefs.generatedText ?? this.prefs.generatedText, autonomyHint: prefs.autonomyHint ?? this.prefs.autonomyHint, stallHint: prefs.stallHint ?? this.prefs.stallHint, worktreesDir: prefs.worktreesDir !== undefined ? prefs.worktreesDir : this.prefs.worktreesDir, branchPrefix: prefs.branchPrefix !== undefined ? cleanBranchPrefix(prefs.branchPrefix) : this.prefs.branchPrefix, autoArchiveDays: prefs.autoArchiveDays !== undefined ? prefs.autoArchiveDays : this.prefs.autoArchiveDays, agentBrowser: prefs.agentBrowser ?? this.prefs.agentBrowser }
+    this.prefs = { generatedTitles: prefs.generatedTitles ?? this.prefs.generatedTitles, generatedText: prefs.generatedText ?? this.prefs.generatedText, autonomyHint: prefs.autonomyHint ?? this.prefs.autonomyHint, stallHint: prefs.stallHint ?? this.prefs.stallHint, worktreesDir: prefs.worktreesDir !== undefined ? prefs.worktreesDir : this.prefs.worktreesDir, branchPrefix: prefs.branchPrefix !== undefined ? cleanBranchPrefix(prefs.branchPrefix) : this.prefs.branchPrefix, autoArchiveDays: prefs.autoArchiveDays !== undefined ? prefs.autoArchiveDays : this.prefs.autoArchiveDays, agentBrowser: prefs.agentBrowser ?? this.prefs.agentBrowser, busySend: prefs.busySend ?? this.prefs.busySend }
     this.browserAgent.sync()
     void this.autoArchive()
   }
@@ -999,7 +999,7 @@ export class Host {
         await this.interrupt(command.sessionId)
         return null
       case 'session.respond':
-        this.respond(command.sessionId, command.requestId, command.response, command.via ?? 'chat')
+        this.respond(command.sessionId, command.requestId, command.response, command.via ?? 'chat', undefined, command.viaDevice)
         return null
       case 'session.permission.set':
         return await this.setPermission(command.sessionId, command.permission)
@@ -3063,7 +3063,7 @@ export class Host {
     return answer
   }
 
-  private respond(sessionId: string, requestId: string, response: RequestResponse, via: RequestItemData['via'] = 'chat', resolution?: string): void {
+  private respond(sessionId: string, requestId: string, response: RequestResponse, via: RequestItemData['via'] = 'chat', resolution?: string, viaDevice?: string): void {
     const runtime = this.runtimes.get(sessionId)
     const pending = runtime?.pending.get(requestId)
     const item = this.liveItems.get(sessionId)?.get(requestId) ?? this.loadItems(sessionId).find((i) => i.id === requestId)
@@ -3074,7 +3074,7 @@ export class Host {
     if ('optionId' in response && !item.options.some((o) => o.id === response.optionId)) throw new Error(t('That option is not available for this request.'))
     const text = resolution ?? describeResponse(item, response)
     runtime.pending.delete(requestId)
-    this.upsertItem(sessionId, { ...item, state: 'resolved', resolution: text, via })
+    this.upsertItem(sessionId, { ...item, state: 'resolved', resolution: text, via, ...(viaDevice ? { viaDevice } : {}) })
     if (runtime.pending.size === 0) this.updateRow(sessionId, { run_state: 'running' })
     this.emitSummary(sessionId)
     this.attention({ kind: 'resolved', sessionId, itemId: requestId })
@@ -3396,6 +3396,32 @@ export class Host {
     this.db
       .prepare('insert into items (session_id, id, seq, json) values (?, ?, ?, ?) on conflict(session_id, id) do update set json = excluded.json')
       .run(sessionId, item.id, item.seq, JSON.stringify(item))
+  }
+
+  /** Per l'istantanea del telefono (LAD-51): tetto di permesso di ogni progetto e preferenza di invio a sessione al lavoro. */
+  async remoteExtras(): Promise<{ permissionsMax: Record<string, PermissionLevel | null>; busySend: 'steer' | 'queue' }> {
+    const entries = await Promise.all(
+      [...this.projects.values()].map(async (p) => [p.id, (await loadProjectSettings(p.path).catch(() => null))?.agents.permissionsMax ?? null] as const)
+    )
+    return { permissionsMax: Object.fromEntries(entries), busySend: this.prefs.busySend === 'queue' ? 'queue' : 'steer' }
+  }
+
+  /** Sessioni archiviate di un progetto, a pagine (comando remoto project.sessions.archived). */
+  archivedSessions(projectId: string, before?: number, limit?: number): SessionSummary[] {
+    if (!this.projects.has(projectId)) throw new Error(t('Project not found.'))
+    const size = Math.min(Math.max(Math.floor(limit ?? 30), 1), 100)
+    return [...this.rows.values()]
+      .filter((r) => r.project_id === projectId && r.archived && (before === undefined || r.updated_at < before))
+      .sort((a, b) => b.updated_at - a.updated_at)
+      .slice(0, size)
+      .map((r) => this.summary(r.id))
+  }
+
+  /** Titolo e opzioni di una richiesta, per il log delle azioni remote (LAD-51); null se la richiesta non c'è. */
+  requestInfo(sessionId: string, requestId: string): { title: string; options: { id: string; kind: 'allow' | 'allow-always' | 'deny' }[] } | null {
+    if (!this.rows.has(sessionId)) return null
+    const item = this.liveItems.get(sessionId)?.get(requestId) ?? this.loadItems(sessionId).find((i) => i.id === requestId)
+    return item?.kind === 'request' ? { title: item.title, options: item.options.map((o) => ({ id: o.id, kind: o.kind })) } : null
   }
 
   /** Una pagina di chat per il client remoto (LAD-49): vedi remote/paging.ts. */

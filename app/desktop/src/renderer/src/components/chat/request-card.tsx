@@ -1,5 +1,5 @@
 // Richieste dell'agente: card di approvazione e di domanda quando sono aperte, riga compatta quando sono chiuse.
-import { ArrowUpRight, Check, CircleAlert, CircleQuestionMark, Clock, File, X } from 'lucide-react'
+import { ArrowUpRight, Check, CircleAlert, CircleQuestionMark, Clock, File, Smartphone, X } from 'lucide-react'
 import { memo, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import type { RequestOption } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
@@ -465,6 +465,13 @@ export const ResolvedRequest = memo(function ResolvedRequest({ item }: { item: R
           </>
         ) : null}
       </span>
+      {/* Risposta data dal telefono (LAD-51): sta dopo il comando e non si accorcia, così si legge anche con un comando lungo. */}
+      {item.via === 'phone' && (
+        <span className="inline-flex max-w-[45%] shrink-0 items-center gap-1 text-xs text-faint">
+          <Smartphone aria-hidden className="size-3 shrink-0" strokeWidth={2} />
+          <span className="truncate">{item.viaDevice ? t('from {device}', { device: item.viaDevice }) : t('from phone')}</span>
+        </span>
+      )}
     </div>
   )
 })

@@ -3,6 +3,7 @@
 import type { DataInfo, EditorAvailability, HostCommand, ProjectSettings, WorktreeFiles, WorktreeService } from '@shared/protocol'
 import { overrideSystemBridge } from '@/lib/system-bridge'
 import { installOthersPreview } from './others-preview'
+import { installRemotePreview } from './remote-preview'
 import { emitPreviewEvent, installShortcutsHost, registerPreviewHandler } from './shortcuts-preview'
 
 let installed = false
@@ -21,6 +22,7 @@ export function installSettingsPreview(): void {
   installed = true
   installShortcutsHost()
   installOthersPreview()
+  installRemotePreview()
 
   // Come l'host: il file del progetto (sola lettura) e quello personale (l'elenco che la UI riscrive per intero) restano separati e
   // `services` si ricava dalla loro fusione per nome. Il personale con command vuoto disattiva il servizio omonimo del progetto.

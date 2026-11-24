@@ -94,6 +94,27 @@ create table if not exists terminals (
   scrollback text,
   meta text
 );
+-- LAD-51: telefoni abbinati (mai cancellati: la revoca imposta revoked_at) e log delle azioni remote.
+create table if not exists devices (
+  id text primary key,
+  name text not null,
+  platform text not null,
+  public_key text not null,
+  push_token text,
+  created_at integer not null,
+  last_seen_at integer,
+  revoked_at integer
+);
+create index if not exists devices_by_key on devices (public_key);
+create table if not exists remote_log (
+  id integer primary key autoincrement,
+  device_id text not null,
+  at integer not null,
+  action text not null,
+  session_id text,
+  detail text not null
+);
+create index if not exists remote_log_by_at on remote_log (at);
 `
 
 /** Colonne aggiunte dopo la prima versione: si creano se mancano, i dati esistenti restano. */

@@ -5,6 +5,7 @@ import agents from './agents'
 import browser from './browser'
 import chat from './chat'
 import connections from './connections'
+import devices from './devices'
 import editor from './editor'
 import host from './host'
 import inspector from './inspector'
@@ -16,4 +17,4 @@ import shell from './shell'
 import shortcuts from './shortcuts'
 import views from './views'
 
-registerCatalog('it', { ...agents, ...agentCatalog, ...browser, ...connections, ...nav, ...editor, ...chat, ...shell, ...views, ...inspector, ...media, ...host, ...shortcuts, ...presets, ...settings })
+registerCatalog('it', { ...agents, ...agentCatalog, ...browser, ...connections, ...nav, ...editor, ...chat, ...shell, ...views, ...inspector, ...media, ...host, ...shortcuts, ...presets, ...settings, ...devices })

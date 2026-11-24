@@ -1,6 +1,6 @@
 // Identità del Mac per il canale remoto: una chiave Curve25519 creata una volta sola, nella cartella dati dell'app.
 // La chiave privata non si logga e non esce da questo file; fuori va solo quella pubblica (per l'abbinamento, LAD-51).
-import { chmodSync, closeSync, linkSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs'
+import { chmodSync, closeSync, linkSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ed25519 } from '@noble/curves/ed25519.js'
@@ -51,6 +51,31 @@ export function loadOrCreateIdentity(dataDir: string): NoiseKeyPair {
   const pair = generateKeyPair()
   const file: IdentityFile = { v: 1, publicKey: toBase64Url(pair.publicKey), secretKey: toBase64Url(pair.secretKey) }
   if (!createExclusive(path, JSON.stringify(file))) return read(path) ?? pair
+  return pair
+}
+
+/** Chiave pubblica del Mac se l'identità esiste già; non la crea (serve a mostrare l'impronta a canale spento). */
+export function peekIdentityKey(dataDir: string): Uint8Array | null {
+  return read(join(dataDir, IDENTITY_FILE))?.publicKey ?? null
+}
+
+/** Sostituisce un file con uno nuovo 0600 (file temporaneo + rename: o il vecchio o il nuovo, mai a metà). */
+function replaceFile(path: string, content: string): void {
+  const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
+  const fd = openSync(tmp, 'wx', 0o600)
+  try {
+    writeSync(fd, content)
+  } finally {
+    closeSync(fd)
+  }
+  renameSync(tmp, path)
+}
+
+/** LAD-51, "rigenera chiave": nuova identità del Mac al posto della vecchia. I telefoni abbinati con la chiave vecchia non si collegano più. */
+export function regenerateIdentity(dataDir: string): NoiseKeyPair {
+  const pair = generateKeyPair()
+  const file: IdentityFile = { v: 1, publicKey: toBase64Url(pair.publicKey), secretKey: toBase64Url(pair.secretKey) }
+  replaceFile(join(dataDir, IDENTITY_FILE), JSON.stringify(file))
   return pair
 }
 
@@ -115,5 +140,14 @@ export function loadOrCreateRelayKey(dataDir: string): RelayKeyPair {
   const publicKey = ed25519.getPublicKey(secretKey)
   const file: IdentityFile = { v: 1, publicKey: toBase64Url(publicKey), secretKey: toBase64Url(secretKey) }
   if (!createExclusive(path, JSON.stringify(file))) return readRelayKey(path) ?? { secretKey, publicKey }
+  return { secretKey, publicKey }
+}
+
+/** LAD-51, "rigenera chiave": nuova chiave del relay, quindi nuovo id del Mac sul relay. */
+export function regenerateRelayKey(dataDir: string): RelayKeyPair {
+  const secretKey = ed25519.utils.randomSecretKey()
+  const publicKey = ed25519.getPublicKey(secretKey)
+  const file: IdentityFile = { v: 1, publicKey: toBase64Url(publicKey), secretKey: toBase64Url(secretKey) }
+  replaceFile(join(dataDir, RELAY_KEY_FILE), JSON.stringify(file))
   return { secretKey, publicKey }
 }
