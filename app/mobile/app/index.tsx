@@ -8,7 +8,9 @@ import { WIDE } from '@/ui/Sheet'
 
 export default function Index() {
   const mode = useApp((s) => s.mode)
+  const kind = useApp((s) => s.conn.kind)
   const { width } = useWindowDimensions()
+  if (kind === 'revoked' || kind === 'key-changed') return <Redirect href="/disconnected" />
   if (mode === 'none') return <Redirect href="/welcome" />
   // Su schermi larghi la Home sta già a sinistra: qui resta un segnaposto.
   if (width >= WIDE)

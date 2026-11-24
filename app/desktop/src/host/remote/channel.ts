@@ -41,6 +41,9 @@ export function macNameOf(): string {
 }
 
 /** Relay da usare: LADDER_RELAY_URL (solo sviluppo) vale più delle preferenze; spento se né l'uno né le altre lo chiedono. */
+/** Quanto si aspetta il relay, al massimo, per avvisarlo della nuova chiave. */
+const REKEY_NOTICE_MS = 1_500
+
 export function relayUrlFor(remote: HostPrefs['remote'], env: string | undefined): string | null {
   if (env) return env
   if (!remote?.enabled) return null
@@ -162,6 +165,9 @@ export class RemoteChannel {
       this.access.cancelPairing()
       this.access.revokeAll()
       this.gateway_?.disconnectAll()
+      // Il relay ricorda sul vecchio id che la chiave è cambiata: un telefono che si collega più tardi lo sa, invece di credere
+      // il Mac solo spento. Al meglio: con il relay irraggiungibile non si blocca la rigenerazione.
+      await this.announceRekey()
       await this.relay?.stop()
       this.relay = null
       this.relayUrl = null
@@ -170,6 +176,17 @@ export class RemoteChannel {
       this.gateway_?.setIdentity(this.identity)
       await this.apply(this.lastRemote)
     })
+  }
+
+  /** Dice al relay (sul vecchio id) che il Mac cambia chiave; attende al massimo REKEY_NOTICE_MS e non lancia mai. */
+  private async announceRekey(): Promise<void> {
+    const relay = this.relay
+    if (!relay) return
+    try {
+      await Promise.race([relay.setMacState('rekeyed'), new Promise<void>((resolve) => setTimeout(resolve, REKEY_NOTICE_MS))])
+    } catch {
+      // relay irraggiungibile: si rigenera lo stesso
+    }
   }
 
   /** Esegue `fn` in fila con configure, rigenerazione e creazione del QR (il QR non nasce con l'identità a metà); l'errore va a chi chiama. */

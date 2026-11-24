@@ -1,5 +1,5 @@
 // Unione degli item della chat ricevuti dal canale. Solo logica pura (provata con node --test).
-import type { ChatItem } from '@shared/protocol'
+import type { ChatItem, SessionSummary } from '@shared/protocol'
 
 /** Dimensione predefinita di una pagina di chat (`session.page` senza `limit`) e di un `session.items` con replace. */
 export const PAGE_SIZE = 60
@@ -19,4 +19,16 @@ export function mergeById(current: ChatItem[], incoming: ChatItem[]): ChatItem[]
 export function applyItemsEvent(current: ChatItem[], hasMore: boolean, incoming: ChatItem[], replace: boolean): { items: ChatItem[]; hasMore: boolean } {
   if (!replace) return { items: mergeById(current, incoming), hasMore }
   return { items: mergeById([], incoming), hasMore: incoming.length >= PAGE_SIZE }
+}
+
+/**
+ * Sessioni dopo un nuovo snapshot. Lo snapshot ha solo quelle non archiviate: le archiviate già lette dalla schermata del
+ * progetto (`archived: true`) restano, se il loro progetto esiste ancora e lo snapshot non le ha riportate attive.
+ */
+export function mergeSnapshotSessions(previous: Record<string, SessionSummary>, incoming: SessionSummary[], projectIds: string[]): Record<string, SessionSummary> {
+  const out: Record<string, SessionSummary> = {}
+  for (const s of incoming) out[s.id] = s
+  const alive = new Set(projectIds)
+  for (const s of Object.values(previous)) if (s.archived && !out[s.id] && alive.has(s.projectId)) out[s.id] = s
+  return out
 }

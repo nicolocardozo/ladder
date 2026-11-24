@@ -2,7 +2,9 @@
 import { router } from 'expo-router'
 import { Platform } from 'react-native'
 import { applyLocale } from '@/i18n'
-import { startDemo, startRemote, disconnect } from '@/host/controller'
+import { readPairingLink } from '@/lib/pair-link'
+import { usePairFlow } from '@/store/pair-flow'
+import { startDemo, disconnect } from '@/host/controller'
 import { actions } from '@/host/actions'
 import { useApp } from '@/store/app'
 import type { RequestItem } from '@/lib/turns'
@@ -12,14 +14,19 @@ import type { ThemeId } from '@/theme/theme'
 
 interface Cmd {
   id: number
+  /** Solo questa piattaforma esegue il comando (i due telefoni leggono lo stesso driver). */
+  target?: 'ios' | 'android'
   demo?: boolean
   reset?: boolean
   theme?: string
   system?: { light: string; dark: string } | false
   lang?: 'en' | 'it'
   route?: string
-  /** Abbina un host (harness): { wsUrl, macKey, device } e si collega. */
-  pair?: { wsUrl: string; macKey: string; device?: string }
+  /** Apre il flusso di abbinamento con un link `ladder://pair#…` (come un deep link). */
+  link?: string
+  /** Con `link`: password già inserita e collegamento automatico al passo del nome. */
+  password?: string
+  auto?: boolean
   sheet?: DevSheet
   /** Scorre la chat aperta a questa distanza dal fondo (px). */
   scroll?: number
@@ -81,12 +88,20 @@ function act(a: NonNullable<Cmd['act']>) {
 }
 
 function run(cmd: Cmd) {
+  if (cmd.target && cmd.target !== Platform.OS) return
   if (cmd.act) act(cmd.act)
   if (cmd.scroll !== undefined) useDev.getState().scrollChat?.(cmd.scroll)
   const prefs = usePrefs.getState()
   if (cmd.reset) void disconnect()
   if (cmd.demo) startDemo()
-  if (cmd.pair) void startRemote({ wsUrl: cmd.pair.wsUrl, macKey: cmd.pair.macKey, device: cmd.pair.device ?? 'Simulator' })
+  if (cmd.link) {
+    // Equivale ad aprire il link: lo legge e va alla conferma (la vera apertura da deep link si prova con simctl/adb).
+    const r = readPairingLink(cmd.link, Date.now(), { allowDirect: true })
+    if (r.ok) {
+      usePairFlow.getState().set({ payload: r.payload, password: cmd.password ?? '', confirmed: !!cmd.auto, deviceName: '', failure: null, autoConnect: !!cmd.auto })
+      router.replace('/pair/confirm')
+    }
+  }
   if (cmd.theme) prefs.setTheme({ choice: cmd.theme === 'mac' ? 'mac' : (cmd.theme as ThemeId), matchSystem: false })
   if (cmd.system) prefs.setTheme({ matchSystem: true, lightTheme: cmd.system.light as ThemeId, darkTheme: cmd.system.dark as ThemeId })
   if (cmd.lang) {

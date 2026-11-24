@@ -122,7 +122,15 @@ export default function SessionScreen() {
         </View>
       ) : null}
       <ChatList sessionId={id} onTurn={setTurn} bottomInset={insets.bottom} />
-      <Composer sessionId={id} request={pinned} onReview={setReviewing} />
+      {session.archived ? (
+        <View style={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: Math.max(insets.bottom, 14), borderTopWidth: 1, borderTopColor: c.border }}>
+          <Text variant="body" tone="muted" style={{ textAlign: 'center' }}>
+            {t('Archived on your Mac. You can read it here.')}
+          </Text>
+        </View>
+      ) : (
+        <Composer sessionId={id} request={pinned} onReview={setReviewing} />
+      )}
       <TurnSheet turn={turn} onClose={() => setTurn(null)} />
       <SwitchSheet sessionId={id} visible={switching} onClose={() => setSwitching(false)} />
       <PermissionSheet sessionId={id} visible={permission} onClose={() => setPermission(false)} />

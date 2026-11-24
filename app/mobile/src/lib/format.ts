@@ -20,6 +20,7 @@ export function stateLabel(state: SessionState): string {
 }
 
 export function relativeAge(at: number, now = Date.now()): string {
+  if (!Number.isFinite(at)) return ''
   const minutes = Math.round((now - at) / 60000)
   if (minutes < 1) return t('now')
   if (minutes < 60) return t('{n} min', { n: minutes })

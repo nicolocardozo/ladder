@@ -3,7 +3,7 @@
 // Endpoint: `<relay>/v1/<id>?role=mac|phone` (WebSocket). `id` = base64url(sha256(chiave pubblica Ed25519 del Mac))[0..32].
 //
 // Telefono: i messaggi binari sono messaggi Noise passati tali e quali (nessuna busta); quelli di testo sono controlli del relay
-//   {"t":"mac","online":true} | {"t":"mac","online":false,"since":<ms|null>,"reason":"offline|asleep|quit|unknown"}.
+//   {"t":"mac","online":true} | {"t":"mac","online":false,"since":<ms|null>,"reason":"offline|asleep|quit|rekeyed|unknown"}.
 //   Ogni `online:true` è un collegamento nuovo con il Mac: l'handshake Noise riparte da capo.
 //   Il testo "ping" riceve "pong" dal relay (tiene viva la connessione senza svegliarlo).
 //
@@ -11,7 +11,8 @@
 //   relay→Mac  {"t":"challenge","nonce":"<b64url>"}   all'apertura
 //   Mac→relay  {"t":"auth","key":"<b64url Ed25519>","sig":"<b64url>"}   firma di authPayload(origin, id, nonce)
 //   relay→Mac  {"t":"ready","maxPhones":n}
-//   Mac→relay  {"t":"state","state":"asleep|quit|awake"}   asleep/quit: il relay chiude il socket e ricorda il motivo
+//   Mac→relay  {"t":"state","state":"asleep|quit|rekeyed|awake"}   asleep/quit/rekeyed: il relay chiude il socket e ricorda il motivo
+//     (rekeyed = il Mac ha rigenerato la chiave: da questo id non tornerà, e il motivo resta finché il relay ricorda l'id)
 // I messaggi binari sono frame: [tipo u8][connId u32 BE][payload].
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { sha256 } from '@noble/hashes/sha2.js'
@@ -54,7 +55,7 @@ export const RELAY_CLOSE = {
   tooBig: 4009
 } as const
 
-export type MacLiveState = 'asleep' | 'quit' | 'awake'
+export type MacLiveState = 'asleep' | 'quit' | 'rekeyed' | 'awake'
 
 export type RelayToMac = { t: 'challenge'; nonce: string } | { t: 'ready'; maxPhones: number }
 export type MacToRelay = { t: 'auth'; key: string; sig: string } | { t: 'state'; state: MacLiveState }

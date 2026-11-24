@@ -62,7 +62,9 @@ export class FakeHost {
       sessions: [...this.sessions.values()].filter((s) => !s.archived).map((s) => structuredClone(s)),
       ui: structuredClone(this.fixture.ui),
       projectGroups: structuredClone(this.fixture.projectGroups),
-      agents: structuredClone(this.fixture.agents)
+      agents: structuredClone(this.fixture.agents),
+      permissionsMax: Object.fromEntries(this.fixture.projects.map((p) => [p.id, this.fixture.permissionMax[p.id] ?? null])),
+      prefs: { busySend: 'queue', allowFull: true }
     }
   }
 
@@ -112,11 +114,25 @@ export class FakeHost {
         return this.deliver(command.sessionId, command.id, command.how)
       case 'session.permission.set':
         return this.setPermission(command.sessionId, command.permission)
+      case 'project.sessions.archived':
+        return this.archived(command.projectId, command.before, command.limit)
+      case 'device.push.set':
+        return null
       case 'subagent.list':
         return structuredClone(this.fixture.subagents[command.sessionId] ?? ([] as SubagentInfo[]))
       default:
         throw new Error('Not available.')
     }
+  }
+
+  /** Sessioni archiviate di un progetto, dalla più recente per `updatedAt`; meno di `limit` risultati = finite. */
+  private archived(projectId: string, before?: number, limit = 30) {
+    if (!this.fixture.projects.some((p) => p.id === projectId)) throw new Error('Project not found.')
+    return [...this.sessions.values()]
+      .filter((s) => s.archived && s.projectId === projectId && (before === undefined || s.updatedAt < before))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, Math.min(limit, 100))
+      .map((s) => structuredClone(s))
   }
 
   // ── Stato ──

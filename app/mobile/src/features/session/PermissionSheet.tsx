@@ -29,7 +29,8 @@ const levelHelp = (level: PermissionLevel): string =>
 export function PermissionSheet({ sessionId, visible, onClose }: { sessionId: string; visible: boolean; onClose: () => void }) {
   const { c } = useTheme()
   const session = useApp((s) => s.sessions[sessionId])
-  const max = useApp((s) => (session ? s.permissionMax[session.projectId] : undefined)) ?? null
+  const max = useApp((s) => (session ? s.permissionsMax[session.projectId] : undefined)) ?? null
+  const allowFull = useApp((s) => s.prefs.allowFull)
   const online = useApp((s) => canAct(s.conn))
   const [confirmFull, setConfirmFull] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -84,7 +85,10 @@ export function PermissionSheet({ sessionId, visible, onClose }: { sessionId: st
     <Sheet visible={visible} onClose={onClose} title={t('Permission')}>
       <View style={{ paddingHorizontal: 16, gap: 8 }}>
         {PERMISSION_LEVELS.map((level) => {
-          const allowed = allowedLevel(level, max)
+          const aboveMax = !allowedLevel(level, max)
+          // Full può essere spento dal Mac ("Allow Full access from phone"), a prescindere dal tetto del progetto.
+          const fullOff = level === 'full' && !allowFull
+          const allowed = !aboveMax && !fullOff
           const current = session.permission === level
           const pending = session.permissionNext === level
           return (
@@ -99,7 +103,7 @@ export function PermissionSheet({ sessionId, visible, onClose }: { sessionId: st
               <View style={{ flex: 1, gap: 2 }}>
                 <Text variant="title">{levelName(level)}</Text>
                 <Text variant="caption" tone="muted">
-                  {allowed ? levelHelp(level) : t('Above this project’s maximum ({max}).', { max: levelName(max!) })}
+                  {aboveMax ? t('Above this project’s maximum ({max}).', { max: levelName(max!) }) : fullOff ? t('Turned off on your Mac.') : levelHelp(level)}
                 </Text>
                 {pending ? (
                   <Text variant="caption" tone="accent">

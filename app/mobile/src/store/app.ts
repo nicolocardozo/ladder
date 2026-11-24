@@ -1,8 +1,8 @@
 // Dati del Mac sul telefono: progetti, sessioni, chat. Stesso stile del desktop (zustand), alimentati dagli eventi del canale
 // (reale o demo). Lo stato della connessione e le azioni stanno in src/host.
 import { create } from 'zustand'
-import type { AgentStatus, ChatItem, PermissionLevel, Project, ProjectGroupsState, RemoteEvent, RemoteSnapshot, SessionSummary, SubagentInfo } from '@shared/protocol'
-import { applyItemsEvent, mergeById } from '@/lib/items'
+import type { AgentStatus, ChatItem, PermissionLevel, Project, ProjectGroupsState, RemoteEvent, RemotePrefs, RemoteSnapshot, SessionSummary, SubagentInfo } from '@shared/protocol'
+import { applyItemsEvent, mergeById, mergeSnapshotSessions } from '@/lib/items'
 import type { ConnState } from '@/remote/client'
 
 export type Mode = 'none' | 'demo' | 'remote'
@@ -19,8 +19,10 @@ export interface AppState {
   ui: RemoteSnapshot['ui']
   projectGroups: ProjectGroupsState | null
   agents: AgentStatus[]
-  /** Massimo di permesso per progetto (oggi solo nella demo; vedi report). */
-  permissionMax: Record<string, PermissionLevel>
+  /** Tetto di permesso per progetto (null = nessun tetto), dallo snapshot. */
+  permissionsMax: Record<string, PermissionLevel | null>
+  /** Preferenze del Mac che il telefono rispecchia: cosa fa l'invio a sessione al lavoro, e se Full è permesso dal telefono. */
+  prefs: RemotePrefs
   items: Record<string, ChatItem[]>
   hasMore: Record<string, boolean>
   /** La pagina iniziale della sessione è arrivata (la chat si può mostrare). */
@@ -32,10 +34,12 @@ export interface AppState {
   applySnapshot: (snapshot: RemoteSnapshot) => void
   applyEvent: (event: RemoteEvent) => void
   mergeItems: (sessionId: string, items: ChatItem[], opts: { replace?: boolean; hasMore?: boolean }) => void
-  setPermissionMax: (max: Record<string, PermissionLevel>) => void
+  setAllowFull: (allowFull: boolean) => void
+  /** Sessioni archiviate lette dalla schermata del progetto: restano in `sessions` (con archived: true) per poterle aprire. */
+  addArchived: (sessions: SessionSummary[]) => void
   /** Svuota i dati del Mac (uscita dalla demo, scollegamento). */
   reset: () => void
-  restore: (data: Partial<Pick<AppState, 'projects' | 'sessions' | 'ui' | 'projectGroups' | 'agents' | 'items' | 'macName' | 'macTheme' | 'hasMore'>>) => void
+  restore: (data: Partial<Pick<AppState, 'projects' | 'sessions' | 'ui' | 'projectGroups' | 'agents' | 'items' | 'macName' | 'macTheme' | 'hasMore' | 'permissionsMax' | 'prefs'>>) => void
 }
 
 const empty = {
@@ -44,7 +48,8 @@ const empty = {
   ui: {} as RemoteSnapshot['ui'],
   projectGroups: null as ProjectGroupsState | null,
   agents: [] as AgentStatus[],
-  permissionMax: {} as Record<string, PermissionLevel>,
+  permissionsMax: {} as Record<string, PermissionLevel | null>,
+  prefs: { busySend: 'queue', allowFull: true } as RemotePrefs,
   items: {} as Record<string, ChatItem[]>,
   hasMore: {} as Record<string, boolean>,
   loaded: {} as Record<string, boolean>,
@@ -52,15 +57,16 @@ const empty = {
 }
 
 /** Parte dello stato che dipende da uno snapshot (all'`hello` e come evento): sessioni sparite = chat in memoria via. */
-function snapshotPatch(snap: RemoteSnapshot, items: Record<string, ChatItem[]>) {
-  const sessions: Record<string, SessionSummary> = {}
-  for (const x of snap.sessions) sessions[x.id] = x
+function snapshotPatch(snap: RemoteSnapshot, previous: Record<string, SessionSummary>, items: Record<string, ChatItem[]>) {
+  const sessions = mergeSnapshotSessions(previous, snap.sessions, snap.projects.map((p) => p.id))
   return {
     projects: snap.projects,
     sessions,
     ui: snap.ui,
     projectGroups: snap.projectGroups ?? null,
     agents: snap.agents,
+    permissionsMax: snap.permissionsMax ?? {},
+    prefs: snap.prefs ?? { busySend: 'queue', allowFull: true },
     items: Object.fromEntries(Object.entries(items).filter(([id]) => sessions[id]))
   }
 }
@@ -75,12 +81,14 @@ export const useApp = create<AppState>((set) => ({
   setMode: (mode) => set({ mode }),
   setConn: (conn) => set({ conn }),
   setMac: (macName, macTheme) => set((s) => ({ macName, macTheme: macTheme === undefined ? s.macTheme : macTheme })),
-  applySnapshot: (snap) => set((s) => snapshotPatch(snap, s.items)),
+  applySnapshot: (snap) => set((s) => snapshotPatch(snap, s.sessions, s.items)),
   applyEvent: (event) =>
     set((s) => {
       switch (event.type) {
         case 'snapshot':
-          return snapshotPatch(event, s.items)
+          return snapshotPatch(event, s.sessions, s.items)
+        case 'remote.prefs':
+          return { prefs: event.prefs }
         case 'session.upsert': {
           const sessions = { ...s.sessions }
           if (event.session.archived) delete sessions[event.session.id]
@@ -124,7 +132,13 @@ export const useApp = create<AppState>((set) => ({
       ...(hasMore === undefined ? {} : { hasMore: { ...s.hasMore, [sessionId]: hasMore } }),
       loaded: { ...s.loaded, [sessionId]: true }
     })),
-  setPermissionMax: (permissionMax) => set({ permissionMax }),
+  setAllowFull: (allowFull) => set((s) => ({ prefs: { ...s.prefs, allowFull } })),
+  addArchived: (list) =>
+    set((s) => {
+      const sessions = { ...s.sessions }
+      for (const x of list) if (!sessions[x.id] || sessions[x.id].archived) sessions[x.id] = x
+      return { sessions }
+    }),
   reset: () => set({ ...empty, macName: null, macTheme: null }),
   restore: (data) => set((s) => ({ ...s, ...data, loaded: s.loaded }))
 }))

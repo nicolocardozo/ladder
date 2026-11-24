@@ -1883,8 +1883,11 @@ export const REMOTE_MAX_COMMAND = 1024 * 1024
 /** Relay predefinito di Ladder, usato quando HostPrefs.remote.relayUrl è null. Segnaposto: l'indirizzo vero si conferma prima del rilascio. */
 export const REMOTE_DEFAULT_RELAY_URL = 'wss://relay.ladder.app'
 
-/** Perché il Mac non è raggiungibile, per quanto il relay ne sa (arriva al telefono con lo stato del Mac). */
-export type RemoteOfflineReason = 'offline' | 'asleep' | 'quit' | 'unknown'
+/**
+ * Perché il Mac non è raggiungibile, per quanto il relay ne sa (arriva al telefono con lo stato del Mac).
+ * 'rekeyed': il Mac ha rigenerato la sua chiave ("Regenerate key") e da questo id non tornerà mai più: il telefono deve abbinarsi di nuovo.
+ */
+export type RemoteOfflineReason = 'offline' | 'asleep' | 'quit' | 'rekeyed' | 'unknown'
 
 /** Stato del Mac visto dal telefono attraverso il relay. `since` = ultima volta che il relay ha visto il Mac (ms), null se mai. */
 export type RemoteMacStatus = { online: true } | { online: false; since: number | null; reason: RemoteOfflineReason }

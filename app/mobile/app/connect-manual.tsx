@@ -1,62 +1,61 @@
-// Abbinamento manuale di sviluppo (fino a LAD-51): indirizzo WebSocket del server locale dell'host, chiave pubblica del Mac
-// (remote-identity.json, campo publicKey) e nome del dispositivo, salvati nel portachiavi. Raggiungibile solo nelle build di sviluppo.
+// Solo sviluppo: incolla un link di abbinamento (`ladder://pair#…`, lo stampa remote-host-harness) e prosegue con lo stesso
+// percorso del QR (conferma → password → nome → connessione). Raggiungibile solo nelle build di sviluppo.
 import { Redirect, useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Platform, ScrollView, TextInput, View } from 'react-native'
+import { ScrollView, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '@shared/i18n'
-import { startRemote } from '@/host/controller'
-import { isValidPairing } from '@/lib/pairing-url'
-import { defaultDeviceName, savePairing } from '@/store/pairing'
+import { readPairingLink } from '@/lib/pair-link'
+import { usePairFlow } from '@/store/pair-flow'
 import { useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
 import { Button } from '@/ui/Button'
 import { ScreenHeader } from '@/ui/ScreenHeader'
 import { Text } from '@/ui/Text'
+import { linkErrorText } from '@/ui/auth-text'
 
 export default function ConnectManual() {
   const { c } = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const [url, setUrl] = useState('ws://127.0.0.1:7777')
-  const [key, setKey] = useState('')
-  const [device, setDevice] = useState(defaultDeviceName())
-  const valid = isValidPairing({ wsUrl: url, macKey: key })
-  const field = { minHeight: 52, borderRadius: RADIUS.lg, backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, fontSize: 15 }
-  const connect = async () => {
-    if (!valid) return
-    const pairing = { wsUrl: url.trim(), macKey: key.trim(), device: device.trim() || defaultDeviceName() }
-    await savePairing(pairing)
-    void startRemote(pairing)
-    router.replace('/')
-  }
+  const set = usePairFlow((s) => s.set)
+  const [link, setLink] = useState('')
+  const [error, setError] = useState<string | null>(null)
   // Solo sviluppo: in produzione un link diretto non deve poter aprire questa schermata.
   if (!__DEV__) return <Redirect href="/welcome" />
+  const go = () => {
+    const result = readPairingLink(link, Date.now(), { allowDirect: true })
+    if (!result.ok) return setError(linkErrorText(result.reason))
+    set({ payload: result.payload, password: '', confirmed: false, failure: null })
+    router.push('/pair/confirm')
+  }
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       <ScreenHeader title={t('Connect manually')} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled">
         <Text variant="body" tone="muted">
-          {t('Development only. Start Ladder with LADDER_REMOTE_PORT set, then enter the address and the Mac public key from remote-identity.json.')}
+          {t('Development only. Paste the pairing link that remote-host-harness prints. It continues like a scanned code.')}
         </Text>
-        <Text variant="label" tone="muted">
-          {t('WebSocket address')}
-        </Text>
-        <TextInput value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={field} placeholderTextColor={c.textMuted} accessibilityLabel={t('WebSocket address')} />
-        {Platform.OS === 'android' ? (
-          <Text variant="caption" tone="muted">
-            {t('On the Android emulator 127.0.0.1 is mapped to 10.0.2.2 automatically.')}
+        <TextInput
+          value={link}
+          onChangeText={(v) => {
+            setLink(v)
+            setError(null)
+          }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          multiline
+          placeholder="ladder://pair#…"
+          placeholderTextColor={c.textMuted}
+          accessibilityLabel={t('Pairing link')}
+          style={{ minHeight: 120, borderRadius: RADIUS.lg, backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 14, fontFamily: 'MonaspaceNeon-Regular', fontSize: 13 }}
+        />
+        {error ? (
+          <Text variant="body" tone="error">
+            {error}
           </Text>
         ) : null}
-        <Text variant="label" tone="muted">
-          {t('Mac public key (base64url)')}
-        </Text>
-        <TextInput value={key} onChangeText={setKey} autoCapitalize="none" autoCorrect={false} multiline style={{ ...field, fontFamily: 'MonaspaceNeon-Regular', fontSize: 13, paddingTop: 14 }} placeholderTextColor={c.textMuted} accessibilityLabel={t('Mac public key')} />
-        <Text variant="label" tone="muted">
-          {t('Device name')}
-        </Text>
-        <TextInput value={device} onChangeText={setDevice} autoCorrect={false} style={field} placeholderTextColor={c.textMuted} accessibilityLabel={t('Device name')} />
-        <Button label={t('Connect')} variant="primary" disabled={!valid} onPress={connect} style={{ marginTop: 8 }} />
+        <Button label={t('Continue')} variant="primary" disabled={link.trim().length === 0} onPress={go} />
       </ScrollView>
     </View>
   )
