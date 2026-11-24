@@ -115,7 +115,8 @@ process.stdin.on('data', (data) => {
     access.cancelPairing()
     access.revokeAll()
     gateway.disconnectAll()
-    void (client?.stop() ?? Promise.resolve()).then(() => {
+    // Come ChannelHost.regenerateKey: il relay ricorda sul vecchio id che la chiave è cambiata ('rekeyed'), al meglio.
+    void (client ? Promise.race([client.setMacState('rekeyed'), new Promise<void>((r) => setTimeout(r, 1_500))]).then(() => client!.stop()) : Promise.resolve()).then(() => {
       identity = regenerateIdentity(dataDir)
       key = regenerateRelayKey(dataDir)
       gateway.setIdentity(identity)

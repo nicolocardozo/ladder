@@ -127,6 +127,23 @@ describe('relay', () => {
     phone.close()
   })
 
+  it('rekeyed: il motivo resta sul vecchio id, per chi si collega dopo', async () => {
+    const key = newMacKey()
+    const mac = await connectMac(dev, key)
+    await ready(mac)
+    const phone = await connectPhone(dev, key.id)
+    await status(phone)
+    mac.ws.send(JSON.stringify({ t: 'state', state: 'rekeyed' }))
+    const off = await phone.nextJson<Extract<RelayToPhone, { online: false }>>((m) => m.t === 'mac' && !m.online)
+    assert.equal(off.reason, 'rekeyed')
+    assert.ok(off.since)
+    phone.close()
+    // Un telefono che arriva più tardi, a Mac già sparito, lo sa lo stesso.
+    const late = await connectPhone(dev, key.id)
+    assert.deepEqual(await status(late), { t: 'mac', online: false, since: off.since, reason: 'rekeyed' })
+    late.close()
+  })
+
   it('un Mac autenticato prende il posto del precedente senza far scattare "offline"', async () => {
     const key = newMacKey()
     const first = await connectMac(dev, key)

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { ChatItem } from '../../../desktop/src/shared/protocol.ts'
+import type { ChatItem, SessionSummary } from '../../../desktop/src/shared/protocol.ts'
 import { reasonKind } from './connection.ts'
-import { applyItemsEvent, mergeById, PAGE_SIZE } from './items.ts'
+import { applyItemsEvent, mergeById, mergeSnapshotSessions, PAGE_SIZE } from './items.ts'
 
 const item = (seq: number, text = String(seq)): ChatItem => ({ id: `i${seq}`, turnId: 't', seq, at: seq, kind: 'assistant', text, streaming: false })
 
@@ -41,4 +41,17 @@ test('reasonKind riconosce le categorie e nasconde il resto', () => {
   assert.equal(reasonKind('Noise: decrypt failed'), 'secure')
   assert.equal(reasonKind(undefined), null)
   assert.equal(reasonKind('boh'), null)
+})
+
+const session = (id: string, projectId: string, archived = false): SessionSummary => ({ id, projectId, archived }) as unknown as SessionSummary
+
+test('un nuovo snapshot non butta le archiviate già lette', () => {
+  const prev = { a1: session('a1', 'p1', true), a2: session('a2', 'gone', true), s1: session('s1', 'p1') }
+  const merged = mergeSnapshotSessions(prev, [session('s2', 'p1'), session('a1', 'p1', false)], ['p1'])
+  // s1 non è più nello snapshot (archiviata o sparita senza che la leggiamo): via. a2 è di un progetto sparito: via.
+  // a1 lo snapshot lo dà attivo: vince lo snapshot.
+  assert.deepEqual(Object.keys(merged).sort(), ['a1', 's2'])
+  assert.equal(merged.a1.archived, false)
+  const kept = mergeSnapshotSessions({ a3: session('a3', 'p1', true) }, [session('s2', 'p1')], ['p1'])
+  assert.deepEqual(Object.keys(kept).sort(), ['a3', 's2'])
 })

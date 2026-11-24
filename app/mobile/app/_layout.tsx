@@ -1,5 +1,5 @@
 import { useFonts } from 'expo-font'
-import { Stack } from 'expo-router'
+import { Stack, useRootNavigationState, useRouter } from 'expo-router'
 import * as NavigationBar from 'expo-navigation-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
@@ -79,7 +79,14 @@ function Shell() {
     applyLocale(language)
   }, [language])
   // Da 600 pt in su la Home resta fissa a sinistra; sotto, è la prima schermata della pila.
-  const docked = width >= WIDE && mode !== 'none'
+  const kind = useApp((s) => s.conn.kind)
+  const router = useRouter()
+  const navReady = !!useRootNavigationState()?.key
+  // Il Mac ha tolto questo telefono, o la sua chiave è cambiata: da qualunque schermata si va a spiegarlo.
+  useEffect(() => {
+    if (navReady && (kind === 'revoked' || kind === 'key-changed')) router.replace('/disconnected')
+  }, [kind, navReady, router])
+  const docked = width >= WIDE && mode !== 'none' && kind !== 'key-changed'
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: c.background }}>
       <Chrome />

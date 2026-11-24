@@ -14,7 +14,7 @@ export function sessionState(s: SessionSummary): SessionState {
   if ((s.subagentCounts?.running ?? 0) > 0) return 'running'
   const notice = s.agentsNotice
   if (s.unread || (notice && notice.finished + notice.failed > 0)) return 'unread'
-  if (s.queue.length > 0) return 'queued'
+  if ((s.queue?.length ?? 0) > 0) return 'queued'
   return 'idle'
 }
 

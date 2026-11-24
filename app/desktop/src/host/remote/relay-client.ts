@@ -157,8 +157,8 @@ export class RelayClient {
   }
 
   /**
-   * Avvisa il relay di cosa sta per succedere al Mac (i telefoni lo vedono come stato): 'asleep' e 'quit' chiudono il collegamento
-   * e sospendono la riconnessione, 'awake' la riprende subito. Chi chiama (LAD-54) la collega a powerMonitor e all'uscita dell'app.
+   * Avvisa il relay di cosa sta per succedere al Mac (i telefoni lo vedono come stato): 'asleep', 'quit' e 'rekeyed' (la chiave sta per
+   * essere rigenerata: da questo id il Mac non tornerà) chiudono il collegamento e sospendono la riconnessione, 'awake' la riprende subito. Chi chiama (LAD-54) la collega a powerMonitor e all'uscita dell'app.
    */
   async setMacState(state: MacLiveState): Promise<void> {
     if (!this.started) return

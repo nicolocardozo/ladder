@@ -40,6 +40,7 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
   const insets = useSafeAreaInsets()
   const kb = useKeyboardOpen()
   const session = useApp((s) => s.sessions[sessionId])
+  const queue = session.queue ?? []
   const online = useApp((s) => canAct(s.conn))
   const draft = usePrefs((s) => s.drafts[sessionId] ?? '')
   const setDraft = usePrefs((s) => s.setDraft)
@@ -55,6 +56,11 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
   const answering = !!request
   const showStop = working && empty && !answering
   const canSteer = session.canSteer
+  // Cosa fa il tasto è la preferenza del Mac (RemotePrefs.busySend); la pressione lunga fa l'altra azione. Un agente che non
+  // accetta messaggi nel turno accoda sempre.
+  const prefersSteer = useApp((s) => s.prefs.busySend) === 'steer' && canSteer
+  const tapHow: 'queue' | 'steer' = prefersSteer ? 'steer' : 'queue'
+  const holdHow: 'queue' | 'steer' = prefersSteer ? 'queue' : 'steer'
   const disabled = !online
 
   // Se l'invio fallisce il testo torna nel campo, purché nel frattempo non se ne sia scritto altro.
@@ -77,16 +83,16 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
   }
   const onLongPress = () => {
     if (empty || disabled || answering || !working) return
-    if (!canSteer) {
+    if (holdHow === 'steer' && !canSteer) {
       useToast.getState().show(t('This agent can’t take messages while it works.'))
       return
     }
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    void send('steer')
+    void send(holdHow)
   }
 
   const sub = request ? subjectOf(request) : null
-  const placeholder = answering ? t('Tell the agent what to do instead') : working ? t('Message to queue') : t('Message')
+  const placeholder = answering ? t('Tell the agent what to do instead') : working ? (prefersSteer ? t('Message to the running turn') : t('Message to queue')) : t('Message')
   const bottomPad = kb ? 8 : Math.max(insets.bottom, 8)
 
   return (
@@ -103,9 +109,9 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
           {sub ? <CodeBlock text={sub.text} lines={1} /> : null}
         </View>
       ) : null}
-      {session.queue.length > 0 ? (
+      {queue.length > 0 ? (
         <ScrollView style={{ maxHeight: 148, marginTop: 8 }} keyboardShouldPersistTaps="handled">
-          {session.queue.map((q) => (
+          {queue.map((q) => (
             <QueueRow
               key={q.id}
               item={q}
@@ -115,10 +121,10 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
               onCommit={(value) => {
                 setEditing(null)
                 const next = value.trim()
-                const queue: QueuedMessage[] = session.queue.flatMap((m) => (m.id !== q.id ? [m] : next ? [{ ...m, text: next }] : []))
-                void actions.queueSet(sessionId, queue)
+                const updated: QueuedMessage[] = queue.flatMap((m) => (m.id !== q.id ? [m] : next ? [{ ...m, text: next }] : []))
+                void actions.queueSet(sessionId, updated)
               }}
-              onRemove={() => void actions.queueSet(sessionId, session.queue.filter((m) => m.id !== q.id))}
+              onRemove={() => void actions.queueSet(sessionId, queue.filter((m) => m.id !== q.id))}
               onSendNow={() => void actions.queueDeliver(sessionId, q.id, canSteer ? 'steer' : 'now')}
             />
           ))}
@@ -142,13 +148,13 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
           </Pressable>
         ) : (
           <Pressable
-            onPress={() => void send('queue')}
+            onPress={() => void send(tapHow)}
             onLongPress={onLongPress}
             delayLongPress={380}
             disabled={empty || disabled}
             accessibilityRole="button"
-            accessibilityLabel={answering ? t('Deny with this message') : working ? t('Queue message') : t('Send')}
-            accessibilityHint={working && canSteer && !answering ? t('Hold to send into the running turn') : undefined}
+            accessibilityLabel={answering ? t('Deny with this message') : working ? (prefersSteer ? t('Send into the running turn') : t('Queue message')) : t('Send')}
+            accessibilityHint={working && canSteer && !answering ? (prefersSteer ? t('Hold to queue') : t('Hold to send into the running turn')) : undefined}
             style={({ pressed }) => ({ width: MIN_TOUCH, height: MIN_TOUCH, borderRadius: MIN_TOUCH / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: answering ? c.waiting : c.accent, opacity: empty || disabled ? 0.35 : pressed ? 0.85 : 1 })}
           >
             <Icon name="arrow-up" size={22} color={answering ? c.background : c.onAccent} strokeWidth={2.2} />
@@ -157,7 +163,7 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
       </View>
       {working && !empty && !answering && canSteer ? (
         <Text variant="caption" tone="muted" style={{ paddingHorizontal: 20, paddingTop: 6, textAlign: 'right' }}>
-          {t('Tap to queue · hold to send into the turn')}
+          {prefersSteer ? t('Tap to send into the turn · hold to queue') : t('Tap to queue · hold to send into the turn')}
         </Text>
       ) : null}
       {disabled ? (

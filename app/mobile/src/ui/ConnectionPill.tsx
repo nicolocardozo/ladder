@@ -39,7 +39,7 @@ export function useConnectionText(): { title: string; detail: string | null; ton
   // Rinfresca il "da quanto" ogni 15 s.
   const [, tick] = useState(0)
   useEffect(() => {
-    if (conn.kind !== 'unreachable' && conn.kind !== 'reconnecting') return
+    if (conn.kind !== 'unreachable' && conn.kind !== 'reconnecting' && conn.kind !== 'mac-offline') return
     const id = setInterval(() => tick((n) => n + 1), 15_000)
     return () => clearInterval(id)
   }, [conn.kind])
@@ -58,6 +58,20 @@ export function useConnectionText(): { title: string; detail: string | null; ton
       const why = reasonText(conn.reason)
       return { title: t('Mac unreachable'), detail: why ? t('For {time} · {reason}', { time: since, reason: why }) : t('For {time}', { time: since }), tone: 'bad' }
     }
+    case 'mac-offline': {
+      // Il relay sa perché il Mac non c'è (spento, in pausa, Ladder chiuso) e da quando.
+      const title =
+        conn.reason === 'asleep' ? t('Your Mac is asleep') : conn.reason === 'quit' ? t('Ladder is closed on your Mac') : conn.reason === 'offline' ? t('Your Mac is offline') : t('Mac unreachable')
+      return { title, detail: conn.since ? (Date.now() - conn.since < 15_000 ? t('Last seen just now') : t('Last seen {time} ago', { time: duration(Date.now() - conn.since) })) : null, tone: 'bad' }
+    }
+    case 'disabled':
+      return { title: t('Phone access is off'), detail: t('Turn on “Access from your phone” in Ladder on your Mac.'), tone: 'bad' }
+    case 'revoked':
+      return { title: t('Disconnected'), detail: t('This phone was disconnected from your Mac.'), tone: 'bad' }
+    case 'key-changed':
+      return { title: t('Mac key changed'), detail: t('Pair this phone with your Mac again.'), tone: 'bad' }
+    case 'denied':
+      return { title: t('Mac unreachable'), detail: null, tone: 'bad' }
   }
 }
 
@@ -87,7 +101,8 @@ export function ConnectionPill() {
   const conn = useApp((s) => s.conn)
   const mark =
     tone === 'ok' ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.success }} /> : tone === 'busy' ? <Ring color={c.textMuted} /> : <StateGlyph state="error" size={14} />
-  const label = tone === 'ok' ? title : detail ? `${title} · ${detail.split(' · ')[0]}` : title
+  // Solo "unreachable" aggiunge da quanto; gli altri titoli sono già lunghi, il resto sta nella schermata del Mac.
+  const label = conn.kind === 'unreachable' && detail ? `${title} · ${detail.split(' · ')[0]}` : title
   return (
     <Pressable
       onPress={() => router.push('/mac')}

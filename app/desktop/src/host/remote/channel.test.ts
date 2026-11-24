@@ -121,3 +121,17 @@ test('QR e rigenerazione in fila: il QR non nasce con la chiave vecchia', async 
     delete process.env.LADDER_REMOTE_PORT
   }
 })
+
+test('rigenerare la chiave non si blocca con il relay irraggiungibile (l\'avviso "rekeyed" è al meglio)', async () => {
+  delete process.env.LADDER_REMOTE_PORT
+  delete process.env.LADDER_RELAY_URL
+  const { channel } = setup()
+  // Porta chiusa: il client del relay non si collega mai, quindi l'avviso non può partire.
+  await channel.configure({ enabled: true, relayUrl: 'ws://127.0.0.1:1' })
+  const before = channel.status().fingerprint
+  const started = Date.now()
+  await channel.handleCommand({ type: 'remote.key.regenerate' })
+  assert.ok(Date.now() - started < 5_000)
+  assert.notEqual(channel.status().fingerprint, before)
+  await channel.close()
+})

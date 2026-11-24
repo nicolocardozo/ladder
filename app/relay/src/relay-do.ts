@@ -262,7 +262,7 @@ export class RelayDurableObject extends DurableObject<Env> {
       return
     }
     if (message.t === 'state' && att.authed) {
-      if (message.state === 'asleep' || message.state === 'quit') {
+      if (message.state === 'asleep' || message.state === 'quit' || message.state === 'rekeyed') {
         // Il Mac sta per sparire: lo si dice subito ai telefoni, senza aspettare che la connessione muoia.
         await this.macGone(ws, att, message.state)
         this.closeQuiet(ws, 1000, message.state)

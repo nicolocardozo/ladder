@@ -299,7 +299,17 @@ export function buildFixture(now = Date.now()): Fixture {
     c.end({ durationMs: 20_000 })
     add(base(id, pid, title, { activityAt: now - ago * MIN, updatedAt: now - ago * MIN }), c, ago * MIN)
   }
-  // Archiviata: non si vede.
+  // Archiviate: non sono nello snapshot, si leggono dalla schermata del progetto.
+  for (const [id, pid, title, days] of [
+    ['s15', 'p-web', 'Spike: Tailwind 4 migration', 12],
+    ['s16', 'p-web', 'Old payments table prototype', 40]
+  ] as const) {
+    const c = new Conv(id)
+    c.turn().user(title)
+    c.assistant('Archived experiment.', false, 3_000)
+    c.end({ durationMs: 30_000 })
+    add(base(id, pid, title, { archived: true, activityAt: now - days * 24 * 60 * MIN, updatedAt: now - days * 24 * 60 * MIN }), c, days * 24 * 60 * MIN)
+  }
   {
     const c = new Conv('s14')
     c.turn().user('Old experiment')

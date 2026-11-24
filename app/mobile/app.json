@@ -46,7 +46,9 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac."
+          "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac.",
+          "recordAudioAndroid": false,
+          "microphonePermission": false
         }
       ],
       [
@@ -60,6 +62,11 @@
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "44500324-7107-4791-b174-be05b5af0325"
+      }
     }
   }
 }
