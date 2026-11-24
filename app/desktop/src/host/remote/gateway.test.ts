@@ -4,12 +4,15 @@ import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import type { ChatItem, FromRemoteHost, HostEvent, ToRemoteHost } from '../../shared/protocol.ts'
+import type { ChatItem, FromRemoteHost, HostEvent, RemoteAuthResult, RemoteLogEntry, ToRemoteHost } from '../../shared/protocol.ts'
 import { generateKeyPair } from '../../shared/remote/noise.ts'
+import { generateDeviceKey, signChannelBinding, toBase64Url, type DeviceKeyPair } from '../../shared/remote/pairing.ts'
 import { clientHandshake, type RemoteSession } from '../../shared/remote/session.ts'
+import { openDb } from '../db.ts'
+import { FAILURE_LIMIT, LOG_MAX_ENTRIES, RemoteAccess } from './access.ts'
 import { isRemoteCommandType, parseRemoteMessage } from './allowlist.ts'
-import { MAX_CONNECTIONS, MAX_WATCHED, RATE_BURST, RemoteGateway, toRemoteSnapshot, type RemoteHostApi, type RemoteLink } from './gateway.ts'
-import { IDENTITY_FILE, loadOrCreateIdentity, toBase64Url } from './identity.ts'
+import { MAX_CONNECTIONS, MAX_UNAUTHENTICATED, MAX_WATCHED, RATE_BURST, RemoteGateway, toRemoteSnapshot, type RemoteHostApi, type RemoteLink } from './gateway.ts'
+import { IDENTITY_FILE, loadOrCreateIdentity } from './identity.ts'
 
 interface End {
   bytes: ((b: Uint8Array) => void) | null
@@ -76,16 +79,57 @@ function fakeHost() {
   return { host, calls, closed }
 }
 
-async function connect(options: { host?: RemoteHostApi; helloV?: number; idleTimeoutMs?: number } = {}) {
+function newAccess(options: ConstructorParameters<typeof RemoteAccess>[1] = {}): RemoteAccess {
+  const access = new RemoteAccess(openDb(':memory:'), options)
+  access.enabled = true
+  return access
+}
+
+const route = (mac: { publicKey: Uint8Array }) => ({ macName: 'Test Mac', key: mac.publicKey, ws: 'ws://127.0.0.1:1' })
+
+/** Gateway + Mac + database in memoria: più connessioni possono condividerli. */
+function setup(options: { host?: RemoteHostApi; idleTimeoutMs?: number; access?: RemoteAccess; log?: RemoteLogEntry[] } = {}) {
   const mac = generateKeyPair()
   const fake = fakeHost()
-  const gateway = new RemoteGateway({ host: options.host ?? fake.host, identity: mac, macName: 'Test Mac', appVersion: '9.9.9', idleTimeoutMs: options.idleTimeoutMs })
+  const access = options.access ?? newAccess()
+  const gateway = new RemoteGateway({
+    host: options.host ?? fake.host,
+    identity: mac,
+    access,
+    macName: 'Test Mac',
+    appVersion: '9.9.9',
+    idleTimeoutMs: options.idleTimeoutMs,
+    onLog: options.log ? (entry) => options.log!.push(entry) : undefined
+  })
+  return { mac, fake, access, gateway }
+}
+
+type Env = ReturnType<typeof setup>
+
+interface ConnectOptions {
+  env?: Env
+  helloV?: number
+  /** false: ci si ferma dopo l'handshake, il primo messaggio lo manda il test. */
+  authenticate?: boolean
+  /** Dispositivo già abbinato: si manda `auth` invece di `pair`. */
+  device?: { key: DeviceKeyPair; id: string }
+  password?: string
+  token?: string
+  name?: string
+}
+
+async function connect(options: ConnectOptions & { idleTimeoutMs?: number; host?: RemoteHostApi } = {}) {
+  const env = options.env ?? setup({ host: options.host, idleTimeoutMs: options.idleTimeoutMs })
+  const { mac, gateway, fake, access } = env
   const { client, server } = linkPair()
   gateway.accept(server.link)
   const hs = clientHandshake({ macPublicKey: mac.publicKey, hello: { device: 'Phone', ...(options.helloV ? { v: options.helloV } : {}) } as { device: string } })
   const events: FromRemoteHost[] = []
+  const auths: RemoteAuthResult[] = []
   const waiters = new Map<string, (m: FromRemoteHost) => void>()
+  let authWaiter: ((r: RemoteAuthResult) => void) | null = null
   let session: RemoteSession | null = null
+  let closedByPeer = false
   const opened = new Promise<void>((resolve) => {
     client.link.onBytes((bytes) => {
       if (!session) {
@@ -98,20 +142,51 @@ async function connect(options: { host?: RemoteHostApi; helloV?: number; idleTim
       const message = session.open<FromRemoteHost>(bytes)
       if (!message) return
       if (message.kind === 'result') waiters.get(message.rid)?.(message)
-      else events.push(message)
+      else if (message.kind === 'auth') {
+        auths.push(message)
+        authWaiter?.(message)
+      } else events.push(message)
     })
+    client.link.onClose(() => (closedByPeer = true))
   })
   client.link.send(hs.start())
   await opened
+  const hash = () => session!.handshakeHash
+  const sendRaw = (message: unknown) => {
+    for (const m of session!.seal(message)) client.link.send(m)
+  }
+  const nextAuth = () => new Promise<RemoteAuthResult>((resolve) => (authWaiter = resolve))
+  /** Manda pair (codice nuovo o `token`) o auth e aspetta l'esito. */
+  const authenticate = async (extra: { token?: string; password?: string; device?: { key: DeviceKeyPair; id: string }; name?: string; key?: DeviceKeyPair } = {}) => {
+    const dev = extra.device ?? options.device
+    const result = nextAuth()
+    if (dev) sendRaw({ type: 'auth', deviceId: dev.id, sig: signChannelBinding(dev.key.secretKey, 'auth', hash()) })
+    else {
+      const key = extra.key ?? generateDeviceKey()
+      const token = extra.token ?? options.token ?? access.startPairing(route(mac)).payload.token
+      sendRaw({
+        type: 'pair',
+        token,
+        device: { publicKey: toBase64Url(key.publicKey), name: extra.name ?? options.name ?? 'Test iPhone', platform: 'ios' },
+        ...(extra.password ?? options.password ? { password: extra.password ?? options.password } : {}),
+        sig: signChannelBinding(key.secretKey, 'pair', hash())
+      })
+    }
+    return result
+  }
+  if (options.authenticate !== false) {
+    const result = await authenticate()
+    assert.equal(result.ok, true, JSON.stringify(result))
+  }
   let n = 0
   const call = (command: unknown, extra: Record<string, unknown> = {}) =>
     new Promise<FromRemoteHost>((resolve) => {
       const rid = `r${++n}`
       waiters.set(rid, resolve)
-      for (const m of session!.seal({ rid, command, ...extra })) client.link.send(m)
+      sendRaw({ rid, command, ...extra })
     })
   const flush = () => new Promise((r) => setTimeout(r, 10))
-  return { mac, gateway, fake, client, server, events, call, flush, session: () => session! }
+  return { mac, gateway, fake, access, client, server, events, auths, call, flush, sendRaw, authenticate, hash, closed: () => closedByPeer, session: () => session! }
 }
 
 test('hello: snapshot ridotto (niente bozze, terminali, scorciatoie, profili; della UI solo gruppi e seenAt)', async () => {
@@ -119,12 +194,13 @@ test('hello: snapshot ridotto (niente bozze, terminali, scorciatoie, profili; de
   const result = await c.call({ type: 'hello' })
   assert.equal(result.kind, 'result')
   const data = (result as { data: Record<string, unknown> }).data
-  assert.deepEqual(Object.keys(data).sort(), ['agents', 'projects', 'sessions', 'type', 'ui'])
+  assert.deepEqual(Object.keys(data).sort(), ['agents', 'permissionsMax', 'prefs', 'projects', 'sessions', 'type', 'ui'])
+  assert.deepEqual((data as { prefs: unknown }).prefs, { busySend: 'steer', allowFull: true })
   assert.deepEqual(data.ui, { p1: { groups: [{ id: 'g', name: 'G' }], groupOf: { s1: 'g' }, seenAt: 5 } })
   // Lo snapshot viaggia una volta sola, come risultato: nessun evento duplicato.
   await c.flush()
   assert.equal(c.events.filter((e) => e.kind === 'event' && e.event.type === 'snapshot').length, 0)
-  assert.deepEqual(toRemoteSnapshot(snapshotEvent), data)
+  assert.deepEqual(toRemoteSnapshot(snapshotEvent, { permissionsMax: {}, prefs: { busySend: 'steer', allowFull: true } }), data)
 })
 
 test('allowlist: comandi non ammessi respinti prima di Host.handle', async () => {
@@ -232,13 +308,33 @@ test('session.items con replace: true arriva ridotto all’ultima pagina', async
 })
 
 test('al massimo 8 connessioni contemporanee', async () => {
-  const gateway = new RemoteGateway({ host: fakeHost().host, identity: generateKeyPair(), macName: 'm', appVersion: '1' })
-  const pairs = Array.from({ length: MAX_CONNECTIONS + 1 }, () => linkPair())
-  for (const p of pairs) gateway.accept(p.server.link)
+  const env = setup()
+  for (let i = 0; i < MAX_CONNECTIONS; i++) await connect({ env })
+  const extra = linkPair()
+  env.gateway.accept(extra.server.link)
   await new Promise((r) => setTimeout(r, 10))
-  assert.equal(gateway.size, MAX_CONNECTIONS)
-  assert.equal(pairs[MAX_CONNECTIONS].server.closed, true)
-  gateway.close()
+  assert.equal(env.gateway.size, MAX_CONNECTIONS)
+  assert.equal(extra.server.closed, true)
+  env.gateway.close()
+})
+
+test('connessioni non autenticate: al massimo 4, a quella nuova fa posto la più vecchia', async () => {
+  const env = setup()
+  const pairs = Array.from({ length: MAX_UNAUTHENTICATED + 2 }, () => linkPair())
+  for (const p of pairs) env.gateway.accept(p.server.link)
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(env.gateway.size, MAX_UNAUTHENTICATED)
+  // Le due più vecchie sono state chiuse, le ultime restano.
+  assert.deepEqual(pairs.map((p) => p.server.closed), [true, true, false, false, false, false])
+  env.gateway.close()
+})
+
+test('connessioni piene: un telefono vero entra anche se chi occupa i posti non si autentica', async () => {
+  const env = setup()
+  for (let i = 0; i < MAX_UNAUTHENTICATED; i++) env.gateway.accept(linkPair().server.link)
+  const c = await connect({ env })
+  assert.ok(c.auths[0].ok)
+  env.gateway.close()
 })
 
 test('silenzio dopo l’handshake: connessione chiusa', async () => {
@@ -356,7 +452,7 @@ test('messaggio oltre REMOTE_MAX_MESSAGE: connessione chiusa', async () => {
 
 test('versione del protocollo diversa: connessione chiusa nell’handshake', async () => {
   const mac = generateKeyPair()
-  const gateway = new RemoteGateway({ host: fakeHost().host, identity: mac, macName: 'm', appVersion: '1' })
+  const gateway = new RemoteGateway({ host: fakeHost().host, identity: mac, access: newAccess(), macName: 'm', appVersion: '1' })
   const { client, server } = linkPair()
   gateway.accept(server.link)
   const hs = clientHandshake({ macPublicKey: mac.publicKey, hello: { device: 'p', v: 99 } as { device: string } })
@@ -367,7 +463,7 @@ test('versione del protocollo diversa: connessione chiusa nell’handshake', asy
 })
 
 test('handshake con la chiave sbagliata o spazzatura: connessione chiusa', async () => {
-  const gateway = new RemoteGateway({ host: fakeHost().host, identity: generateKeyPair(), macName: 'm', appVersion: '1' })
+  const gateway = new RemoteGateway({ host: fakeHost().host, identity: generateKeyPair(), access: newAccess(), macName: 'm', appVersion: '1' })
   const { client, server } = linkPair()
   gateway.accept(server.link)
   client.link.send(clientHandshake({ macPublicKey: generateKeyPair().publicKey, hello: { device: 'p' } }).start())
@@ -411,3 +507,422 @@ test('identità: file illeggibile → errore generico, senza pezzi del contenuto
 // Il tipo del messaggio che il client manda è quello del contratto.
 const _check: ToRemoteHost = { rid: 'x', command: { type: 'session.page', sessionId: 's' } }
 void _check
+
+// ── LAD-51: autenticazione dei dispositivi ───────────────────────────────────
+
+const expectClosed = async (c: { flush: () => Promise<unknown>; closed: () => boolean; server: End }) => {
+  await c.flush()
+  assert.equal(c.server.closed, true)
+}
+
+test('abbinamento: il telefono entra, compare nell’elenco, vede le sessioni', async () => {
+  const c = await connect({ name: 'Zoë’s iPhone' })
+  const auth = c.auths[0]
+  assert.ok(auth.ok)
+  assert.equal(auth.name, 'Zoë’s iPhone')
+  assert.equal(auth.allowFull, true)
+  const devices = c.access.devices()
+  assert.equal(devices.length, 1)
+  assert.equal(devices[0].id, auth.deviceId)
+  assert.equal(devices[0].platform, 'ios')
+  assert.deepEqual([...c.gateway.connectedDevices()], [auth.deviceId])
+  const hello = await c.call({ type: 'hello' })
+  assert.ok(hello.kind === 'result' && hello.ok)
+  // Il codice è monouso: lo stato non ne ha più uno.
+  assert.equal(c.access.pairing(), null)
+})
+
+test('comandi prima dell’autenticazione: respinti e connessione chiusa', async () => {
+  for (const first of [{ rid: 'a', command: { type: 'hello' } }, { type: 'pair' }, { type: 'auth' }, 'x', { type: 'pair', token: 5 }]) {
+    const c = await connect({ authenticate: false })
+    const result = new Promise<RemoteAuthResult>((resolve) => c.sendRaw(first) ?? resolve({ kind: 'auth', ok: false, code: 'invalid-request', error: '' }))
+    void result
+    await c.flush()
+    await expectClosed(c)
+    assert.equal(c.fake.calls.length, 0)
+    assert.equal(c.events.length, 0)
+    assert.ok(c.auths.every((a) => !a.ok), JSON.stringify(first))
+    assert.equal(c.gateway.size, 0)
+  }
+})
+
+test('un secondo messaggio mentre si autentica chiude la connessione', async () => {
+  const c = await connect({ authenticate: false })
+  c.sendRaw({ type: 'auth', deviceId: 'x', sig: 'y' })
+  c.sendRaw({ rid: 'a', command: { type: 'hello' } })
+  await c.flush()
+  assert.equal(c.gateway.size, 0)
+  assert.equal(c.fake.calls.length, 0)
+})
+
+test('codice sbagliato, scaduto, già usato, annullato', async () => {
+  let now = 1_000_000
+  const env = setup({ access: newAccess({ now: () => now }) })
+  const bad = await connect({ env, authenticate: false })
+  const r1 = await bad.authenticate({ token: 'nope' })
+  assert.deepEqual(r1.ok === false && r1.code, 'bad-token')
+  // Il testo è per l'utente e tradotto.
+  assert.ok(!r1.ok && r1.error.length > 5)
+
+  const token = env.access.startPairing(route(env.mac)).payload.token
+  const good = await connect({ env, token })
+  assert.ok(good.auths[0].ok)
+  const again = await connect({ env, authenticate: false })
+  const r2 = await again.authenticate({ token })
+  assert.equal(r2.ok === false && r2.code, 'token-used')
+
+  const expiring = env.access.startPairing(route(env.mac)).payload.token
+  now += 5 * 60 * 1000 + 1
+  const late = await connect({ env, authenticate: false })
+  const r3 = await late.authenticate({ token: expiring })
+  assert.equal(r3.ok === false && r3.code, 'token-expired')
+
+  const cancelled = env.access.startPairing(route(env.mac)).payload.token
+  env.access.cancelPairing()
+  const c4 = await connect({ env, authenticate: false })
+  assert.equal((await c4.authenticate({ token: cancelled })).ok, false)
+  assert.equal(env.access.devices().length, 1)
+})
+
+test('un solo codice attivo: uno nuovo sostituisce il precedente', async () => {
+  const env = setup()
+  const first = env.access.startPairing(route(env.mac)).payload.token
+  env.access.startPairing(route(env.mac))
+  const c = await connect({ env, authenticate: false })
+  const r = await c.authenticate({ token: first })
+  assert.equal(r.ok, false)
+})
+
+test('password: obbligatoria, sbagliata, limite di tentativi che brucia il codice', async () => {
+  const env = setup()
+  await env.access.setPassword('hunter22')
+  assert.equal(env.access.hasPassword(), true)
+  const { token, pw } = (() => {
+    const start = env.access.startPairing(route(env.mac))
+    return { token: start.payload.token, pw: start.payload.pw }
+  })()
+  assert.equal(pw, true)
+  const code = async (password?: string) => {
+    const c = await connect({ env, authenticate: false })
+    const r = await c.authenticate({ token, password })
+    return r.ok ? 'ok' : r.code
+  }
+  assert.equal(await code(), 'password-required')
+  assert.equal(await code('wrong-1'), 'wrong-password')
+  assert.equal(await code('wrong-2'), 'wrong-password')
+  assert.equal(await code('wrong-3'), 'wrong-password')
+  // Il quinto errore brucia il codice.
+  assert.equal(await code('wrong-4'), 'too-many-attempts')
+  // Ora nemmeno la password giusta serve.
+  assert.equal(await code('hunter22'), 'token-used')
+  assert.equal(env.access.devices().length, 0)
+
+  // Con codice nuovo e password giusta si entra.
+  const t2 = env.access.startPairing(route(env.mac)).payload.token
+  const c = await connect({ env, authenticate: false })
+  assert.equal((await c.authenticate({ token: t2, password: 'hunter22' })).ok, true)
+  // Tolta la password, il codice non la chiede più.
+  await env.access.setPassword(null)
+  assert.equal(env.access.startPairing(route(env.mac)).payload.pw, false)
+})
+
+test('password: lunghezza controllata e salvata solo come hash', async () => {
+  const env = setup()
+  await assert.rejects(() => env.access.setPassword('abc'), /between 4 and 128/)
+  await env.access.setPassword('correct horse')
+  const db = openDb(':memory:')
+  void db
+  const row = (env.access as unknown as { db: { prepare(sql: string): { get(key: string): { value: string } } } }).db.prepare('select value from kv where key = ?').get('remote.password')
+  assert.ok(!row.value.includes('correct horse'))
+})
+
+test('dispositivo noto: auth con la sua chiave; sconosciuto e firma sbagliata respinti', async () => {
+  const env = setup()
+  const key = generateDeviceKey()
+  const first = await connect({ env, authenticate: false })
+  const paired = await first.authenticate({ key })
+  assert.ok(paired.ok)
+  const device = { key, id: paired.ok ? paired.deviceId : '' }
+  const second = await connect({ env, device })
+  assert.ok(second.auths[0].ok)
+  assert.equal(env.gateway.clients, 2)
+
+  const unknown = await connect({ env, authenticate: false })
+  const r1 = await unknown.authenticate({ device: { key, id: 'nope' } })
+  assert.equal(r1.ok === false && r1.code, 'unknown-device')
+
+  const forged = await connect({ env, authenticate: false })
+  const r2 = await forged.authenticate({ device: { key: generateDeviceKey(), id: device.id } })
+  assert.equal(r2.ok === false && r2.code, 'bad-signature')
+})
+
+test('firma riusata su un’altra connessione: respinta (hash dell’handshake diverso)', async () => {
+  const env = setup()
+  const key = generateDeviceKey()
+  const first = await connect({ env, authenticate: false })
+  const paired = await first.authenticate({ key })
+  assert.ok(paired.ok)
+  const deviceId = paired.ok ? paired.deviceId : ''
+  const a = await connect({ env, authenticate: false })
+  const sigA = signChannelBinding(key.secretKey, 'auth', a.hash())
+  const b = await connect({ env, authenticate: false })
+  const result = new Promise<RemoteAuthResult>((resolve) => {
+    const timer = setInterval(() => {
+      if (b.auths.length) {
+        clearInterval(timer)
+        resolve(b.auths[0])
+      }
+    }, 2)
+  })
+  b.sendRaw({ type: 'auth', deviceId, sig: sigA })
+  const r = await result
+  assert.equal(r.ok === false && r.code, 'bad-signature')
+  // Una firma di tipo `pair` non vale come `auth`, nemmeno sulla stessa connessione.
+  const c = await connect({ env, authenticate: false })
+  const wrongKind = new Promise<RemoteAuthResult>((resolve) => {
+    const timer = setInterval(() => {
+      if (c.auths.length) {
+        clearInterval(timer)
+        resolve(c.auths[0])
+      }
+    }, 2)
+  })
+  c.sendRaw({ type: 'auth', deviceId, sig: signChannelBinding(key.secretKey, 'pair', c.hash()) })
+  assert.equal((await wrongKind).ok, false)
+})
+
+test('revoca: la connessione si chiude subito, il telefono è avvisato e non rientra', async () => {
+  const env = setup()
+  const key = generateDeviceKey()
+  const first = await connect({ env, authenticate: false })
+  const paired = await first.authenticate({ key })
+  assert.ok(paired.ok)
+  const device = { key, id: paired.ok ? paired.deviceId : '' }
+  const live = await connect({ env, device })
+  const other = await connect({ env })
+  assert.equal(env.gateway.clients, 3)
+
+  assert.equal(env.access.revoke(device.id), true)
+  env.gateway.disconnectDevice(device.id)
+  await live.flush()
+  assert.equal(live.server.closed, true)
+  assert.equal(first.server.closed, true)
+  const notice = live.auths.at(-1)
+  assert.ok(notice && !notice.ok && notice.code === 'device-revoked')
+  // L'altro telefono non è toccato.
+  assert.equal(other.server.closed, false)
+  assert.equal(env.gateway.clients, 1)
+  assert.equal(env.access.devices().length, 1)
+
+  // Con lo stesso abbinamento non si ricollega.
+  const retry = await connect({ env, authenticate: false })
+  const r = await retry.authenticate({ device })
+  assert.equal(r.ok === false && r.code, 'device-revoked')
+  // Con la chiave stessa ma un QR nuovo si può abbinare di nuovo: è un altro abbinamento.
+  const again = await connect({ env, authenticate: false })
+  const r2 = await again.authenticate({ key })
+  assert.ok(r2.ok && r2.deviceId !== device.id)
+})
+
+test('rigenerare la chiave: tutti i dispositivi revocati e le connessioni chiuse', async () => {
+  const env = setup()
+  const a = await connect({ env })
+  const b = await connect({ env })
+  env.access.cancelPairing()
+  env.access.revokeAll()
+  env.gateway.disconnectAll()
+  await a.flush()
+  assert.ok(a.server.closed && b.server.closed)
+  assert.equal(env.access.devices().length, 0)
+  assert.equal(env.gateway.size, 0)
+})
+
+test('canale spento: nessuna autenticazione', async () => {
+  const env = setup()
+  env.access.enabled = false
+  const c = await connect({ env, authenticate: false })
+  const r = await c.authenticate({ token: 'x' })
+  assert.equal(r.ok === false && r.code, 'remote-disabled')
+  assert.throws(() => env.access.startPairing(route(env.mac)), /turned off/)
+})
+
+test('allowFull spento: Full dal telefono rifiutato, gli altri livelli no', async () => {
+  const entries: RemoteLogEntry[] = []
+  const env = setup({ log: entries })
+  env.access.allowFull = false
+  const c = await connect({ env })
+  assert.equal(c.auths[0].ok && c.auths[0].allowFull, false)
+  const blocked = await c.call({ type: 'session.permission.set', sessionId: 's1', permission: 'full' })
+  assert.ok(blocked.kind === 'result' && !blocked.ok)
+  assert.match((blocked as { error: string }).error, /Full access cannot be turned on from the phone/)
+  assert.equal(env.fake.calls.length, 0)
+  const ok = await c.call({ type: 'session.permission.set', sessionId: 's1', permission: 'edit' })
+  assert.ok(ok.kind === 'result' && ok.ok)
+  assert.equal(env.fake.calls.length, 1)
+  assert.deepEqual(entries.map((e) => e.detail), ['Permission → Full (blocked)', 'Permission → Edit'])
+  // Riacceso, Full passa.
+  env.access.allowFull = true
+  const full = await c.call({ type: 'session.permission.set', sessionId: 's1', permission: 'full' })
+  assert.ok(full.kind === 'result' && full.ok)
+})
+
+test('log delle azioni remote: respond, send, queue, interrupt, permission, senza testo dei messaggi', async () => {
+  const entries: RemoteLogEntry[] = []
+  const env = setup({ log: entries })
+  env.fake.host.requestInfo = (_s, requestId) => (requestId === 'q' ? { title: 'Run command', options: [{ id: 'allow', kind: 'allow' }, { id: 'no', kind: 'deny' }] } : null)
+  env.fake.host.handle = async (command, origin) => {
+    env.fake.calls.push({ command, origin })
+    return command.type === 'session.permission.set' ? { permission: 'edit', appliesFrom: 'now' } : null
+  }
+  const c = await connect({ env, name: 'Phone A' })
+  await c.call({ type: 'session.respond', sessionId: 's1', requestId: 'q', response: { optionId: 'allow' } })
+  await c.call({ type: 'session.respond', sessionId: 's1', requestId: 'q', response: { optionId: 'no', message: 'secret reason' } })
+  await c.call({ type: 'session.send', sessionId: 's1', text: 'my secret prompt!' })
+  await c.call({ type: 'session.queue.deliver', sessionId: 's1', id: 'm', how: 'now' })
+  await c.call({ type: 'session.interrupt', sessionId: 's1' })
+  // Il telefono chiede Full ma il tetto del progetto dà Edit: nel log il livello vero.
+  await c.call({ type: 'session.permission.set', sessionId: 's1', permission: 'full' })
+  // Comandi che non sono azioni non scrivono nel log.
+  await c.call({ type: 'session.read', sessionId: 's1' })
+  const page = env.access.list()
+  assert.deepEqual(
+    page.entries.map((e) => [e.action, e.detail]).reverse(),
+    [
+      ['respond', 'Approved: Run command'],
+      ['respond', 'Denied: Run command'],
+      ['send', 'Message (17 chars)'],
+      ['queue', 'Queued message sent now'],
+      ['interrupt', 'Stopped'],
+      ['permission', 'Permission → Edit']
+    ]
+  )
+  assert.ok(page.entries.every((e) => e.deviceName === 'Phone A' && e.sessionId === 's1'))
+  assert.ok(!JSON.stringify(page).includes('secret'))
+  assert.equal(entries.length, 6)
+  // La risposta porta il nome del telefono (viaDevice).
+  assert.equal((env.fake.calls[0].command as { viaDevice?: string }).viaDevice, 'Phone A')
+  // Paginazione: dalla più recente, `before` esclusivo.
+  const first = env.access.list(undefined, 2)
+  assert.equal(first.entries.length, 2)
+  assert.equal(first.hasMore, true)
+  const next = env.access.list(first.entries[1].id, 10)
+  assert.equal(next.entries.length, 4)
+  assert.equal(next.hasMore, false)
+})
+
+test('log: si tengono al massimo 1000 voci e 30 giorni', () => {
+  let now = 100 * 86_400_000
+  const access = newAccess({ now: () => now })
+  const device = { id: 'd', name: 'D' }
+  access.record(device, 'send', null, 'old')
+  now += 31 * 86_400_000
+  for (let i = 0; i < LOG_MAX_ENTRIES + 60; i++) access.record(device, 'send', null, `m${i}`)
+  const all = access.list(undefined, 200)
+  assert.ok(!all.entries.some((e) => e.detail === 'old'))
+  const count = (access as unknown as { db: { prepare(s: string): { get(): { n: number } } } }).db.prepare('select count(*) as n from remote_log').get().n
+  assert.ok(count <= LOG_MAX_ENTRIES + 50, String(count))
+})
+
+test('device.push.set salva il token sul dispositivo e non passa dall’host', async () => {
+  const env = setup()
+  const c = await connect({ env })
+  const id = env.access.devices()[0].id
+  const r = await c.call({ type: 'device.push.set', token: 'ExponentPushToken[abc]', platform: 'android' })
+  assert.ok(r.kind === 'result' && r.ok)
+  assert.equal(env.access.device(id)?.pushToken, 'ExponentPushToken[abc]')
+  assert.equal(env.access.device(id)?.platform, 'android')
+  assert.equal(env.fake.calls.length, 0)
+  await c.call({ type: 'device.push.set', token: null, platform: 'android' })
+  assert.equal(env.access.device(id)?.pushToken, null)
+  for (const bad of [{ token: 5, platform: 'ios' }, { token: '', platform: 'ios' }, { token: 'x', platform: 'web' }, { token: 'x'.repeat(513), platform: 'ios' }]) {
+    const e = await c.call({ type: 'device.push.set', ...bad })
+    assert.ok(e.kind === 'result' && !e.ok)
+  }
+  // Un token si toglie anche con la revoca.
+  await c.call({ type: 'device.push.set', token: 'T', platform: 'ios' })
+  env.access.revoke(id)
+  assert.equal(env.access.device(id)?.pushToken, null)
+})
+
+test('istantanea: tetti di permesso, preferenze e sessioni archiviate (project.sessions.archived)', async () => {
+  const env = setup()
+  env.fake.host.remoteExtras = async () => ({ permissionsMax: { p1: 'edit', p2: null }, busySend: 'queue' })
+  const archived: unknown[] = []
+  env.fake.host.archivedSessions = (projectId, before, limit) => {
+    archived.push([projectId, before, limit])
+    return [{ id: 'old' } as never]
+  }
+  env.access.allowFull = false
+  const c = await connect({ env })
+  const hello = await c.call({ type: 'hello' })
+  const data = (hello as { data: { permissionsMax: unknown; prefs: unknown } }).data
+  assert.deepEqual(data.permissionsMax, { p1: 'edit', p2: null })
+  assert.deepEqual(data.prefs, { busySend: 'queue', allowFull: false })
+  const r = await c.call({ type: 'project.sessions.archived', projectId: 'p1', before: 5, limit: 10 })
+  assert.deepEqual(r, { kind: 'result', rid: 'r2', ok: true, data: [{ id: 'old' }] })
+  assert.deepEqual(archived, [['p1', 5, 10]])
+  const bad = await c.call({ type: 'project.sessions.archived', projectId: 5 })
+  assert.ok(bad.kind === 'result' && !bad.ok)
+  assert.equal(env.fake.calls.length, 0)
+})
+
+test('lo stato cambia: onDevices a ogni collegamento e scollegamento', async () => {
+  let changes = 0
+  const mac = generateKeyPair()
+  const access = newAccess()
+  const gateway = new RemoteGateway({ host: fakeHost().host, identity: mac, access, macName: 'Test Mac', appVersion: '9.9.9', onDevices: () => changes++ })
+  const env = { mac, fake: fakeHost(), access, gateway } as Env
+  const c = await connect({ env })
+  assert.equal(changes, 1)
+  c.client.link.close()
+  await c.flush()
+  assert.equal(changes, 2)
+})
+
+// ── Limiti: l'`auth` valido non si blocca mai ────────────────────────────────
+
+test('auth: un telefono valido entra anche dopo mille errori di altri; revocato o sconosciuto che insiste non blocca nessuno', async () => {
+  const env = setup()
+  const key = generateDeviceKey()
+  const first = await connect({ env, authenticate: false })
+  const paired = await first.authenticate({ key })
+  assert.ok(paired.ok)
+  const device = { key, id: paired.ok ? paired.deviceId : '' }
+  for (let i = 0; i < FAILURE_LIMIT + 10; i++) {
+    const bad = await connect({ env, authenticate: false })
+    await bad.authenticate({ device: { key: generateDeviceKey(), id: i % 2 ? device.id : 'unknown' } })
+  }
+  const good = await connect({ env, device })
+  assert.ok(good.auths[0].ok)
+  // I tentativi di `pair` sbagliati invece sì: dopo il limite si rifiuta senza guardare.
+  for (let i = 0; i < FAILURE_LIMIT; i++) {
+    const bad = await connect({ env, authenticate: false })
+    await bad.authenticate({ token: 'nope' })
+  }
+  const blocked = await connect({ env, authenticate: false })
+  const r = await blocked.authenticate({ token: env.access.startPairing(route(env.mac)).payload.token })
+  assert.equal(r.ok === false && r.code, 'too-many-attempts')
+  // E l'auth di un dispositivo valido passa comunque.
+  const again = await connect({ env, device })
+  assert.ok(again.auths[0].ok)
+})
+
+test('rinomina: le connessioni aperte usano il nome nuovo nel log', async () => {
+  const entries: RemoteLogEntry[] = []
+  const env = setup({ log: entries })
+  const c = await connect({ env, name: 'Old' })
+  const id = env.access.devices()[0].id
+  env.gateway.deviceRenamed(id, env.access.rename(id, ' New name '))
+  await c.call({ type: 'session.interrupt', sessionId: 's1' })
+  assert.equal(entries[0].deviceName, 'New name')
+})
+
+test('allowFull cambia: i telefoni collegati ricevono remote.prefs', async () => {
+  const env = setup()
+  env.fake.host.remoteExtras = async () => ({ permissionsMax: {}, busySend: 'queue' })
+  const c = await connect({ env })
+  env.access.allowFull = false
+  await env.gateway.pushPrefs()
+  await c.flush()
+  assert.deepEqual(c.events.at(-1), { kind: 'event', event: { type: 'remote.prefs', prefs: { busySend: 'queue', allowFull: false } } })
+})

@@ -5,7 +5,7 @@ import type { MessagePortMain } from 'electron'
 import type { FromHost, HostEvent, HostPrefs, HostToMain, MainToHost, ToHost } from '@shared/protocol'
 import '@shared/locales/it'
 import { openDb } from './db'
-import { RemoteChannel } from './remote/channel'
+import { isRemoteWindowCommand, RemoteChannel } from './remote/channel'
 import { Host } from './sessions'
 
 const ports = new Set<MessagePortMain>()
@@ -44,33 +44,45 @@ async function main(): Promise<void> {
   // LAD-54: il numero di sessioni al lavoro e quello dei telefoni viaggiano insieme nel messaggio `activity`.
   let running = 0
   let phones = 0
+  let busySend: HostPrefs['busySend'] = 'steer'
   const toMain = (message: HostToMain) => {
     if (message.type === 'activity') running = message.running
     process.parentPort.postMessage(message.type === 'activity' ? { ...message, phones } : message)
   }
-  const host = new Host(openDb(dbPath), broadcast, toMain, sendTo)
+  const db = openDb(dbPath)
+  const host = new Host(db, broadcast, toMain, sendTo)
   hostRef = host
   // Le preferenze arrivano prima dell'avvio (variabile d'ambiente) e poi a ogni cambio.
   const initialPrefs: HostPrefs | null = process.env.LADDER_HOST_PREFS ? JSON.parse(process.env.LADDER_HOST_PREFS) : null
   if (initialPrefs) host.setPrefs(initialPrefs)
+  busySend = initialPrefs?.busySend ?? busySend
   await host.init()
   remote = new RemoteChannel({
     host,
+    db,
     dataDir: dirname(dbPath),
     appVersion: process.env.LADDER_APP_VERSION ?? '',
     onClients: (count) => {
       if (count === phones) return
       phones = count
       toMain({ type: 'activity', running })
-    }
+    },
+    // LAD-51: stato, abbinamenti e log arrivano alle finestre (mai al telefono: non sono eventi ammessi dal gateway).
+    onStatus: (status) => broadcast({ type: 'remote.status', status }),
+    onPaired: (device) => broadcast({ type: 'remote.paired', device }),
+    onLog: (entry) => broadcast({ type: 'remote.log', entry })
   })
   await remote.configure(initialPrefs?.remote)
 
   process.parentPort.on('message', (event) => {
     const message = event.data as MainToHost | undefined
     if (message?.type === 'prefs') {
+      const busyBefore = busySend
+      busySend = message.prefs.busySend ?? busySend
       host.setPrefs(message.prefs)
       void remote?.configure(message.prefs.remote)
+      // Il tasto di invio del telefono segue quello del Mac.
+      if (busySend !== busyBefore) void remote?.gateway?.pushPrefs().catch(() => undefined)
       return
     }
     // LAD-54: il Mac dorme, si sveglia o l'app sta uscendo; con 'quit' si risponde appena il relay è stato avvisato (al massimo mezzo secondo).
@@ -96,7 +108,8 @@ async function main(): Promise<void> {
     port.on('message', async ({ data }) => {
       const { rid, command } = data as ToHost
       try {
-        const result = await host.handle(command, port)
+        // LAD-51: i comandi remote.* li gestisce il canale remoto (dispositivi, QR, password); solo dalla finestra.
+        const result = isRemoteWindowCommand(command) ? await remote!.handleCommand(command) : await host.handle(command, port)
         if (rid) post(port, { kind: 'result', rid, ok: true, data: result })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

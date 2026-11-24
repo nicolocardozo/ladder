@@ -51,7 +51,7 @@ interface AppSettings extends AppPrefs {
   theme: ThemeId
 }
 // LADDER_LOCALE sceglie la lingua iniziale di un profilo nuovo (le prove automatiche usano l'italiano).
-const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE, defaults: {}, presets: [], sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-sans', chatWidth: 'comfortable', autonomyHint: true, stallHint: false, chatTextSize: 'default', editorTextSize: 12, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, openAtLogin: false, keepAwake: false, remote: { enabled: false, relayUrl: null }, soundName: 'default', agentBrowser: false, userName: null }
+const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE, defaults: {}, presets: [], sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-sans', chatWidth: 'comfortable', autonomyHint: true, stallHint: false, chatTextSize: 'default', editorTextSize: 12, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, openAtLogin: false, keepAwake: false, remote: { enabled: false, relayUrl: null, allowFull: true }, soundName: 'default', agentBrowser: false, userName: null }
 const settingsPath = () => join(app.getPath('userData'), 'settings.json')
 // Versione delle prefs salvata in settings.json (chiave interna, non in AppPrefs). 2: il font della chat predefinito passa a system-sans.
 const PREFS_VERSION = 2
@@ -196,13 +196,13 @@ const prefsOf = (s: AppSettings): AppPrefs => {
   void theme
   return prefs
 }
-/** Preferenza del canale remoto: spenta se manca o è malformata; l'indirizzo del relay deve essere una stringa non vuota. */
-function cleanRemote(value: unknown): { enabled: boolean; relayUrl: string | null } {
-  const raw = (value && typeof value === 'object' ? value : {}) as { enabled?: unknown; relayUrl?: unknown }
-  return { enabled: raw.enabled === true, relayUrl: typeof raw.relayUrl === 'string' && raw.relayUrl.trim() ? raw.relayUrl.trim() : null }
+/** Preferenza del canale remoto: spenta se manca o è malformata; l'indirizzo del relay deve essere una stringa non vuota; `allowFull` è acceso se non è esplicitamente false. */
+function cleanRemote(value: unknown): { enabled: boolean; relayUrl: string | null; allowFull: boolean } {
+  const raw = (value && typeof value === 'object' ? value : {}) as { enabled?: unknown; relayUrl?: unknown; allowFull?: unknown }
+  return { enabled: raw.enabled === true, relayUrl: typeof raw.relayUrl === 'string' && raw.relayUrl.trim() ? raw.relayUrl.trim() : null, allowFull: raw.allowFull !== false }
 }
 
-const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser, remote: settings.remote })
+const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser, remote: settings.remote, busySend: settings.busySend })
 
 const attention = new Attention(() => prefsOf(settings), (sessionId, itemId) => openSession(sessionId, itemId))
 

@@ -2,7 +2,7 @@
 import { create } from 'zustand'
 import { isElectron, onHostConnect, request, send } from '@/lib/host-client'
 import { applyProjectGroupOp, normalizeProjectGroups, type ProjectGroupOp } from '@/lib/project-groups'
-import type { AgentBrowserState, AgentStatus, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentBrowserState, AgentStatus, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, RemoteStatus, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalData } from '@/lib/terminal-registry'
 import { disposeBuffer } from '@/components/editor/buffers'
@@ -145,6 +145,8 @@ interface AppState {
   /** Riepilogo "Mentre eri via" per progetto, calcolato quando torni dopo più di 30 minuti. */
   away: Record<string, AwaySummary>
   prefs: AppPrefs | null
+  /** Stato del canale remoto (LAD-51): dispositivi abbinati, collegati, QR attivo. Null finché l'host non l'ha mandato. */
+  remote: RemoteStatus | null
   /** Collegamenti (Claude, Codex, GitHub). Vuoto finché l'host non li ha letti. */
   connections: Partial<Record<ConnectionId, ConnectionStatus>>
   /** Collegamenti dei profili non predefiniti (Claude Code, Codex), per id del profilo. */
@@ -468,6 +470,13 @@ onHostConnect(() => {
   }
 })
 // ── fine LAD-80 ──
+
+// Stato del canale remoto (LAD-51): letto a ogni (ri)connessione, poi aggiornato dagli eventi `remote.status`.
+onHostConnect(() => {
+  request<RemoteStatus>({ type: 'remote.status' })
+    .then((status) => useApp.setState({ remote: status }))
+    .catch(() => {})
+})
 
 function readSidebarOpen(): boolean {
   try {
@@ -826,6 +835,7 @@ export const useApp = create<AppState>((set, get) => ({
   presetEditor: null,
   away: {},
   prefs: null,
+  remote: null,
   connections: {},
   profileConnections: {},
   otherAgents: null,
@@ -1019,6 +1029,8 @@ export const useApp = create<AppState>((set, get) => ({
           const { [event.projectId]: _gone, ...branchMapError } = state.branchMapError
           return { branchMaps: { ...state.branchMaps, [event.projectId]: event.map }, branchMapError }
         }
+        case 'remote.status':
+          return { remote: event.status }
         case 'fs.changed':
           return { fsVersion: { ...state.fsVersion, [event.root]: (state.fsVersion[event.root] ?? 0) + 1 } }
       }

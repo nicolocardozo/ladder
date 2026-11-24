@@ -1,21 +1,20 @@
-// Client di prova per il canale remoto (LAD-49): fa da telefono da riga di comando. Node 24 lo esegue direttamente.
+// Client di prova per il canale remoto (LAD-49, LAD-51): fa da telefono da riga di comando. Node 24 lo esegue direttamente.
 //
-//   LADDER_REMOTE_PORT=7777 node scripts/remote-client.ts [list]
-//   LADDER_REMOTE_PORT=7777 node scripts/remote-client.ts watch <sessionId>      pagina finale + item dal vivo
-//   LADDER_REMOTE_PORT=7777 node scripts/remote-client.ts approve <sessionId>    approva la prima richiesta aperta (anche una che arriva dopo)
-//
-// Attraverso il relay (LAD-50), al posto della porta locale:
-//   node scripts/remote-client.ts --relay ws://127.0.0.1:8787 --id <id del Mac> [list | watch <id> | approve <id>] [--wait]
-// L'id lo stampa l'host all'avvio ("[remote] relay …, id …"). Con --wait, se il Mac è offline il client aspetta che torni (altrimenti esce).
-//
-// Chiave pubblica del Mac: LADDER_REMOTE_PUBKEY (base64url) oppure il file di identità (LADDER_REMOTE_IDENTITY o --identity <file>).
-// Dal file si legge solo `publicKey`: la chiave privata non serve al client e non viene mai letta né stampata.
-// Senza indicazioni il file si cerca nella cartella dati di Ladder: ~/Library/Application Support/Ladder/remote-identity.json.
-import { readFileSync } from 'node:fs'
+// Abbinamento (una volta): il link `ladder://pair#…` lo stampa l'host di prova (remote-host-harness) o lo dà il Mac (QR).
+//   node scripts/remote-client.ts pair 'ladder://pair#…' [--password <password>]
+// Salva la chiave del dispositivo, la chiave del Mac e l'indirizzo nel file --device (o LADDER_REMOTE_DEVICE, o ~/.ladder-remote-client.json, 0600).
+// Poi i comandi si autenticano da soli con quel file (nessun'altra impostazione serve):
+//   node scripts/remote-client.ts [list]
+//   node scripts/remote-client.ts watch <sessionId>      pagina finale + item dal vivo
+//   node scripts/remote-client.ts approve <sessionId>    approva la prima richiesta aperta (anche una che arriva dopo)
+// Il percorso si sceglie con quello che c'era nel link: `ws` (WebSocket locale, sviluppo) se presente, altrimenti il relay.
+// Si può forzare: LADDER_REMOTE_PORT=7777 oppure --relay ws://127.0.0.1:8787 --id <id del Mac>. Con --wait, se il Mac è offline il client aspetta che torni (altrimenti esce).
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import WebSocket from 'ws'
-import type { ChatItem, FromRemoteHost, RemoteCommand, RemotePage, RemoteSnapshot, ToRemoteHost } from '../src/shared/protocol.ts'
+import type { ChatItem, FromRemoteHost, RemoteFirstMessage, RemotePairingPayload, RemoteCommand, RemotePage, RemoteSnapshot, ToRemoteHost } from '../src/shared/protocol.ts'
+import { decodePairingUrl, fromBase64Url, generateDeviceKey, keyFingerprint, signChannelBinding, toBase64Url } from '../src/shared/remote/pairing.ts'
 import { RelayTransport } from '../src/shared/remote/relay-transport.ts'
 import { clientHandshake, type RemoteSession } from '../src/shared/remote/session.ts'
 
@@ -27,39 +26,69 @@ const flag = (name: string): string | undefined => {
   return value
 }
 
-const identityFlag = flag('--identity')
-const relayFlag = flag('--relay')
-const idFlag = flag('--id')
+const deviceFlag = flag('--device')
+const passwordFlag = flag('--password')
+let relayFlag = flag('--relay')
+let idFlag = flag('--id')
 const waitFlag = args.includes('--wait')
 if (waitFlag) args.splice(args.indexOf('--wait'), 1)
-
-function macPublicKey(): Uint8Array {
-  const fromEnv = process.env.LADDER_REMOTE_PUBKEY
-  let text = fromEnv
-  if (!text) {
-    const path = identityFlag ?? process.env.LADDER_REMOTE_IDENTITY ?? join(homedir(), 'Library', 'Application Support', 'Ladder', 'remote-identity.json')
-    // Si estrae solo publicKey: il resto del file non entra mai in una variabile.
-    text = (JSON.parse(readFileSync(path, 'utf8')) as { publicKey?: string }).publicKey
-  }
-  const key = text ? new Uint8Array(Buffer.from(text, 'base64url')) : null
-  if (!key || key.length !== 32) fail('Chiave pubblica del Mac mancante o non valida (LADDER_REMOTE_PUBKEY o --identity).')
-  return key
-}
 
 function fail(message: string): never {
   console.error(message)
   process.exit(1)
 }
 
-const port = Number(process.env.LADDER_REMOTE_PORT)
+/** Dispositivo abbinato: la chiave Ed25519 del "telefono" (solo per le prove) e come raggiungere il Mac. */
+interface DeviceFile {
+  v: 1
+  mac: string
+  /** Chiave pubblica X25519 del Mac, base64url. */
+  macKey: string
+  relay?: string
+  id?: string
+  ws?: string
+  deviceId: string
+  secretKey: string
+  publicKey: string
+}
+const devicePath = deviceFlag ?? process.env.LADDER_REMOTE_DEVICE ?? join(homedir(), '.ladder-remote-client.json')
+const loadDevice = (): DeviceFile | null => (existsSync(devicePath) ? (JSON.parse(readFileSync(devicePath, 'utf8')) as DeviceFile) : null)
+
+const [cmd = 'list', target] = args
+const pairing = cmd === 'pair'
+if (!pairing && ((cmd === 'watch' || cmd === 'approve') && !target)) fail(`Uso: remote-client.ts ${cmd} <sessionId>`)
+if (!['list', 'watch', 'approve', 'pair'].includes(cmd)) fail('Comandi: pair <link> | list | watch <sessionId> | approve <sessionId>')
+
+// Con `pair` il percorso e la chiave del Mac vengono dal link; negli altri casi dal file del dispositivo.
+let payload: RemotePairingPayload | null = null
+let device: DeviceFile | null = null
+if (pairing) {
+  if (!target) fail('Uso: remote-client.ts pair <ladder://pair#…> [--password <password>]')
+  try {
+    payload = decodePairingUrl(target)
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error))
+  }
+  if (payload.exp < Date.now()) fail('Pairing code expired.')
+  console.log(`pairing with "${payload.mac}", key ${keyFingerprint(fromBase64Url(payload.key))}, via ${payload.ws ?? payload.relay}`)
+  if (payload.pw && !passwordFlag) fail('This Mac asks for a password: add --password <password>.')
+} else {
+  device = loadDevice()
+  if (!device) fail(`Nessun dispositivo abbinato (${devicePath}): prima "pair <link>".`)
+}
+const route = payload ?? device!
+const useLocal = !relayFlag && !process.env.LADDER_REMOTE_PORT ? Boolean(route.ws) : false
+if (!useLocal && !process.env.LADDER_REMOTE_PORT && !relayFlag) {
+  relayFlag = route.relay
+  idFlag = route.id
+}
+const port = process.env.LADDER_REMOTE_PORT ? Number(process.env.LADDER_REMOTE_PORT) : useLocal ? Number(new URL(route.ws!).port) : 0
 if (relayFlag) {
   if (!idFlag) fail('Con --relay serve anche --id <id del Mac>.')
-} else if (!Number.isInteger(port) || port <= 0) fail('Imposta LADDER_REMOTE_PORT con la porta del canale remoto (oppure usa --relay e --id).')
-const [cmd = 'list', target] = args
-if ((cmd === 'watch' || cmd === 'approve') && !target) fail(`Uso: remote-client.ts ${cmd} <sessionId>`)
-if (!['list', 'watch', 'approve'].includes(cmd)) fail('Comandi: list | watch <sessionId> | approve <sessionId>')
+} else if (!Number.isInteger(port) || port <= 0) fail('Nessuna strada per il Mac: serve un link con ws o relay (oppure LADDER_REMOTE_PORT, o --relay e --id).')
 
-const macKey = macPublicKey()
+const macKey = fromBase64Url(payload?.key ?? device!.macKey)
+const deviceKey = device ? { secretKey: fromBase64Url(device.secretKey), publicKey: fromBase64Url(device.publicKey) } : generateDeviceKey()
 const newHandshake = () => clientHandshake({ macPublicKey: macKey, hello: { device: 'ladder remote-client (test)', locale: 'en' } })
 let handshake = newHandshake()
 // Un solo trasporto per volta: WebSocket locale o relay; il resto del client usa solo ws.send / ws.close.
@@ -166,12 +195,24 @@ function onBytes(bytes: Uint8Array): void {
     if (!session) {
       const done = handshake.finish(bytes)
       session = done.session
-      console.log(`connected to ${done.hello.mac} (Ladder ${done.hello.app || 'dev'})`)
-      run().catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)))
+      console.log(`connected to ${done.hello.mac} (Ladder ${done.hello.app || 'dev'}), authenticating`)
+      // Dopo l'handshake la connessione non è autenticata: il primo messaggio è `pair` o `auth`, firmato sull'hash dell'handshake.
+      const hash = session.handshakeHash
+      const first: RemoteFirstMessage = device
+        ? { type: 'auth', deviceId: device.deviceId, sig: signChannelBinding(deviceKey.secretKey, 'auth', hash) }
+        : {
+            type: 'pair',
+            token: payload!.token,
+            device: { publicKey: toBase64Url(deviceKey.publicKey), name: 'ladder remote-client (test)', platform: 'ios' },
+            ...(passwordFlag ? { password: passwordFlag } : {}),
+            sig: signChannelBinding(deviceKey.secretKey, 'pair', hash)
+          }
+      for (const out of session.seal(first)) ws.send(out)
       return
     }
     const message = session.open<FromRemoteHost>(bytes)
     if (!message) return
+    if (message.kind === 'auth') return onAuth(message)
     if (message.kind === 'event') return onEvent(message)
     const waiter = pending.get(message.rid)
     pending.delete(message.rid)
@@ -180,6 +221,33 @@ function onBytes(bytes: Uint8Array): void {
   } catch (error) {
     fail(`connection error: ${error instanceof Error ? error.message : String(error)}`)
   }
+}
+
+/** Esito di pair/auth, o avviso di revoca a connessione aperta. */
+function onAuth(message: Extract<FromRemoteHost, { kind: 'auth' }>): void {
+  if (!message.ok) {
+    console.error(`authentication refused (${message.code}): ${message.error}`)
+    process.exit(4)
+  }
+  console.log(`authenticated as "${message.name}" (${message.deviceId}), Full access from phone: ${message.allowFull ? 'allowed' : 'blocked'}`)
+  if (pairing) {
+    const file: DeviceFile = {
+      v: 1,
+      mac: payload!.mac,
+      macKey: payload!.key,
+      ...(payload!.relay ? { relay: payload!.relay, id: payload!.id } : {}),
+      ...(payload!.ws ? { ws: payload!.ws } : {}),
+      deviceId: message.deviceId,
+      secretKey: toBase64Url(deviceKey.secretKey),
+      publicKey: toBase64Url(deviceKey.publicKey)
+    }
+    writeFileSync(devicePath, JSON.stringify(file, null, 2), { mode: 0o600 })
+    chmodSync(devicePath, 0o600)
+    console.log(`paired: saved device in ${devicePath}`)
+    ws.close()
+    return
+  }
+  run().catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)))
 }
 
 function localLink() {

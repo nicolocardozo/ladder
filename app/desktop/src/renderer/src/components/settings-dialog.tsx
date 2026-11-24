@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BadgeCheck, Bell, Bot, Check, Database, GitFork, Keyboard, Moon, Palette, Plug, SlidersHorizontal, Sun, type LucideIcon } from 'lucide-react'
+import { BadgeCheck, Bell, Bot, Check, Database, GitFork, Keyboard, Moon, Palette, Plug, Smartphone, SlidersHorizontal, Sun, type LucideIcon } from 'lucide-react'
 import type { AcpAgentSpec, AgentStatus, AppPrefs, ChatFont } from '@shared/protocol'
 import { request } from '@/lib/host-client'
 import { getLocale, localeTag, LOCALES, plural, t } from '@shared/i18n'
@@ -18,6 +18,7 @@ import { THEMES, useSettings, type SettingsSection } from '@/hooks/use-theme'
 import { usePrefs } from '@/hooks/use-prefs'
 import { useElementWidth } from '@/lib/use-element-width'
 import { DefaultsSection } from '@/components/settings-defaults'
+import { DevicesSection } from '@/components/settings-devices'
 import { ShortcutsSection } from '@/components/settings-shortcuts'
 import { SettingsBlock, Toggle } from '@/components/settings-parts'
 import { ReadingBlocks } from '@/components/settings-reading'
@@ -70,6 +71,7 @@ const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: 'defaults', label: 'New sessions', icon: SlidersHorizontal },
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
   { id: 'workspace', label: 'Workspace', icon: GitFork },
+  { id: 'devices', label: 'Devices', icon: Smartphone },
   { id: 'system', label: 'Data and system', icon: Database },
   { id: 'integrations', label: 'Integrations', icon: Plug }
 ]
@@ -114,6 +116,7 @@ export function SettingsDialog() {
             {section === 'defaults' && <DefaultsSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'workspace' && <WorkspaceSection />}
+            {section === 'devices' && <DevicesSection />}
             {section === 'system' && <SystemSection />}
             {section === 'integrations' && <IntegrationsSection />}
           </div>

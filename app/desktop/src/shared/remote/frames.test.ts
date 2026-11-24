@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { REMOTE_FRAME_END, REMOTE_FRAME_MORE } from '../protocol.ts'
+import { REMOTE_FRAME_END, REMOTE_FRAME_MORE, REMOTE_PROTOCOL_VERSION } from '../protocol.ts'
 import { FrameReassembler, REMOTE_MAX_FRAME, splitFrames } from './frames.ts'
 import { generateKeyPair } from './noise.ts'
 import { clientHandshake, serverHandshake, type RemoteSession } from './session.ts'
@@ -11,7 +11,7 @@ function pair(): { client: RemoteSession; server: RemoteSession } {
   const s = serverHandshake({ identity, hello: { mac: 'mac', app: '0' } })
   const { reply, session: server } = s.accept(c.start())
   const { session: client, hello } = c.finish(reply)
-  assert.deepEqual(hello, { v: 1, mac: 'mac', app: '0' })
+  assert.deepEqual(hello, { v: REMOTE_PROTOCOL_VERSION, mac: 'mac', app: '0' })
   return { client, server }
 }
 
@@ -103,7 +103,7 @@ test('handshake: versione diversa rifiutata dal Mac', () => {
   const identity = generateKeyPair()
   const s = serverHandshake({ identity, hello: { mac: 'mac', app: '0' } })
   // Un client del futuro: stesso handshake ma v diversa. Si ottiene sostituendo l'hello a mano.
-  const bad = clientHandshake({ macPublicKey: identity.publicKey, hello: { device: 'x', v: 2 } as never })
+  const bad = clientHandshake({ macPublicKey: identity.publicKey, hello: { device: 'x', v: REMOTE_PROTOCOL_VERSION + 1 } as never })
   assert.throws(() => s.accept(bad.start()), /versione/)
 })
 

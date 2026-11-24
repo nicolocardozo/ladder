@@ -1,6 +1,6 @@
 // Azioni di vista nella barra in alto, a destra accanto a terminale e pannello: affiancare le chat e aprire la colonna browser.
 // Affianca è un menu esplicito (nuova chat accanto, oppure quale sessione); il browser è un interruttore.
-import { Columns2, Globe, Plus } from 'lucide-react'
+import { Columns2, Globe, Plus, Smartphone } from 'lucide-react'
 import { t } from '@shared/i18n'
 import { shortcutLabel } from '@shared/shortcuts'
 import { AgentMark } from '@/components/agent-mark'
@@ -8,6 +8,8 @@ import { SessionGlyph } from '@/components/status'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Kbd } from '@/components/ui/kbd'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useSettings } from '@/hooks/use-theme'
+import { connectedLabel } from '@/lib/remote'
 import { isMac } from '@/lib/send-key'
 import { sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
@@ -93,6 +95,29 @@ export function BrowserToggle({ projectId }: { projectId: string }) {
         className={cn(trigger, open && 'bg-accent text-foreground')}
       >
         <Globe aria-hidden className="size-4" strokeWidth={1.75} />
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Telefono collegato (LAD-51): c'è solo quando almeno un telefono è collegato adesso. Tono tenue, il numero solo da due in su;
+ * un clic apre Impostazioni → Devices.
+ */
+export function PhoneIndicator() {
+  const count = useApp((s) => s.remote?.connectedCount ?? 0)
+  if (count < 1) return null
+  const label = connectedLabel(count)
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        aria-label={label}
+        onClick={() => useSettings.getState().openSection('devices')}
+        className={cn(trigger, 'w-auto min-w-7 grid-flow-col place-content-center gap-1', count > 1 && 'px-1.5')}
+      >
+        <Smartphone aria-hidden className="size-4" strokeWidth={1.75} />
+        {count > 1 && <span aria-hidden className="text-xs tabular-nums">{count}</span>}
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>

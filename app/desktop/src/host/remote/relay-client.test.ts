@@ -21,6 +21,9 @@ import {
 } from '../../shared/remote/relay-protocol.ts'
 import { RelayTransport } from '../../shared/remote/relay-transport.ts'
 import { clientHandshake } from '../../shared/remote/session.ts'
+import { generateDeviceKey, signChannelBinding, toBase64Url } from '../../shared/remote/pairing.ts'
+import { openDb } from '../db.ts'
+import { RemoteAccess } from './access.ts'
 import { RemoteGateway, type RemoteHostApi, type RemoteLink } from './gateway.ts'
 import { loadOrCreateRelayKey, RELAY_KEY_FILE } from './identity.ts'
 import { RelayClient } from './relay-client.ts'
@@ -270,7 +273,9 @@ test('end to end con il gateway vero: handshake Noise, richiesta e risposta tra 
   const noise = generateKeyPair()
   const snapshot = { type: 'snapshot', projects: [], sessions: [], ui: {}, agents: [], drafts: {}, profiles: [], connections: [], terminals: [], shortcuts: { preset: 'default', overrides: {} } } as unknown as Extract<HostEvent, { type: 'snapshot' }>
   const host: RemoteHostApi = { snapshot: async () => snapshot, handle: async () => null, pageItems: (sessionId) => ({ sessionId, items: [], hasMore: false }), connectionClosed: () => undefined }
-  const gateway = new RemoteGateway({ host, identity: noise, macName: 'Mac', appVersion: '1' })
+  const access = new RemoteAccess(openDb(':memory:'))
+  access.enabled = true
+  const gateway = new RemoteGateway({ host, identity: noise, access, macName: 'Mac', appVersion: '1' })
   const client = new RelayClient({ gateway, relayUrl: relay.url, key: k })
   client.start()
   const mac = await relay.until(() => relay.macs[0])
@@ -283,6 +288,14 @@ test('end to end con il gateway vero: handshake Noise, richiesta e risposta tra 
   const reply = await relay.until(() => relay.frames.find((f) => f.type === RELAY_FRAME_DATA))
   const done = hs.finish(reply.payload)
   assert.equal(done.hello.mac, 'Mac')
+  relay.frames.length = 0
+  // Prima si autentica (LAD-51): abbinamento con il codice, firma legata a questo handshake.
+  const device = generateDeviceKey()
+  const { token } = access.startPairing({ macName: 'Mac', key: noise.publicKey, ws: 'ws://127.0.0.1:1' }).payload
+  const pair = { type: 'pair', token, device: { publicKey: toBase64Url(device.publicKey), name: 'Phone', platform: 'ios' }, sig: signChannelBinding(device.secretKey, 'pair', done.session.handshakeHash) }
+  for (const bytes of done.session.seal(pair)) mac.send(encodeFrame(RELAY_FRAME_DATA, phoneId, bytes))
+  const authFrame = await relay.until(() => relay.frames.find((f) => f.type === RELAY_FRAME_DATA))
+  assert.deepEqual({ kind: 'auth', ok: true }, { kind: 'auth', ok: (done.session.open<{ ok: boolean }>(authFrame.payload) ?? { ok: false }).ok })
   relay.frames.length = 0
   for (const bytes of done.session.seal({ rid: 'r1', command: { type: 'hello' } } satisfies ToRemoteHost)) mac.send(encodeFrame(RELAY_FRAME_DATA, phoneId, bytes))
   const answer = await relay.until(() => relay.frames.find((f) => f.type === RELAY_FRAME_DATA))

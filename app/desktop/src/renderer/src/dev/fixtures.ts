@@ -79,6 +79,9 @@ export class ConversationBuilder {
     options?: RequestOption[]
     state?: Kind<'request'>['state']
     resolution?: string | null
+    /** Risposta data dal telefono (LAD-51): `viaDevice` assente = "from phone". */
+    via?: 'phone'
+    viaDevice?: string
   }) {
     return this.push(
       'request',
@@ -93,7 +96,8 @@ export class ConversationBuilder {
         options: fields.options ?? defaultOptions('pnpm add'),
         questions: null,
         state: fields.state ?? 'open',
-        resolution: fields.resolution ?? null
+        resolution: fields.resolution ?? null,
+        ...(fields.via ? { via: fields.via, ...(fields.viaDevice ? { viaDevice: fields.viaDevice } : {}) } : {})
       },
       1_200
     )
@@ -402,7 +406,9 @@ function dateRange(b: ConversationBuilder) {
     title: 'Esegue pnpm --filter web why date-fns',
     command: 'pnpm --filter web why date-fns',
     state: 'resolved',
-    resolution: 'Approvato'
+    resolution: 'Approvato',
+    via: 'phone',
+    viaDevice: 'Zoë’s iPhone'
   })
   b.tool('command', 'Bash', 'Esegue pnpm --filter web why date-fns', 'pnpm --filter web why date-fns', {
     output: 'web@0.1.0 /Users/dev/Developer/acme-monorepo/apps/web\n\ndependencies:\ndate-fns 4.1.0',
