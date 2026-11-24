@@ -399,10 +399,28 @@ export function matchesCommand(event: KeyLike, id: CommandId): boolean {
 const DISPLAY_KEYS: Record<string, string> = { left: '←', right: '→', up: '↑', down: '↓', enter: '↵', escape: 'esc', tab: '⇥', backspace: '⌫', delete: 'Del', space: 'Space' }
 
 /** "cmd+shift+p" diventa ⌘⇧P, come si legge nell'interfaccia (ordine ⌃ ⌘ ⌥ ⇧). Vuota se la scorciatoia non è valida. */
+/**
+ * Caratteri della tastiera in uso per tasto fisico (event.code → carattere), dal renderer (navigator.keyboard.getLayoutMap).
+ * Servono alle etichette dei tasti che si riconoscono per posizione: su una tastiera italiana il tasto di ⌃` stampa "\".
+ */
+let layoutKeys: ReadonlyMap<string, string> | null = null
+
+export function setKeyboardLayout(map: ReadonlyMap<string, string> | null): void {
+  layoutKeys = map
+}
+
+/** Il carattere che il tasto fisico dell'accordo stampa con la tastiera in uso, se l'accordo si riconosce per posizione (` e le combinazioni con ⌥). */
+function layoutKey(chord: Chord): string | undefined {
+  if (!layoutKeys || NAMED[chord.key] || !(chord.alt || chord.key === '`')) return undefined
+  const code = codeOf(chord.key)
+  const char = code ? layoutKeys.get(code) : undefined
+  return char && char.trim() ? char.toUpperCase() : undefined
+}
+
 export function formatShortcut(shortcut: string | Chord): string {
   const chord = typeof shortcut === 'string' ? parseShortcut(shortcut) : shortcut
   if (!chord) return ''
-  const key = DISPLAY_KEYS[chord.key] ?? chord.key.toUpperCase()
+  const key = layoutKey(chord) ?? DISPLAY_KEYS[chord.key] ?? chord.key.toUpperCase()
   return `${chord.ctrl ? '⌃' : ''}${chord.meta ? '⌘' : ''}${chord.alt ? '⌥' : ''}${chord.shift ? '⇧' : ''}${key}`
 }
 
