@@ -1,0 +1,60 @@
+// Cambio sessione senza tornare alla Home: "Now" in cima, sotto le altre sessioni dello stesso progetto.
+import { useRouter } from 'expo-router'
+import { useMemo } from 'react'
+import { View } from 'react-native'
+import { t } from '@shared/i18n'
+import { byUrgency, isLive, sessionState } from '@/lib/session-state'
+import { SessionRow } from '@/features/sessions/SessionRow'
+import { useApp } from '@/store/app'
+import { Sheet } from '@/ui/Sheet'
+import { Text } from '@/ui/Text'
+
+export function SwitchSheet({ sessionId, visible, onClose }: { sessionId: string; visible: boolean; onClose: () => void }) {
+  const router = useRouter()
+  const sessionsMap = useApp((s) => s.sessions)
+  const projects = useApp((s) => s.projects)
+  const current = sessionsMap[sessionId]
+  const { now, others } = useMemo(() => {
+    const all = Object.values(sessionsMap).filter((s) => !s.archived && s.id !== sessionId)
+    const live = all.filter((s) => isLive(sessionState(s))).sort(byUrgency)
+    const liveIds = new Set(live.map((s) => s.id))
+    const rest = all.filter((s) => current && s.projectId === current.projectId && !liveIds.has(s.id)).sort((a, b) => b.activityAt - a.activityAt)
+    return { now: live, others: rest }
+  }, [sessionsMap, sessionId, current])
+  const projectName = projects.find((p) => p.id === current?.projectId)?.name ?? ''
+  const go = (id: string) => {
+    onClose()
+    router.replace({ pathname: '/session/[id]', params: { id } })
+  }
+  return (
+    <Sheet visible={visible} onClose={onClose} title={t('Sessions')}>
+      <View style={{ paddingHorizontal: 8 }}>
+        {now.length > 0 ? (
+          <>
+            <Text variant="label" tone="muted" style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
+              {t('Now')}
+            </Text>
+            {now.map((s) => (
+              <SessionRow key={s.id} session={s} showProject onPress={() => go(s.id)} />
+            ))}
+          </>
+        ) : null}
+        {others.length > 0 ? (
+          <>
+            <Text variant="label" tone="muted" style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 6 }}>
+              {projectName}
+            </Text>
+            {others.map((s) => (
+              <SessionRow key={s.id} session={s} onPress={() => go(s.id)} />
+            ))}
+          </>
+        ) : null}
+        {now.length === 0 && others.length === 0 ? (
+          <Text variant="body" tone="muted" style={{ padding: 16 }}>
+            {t('No other sessions.')}
+          </Text>
+        ) : null}
+      </View>
+    </Sheet>
+  )
+}

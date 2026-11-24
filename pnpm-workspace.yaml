@@ -1,5 +1,6 @@
 packages:
   - "app/desktop"
+  - "app/mobile"
   - "app/relay"
   - "website"
 # Installa anche i pacchetti per Mac Intel (binario di Claude dell'Agent SDK), così da qui si costruiscono entrambi i DMG.
