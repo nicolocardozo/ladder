@@ -44,6 +44,12 @@ export function t(text: string, vars?: Vars): string {
   return fill(translated, vars)
 }
 
+/** Come `t`, ma in una lingua scelta invece di quella corrente (per i testi destinati a un telefono, che ha la sua lingua). */
+export function tIn(locale: Locale, text: string, vars?: Vars): string {
+  const translated = locale === 'en' ? text : (catalogs[locale]?.[text] ?? text)
+  return fill(translated, vars)
+}
+
 /** Il testo inglese e le sue traduzioni in tutti i cataloghi registrati (senza variabili). */
 export function translations(text: string): string[] {
   const found = new Set([text])

@@ -93,6 +93,11 @@ async function main(): Promise<void> {
       } else void remote?.setMacState(message.state).catch(() => undefined)
       return
     }
+    // LAD-53: il main ha deciso che un evento va ai telefoni; il filtro per dispositivo è nel canale remoto.
+    if (message?.type === 'push') {
+      remote?.notifyPhones(message.event)
+      return
+    }
     // LAD-57 parte 2: risposte e avvisi del main sul browser dell'agente.
     if (message?.type === 'browser-agent-result') {
       host.browserAgentResult(message.rid, message.result)

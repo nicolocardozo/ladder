@@ -88,7 +88,7 @@ function newAccess(options: ConstructorParameters<typeof RemoteAccess>[1] = {}):
 const route = (mac: { publicKey: Uint8Array }) => ({ macName: 'Test Mac', key: mac.publicKey, ws: 'ws://127.0.0.1:1' })
 
 /** Gateway + Mac + database in memoria: più connessioni possono condividerli. */
-function setup(options: { host?: RemoteHostApi; idleTimeoutMs?: number; access?: RemoteAccess; log?: RemoteLogEntry[] } = {}) {
+function setup(options: { host?: RemoteHostApi; idleTimeoutMs?: number; access?: RemoteAccess; log?: RemoteLogEntry[]; now?: () => number } = {}) {
   const mac = generateKeyPair()
   const fake = fakeHost()
   const access = options.access ?? newAccess()
@@ -99,6 +99,7 @@ function setup(options: { host?: RemoteHostApi; idleTimeoutMs?: number; access?:
     macName: 'Test Mac',
     appVersion: '9.9.9',
     idleTimeoutMs: options.idleTimeoutMs,
+    now: options.now,
     onLog: options.log ? (entry) => options.log!.push(entry) : undefined
   })
   return { mac, fake, access, gateway }
@@ -116,6 +117,8 @@ interface ConnectOptions {
   password?: string
   token?: string
   name?: string
+  /** Lingua dichiarata nell'hello. */
+  locale?: 'en' | 'it'
 }
 
 async function connect(options: ConnectOptions & { idleTimeoutMs?: number; host?: RemoteHostApi } = {}) {
@@ -123,7 +126,7 @@ async function connect(options: ConnectOptions & { idleTimeoutMs?: number; host?
   const { mac, gateway, fake, access } = env
   const { client, server } = linkPair()
   gateway.accept(server.link)
-  const hs = clientHandshake({ macPublicKey: mac.publicKey, hello: { device: 'Phone', ...(options.helloV ? { v: options.helloV } : {}) } as { device: string } })
+  const hs = clientHandshake({ macPublicKey: mac.publicKey, hello: { device: 'Phone', ...(options.locale ? { locale: options.locale } : {}), ...(options.helloV ? { v: options.helloV } : {}) } as { device: string } })
   const events: FromRemoteHost[] = []
   const auths: RemoteAuthResult[] = []
   const waiters = new Map<string, (m: FromRemoteHost) => void>()
@@ -842,6 +845,78 @@ test('device.push.set salva il token sul dispositivo e non passa dall’host', a
   await c.call({ type: 'device.push.set', token: 'T', platform: 'ios' })
   env.access.revoke(id)
   assert.equal(env.access.device(id)?.pushToken, null)
+})
+
+test('device.notify.set e device.state (LAD-53): validazione, salvataggio, primo piano per connessione, lingua', async () => {
+  const env = setup()
+  const c = await connect({ env, locale: 'it' })
+  const id = env.access.devices()[0].id
+  // Lingua dell'hello salvata dopo l'autenticazione; predefinite le preferenze.
+  assert.equal(env.access.device(id)?.locale, 'it')
+  assert.deepEqual(env.access.device(id)?.notify, { events: { request: true, turn: true, error: true, agents: true }, quiet: null })
+  const prefs = { events: { request: true, turn: false, error: true, agents: true }, quiet: { from: '22:00', to: '07:00', tz: 'Europe/Rome' }, quietAllowsRequests: true }
+  const r = await c.call({ type: 'device.notify.set', prefs: { ...prefs, extra: 'x' } })
+  assert.ok(r.kind === 'result' && r.ok)
+  assert.deepEqual(env.access.device(id)?.notify, prefs)
+  for (const bad of [{}, { events: { request: true } }, { ...prefs, quiet: { from: '25:00', to: '07:00', tz: 'UTC' } }, { ...prefs, quiet: { from: '22:00', to: '07:00', tz: 'Nope/Zone' } }]) {
+    const e = await c.call({ type: 'device.notify.set', prefs: bad })
+    assert.ok(e.kind === 'result' && !e.ok)
+  }
+  assert.deepEqual(env.access.device(id)?.notify, prefs)
+  // Primo piano: per connessione e solo in memoria.
+  assert.equal(env.gateway.foregroundDevices().size, 0)
+  assert.ok((await c.call({ type: 'device.state', foreground: true })).kind === 'result')
+  assert.deepEqual([...env.gateway.foregroundDevices()], [id])
+  const bad = await c.call({ type: 'device.state', foreground: 'yes' })
+  assert.ok(bad.kind === 'result' && !bad.ok)
+  await c.call({ type: 'device.state', foreground: false })
+  assert.equal(env.gateway.foregroundDevices().size, 0)
+  await c.call({ type: 'device.state', foreground: true })
+  c.client.link.close()
+  await c.flush()
+  assert.equal(env.gateway.foregroundDevices().size, 0)
+  assert.equal(env.fake.calls.length, 0)
+})
+
+test('foreground (LAD-53): scade senza battito né traffico; l’ultimo stato del dispositivo vince; connessione caduta non conta', async () => {
+  let clock = 1_000_000
+  const env = setup({ now: () => clock })
+  const a = await connect({ env })
+  const id = env.access.devices()[0].id
+  await a.call({ type: 'device.state', foreground: true })
+  assert.deepEqual([...env.gateway.foregroundDevices()], [id])
+  clock += 29_000
+  assert.equal(env.gateway.foregroundDevices().size, 1)
+  clock += 2_000
+  // Né battito né comandi da 31 secondi: i push ripartono.
+  assert.equal(env.gateway.foregroundDevices().size, 0)
+  // Traffico di comandi sulla connessione: torna valido.
+  await a.call({ type: 'session.read', sessionId: 's1' })
+  assert.equal(env.gateway.foregroundDevices().size, 1)
+  // L'ultimo stato del dispositivo vince.
+  await a.call({ type: 'device.state', foreground: false })
+  assert.equal(env.gateway.foregroundDevices().size, 0)
+  await a.call({ type: 'device.state', foreground: true })
+  a.client.link.close()
+  await a.flush()
+  assert.equal(env.gateway.foregroundDevices().size, 0)
+})
+
+test('setPushToken: lo stesso token su un altro dispositivo non revocato viene tolto', () => {
+  const access = newAccess()
+  const db = (access as unknown as { db: { prepare(s: string): { run(...a: unknown[]): unknown } } }).db
+  for (const id of ['x', 'y']) db.prepare('insert into devices (id, name, platform, public_key, created_at) values (?, ?, ?, ?, ?)').run(id, id, 'ios', `k${id}`, 1)
+  let changes = 0
+  ;(access as unknown as { options: { onChange?: () => void } }).options.onChange = () => changes++
+  access.setPushToken('x', 'ExponentPushToken[t]', 'ios')
+  access.setPushToken('y', 'ExponentPushToken[t]', 'ios')
+  assert.equal(access.device('x')?.pushToken, null)
+  assert.equal(access.device('y')?.pushToken, 'ExponentPushToken[t]')
+  access.clearPushToken('ExponentPushToken[t]')
+  assert.equal(access.device('y')?.pushToken, null)
+  assert.equal(changes, 1)
+  access.clearPushToken('ExponentPushToken[t]')
+  assert.equal(changes, 1)
 })
 
 test('istantanea: tetti di permesso, preferenze e sessioni archiviate (project.sessions.archived)', async () => {

@@ -204,7 +204,17 @@ function cleanRemote(value: unknown): { enabled: boolean; relayUrl: string | nul
 
 const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser, remote: settings.remote, busySend: settings.busySend })
 
-const attention = new Attention(() => prefsOf(settings), (sessionId, itemId) => openSession(sessionId, itemId))
+// LAD-53: schermo bloccato (powerMonitor), per decidere i push ai telefoni.
+let screenLocked = false
+const attention = new Attention(
+  () => prefsOf(settings),
+  (sessionId, itemId) => openSession(sessionId, itemId),
+  {
+    // LADDER_PUSH_ALWAYS=1 (solo sviluppo): come se il Mac fosse fermo da ore, per provare i push stando al computer.
+    state: () => ({ idleSeconds: !app.isPackaged && process.env.LADDER_PUSH_ALWAYS === '1' ? Infinity : powerMonitor.getSystemIdleTime(), locked: screenLocked }),
+    send: (event) => host?.postMessage({ type: 'push', event } satisfies MainToHost)
+  }
+)
 
 /** Porta in primo piano una finestra (o ne apre una) e le chiede di aprire la sessione all'elemento. */
 let pendingOpen: { sessionId: string; itemId: string | null } | null = null
@@ -714,6 +724,8 @@ app.whenReady().then(() => {
   // Il Mac dorme o si sveglia: i telefoni lo vedono invece di un generico "offline".
   powerMonitor.on('suspend', () => host?.postMessage({ type: 'power', state: 'asleep' } satisfies MainToHost))
   powerMonitor.on('resume', () => host?.postMessage({ type: 'power', state: 'awake' } satisfies MainToHost))
+  powerMonitor.on('lock-screen', () => (screenLocked = true))
+  powerMonitor.on('unlock-screen', () => (screenLocked = false))
   // Spegnimento o logout: l'avviso parte senza aspettare l'ack e before-quit non blocca l'uscita.
   powerMonitor.on('shutdown', () => {
     quitStep = 'done'

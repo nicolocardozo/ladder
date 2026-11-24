@@ -1,4 +1,5 @@
 // Allowlist dei comandi del canale remoto. Import relativi e solo `import type` dal protocollo: il file gira anche sotto `node --test`.
+import { cleanNotifyPrefs } from './push-policy.ts'
 import type { PermissionLevel, RemoteAllowedType, RemoteCommand, RemoteEvent, ToRemoteHost } from '../../shared/protocol.ts'
 
 // `satisfies Record<…, true>` fa fallire il typecheck se un tipo viene aggiunto (o tolto) da una parte sola:
@@ -20,6 +21,8 @@ const REMOTE_ONLY = {
   'session.page': true,
   'session.watch': true,
   'device.push.set': true,
+  'device.notify.set': true,
+  'device.state': true,
   'project.sessions.archived': true
 } satisfies Record<Exclude<RemoteCommand['type'], RemoteAllowedType>, true>
 
@@ -131,6 +134,12 @@ export function parseRemoteMessage(value: unknown, messages: { invalid: string; 
       return ok(isId(command.projectId) && (command.before === undefined || isCount(command.before)) && (command.limit === undefined || isCount(command.limit)))
     case 'device.push.set':
       return ok((command.token === null || (isString(command.token) && command.token.length > 0 && command.token.length <= MAX_PUSH_TOKEN)) && (command.platform === 'ios' || command.platform === 'android'))
+    case 'device.notify.set': {
+      const prefs = cleanNotifyPrefs(command.prefs)
+      return ok(prefs !== null, prefs ? { type: 'device.notify.set', prefs } : undefined)
+    }
+    case 'device.state':
+      return ok(typeof command.foreground === 'boolean')
     default:
       // session.read, session.interrupt, subagent.list: solo sessionId.
       return ok(isId(command.sessionId))

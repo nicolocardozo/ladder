@@ -13,13 +13,15 @@ import {
   type RemoteLogAction,
   type RemoteLogEntry,
   type RemoteLogPage,
+  type RemoteNotifyPrefs,
   type RemotePairingPayload,
   type RemotePairStart,
   type RemotePlatform
 } from '../../shared/protocol.ts'
-import { t } from '../../shared/i18n.ts'
+import { isLocale, t, type Locale } from '../../shared/i18n.ts'
 import { encodePairingUrl, fromBase64Url, keyFingerprint, toBase64Url, verifyChannelBinding } from '../../shared/remote/pairing.ts'
 import type { Db } from '../db.ts'
+import { parseNotifyPrefs } from './push-policy.ts'
 
 const PASSWORD_KEY = 'remote.password'
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 }
@@ -38,6 +40,9 @@ export interface DeviceRow {
   platform: RemotePlatform
   publicKey: string
   pushToken: string | null
+  /** LAD-53: preferenze push (predefinite se il telefono non ne ha mandate) e lingua dell'app. */
+  notify: RemoteNotifyPrefs
+  locale: Locale
   createdAt: number
   lastSeenAt: number | null
   revokedAt: number | null
@@ -305,6 +310,8 @@ export class RemoteAccess {
       platform: r.platform as RemotePlatform,
       publicKey: r.public_key as string,
       pushToken: (r.push_token as string | null) ?? null,
+      notify: parseNotifyPrefs(r.notify),
+      locale: isLocale(r.locale) ? r.locale : 'en',
       createdAt: r.created_at as number,
       lastSeenAt: (r.last_seen_at as number | null) ?? null,
       revokedAt: (r.revoked_at as number | null) ?? null
@@ -330,7 +337,7 @@ export class RemoteAccess {
   }
 
   infoOf(d: DeviceRow, connected: boolean): RemoteDeviceInfo {
-    return { id: d.id, name: d.name, platform: d.platform, createdAt: d.createdAt, lastSeenAt: connected ? this.now() : d.lastSeenAt, connected }
+    return { id: d.id, name: d.name, platform: d.platform, createdAt: d.createdAt, lastSeenAt: connected ? this.now() : d.lastSeenAt, connected, pushEnabled: d.pushToken !== null }
   }
 
   /** Un telefono con la stessa chiave già abbinato (e non revocato) mantiene il suo id: riabbinare è idempotente. */
@@ -369,7 +376,33 @@ export class RemoteAccess {
 
   /** Token delle notifiche push (LAD-53); null lo toglie. */
   setPushToken(id: string, token: string | null, platform: RemotePlatform): void {
+    // Lo stesso token su un'altra riga (telefono riabbinato): si toglie, così non arrivano push doppi.
+    if (token) this.db.prepare('update devices set push_token = null where push_token = ? and id != ? and revoked_at is null').run(token, id)
     this.db.prepare('update devices set push_token = ?, platform = ? where id = ? and revoked_at is null').run(token, platform, id)
+  }
+
+  /** Toglie un token che Expo dice non più valido (DeviceNotRegistered); solo se è ancora quello salvato. */
+  clearPushToken(token: string): void {
+    const changed = Number(this.db.prepare('update devices set push_token = null where push_token = ?').run(token).changes) > 0
+    if (changed) this.options.onChange?.()
+  }
+
+  /** LAD-53: preferenze push del dispositivo (già validate dall'allowlist). */
+  setNotifyPrefs(id: string, prefs: RemoteNotifyPrefs): void {
+    this.db.prepare('update devices set notify = ? where id = ? and revoked_at is null').run(JSON.stringify(prefs), id)
+  }
+
+  /** Lingua dichiarata dal telefono nell'handshake; si salva solo se cambia. */
+  setLocale(id: string, locale: Locale): void {
+    this.db.prepare('update devices set locale = ? where id = ? and revoked_at is null and (locale is null or locale != ?)').run(locale, id, locale)
+  }
+
+  /** Dispositivi che possono ricevere un push: non revocati e con un token. */
+  pushTargets(): DeviceRow[] {
+    return this.db
+      .prepare('select * from devices where revoked_at is null and push_token is not null')
+      .all()
+      .map((r) => this.rowOf(r))
   }
 
   // ── Log delle azioni remote ──────────────────────────────────────────────

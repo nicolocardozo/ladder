@@ -129,3 +129,12 @@ export function verifyChannelBinding(publicKey: Uint8Array, kind: RemoteAuthKind
     return false
   }
 }
+
+/**
+ * Id del Mac nei dati dei push (RemotePushData.mac): base64url(sha256('ladder-push|' + chiave del Mac in base64url)) ridotto a 16 caratteri.
+ * Il telefono lo calcola dalla chiave del Mac che ha nel suo abbinamento (`RemotePairingPayload.key`) e lo confronta; non è l'id del relay,
+ * quindi chi lo vede (Expo, Apple, Google) non può usarlo per entrare nella stanza del relay. Uguale su ogni trasporto.
+ */
+export function pushMacId(macKey: string): string {
+  return toBase64Url(sha256(new TextEncoder().encode(`ladder-push|${macKey}`))).slice(0, 16)
+}

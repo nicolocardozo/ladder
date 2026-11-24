@@ -1,12 +1,13 @@
 // Canale remoto dell'host: tiene insieme gateway, WebSocket locale di prova (LADDER_REMOTE_PORT) e relay (LAD-50).
 // Il gateway (e quindi l'identità) esiste finché almeno uno dei due trasporti è acceso.
 import { hostname } from 'node:os'
-import { REMOTE_DEFAULT_RELAY_URL, type HostCommand, type HostPrefs, type RemoteDeviceInfo, type RemoteLogEntry, type RemoteLogPage, type RemotePairStart, type RemoteStatus } from '../../shared/protocol.ts'
+import { REMOTE_DEFAULT_RELAY_URL, type HostCommand, type HostPrefs, type PushEvent, type RemoteDeviceInfo, type RemoteLogEntry, type RemoteLogPage, type RemotePairStart, type RemoteStatus } from '../../shared/protocol.ts'
 import { t } from '../../shared/i18n.ts'
-import { keyFingerprint } from '../../shared/remote/pairing.ts'
+import { keyFingerprint, pushMacId, toBase64Url } from '../../shared/remote/pairing.ts'
 import type { NoiseKeyPair } from '../../shared/remote/noise.ts'
 import type { Db } from '../db.ts'
 import { RemoteAccess } from './access.ts'
+import { PushService } from './push.ts'
 import { RemoteGateway, type RemoteHostApi } from './gateway.ts'
 import { loadOrCreateIdentity, loadOrCreateRelayKey, peekIdentityKey, regenerateIdentity, regenerateRelayKey, type RelayKeyPair } from './identity.ts'
 import { RelayClient } from './relay-client.ts'
@@ -57,6 +58,8 @@ export class RemoteChannel {
   private identity: NoiseKeyPair | null = null
   private lastRemote: HostPrefs['remote'] = undefined
   readonly access: RemoteAccess
+  /** LAD-53: notifiche push ai telefoni, con Expo. */
+  private readonly push: PushService
   private localStarted = false
   private busy: Promise<void> = Promise.resolve()
   /** Il Mac dorme o sta uscendo (setMacState): vale anche per un relay nuovo, se l'indirizzo cambia. */
@@ -68,6 +71,22 @@ export class RemoteChannel {
       onChange: () => this.emitStatus(),
       onPaired: (device) => options.onPaired?.(this.access.infoOf(device, true))
     })
+    this.push = new PushService({
+      access: this.access,
+      macId: () => this.macId(),
+      foreground: () => this.gateway_?.foregroundDevices() ?? new Set<string>(),
+      log: (message) => console.log(`[remote] ${message}`)
+    })
+  }
+
+  /** Id del Mac nei dati del push: derivato dalla chiave del Mac (pushMacId), uguale su ogni trasporto e senza rivelare l'id del relay. */
+  private macId(): string {
+    return this.identity ? pushMacId(toBase64Url(this.identity.publicKey)) : ''
+  }
+
+  /** LAD-53: il main ha deciso che l'evento va ai telefoni; a canale spento non parte nulla. */
+  notifyPhones(event: PushEvent): void {
+    void this.push.notify(event)
   }
 
   /** Stato per la finestra (Impostazioni → Dispositivi e indicatore nella barra in alto). */
@@ -212,6 +231,7 @@ export class RemoteChannel {
     this.local = null
     this.gateway_?.close()
     this.gateway_ = null
+    this.push.stop()
   }
 
   private async apply(remote: HostPrefs['remote']): Promise<void> {

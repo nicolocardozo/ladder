@@ -1788,11 +1788,65 @@ export type RemoteCommand =
    */
   | { type: 'device.push.set'; token: string | null; platform: RemotePlatform }
   /**
+   * LAD-53: preferenze delle notifiche push di questo dispositivo (le possiede il telefono; il Mac le conserva sulla riga del
+   * dispositivo e le applica prima di mandare). Risponde null. Il telefono le manda a ogni connessione dopo l'autenticazione:
+   * il comando è idempotente e il Mac non le rimanda indietro. Validazione: `events` con tutte e quattro le chiavi booleane,
+   * `quiet.from`/`to` "HH:MM" (24 ore), `quiet.tz` un fuso IANA valido (es. "Europe/Rome"), al massimo 64 caratteri.
+   * Predefiniti (finché il telefono non manda nulla): tutti gli eventi accesi, nessuna fascia silenziosa.
+   */
+  | { type: 'device.notify.set'; prefs: RemoteNotifyPrefs }
+  /**
+   * LAD-53: l'app è in primo piano (true) o no (false). Solo in memoria, per connessione: sparisce con la connessione.
+   * Con almeno una connessione del dispositivo in primo piano il Mac non manda il push (l'app mostra l'evento dal vivo).
+   * Il telefono lo manda a ogni cambio di AppState, subito dopo l'autenticazione e, finché è in primo piano, ogni ~20 secondi (battito):
+   * per il Mac vale l'ultimo stato del dispositivo, ma `true` conta solo se è stato riportato negli ultimi 30 secondi o la connessione
+   * ha avuto traffico di comandi negli ultimi 30 secondi: una connessione muta non toglie i push. Risponde null.
+   */
+  | { type: 'device.state'; foreground: boolean }
+  /**
    * Sessioni archiviate di un progetto (schermata Progetto), solo lettura, dalla più recente per `updatedAt`. Risponde SessionSummary[].
    * `before`: `updatedAt` esclusivo da cui continuare (l'ultimo ricevuto); `limit` predefinito 30, massimo 100. Meno di `limit` risultati = finite.
    * Non sono nello snapshot. Progetto sconosciuto: errore.
    */
   | { type: 'project.sessions.archived'; projectId: string; before?: number; limit?: number }
+
+/** Eventi che possono diventare un push: gli stessi di AttentionEvent tranne `resolved`. */
+export type PushKind = 'request' | 'turn' | 'error' | 'agents'
+
+/**
+ * LAD-53: preferenze push di un dispositivo (`device.notify.set`).
+ * - `events`: quali eventi notificare;
+ * - `quiet`: fascia silenziosa, valutata nel fuso `tz` del telefono; vale anche a cavallo della mezzanotte (from > to);
+ *   from === to = fascia vuota; null = nessuna fascia;
+ * - `quietAllowsRequests`: con true, richieste e domande passano anche nella fascia silenziosa (predefinito false:
+ *   nella fascia non arriva nulla).
+ */
+export interface RemoteNotifyPrefs {
+  events: Record<PushKind, boolean>
+  quiet: { from: string; to: string; tz: string } | null
+  quietAllowsRequests?: boolean
+}
+
+/**
+ * LAD-53: `data` del push (Expo `data`, quindi anche in `response.notification.request.content.data` al tocco). Volutamente
+ * senza titoli né testo: Expo, Apple e Google vedono solo "Ladder" e una frase generica; i dettagli il telefono li prende
+ * dal canale cifrato (`hello`, `session.page`). Al tocco: apri la sessione `sessionId` sul Mac `mac` e, se `itemId` c'è, la richiesta.
+ * `mac`: `pushMacId(RemotePairingPayload.key)` (shared/remote/pairing.ts): sha256 della chiave del Mac, 16 caratteri base64url. Il telefono lo
+ * calcola dal suo abbinamento e lo confronta; non è l'id del relay (chi vede il push non può entrare nella stanza) e vale su ogni trasporto.
+ */
+export interface RemotePushData {
+  v: 1
+  kind: PushKind
+  sessionId: string
+  /** Id della richiesta (kind 'request'), del turno o dell'errore; null se non c'è. */
+  itemId: string | null
+  mac: string
+}
+
+/** Titolo del push: sempre "Ladder". Il testo (`body`) è generico e nella lingua dell'app sul telefono (RemoteClientHello.locale). */
+export const REMOTE_PUSH_TITLE = 'Ladder'
+/** Canale Android dei push (lo crea l'app: importance alta). */
+export const REMOTE_PUSH_CHANNEL = 'sessions'
 
 export interface RemotePage {
   sessionId: string
@@ -2011,6 +2065,8 @@ export interface RemoteDeviceInfo {
   lastSeenAt: number | null
   /** Ha almeno una connessione autenticata in questo momento. */
   connected: boolean
+  /** LAD-53: il telefono ha registrato un token push (riceve le notifiche con l'app chiusa). L'host lo imposta sempre; opzionale solo per le fixture della UI. */
+  pushEnabled?: boolean
 }
 
 /**
@@ -2149,11 +2205,20 @@ export interface HostPrefs {
   busySend?: 'steer' | 'queue'
 }
 
+/** LAD-53: evento da mandare ai telefoni; niente testi (il push è generico). */
+export interface PushEvent {
+  kind: PushKind
+  sessionId: string
+  itemId: string | null
+}
+
 export type MainToHost =
   | { type: 'connect' }
   | { type: 'prefs'; prefs: HostPrefs }
   /** LAD-54: stato del Mac per il canale remoto (i telefoni vedono "dorme" / "Ladder chiuso"). Con 'quit' l'host risponde `power-ack`. */
   | { type: 'power'; state: 'asleep' | 'awake' | 'quit' }
+  /** LAD-53: il main ha deciso che un evento va notificato ai telefoni (nessuno sta guardando la sessione sul Mac, Mac inattivo). Il filtro per dispositivo lo fa l'host. */
+  | { type: 'push'; event: PushEvent }
   // ── LAD-57 parte 2 ──
   | { type: 'browser-agent-result'; rid: string; result: BrowserAgentResult }
   /** La vista dell'agente non c'è più (l'utente ha chiuso la tab o la finestra): l'host revoca gli strumenti della sessione. */

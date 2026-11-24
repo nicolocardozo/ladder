@@ -2,7 +2,7 @@
 // Non sa nulla del trasporto (WebSocket oggi, relay con LAD-50): riceve un RemoteLink già aperto.
 // Import relativi (niente alias @shared): il file è provato in-process con `node --test`.
 import type { FromRemoteHost, HostEvent, PermissionLevel, RemoteAuthErrorCode, RemoteCommand, RemoteEvent, RemoteLogAction, RemoteLogEntry, RemotePage, RemoteSnapshot, RequestResponse, SessionSummary } from '../../shared/protocol.ts'
-import { t } from '../../shared/i18n.ts'
+import { isLocale, t, type Locale } from '../../shared/i18n.ts'
 import { serverHandshake, type RemoteSession } from '../../shared/remote/session.ts'
 import type { NoiseKeyPair } from '../../shared/remote/noise.ts'
 import { authErrorText, type DeviceRow, type RemoteAccess } from './access.ts'
@@ -23,7 +23,7 @@ export interface RemoteLink {
 /** Quello che il gateway usa dell'Host. */
 export interface RemoteHostApi {
   snapshot(): Promise<Extract<HostEvent, { type: 'snapshot' }>>
-  handle(command: Exclude<RemoteCommand, { type: 'session.page' | 'session.watch' | 'device.push.set' | 'project.sessions.archived' }>, origin: object): Promise<unknown>
+  handle(command: Exclude<RemoteCommand, { type: 'session.page' | 'session.watch' | 'device.push.set' | 'device.notify.set' | 'device.state' | 'project.sessions.archived' }>, origin: object): Promise<unknown>
   pageItems(sessionId: string, before?: number, limit?: number): RemotePage
   /** Tetto di permesso per progetto e preferenza di invio, per l'istantanea; manca = nessun tetto e 'steer'. */
   remoteExtras?(): Promise<{ permissionsMax: RemoteSnapshot['permissionsMax']; busySend: RemoteSnapshot['prefs']['busySend'] }>
@@ -43,6 +43,8 @@ export interface RemoteGatewayOptions {
   macName: string
   appVersion: string
   log?: (message: string) => void
+  /** Orologio; solo le prove lo cambiano. */
+  now?: () => number
   /** Silenzio massimo dopo l'handshake; solo le prove lo cambiano. */
   idleTimeoutMs?: number
   /** LAD-54: chiamata quando cambia il numero di telefoni collegati (autenticazione riuscita o connessione chiusa). */
@@ -53,6 +55,8 @@ export interface RemoteGatewayOptions {
   onLog?: (entry: RemoteLogEntry) => void
 }
 
+/** LAD-53: per quanto tempo vale "in primo piano" senza nuove notizie dalla connessione. */
+export const FOREGROUND_TTL_MS = 30_000
 export const MAX_WATCHED = 8
 const MAX_IN_FLIGHT = 64
 /** Oltre questa coda di invio la connessione è troppo lenta e si chiude. */
@@ -91,6 +95,10 @@ class RemoteConnection {
   /** LAD-51: dispositivo autenticato; null finché non ha mandato `pair` o `auth`. */
   auth: DeviceRow | null = null
   authenticating = false
+  /** LAD-53: lingua dell'app dall'hello (non autenticato: si salva solo dopo l'autenticazione). */
+  locale: Locale | null = null
+  /** LAD-53: ultimo comando ricevuto (traffico dell'applicazione: pong e keepalive del trasporto non contano). */
+  activeAt = 0
   /** Sessioni seguite, dalla meno recente (ordine di inserimento della Map). */
   readonly watched = new Map<string, true>()
   inFlight = 0
@@ -138,6 +146,8 @@ export class RemoteGateway {
   private readonly options: RemoteGatewayOptions
   private readonly connections = new Set<RemoteConnection>()
   private identity: NoiseKeyPair
+  /** LAD-53: ultimo device.state per dispositivo. */
+  private readonly foreground = new Map<string, { foreground: boolean; at: number; conn: RemoteConnection }>()
 
   constructor(options: RemoteGatewayOptions) {
     this.options = options
@@ -165,6 +175,24 @@ export class RemoteGateway {
     const ids = new Set<string>()
     for (const conn of this.connections) if (conn.auth) ids.add(conn.auth.id)
     return ids
+  }
+
+  /**
+   * LAD-53: dispositivi con l'app in primo piano, per l'ultimo `device.state` del dispositivo (su qualunque connessione).
+   * Vale solo se la connessione che l'ha riportato è ancora aperta e o l'ha riportato meno di 30 secondi fa o ha mandato comandi
+   * negli ultimi 30 secondi: una connessione muta o caduta non toglie i push.
+   */
+  foregroundDevices(): Set<string> {
+    const now = this.now()
+    const ids = new Set<string>()
+    for (const [deviceId, state] of this.foreground) {
+      if (state.foreground && !state.conn.closed && (now - state.at < FOREGROUND_TTL_MS || now - state.conn.activeAt < FOREGROUND_TTL_MS)) ids.add(deviceId)
+    }
+    return ids
+  }
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now()
   }
 
   /** Il dispositivo è stato rinominato: le connessioni aperte usano il nome nuovo (log e `viaDevice`). */
@@ -217,6 +245,7 @@ export class RemoteGateway {
           // Il timer di handshake resta: vale fino all'autenticazione (pair/auth), non solo fino al primo messaggio.
           conn.session = session
           conn.device = client.device.slice(0, 80)
+          conn.locale = isLocale(client.locale) ? client.locale : null
           link.send(reply)
           this.options.log?.(`connection opened, waiting for authentication (device: ${JSON.stringify(conn.device)})`)
           return
@@ -310,6 +339,7 @@ export class RemoteGateway {
     if (conn.idleTimer) clearTimeout(conn.idleTimer)
     this.connections.delete(conn)
     conn.watched.clear()
+    if (conn.auth && this.foreground.get(conn.auth.id)?.conn === conn) this.foreground.delete(conn.auth.id)
     const device = conn.auth
     if (device) {
       this.options.onClients?.(this.clients)
@@ -353,6 +383,14 @@ export class RemoteGateway {
         if (conn.handshakeTimer) clearTimeout(conn.handshakeTimer)
         conn.handshakeTimer = null
         conn.auth = outcome.device
+        // LAD-53: la lingua dell'app decide il testo dei push; senza, resta quella salvata (o inglese).
+        if (conn.locale) {
+          try {
+            this.options.access.setLocale(outcome.device.id, conn.locale)
+          } catch (error) {
+            console.error('[remote] locale', error instanceof Error ? error.message : String(error))
+          }
+        }
         this.touch(conn)
         this.send(conn, { kind: 'auth', ok: true, deviceId: outcome.device.id, name: outcome.device.name, allowFull: this.options.access.allowFull })
         this.options.log?.(`device authenticated (${outcome.paired ? 'paired' : 'known'})`)
@@ -391,6 +429,7 @@ export class RemoteGateway {
       return
     }
     conn.rejected = 0
+    conn.activeAt = this.now()
     if (conn.inFlight >= MAX_IN_FLIGHT) {
       this.drop(conn, 'too many requests in flight')
       return
@@ -431,6 +470,14 @@ export class RemoteGateway {
         return host.archivedSessions?.(command.projectId, command.before, command.limit) ?? []
       case 'device.push.set':
         if (conn.auth) this.options.access.setPushToken(conn.auth.id, command.token, command.platform)
+        // La finestra mostra "Notifiche attive" dal token.
+        this.options.onDevices?.()
+        return null
+      case 'device.notify.set':
+        if (conn.auth) this.options.access.setNotifyPrefs(conn.auth.id, command.prefs)
+        return null
+      case 'device.state':
+        if (conn.auth) this.foreground.set(conn.auth.id, { foreground: command.foreground, at: this.now(), conn })
         return null
       case 'session.send': {
         // Gli allegati non passano dal telefono.

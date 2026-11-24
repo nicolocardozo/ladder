@@ -135,7 +135,10 @@ const COLUMNS: [table: string, column: string, definition: string][] = [
   ['sessions', 'permission_next', 'text'],
   // Sessione archiviata dopo l'unione ('git' | 'pr') e quando: la mappa dei branch (LAD-80) la ricorda anche dopo un riavvio. Null = non nota.
   ['sessions', 'merged_via', 'text'],
-  ['sessions', 'merged_at', 'integer']
+  ['sessions', 'merged_at', 'integer'],
+  // LAD-53: preferenze push del telefono (JSON di RemoteNotifyPrefs; null = predefinite) e lingua dell'app (RemoteClientHello.locale).
+  ['devices', 'notify', 'text'],
+  ['devices', 'locale', 'text']
 ]
 
 function migrate(db: DatabaseSync): void {

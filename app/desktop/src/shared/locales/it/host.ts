@@ -562,6 +562,11 @@ const it: Record<string, string> = {
   'Cannot reach the relay right now. Check the relay address in Settings and try again.': 'Al momento il relay non è raggiungibile. Controlla l’indirizzo del relay nelle Impostazioni e riprova.',
   'Enter a name for the device.': 'Inserisci un nome per il dispositivo.',
   'Device not found.': 'Dispositivo non trovato.',
+  // Notifiche push ai telefoni (LAD-53): testi generici, senza nomi di progetti.
+  'A session is waiting for you': 'Una sessione ti aspetta',
+  'A session finished': 'Una sessione è finita',
+  'A session hit an error': 'Una sessione ha avuto un errore',
+  'Background agents finished': 'Gli agenti in background hanno finito',
   'Unknown device': 'Dispositivo sconosciuto',
   'Message ({n} chars)': 'Messaggio ({n} caratteri)',
   'Queued message sent now': 'Messaggio in coda inviato subito',

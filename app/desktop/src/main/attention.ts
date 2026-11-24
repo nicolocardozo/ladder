@@ -3,10 +3,9 @@
 import { appendFileSync } from 'node:fs'
 import { app, BrowserWindow, Notification } from 'electron'
 import { plural, t } from '@shared/i18n'
-import type { AppPrefs, AttentionEvent, WindowView } from '@shared/protocol'
+import type { AppPrefs, AttentionEvent, PushEvent, WindowView } from '@shared/protocol'
+import { isWatching, pushFor, TURN_MIN_MS } from './push-logic'
 
-/** Turni più brevi non notificano: li vedi quando torni. */
-const TURN_MIN_MS = 60_000
 /** Le risposte pronte dello stesso progetto si raccolgono in una notifica per due minuti. */
 const GROUP_MS = 120_000
 
@@ -39,6 +38,8 @@ export class Attention {
   constructor(
     private readonly prefs: () => AppPrefs,
     private readonly open: (sessionId: string, itemId: string | null) => void,
+    /** LAD-53: stato del Mac per decidere i push ai telefoni, e invio all'host. */
+    private readonly phones: { state: () => { idleSeconds: number; locked: boolean }; send: (event: PushEvent) => void } | null = null,
     /** LADDER_NOTIFY_TRACE: le notifiche si scrivono in un file invece di comparire. Per le prove automatiche. */
     private readonly trace: string | null = process.env.LADDER_NOTIFY_TRACE ?? null
   ) {}
@@ -60,7 +61,18 @@ export class Attention {
     return window ? (this.views.get(window.webContents.id) ?? null) : null
   }
 
+  /** LAD-53: stessi eventi delle notifiche del Mac, ma i telefoni si decidono con regole loro (vedi push-logic.ts). */
+  private pushToPhones(event: AttentionEvent): void {
+    if (!this.phones) return
+    const { idleSeconds, locked } = this.phones.state()
+    const push = pushFor(event, { view: this.focused(), idleSeconds, locked, dndUntil: this.prefs().dndUntil, now: Date.now() })
+    if (!push) return
+    if (this.trace) this.write({ action: 'push', ...push })
+    this.phones.send(push)
+  }
+
   handle(event: AttentionEvent): void {
+    this.pushToPhones(event)
     switch (event.kind) {
       case 'request': {
         const view = this.focused()
@@ -89,7 +101,7 @@ export class Attention {
       case 'agents': {
         // Stai guardando la sessione (in qualunque colonna): la risposta e l'elenco degli agenti sono già davanti a te.
         const view = this.focused()
-        if (view && (view.visibleSessionIds?.includes(event.sessionId) ?? view.sessionId === event.sessionId)) return
+        if (isWatching(view, event.sessionId)) return
         // Una per sessione: il nuovo avviso sostituisce il precedente. Il suono solo se un agente è fallito.
         if (event.outcome === 'done' && this.shown.some((s) => s.kind === 'agents' && s.outcome === 'failed' && s.sessionId === event.sessionId)) return
         this.clear((s) => s.kind === 'agents' && s.sessionId === event.sessionId)
