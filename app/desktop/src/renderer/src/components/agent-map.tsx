@@ -3,7 +3,7 @@
 // figli sotto il genitore, ricerca e filtri oltre 15 agenti, lista virtualizzata.
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Bot, ChevronDown, ChevronRight, Maximize2, Search } from 'lucide-react'
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { plural, t } from '@shared/i18n'
 import type { AgentId, SessionSummary, SubagentInfo } from '@shared/protocol'
 import { useNow } from '@/components/chat/chat-context'
@@ -219,7 +219,17 @@ function AgentMap({
     }
   }
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
-  const [doneOpen, setDoneOpen] = useState(false)
+  // Se sono tutti completati, il gruppo dei completati è l'unica cosa da vedere: si apre già aperto.
+  // Con agenti in corso o falliti resta chiuso, per non spingere in basso quelli che contano.
+  const allDone = agents.length > 0 && agents.every((a) => bucketOf(a) === 'done')
+  const [doneOpen, setDoneOpen] = useState(allDone)
+  // L'elenco può arrivare dopo l'apertura: la scelta iniziale si fa una volta, appena c'è, poi decide l'utente.
+  const doneDecided = useRef(agents.length > 0)
+  useEffect(() => {
+    if (doneDecided.current || agents.length === 0) return
+    doneDecided.current = true
+    if (allDone) setDoneOpen(true)
+  }, [agents.length, allDone])
 
   const canFilter = view === 'list' && agents.length >= FILTER_FROM
   const kinds = useMemo(() => [...new Set(agents.map((a) => a.kind).filter((k): k is string => Boolean(k)))].sort(), [agents])
