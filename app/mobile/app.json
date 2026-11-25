@@ -8,13 +8,6 @@
     "orientation": "default",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
-    "newArchEnabled": true,
-    "jsEngine": "hermes",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#181424"
-    },
     "ios": {
       "bundleIdentifier": "dev.nicolocardozo.ladder.mobile",
       "supportsTablet": false,
@@ -26,7 +19,6 @@
     },
     "android": {
       "package": "dev.nicolocardozo.ladder.mobile",
-      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#181424"
