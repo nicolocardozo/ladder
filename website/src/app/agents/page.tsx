@@ -9,7 +9,7 @@ import { getRegistryAgents } from "./registry"
 export const metadata: Metadata = {
   title: "Supported agents",
   description:
-    "The coding agents Ladder runs on macOS: Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot, Grok Build, OpenCode, Goose, Cline, Qwen Code and every agent in the ACP registry, plus any CLI in a terminal session.",
+    "The coding agents Ladder runs on macOS: Claude, Codex, Gemini CLI, Cursor, GitHub Copilot, Grok Build, OpenCode, Goose, Cline, Qwen Code and every agent in the ACP registry, plus any CLI in a terminal session.",
   alternates: { canonical: "/agents" },
   openGraph: { url: "/agents" },
 }
@@ -18,8 +18,8 @@ export const metadata: Metadata = {
 const BUILT_IN = [
   {
     id: "claude",
-    name: "Claude Code",
-    how: "Runs the official claude binary through Anthropic's Claude Agent SDK.",
+    name: "Claude",
+    how: "Runs the official claude binary (Claude Code) through Anthropic's Claude Agent SDK.",
     login: "Your own Claude login, done with Anthropic's sign-in flow in your browser. Add more than one account, such as Work and Personal.",
     extras: "Approvals and questions, sub-agent map, plan limits, model and effort per message, four permission levels.",
   },
@@ -54,7 +54,7 @@ const CURATED: { id: string; name: string; login: string | null }[] = [
 const SHOWN = new Set(["claude-acp", "codex-acp", "gemini", "cursor", "github-copilot-cli", "opencode", "amp-acp", "goose", "cline", "qwen-code", "kiro", "junie", "factory-droid", "grok-build"])
 
 type Cell = boolean | string
-const COLUMNS = ["Claude Code", "Codex", "ACP agents", "Terminal"] as const
+const COLUMNS = ["Claude", "Codex", "ACP agents", "Terminal"] as const
 const ROWS: { label: string; cells: [Cell, Cell, Cell, Cell] }[] = [
   { label: "Chat with live streaming", cells: [true, true, true, "Native TUI"] },
   { label: "Approvals as cards with shortcuts", cells: [true, true, "Agent's own options", "In the TUI"] },

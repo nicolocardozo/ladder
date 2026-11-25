@@ -163,7 +163,7 @@ function finalState(): Demo {
   }
 }
 
-const AGENT_NAME = { claude: "Claude Code", codex: "Codex" } as const
+const AGENT_NAME = { claude: "Claude", codex: "Codex" } as const
 
 const subscribeRM = (cb: () => void) => {
   const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -607,7 +607,7 @@ export default function LadderWindow() {
                   <span className="lw-caret" />
                 </>
               ) : (
-                "Ask Claude Code. @ to mention a file, / for commands"
+                "Ask Claude. @ to mention a file, / for commands"
               )}
             </div>
             <div className="lw-row">

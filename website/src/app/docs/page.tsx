@@ -7,7 +7,7 @@ import { DownloadLink } from "@/components/download-link"
 export const metadata: Metadata = {
   title: "Docs",
   description:
-    "How to use Ladder on macOS: projects and sessions, the Waiting view, reviewing changes, branches and merge, the built-in browser, worktrees and .ladder/settings.toml, agents and accounts, plan limits, themes and settings, and every keyboard shortcut.",
+    "How to use Ladder on macOS: projects and sessions, the Waiting view, reviewing changes, branches and merge, the built-in browser, worktrees and .ladder/settings.toml, agents and accounts, handing work between agents, advice and delegation, executable plans, the ladder command line, plan limits, themes and settings, and every keyboard shortcut.",
   alternates: { canonical: "/docs" },
   openGraph: { url: "/docs" },
 }
@@ -21,6 +21,9 @@ const TOC = [
   { id: "worktrees", label: "Worktrees and settings" },
   { id: "terminal", label: "Terminal sessions" },
   { id: "agents", label: "Agents, accounts and profiles" },
+  { id: "handoff", label: "Handoff, advice and delegation" },
+  { id: "plans", label: "Executable plans" },
+  { id: "cli", label: "The ladder command" },
   { id: "limits", label: "Plan limits" },
   { id: "settings", label: "Look, language and settings" },
   { id: "shortcuts", label: "Keyboard shortcuts" },
@@ -126,7 +129,7 @@ export default function Page() {
                 </li>
                 <li>
                   Connect your agents in <strong>Settings → Subscriptions</strong> and <strong>Settings → Agents</strong>.
-                  Claude Code and Codex sign in with their own flow; agents that speak ACP install from the catalog. See <Link href="/agents">supported agents</Link>.
+                  Claude and Codex sign in with their own flow; agents that speak ACP install from the catalog. See <Link href="/agents">supported agents</Link>.
                 </li>
                 <li>
                   Start a chat with <Kbd>⌘</Kbd> <Kbd>N</Kbd>, pick the agent, model, effort and permission level, and
@@ -299,7 +302,17 @@ default = true
 [agents]
 allowed         = ["claude-code", "codex"]
 default         = "claude-code"
-permissions_max = "edit"`}</CodeBlock>
+permissions_max = "edit"
+auto_switch     = "codex"
+cross_review    = "codex"
+
+[[agents.delegates]]
+name       = "reviewer"
+agent      = "codex"
+model      = "gpt-6-luna"
+effort     = "high"
+permission = "plan"
+note       = "Reviews and second opinions"`}</CodeBlock>
             <Prose>
               <ul>
                 <li>
@@ -320,7 +333,24 @@ permissions_max = "edit"`}</CodeBlock>
                 </li>
                 <li>
                   <Code>[agents]</Code>: which agents the project allows, which one is proposed and the highest permission
-                  level.
+                  level. Agents are written as <Code>claude-code</Code>, <Code>codex</Code> or an ACP id such as{" "}
+                  <Code>gemini</Code>; <Code>claude-code</Code> is still the id of the Claude agent.
+                </li>
+                <li>
+                  <Code>auto_switch</Code> and <Code>cross_review</Code>, also in <Code>[agents]</Code>: an agent to
+                  continue with when the plan limit is reached, and an agent that reviews the changes after each turn (see{" "}
+                  <a href="#handoff">Handoff, advice and delegation</a>). Both are off unless you set them, and an empty
+                  string in your personal file turns off the project&apos;s value. With a project selected, Settings → New
+                  sessions sets them for you in <Code>.ladder/settings.local.toml</Code>.
+                </li>
+                <li>
+                  <Code>[[agents.delegates]]</Code>: the agents you prefer to delegate to. One block per delegate, with a{" "}
+                  <Code>name</Code> (up to 40 characters) and an <Code>agent</Code>, both required, and optionally{" "}
+                  <Code>model</Code>, <Code>effort</Code> (<Code>low</Code>, <Code>medium</Code>, <Code>high</Code>,{" "}
+                  <Code>xhigh</Code> or <Code>max</Code>), <Code>permission</Code> (<Code>plan</Code> if you leave it out,
+                  and never above <Code>permissions_max</Code>) and a short <Code>note</Code> of up to 300 characters. A
+                  delegate whose agent is not in <Code>allowed</Code> is ignored with an error, and a personal block with the
+                  same name replaces the project&apos;s. Settings → New sessions lists them, read-only.
                 </li>
                 <li>
                   <Code>[prompts]</Code>: replace the prompts behind Create PR, Fix CI and the other buttons with your own
@@ -353,7 +383,7 @@ permissions_max = "edit"`}</CodeBlock>
             <Prose className="mt-5">
               <p>
                 <strong>Settings → Subscriptions</strong> signs you in to Claude, Codex and GitHub from inside Ladder: it
-                opens your browser and you come back connected. Claude Code and Codex can have more than one account, for
+                opens your browser and you come back connected. Claude and Codex can have more than one account, for
                 example Work and Personal, each with its own plan and usage. Ladder never reads or stores the agents&apos;
                 credentials.
               </p>
@@ -378,12 +408,202 @@ permissions_max = "edit"`}</CodeBlock>
             </Prose>
           </Section>
 
+          <Section id="handoff" title="Handoff, advice and delegation">
+            <Prose className="mt-5">
+              <p>
+                Agents can work with each other without you copying anything around. Chat sessions get a small Ladder server
+                with the tools <Code>list_agents</Code>, <Code>handoff</Code> and <Code>delegate</Code>, plus the plan and session
+                tools; <Code>report_result</Code> is there only when someone waits for the result: plan tasks, delegated tasks
+                and sessions reached by a handoff. Sessions started from the terminal or by another agent can&apos;t hand off,
+                plan tasks can only report, terminal sessions don&apos;t have the server, and ACP agents get it only if they
+                support MCP over HTTP. Only agents that are available and allowed by the project can be chosen.
+              </p>
+              <h3>Handing a session to another agent</h3>
+              <p>
+                Choose <strong>Hand off to…</strong> in the session menu, or type <Code>/handoff</Code> (or{" "}
+                <Code>/handoff codex</Code>, with an optional note) in the message box. It works on a chat that is idle. The
+                current agent writes a summary of the goal, the decisions and what is left; then the work continues in a
+                linked session with the other agent, in the same folder and worktree. The new session shows where it came
+                from. Handing it back to the original agent resumes the first session, when it is idle, instead of opening a third one. An
+                agent can also ask for a handoff itself, when you tell it to switch, in a session you started. If a handoff is interrupted, for
+                example by a restart, its card offers <strong>Resume handoff</strong> or <strong>Reassign…</strong>.
+              </p>
+              <h3>Advice from other agents</h3>
+              <p>
+                <Code>/advisor</Code> (or <strong>Ask for advice…</strong> in the session menu) asks another agent to read the
+                work and the diff, with an optional question, and give an opinion. <Code>/committee</Code> asks two to four
+                different agents, each on their own. They work read-only, so nothing is edited, and their answers appear as a
+                card in the chat, with the agent&apos;s session one click away. <strong>Send to…</strong> forwards the advice to
+                the agent you are talking to, with a note if you want.
+              </p>
+              <h3>Plans as documents</h3>
+              <p>
+                When a session in Plan permission ends a turn, <strong>Open plan</strong> shows the answer as a document.
+                Click a line to comment on it; the comments travel with the plan. <strong>Implement with…</strong> sends it to
+                the same agent or another one, with the permission level you choose. For plans that run task by task, see{" "}
+                <a href="#plans">Executable plans</a>.
+              </p>
+              <h3>Delegation</h3>
+              <p>
+                With <Code>delegate</Code> an agent gives a self-contained task to an agent from another provider, for example
+                a review from Codex while Claude keeps the lead, and gets the result back inside its turn. The delegate runs
+                as a child session that you follow in the agent map; it can be read-only or work in a worktree of its own. You
+                can stop it, and after a restart an interrupted delegation shows a card to <strong>Resume delegation</strong>{" "}
+                or dismiss it. A delegated task goes back through <Code>report_result</Code>.
+              </p>
+              <p>
+                In <Code>.ladder/settings.toml</Code>, <Code>[[agents.delegates]]</Code> lists the delegates you prefer, each
+                with its agent, model, effort, permission and a note on what it is for. The agent still decides when and to
+                whom; Ladder only tells it who is there.
+              </p>
+              <h3>Cross-review</h3>
+              <p>
+                Set <Code>cross_review</Code> to an agent in <strong>Settings → New sessions</strong> and, after each completed turn
+                that changed files in a session you talk to, that agent reads the diff read-only and posts a verdict: no issues, minor or serious. A
+                serious verdict is sent back to the session&apos;s agent by itself, once per message of yours. It is off by
+                default, saved in <Code>.ladder/settings.local.toml</Code>, and skipped when the reviewer is the session&apos;s own
+                agent.
+              </p>
+            </Prose>
+          </Section>
+
+          <Section id="plans" title="Executable plans">
+            <Prose className="mt-5">
+              <p>
+                For work that is bigger than one session, ask an agent for a plan. It proposes it with{" "}
+                <Code>propose_plan</Code> and the plan appears in the chat as a card, <strong>Plan to review</strong>.{" "}
+                <strong>Nothing runs until you approve it.</strong> You can also start from a saved template with{" "}
+                <strong>Use plan template…</strong> in <Kbd>⌘</Kbd> <Kbd>K</Kbd>.
+              </p>
+              <h3>Review and edit</h3>
+              <p>
+                The card is editable: the goal, the constraints every task must respect, and for each task its instruction,
+                the agent, model and effort that will run it, its permission level (never above the project&apos;s maximum), what
+                it runs after, and a &ldquo;done when&rdquo; criterion. A plan can have up to 20 tasks. A review task can send
+                blocking issues back to an earlier task, up to five rounds, and then asks you. Mark a task with{" "}
+                <strong>Pause after</strong> to make it a stop point. Choose where the tasks write, in a new worktree (the
+                default in a git project) or in the main checkout, then <strong>Approve and run</strong>, or{" "}
+                <strong>Reject…</strong> with a message for the agent.
+              </p>
+              <h3>Running</h3>
+              <ul>
+                <li>
+                  Each task runs in its own session, in dependency order. Tasks that don&apos;t depend on each other start
+                  together.
+                </li>
+                <li>
+                  One task at a time writes in the plan folder. Independent tasks that write run in parallel in separate
+                  worktrees, and their changes are merged back into the plan folder when they finish.
+                </li>
+                <li>
+                  The plan pauses when a task fails or is interrupted, when a review still finds blocking issues, at a stop
+                  point, or when the agent asks to change the plan (you accept or reject its changes). Then you choose{" "}
+                  <strong>Continue</strong>, <strong>Retry</strong>, <strong>Reassign…</strong> to another agent (from the
+                  partial work, or from the start of the task with the partial work saved as a patch),{" "}
+                  <strong>Skip task</strong> or <strong>Stop plan</strong>. Stopping leaves the sessions open.
+                </li>
+                <li>
+                  If Ladder closes in the middle of a plan, it comes back paused on the interrupted task, which you can retry, reassign or skip.
+                </li>
+                <li>
+                  <strong>Save as template</strong> on the card keeps the tasks, executors, permissions and stop points; the
+                  goal is asked again each time.
+                </li>
+              </ul>
+              <h3>Agents starting sessions</h3>
+              <p>
+                Agents can also start and follow other sessions of the project with <Code>ladder_list_sessions</Code>,{" "}
+                <Code>ladder_start_session</Code>, <Code>ladder_send</Code> and <Code>ladder_wait</Code>. A session never gets
+                more permission than the one that started it or than the project&apos;s maximum; from an agent at the Ask level,
+                each start waits for your approval. An agent can message and wait only for the sessions it started, up to two
+                levels deep, with at most five working at once and twenty starts an hour. In a git project, a session that writes gets
+                its own worktree by default.
+              </p>
+              <p>
+                A session started by an agent, or from the terminal, says so in its header, with a link to the agent session
+                that started it when there is one.
+              </p>
+            </Prose>
+          </Section>
+
+          <Section id="cli" title="The ladder command">
+            <Prose className="mt-5">
+              <p>
+                <Code>ladder</Code> starts, messages and follows Ladder sessions from a terminal, so you can script them or
+                call them from another tool. It talks to the running app, which has to be open, over a local socket that only
+                your user can use.
+              </p>
+              <h3>Install it</h3>
+              <p>
+                Open <strong>Settings → Data and system → Command line</strong> and press <strong>Install</strong>. Ladder
+                links <Code>~/.local/bin/ladder</Code> to the command inside the app and never overwrites a file that is not its
+                own link. If that folder isn&apos;t in your <Code>PATH</Code>, the same panel shows the line to add to your shell
+                profile. <strong>Uninstall</strong> removes the link. The panel also says whether Ladder is listening.
+              </p>
+            </Prose>
+            <CodeBlock title="Terminal">{`ladder ls
+ladder new . "Fix the failing test" --agent codex --wait
+ladder wait <id>
+ladder attach <id>`}</CodeBlock>
+            <Prose>
+              <h3>Commands</h3>
+              <ul>
+                <li>
+                  <Code>ladder projects</Code>: the projects open in Ladder.
+                </li>
+                <li>
+                  <Code>ladder ls [--project &lt;name|path&gt;]</Code>: chat sessions that are not archived, with agent, state and
+                  where each one started from.
+                </li>
+                <li>
+                  <Code>ladder new &lt;project&gt; &quot;&lt;prompt&gt;&quot;</Code>: start a chat session. The project is a
+                  name, a folder, or <Code>.</Code> for the project that contains the current folder. Options:{" "}
+                  <Code>--agent</Code>, <Code>--model</Code>, <Code>--effort</Code>, <Code>--permission</Code> (
+                  <Code>plan</Code>, <Code>ask</Code>, <Code>edit</Code> or <Code>full</Code>), <Code>--worktree</Code> and{" "}
+                  <Code>--wait</Code>. It prints the session id.
+                </li>
+                <li>
+                  <Code>ladder send &lt;session&gt; &quot;&lt;message&gt;&quot;</Code>: message a session; if it is busy the
+                  message waits for the end of the turn. <Code>--wait</Code> waits for the answer.
+                </li>
+                <li>
+                  <Code>ladder wait &lt;session&gt;</Code>: wait until the work is done and print the final answer. The exit
+                  code is 0 when it completed, 1 on error, 2 if interrupted, 3 if it needs you in Ladder (an approval or a
+                  question) and 4 on timeout. <Code>--timeout</Code> takes seconds, 600 by default and up to 3600.
+                </li>
+                <li>
+                  <Code>ladder attach &lt;session&gt;</Code>: follow a session live. Ctrl-C detaches and the session keeps
+                  going.
+                </li>
+                <li>
+                  <Code>ladder stop &lt;session&gt;</Code>: stop the current turn.
+                </li>
+              </ul>
+              <p>
+                A session is an id or any unique start of one, and the prompt can be <Code>-</Code> to read it from standard
+                input. <Code>--json</Code> (on projects, ls, new, send and wait) gives machine-readable output. Without <Code>--agent</Code>, <Code>new</Code> uses
+                the project&apos;s default agent, then the last one used there. The project&apos;s maximum permission always
+                applies. The command only starts chat sessions, with no attachments, and anything you run as your user, such
+                as an agent with a shell, can use it like you do.
+              </p>
+            </Prose>
+          </Section>
+
           <Section id="limits" title="Plan limits">
             <Prose className="mt-5">
               <p>
                 A button in the message box shows the usage windows of the current agent and account (the five-hour window,
                 the weekly one and per model) and when each one resets. Ladder warns you as you get close to a limit, and it
                 can keep the Mac awake while an agent works.
+              </p>
+              <p>
+                When an agent reaches its limit at the end of a turn, a card in the chat proposes another agent to continue
+                with: the one set as <Code>auto_switch</Code>, or the first other allowed agent that is available. Press{" "}
+                <strong>Continue with</strong> and the agent&apos;s name, and Ladder hands the work over, with a summary it writes itself from the
+                conversation, because the agent at its limit cannot. If you set <Code>auto_switch</Code> for the project
+                (<strong>Settings → New sessions</strong>, off by default), Ladder does it by itself after a short pause in
+                which you can stop it; if that agent has reached its limit too, it only proposes. When the first agent is
+                available again, a card offers to go back to it.
               </p>
             </Prose>
           </Section>

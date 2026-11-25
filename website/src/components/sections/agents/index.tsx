@@ -5,7 +5,7 @@ import { AgentIcon } from "@/components/brand/agent-icon"
 // Agents shown with their sign-in command, only those present in the app's code
 // (host/connections.ts, host/acp/others.ts). Where there is no verified command: null.
 const AGENTS = [
-  { id: "claude", name: "Claude Code", login: "claude auth login" },
+  { id: "claude", name: "Claude", login: "claude auth login" },
   { id: "codex", name: "Codex", login: "codex login" },
   { id: "gemini", name: "Gemini CLI", login: "gemini" },
   { id: "opencode", name: "OpenCode", login: null },

@@ -11,9 +11,18 @@ export type Entry = {
 export const ENTRIES: Entry[] = [
   {
     date: "2026-11-25",
-    title: "Grok Build, a calmer agent map and Ladder in the open",
-    summary: "Everything since 0.1.3: one more agent, a simpler map of sub-agents and a few shortcuts that behave better.",
+    title: "Agents that work together, executable plans and a ladder command",
+    summary: "Everything since 0.1.3: hand work from one agent to another, run plans task by task, drive Ladder from the terminal, and one more agent.",
     items: [
+      "Hand a session over to another agent with /handoff: the current agent writes a summary and the work continues in a linked session. Hand it back to resume the first one.",
+      "Ask another agent for advice with /advisor, or two to four with /committee. They read the work read-only and answer in a card you can send to your agent.",
+      "Open a plan as a document, comment on its lines and implement it with any agent.",
+      "Agents can delegate a task to an agent from another provider. The delegate runs as a child session in the agent map, and you can stop it, or after a restart resume or dismiss it. Preferred delegates go in [[agents.delegates]] in .ladder/settings.toml.",
+      "When an agent reaches its plan limit, a card proposes another agent to continue with. A per-project setting can switch automatically.",
+      "Optional cross-review: after a turn with changes, another agent reads the diff and a serious verdict goes back to the first agent.",
+      "Executable plans: an agent proposes a plan, you edit and approve it, and each task runs in its own session in dependency order. Writing tasks run in parallel in separate worktrees and are merged back. Stop points, review loops, retry, reassign, skip, recovery after a restart and saved templates.",
+      "The ladder command (projects, ls, new, send, wait, attach, stop) drives sessions from the terminal, and agents can start and follow sessions the same way, within their own permissions. Install it from Settings → Data and system. Sessions started from the terminal or by another agent show where they came from.",
+      "The Claude agent is now called Claude in the app. It still runs the Claude Code CLI.",
       "Grok Build joins the curated agents, with its own sign-in.",
       "The sub-agent map opens as a list, with a graph from left to right when you want to see who started whom. The group of finished agents opens by itself when all of them are done.",
       "Cmd+K clears the terminal when it has focus, and Cmd+Shift+P opens the command palette from anywhere.",

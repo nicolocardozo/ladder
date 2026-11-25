@@ -1,6 +1,6 @@
 # Ladder
 
-A macOS workspace for working on several repositories at once with coding agents: Claude Code, Codex and any agent that speaks the Agent Client Protocol (ACP), in chat or in a terminal.
+A macOS workspace for working on several repositories at once with coding agents: Claude, Codex and any agent that speaks the Agent Client Protocol (ACP), in chat or in a terminal.
 
 The agent chat sits in the middle, with files, diffs and a terminal at hand, and one view of who is waiting for you in which project. At any moment you can see what is happening in every project (who is working, with which agent and model, who needs you) and step in with one or two actions.
 
@@ -22,7 +22,7 @@ Download the latest build for Apple Silicon or Intel from [Releases](https://git
 
 Ladder works with the agents' own sign-in and your own subscriptions:
 
-- **Claude Code** through the official Claude Agent SDK, which runs the unmodified `claude` binary. You sign in with Anthropic's own flow; Ladder never reads, stores or forwards agent credentials.
+- **Claude** (it runs the Claude Code CLI) through the official Claude Agent SDK, which runs the unmodified `claude` binary. You sign in with Anthropic's own flow; Ladder never reads, stores or forwards agent credentials.
 - **Codex** through `codex app-server`. Ladder looks for the Codex already on your Mac first (the CLI on your `PATH`, the Codex app, or the one bundled with the Cursor and VS Code extensions).
 - **ACP agents** from the official registry (via `npx`, `uvx` or a binary to download) or from a command you write.
 - **Terminal sessions** for `claude`, `codex` or any other command, in a real PTY.
@@ -31,7 +31,7 @@ If Codex, the `gh` CLI or an ACP agent's binary is missing, Ladder can download 
 
 GitHub goes through the `gh` CLI and its own sign-in. Linear uses a personal API key, stored encrypted in the macOS Keychain; it is the only secret Ladder stores.
 
-There is no Ladder account and no telemetry. Ladder talks to the network only for what you use: the agents' own services, GitHub (including app updates from GitHub Releases), the ACP registry, Linear, downloads you confirm and, if you turn on access from your phone, the relay and Expo's push service (see below).
+There is no Ladder account and no telemetry. Ladder talks to the network only for what you use: the agents' own services, GitHub (including app updates from GitHub Releases), the ACP registry, Linear, downloads you confirm and, once access from your phone arrives and you turn it on, the relay and Expo's push service (see below).
 
 ## Features
 
@@ -47,7 +47,19 @@ There is no Ladder account and no telemetry. Ladder talks to the network only fo
 - Approvals and questions as cards with shortcuts, an editable message queue, stop, model, effort and four permission levels shared by every agent (Plan, Ask, Edit, Full access; ⇧Tab).
 - `@` to mention project files, `@terminal` to attach terminal output, pasted or dropped images, `/` commands for each agent.
 - Model and effort can change mid-session; a composer button shows the agent's usage windows and when they reset.
-- Subagents started by the main agent (Claude Code's Agent/Task, Codex's `spawnAgent`) appear in an agent map with state, duration, model, tokens and tools.
+- Subagents started by the main agent (Claude's Agent/Task, Codex's `spawnAgent`) appear in an agent map with state, duration, model, tokens and tools.
+
+**Agents working together**
+- Hand a session off to another agent (`/handoff`, or "Hand off to…" in the session menu): the current agent writes a summary and the work continues in a linked session in the same folder; hand it back to resume the first one.
+- `/advisor` and `/committee` ask one, or two to four, other agents for read-only advice on the work and the diff, shown as a card you can send to your agent. A plan can be opened as a document, commented line by line and implemented with any agent.
+- Chat sessions get a Ladder MCP server with `list_agents`, `handoff` and `delegate` (plus the plan and session tools); `report_result` is there only when someone waits for the result (plan tasks, delegated tasks, sessions reached by a handoff). A delegation runs as a child session in the agent map; stop it, or after a restart resume or dismiss it. Preferred delegates per project in `[[agents.delegates]]`.
+- When an agent reaches its plan limit, a card proposes another agent to continue with; a per-project setting can switch automatically. Optionally, another agent cross-reviews each turn with changes.
+
+**Executable plans and the `ladder` command**
+- An agent proposes a plan (`propose_plan`) that shows as an editable card. After you approve it, each task runs in its own session in dependency order, with one writer at a time in the plan folder and parallel writing tasks in separate worktrees merged back.
+- Stop points, review loop-backs, retry, reassign, skip and stop; plans recover after a restart and can be saved as templates.
+- Agents can start, message and wait for other sessions (`ladder_list_sessions`, `ladder_start_session`, `ladder_send`, `ladder_wait`), never above their own permissions.
+- The `ladder` command (`projects`, `ls`, `new`, `send`, `wait`, `attach`, `stop`) drives sessions from a terminal, over a local socket only your user can use. Install it from Settings → Data and system → Command line. Sessions started from the terminal or by another agent show where they came from.
 
 **Waiting for you**
 - "Waiting" collects requests from every project with their actions, then errors and replies to read. You approve or answer without leaving the session in front of you; edits over 40 lines are approved from the session, after reading them.
@@ -92,6 +104,16 @@ default = true
 allowed = ["claude-code", "codex"]
 default = "claude-code"
 permissions_max = "edit"
+auto_switch = "codex"    # continue with this agent when the plan limit is reached (off if absent)
+cross_review = "codex"   # this agent reviews the diff after turns with changes (off if absent)
+
+[[agents.delegates]]
+name = "reviewer"
+agent = "codex"
+model = "gpt-6-luna"
+effort = "high"
+permission = "plan"
+note = "Reviews and second opinions"
 
 [prompts]
 create_pr = ".ladder/prompts/pr.md"
@@ -99,6 +121,7 @@ fix       = ".ladder/prompts/fix.md"
 ```
 
 - `[[run]]` actions become buttons in the toolbar and run in the session's terminal.
+- `[[agents.delegates]]` lists the agents you prefer to delegate to: `name` and `agent` are required; `model`, `effort`, `permission` (`plan` by default, never above `permissions_max`) and `note` (up to 300 characters) are optional. `auto_switch` and `cross_review` are off unless set; with a project selected, Settings → New sessions writes them to `.ladder/settings.local.toml`.
 - Each folder gets a block of ports in `LADDER_PORT`: 4100 for the first project, then 4200 and so on, with a separate block for each worktree.
 - Worktrees are created in `~/Developer/.ladder/worktrees/<project>/<slug>` (or `~/.ladder/worktrees` if `~/Developer` doesn't exist) on a `ladder/<slug>` branch; folder and branch prefix can be changed in Settings.
 - Prompt names are `create_pr`, `fix`, `conflicts`, `comments`, `issue`, `pull_request` and `review`, as a path or as the text itself. Variables: `{{branch}}`, `{{base}}`, `{{pr}}`, `{{checks}}`, `{{conflicts}}`, `{{comments}}`, `{{ref}}`, `{{title}}`, `{{url}}` and `{{body}}`; `create_pr` also gets `{{base_arg}}`, `{{title_file}}` and `{{body_file}}` (the title and description are passed as files, never pasted into a command).

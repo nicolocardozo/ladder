@@ -9,9 +9,9 @@ import { useActive } from "./use-active"
 
 const REQ: [string, string][] = [
   ["billing-api", "Codex wants to run pnpm test"],
-  ["infra", "Claude Code asks: keep Node 20 in the CI matrix?"],
+  ["infra", "Claude asks: keep Node 20 in the CI matrix?"],
   ["marketing-web", "Gemini CLI wants to edit 4 files"],
-  ["ladder", "Claude Code wants to run pnpm typecheck"],
+  ["ladder", "Claude wants to run pnpm typecheck"],
   ["billing-api", "Codex wants to write outside the worktree"],
 ]
 
