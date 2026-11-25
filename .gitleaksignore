@@ -1,0 +1,2 @@
+# Test key in a unit test, not a real secret
+c9d178529611a61e3a89e11ee48b3452acfd7a00:app/mobile/src/lib/pairing-url.test.ts:generic-api-key:5
