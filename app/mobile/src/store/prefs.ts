@@ -4,6 +4,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type { Locale } from '@shared/i18n'
 import { applyLocale } from '@/i18n'
+import { DEFAULT_FOLLOW, normalizeFollow, type FollowOverride, type FollowPrefs } from '@/lib/live-activity'
 import { DEFAULT_NOTIFY_PREFS, normalizeNotifyPrefs, type NotifyPrefs } from '@/lib/notify-prefs'
 import { DEFAULT_THEME_PREFS, type ThemePrefs } from '@/theme/prefs-types'
 
@@ -12,6 +13,12 @@ interface PrefsState {
   language: 'system' | Locale
   /** Notifiche push: quali eventi e la fascia silenziosa. Le possiede il telefono; il Mac le riceve con `device.notify.set`. */
   notify: NotifyPrefs
+  /** Live Activity sulla schermata di blocco (LAD-93): interruttore generale, avvio automatico, scelta per sessione. Solo iOS. */
+  live: FollowPrefs
+  /** Widget "Agent activity": scrive i titoli delle sessioni in attesa nel gruppo condiviso dell'app. */
+  widget: boolean
+  /** Il widget scrive anche i titoli delle sessioni in attesa (spento di serie): fuori dalla cache cifrata, nei backup. */
+  widgetTitles: boolean
   /** Sezioni del Mac chiuse (true) o aperte (false) dall'utente; assente = decide "ha qualcosa di vivo". */
   collapsed: Record<string, boolean>
   /** Bozza del composer per sessione: resta anche senza connessione. */
@@ -22,6 +29,11 @@ interface PrefsState {
   setTheme: (patch: Partial<ThemePrefs>) => void
   setLanguage: (language: 'system' | Locale) => void
   setNotify: (patch: Partial<Omit<NotifyPrefs, 'events' | 'quiet'>> & { events?: Partial<NotifyPrefs['events']>; quiet?: Partial<NotifyPrefs['quiet']> }) => void
+  setLive: (patch: Partial<Omit<FollowPrefs, 'overrides'>>) => void
+  /** Scelta per una sessione; null toglie la scelta e torna all'automatico. */
+  setSessionFollow: (sessionId: string, follow: FollowOverride | null) => void
+  setWidget: (widget: boolean) => void
+  setWidgetTitles: (widgetTitles: boolean) => void
   setCollapsed: (sectionId: string, collapsed: boolean) => void
   setDraft: (sessionId: string, text: string) => void
 }
@@ -32,6 +44,9 @@ export const usePrefs = create<PrefsState>()(
       theme: DEFAULT_THEME_PREFS,
       language: 'system',
       notify: DEFAULT_NOTIFY_PREFS,
+      live: DEFAULT_FOLLOW,
+      widget: true,
+      widgetTitles: false,
       collapsed: {},
       drafts: {},
       lastProject: null,
@@ -44,6 +59,16 @@ export const usePrefs = create<PrefsState>()(
       },
       setNotify: (patch) =>
         set((s) => ({ notify: { ...s.notify, ...patch, events: { ...s.notify.events, ...patch.events }, quiet: { ...s.notify.quiet, ...patch.quiet } } })),
+      setLive: (patch) => set((s) => ({ live: { ...s.live, ...patch } })),
+      setSessionFollow: (sessionId, follow) =>
+        set((s) => {
+          const overrides = { ...s.live.overrides }
+          delete overrides[sessionId]
+          if (follow) overrides[sessionId] = follow
+          return { live: { ...s.live, overrides: normalizeFollow({ ...s.live, overrides }).overrides } }
+        }),
+      setWidget: (widget) => set({ widget }),
+      setWidgetTitles: (widgetTitles) => set({ widgetTitles }),
       setCollapsed: (sectionId, collapsed) => set((s) => ({ collapsed: { ...s.collapsed, [sectionId]: collapsed } })),
       setDraft: (sessionId, text) =>
         set((s) => {
@@ -59,7 +84,7 @@ export const usePrefs = create<PrefsState>()(
       // Le notifiche si rileggono con validazione: un valore salvato rovinato non deve mai arrivare al Mac.
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<PrefsState>
-        return { ...current, ...saved, notify: normalizeNotifyPrefs(saved.notify) }
+        return { ...current, ...saved, notify: normalizeNotifyPrefs(saved.notify), live: normalizeFollow(saved.live), widget: typeof saved.widget === 'boolean' ? saved.widget : true, widgetTitles: saved.widgetTitles === true }
       }
     }
   )

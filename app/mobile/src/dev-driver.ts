@@ -6,6 +6,7 @@ import { readPairingLink } from '@/lib/pair-link'
 import { usePairFlow } from '@/store/pair-flow'
 import { startDemo, disconnect, devUsage } from '@/host/controller'
 import { actions } from '@/host/actions'
+import { devStartActivity } from '@/host/live-activity'
 import { devLocalNotification, requestPermission } from '@/host/push'
 import { devNotificationTap } from '@/host/push-taps'
 import { openSheet, useSheets } from '@/lib/sheets'
@@ -50,6 +51,8 @@ interface Cmd {
   /** Cambia le preferenze delle notifiche (come i toggle di Impostazioni). */
   notifyPrefs?: Parameters<ReturnType<typeof usePrefs.getState>['setNotify']>[0]
   notify?: { kind: 'request' | 'turn' | 'error' | 'agents'; sessionId: string; itemId?: string | null; delayS?: number; mac?: string }
+  /** Segue una sessione sulla schermata di blocco come il pulsante dell'header (LAD-93). */
+  liveActivity?: { sessionId: string; on?: boolean }
   /** Composer aperto: testo da scrivere e immagini (file locali) da allegare; `dictation` forza lo stato della dettatura. */
   composer?: { text?: string; images?: string[]; send?: boolean }
   welcome?: 'chips' | 'caption'
@@ -134,6 +137,7 @@ function run(cmd: Cmd) {
   if (cmd.back) router.back()
   if (cmd.tap) devNotificationTap(cmd.tap)
   if (cmd.act) act(cmd.act)
+  if (cmd.liveActivity) devStartActivity(cmd.liveActivity.sessionId, cmd.liveActivity.on !== false)
   if (cmd.notifyPrefs) usePrefs.getState().setNotify(cmd.notifyPrefs)
   if (cmd.askPush) void requestPermission()
   if (cmd.notify) void devLocalNotification(cmd.notify)

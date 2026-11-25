@@ -94,7 +94,12 @@ export default function Page() {
               <li>
                 <strong>On the phone.</strong> The app collects no analytics or crash reports. To show your sessions when the
                 Mac is unreachable it keeps a short encrypted copy of recent conversations on the phone, excluded from
-                backups. Forgetting the Mac in the app deletes the copy and the phone&apos;s keys.
+                backups. Forgetting the Mac in the app deletes the copy and the phone&apos;s keys. On iPhone, the optional
+                &quot;Agent activity&quot; widget stores only two counts (sessions working and waiting) on the phone; if you
+                turn on &quot;Show session titles in the widget&quot; (off by default), the titles of waiting sessions are
+                stored there too, outside the encrypted copy, and may be included in device backups. A Live Activity for a
+                session you follow shows its title on the Lock Screen and keeps it in iOS&apos;s own storage for Live
+                Activities. None of this goes through Apple or Expo servers.
               </li>
             </ul>
           </Prose>

@@ -80,7 +80,33 @@
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "./plugins/withWidgetAssets.cjs",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "dev.nicolocardozo.ladder.mobile.widgets",
+          "groupIdentifier": "group.dev.nicolocardozo.ladder.mobile",
+          "enablePushNotifications": false,
+          "widgets": [
+            {
+              "name": "AgentActivity",
+              "displayName": "Agent activity",
+              "description": "How many sessions are working or waiting for you, and which ones wait.",
+              "android": null,
+              "ios": {
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium",
+                  "accessoryRectangular",
+                  "accessoryInline"
+                ],
+                "initialLayout": "./src/widgets/AgentActivityWidget.tsx"
+              }
+            }
+          ]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

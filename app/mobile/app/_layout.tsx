@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useBoot, usePrefsHydrated } from '@/boot'
 import { startDevDriver } from '@/dev-driver'
 import { installForegroundHook } from '@/host/controller'
+import { startLiveActivities } from '@/host/live-activity'
 import { configureNotifications, ensureChannel } from '@/host/push'
 import { useNotificationTaps } from '@/host/push-taps'
 import { applyLocale } from '@/i18n'
@@ -54,6 +55,8 @@ export default function RootLayout() {
   const booted = useBoot()
   useEffect(() => installForegroundHook(), [])
   useEffect(() => startDevDriver(), [])
+  // Live Activity e widget (iOS, LAD-93): seguono il negozio finché l'app è viva.
+  useEffect(() => startLiveActivities(), [])
   // Con font e preferenze (quindi il tema) pronti si toglie lo splash nativo e parte l'intro animata (`Intro`), anche se l'avvio
   // non è finito: la Shell compare sotto il velo quando `booted` è vero.
   const hydrated = usePrefsHydrated()

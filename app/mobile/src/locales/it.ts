@@ -353,5 +353,31 @@ registerCatalog('it', {
   'Searching files…': 'Cerco i file…',
   'No commands match.': 'Nessun comando corrisponde.',
   'No files match.': 'Nessun file corrisponde.',
-  'Type to search the project’s files.': 'Scrivi per cercare tra i file del progetto.'
+  'Type to search the project’s files.': 'Scrivi per cercare tra i file del progetto.',
+  // Schermata di blocco e widget (LAD-93)
+  'Out of date': 'Non aggiornato',
+  working: 'al lavoro',
+  waiting: 'in attesa',
+  'All quiet': 'Tutto tranquillo',
+  Updated: 'Aggiornato',
+  'Updated {n} min ago': 'Aggiornato {n} min fa',
+  'Updated {n} h ago': 'Aggiornato {n} h fa',
+  'Show session titles in the widget': 'Mostra i titoli delle sessioni nel widget',
+  'Off by default: the widget shows only counts. If you turn this on, the titles of waiting sessions are stored on this phone outside the encrypted copy and may be included in device backups.': 'Spento di serie: il widget mostra solo i numeri. Se lo accendi, i titoli delle sessioni in attesa restano su questo telefono fuori dalla copia cifrata e possono finire nei backup del dispositivo.',
+  'Open Ladder': 'Apri Ladder',
+  Offline: 'Offline',
+  '{n} step': '{n} passaggio',
+  '{n} steps': '{n} passaggi',
+  'Follow on Lock Screen': 'Segui sulla schermata di blocco',
+  'Following on the Lock Screen while it works.': 'La segui sulla schermata di blocco finché lavora.',
+  'Stopped following on the Lock Screen.': 'Non la segui più sulla schermata di blocco.',
+  'Lock Screen': 'Schermata di blocco',
+  'Live Activities': 'Live Activity',
+  'Working, waiting, finished': 'Al lavoro, in attesa, finita',
+  'Start automatically': 'Avvia da sola',
+  'For sessions you open or write to here': 'Per le sessioni che apri o a cui scrivi da qui',
+  'Follow a session on the Lock Screen and in the Dynamic Island while it works. The title of a session you follow is shown on the Lock Screen and kept in iOS’s own storage for Live Activities. Nothing goes through Apple or Expo servers. If Ladder is closed or in the background, the activity may lag and shows “Out of date” after a few minutes.':
+    'Segui una sessione sulla schermata di blocco e nella Dynamic Island mentre lavora. Il titolo della sessione che segui compare sulla schermata di blocco e resta nell’archivio di iOS per le Live Activity. Niente passa dai server di Apple o di Expo. Con Ladder chiuso o in sfondo l’attività può restare indietro e dopo qualche minuto mostra “Non aggiornato”.',
+  'Agent activity widget': 'Widget Attività degli agenti',
+  'The “Agent activity” widget shows how many sessions work and wait. It reads data saved on this phone and uses no network.': 'Il widget “Agent activity” mostra quante sessioni lavorano e quante aspettano. Legge dati salvati su questo telefono e non usa la rete.'
 })

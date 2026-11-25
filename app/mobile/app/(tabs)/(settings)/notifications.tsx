@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { AppState, ScrollView } from 'react-native'
 import { t } from '@shared/i18n'
+import { liveActivitySupported } from '@/host/live-activity'
 import { openSystemSettings, pushStatusLabel, refreshPermission, requestPermission } from '@/host/push'
 import { phoneTimeZone } from '@/lib/notify-prefs'
 import { useApp } from '@/store/app'
@@ -16,6 +17,12 @@ export default function NotificationSettings() {
   const { c } = useTheme()
   const notify = usePrefs((s) => s.notify)
   const setNotify = usePrefs((s) => s.setNotify)
+  const live = usePrefs((s) => s.live)
+  const setLive = usePrefs((s) => s.setLive)
+  const widget = usePrefs((s) => s.widget)
+  const setWidget = usePrefs((s) => s.setWidget)
+  const widgetTitles = usePrefs((s) => s.widgetTitles)
+  const setWidgetTitles = usePrefs((s) => s.setWidgetTitles)
   const { permission, canAsk, tokenFailed } = usePush()
   const mode = useApp((s) => s.mode)
   // Tornando dalle impostazioni di sistema il permesso può essere cambiato.
@@ -56,6 +63,18 @@ export default function NotificationSettings() {
             </>
           ) : null}
         </Group>
+        {liveActivitySupported() ? (
+          <Group title={t('Lock Screen')} footer={t('Follow a session on the Lock Screen and in the Dynamic Island while it works. The title of a session you follow is shown on the Lock Screen and kept in iOS’s own storage for Live Activities. Nothing goes through Apple or Expo servers. If Ladder is closed or in the background, the activity may lag and shows “Out of date” after a few minutes.')}>
+            <ToggleRow label={t('Live Activities')} detail={t('Working, waiting, finished')} value={live.enabled} onChange={(v) => setLive({ enabled: v })} last={!live.enabled} />
+            {live.enabled ? <ToggleRow label={t('Start automatically')} detail={t('For sessions you open or write to here')} value={live.auto} onChange={(v) => setLive({ auto: v })} last /> : null}
+          </Group>
+        ) : null}
+        {liveActivitySupported() ? (
+          <Group footer={widget ? `${t('The “Agent activity” widget shows how many sessions work and wait. It reads data saved on this phone and uses no network.')} ${t('Off by default: the widget shows only counts. If you turn this on, the titles of waiting sessions are stored on this phone outside the encrypted copy and may be included in device backups.')}` : t('The “Agent activity” widget shows how many sessions work and wait. It reads data saved on this phone and uses no network.')}>
+            <ToggleRow label={t('Agent activity widget')} value={widget} onChange={setWidget} last={!widget} />
+            {widget ? <ToggleRow label={t('Show session titles in the widget')} value={widgetTitles} onChange={setWidgetTitles} last /> : null}
+          </Group>
+        ) : null}
     </ScrollView>
   )
 }

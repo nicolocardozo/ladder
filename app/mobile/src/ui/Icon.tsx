@@ -31,6 +31,7 @@ export type IconName =
   | 'slash'
   | 'user-off'
   | 'sparkle'
+  | 'live'
 
 interface Props {
   name: IconName
@@ -181,6 +182,15 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.75 }: Props) {
       break
     case 'sparkle':
       body = <Path d="M12 4.5l1.9 5.6 5.6 1.9-5.6 1.9L12 19.5l-1.9-5.6-5.6-1.9 5.6-1.9L12 4.5z" {...p} />
+      break
+    case 'live':
+      // Onde che escono da un punto: "in diretta".
+      body = (
+        <>
+          <Circle cx="12" cy="12" r="2.2" {...p} />
+          <Path d="M7.6 7.6a6.2 6.2 0 000 8.8M16.4 7.6a6.2 6.2 0 010 8.8" {...p} />
+        </>
+      )
       break
     case 'gauge':
       body = (
