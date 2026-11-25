@@ -33,6 +33,15 @@ pnpm --filter @ladder/website build
 - `website/BRIEF.md`: website decisions.
 - The plan and the backlog live in Linear.
 
+## Public repository
+
+The repository is public under Apache-2.0: everything committed, history included, is visible to anyone.
+- English everywhere: code comments, docs, commit messages, script output. Italian only in `app/desktop/src/shared/locales/it` and in the Italian variants of agent prompts.
+- Nothing private: no names of other projects or clients, no personal paths (`/Users/<name>/…`), no personal emails, tokens or keys, no internal notes. Plans and the backlog live in Linear; private notes stay outside the repository. Sample data, fixtures and tests use generic names (`acme-monorepo`, `/Users/dev/…`).
+- Comments explain the code; they don't reference Linear issues (`LAD-…`), phases or internal plans.
+- Third-party code: copy it only if its license allows redistribution under Apache-2.0, keep its copyright notice, and add it to `NOTICE` when the license asks. Code that can't be redistributed is fetched at build time instead, like the React Bits components (see `website/CLAUDE.md`).
+- In the maintainer's setup a local pre-commit hook (not in the repository) blocks private names and secrets. If it blocks a commit, fix the content; don't bypass it with `--no-verify`.
+
 ## Project agents (maintainer only)
 
 The maintainer's setup has local agents that are not in the repository: `ui` (renderer), `host` (main and host), `web` (website), `linear` (backlog), plus personal `verifier`, `reviewer` and `researcher` agents that read these files. Without them, follow the "Verification" sections of each part's CLAUDE.md directly.
@@ -41,7 +50,8 @@ The maintainer's setup has local agents that are not in the repository: `ui` (re
 
 - Work happens on the `development` branch. Commit and push only when the user asks.
 - Align `main` only on explicit request, because it publishes the website to production: `git push origin development:main` and `git branch -f main development` (the second fails if `main` is checked out in a worktree).
-- Commit messages, PR titles and descriptions in English: imperative title, short, no final period (e.g. `Add auto-updates from ladder-releases`); if needed, a bulleted body with what changes and why.
+- Commit messages, PR titles and descriptions in English: imperative title, short, no final period (e.g. `Add auto-updates from ladder-releases`); if needed, a bulleted body with what changes and why. No `Co-Authored-By` or other agent attribution.
+- Commits use the maintainer's GitHub noreply email (set in this repository's git config), never a personal address.
 - Other sessions often work in the same folder. Before a change across several files, check `git status` for changes that aren't yours; if another `ladder-*` session is active on the same files, ask and use a separate worktree (`../ladder-<name>`).
 
 ## Linear (maintainer only)
