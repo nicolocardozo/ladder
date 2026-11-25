@@ -24,6 +24,8 @@ import type {
   MergeInfo,
   PrStatus,
   RemotePage,
+  RemoteProjectDefaults,
+  RemoteSessionCreate,
   RequestItemData,
   SessionSource,
   DraftKey,
@@ -53,6 +55,7 @@ import type {
 import { tx, type Db, type ProjectRow, type SessionRow } from './db'
 import { plural, setLocale, t, translations } from '@shared/i18n'
 import { pageItems as pageItemsOf } from './remote/paging'
+import { isValidEffort, isValidModel, resolveRemoteDefaults } from './remote/defaults'
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
 import { acpAuthenticate, AcpSession } from './acp/adapter'
 import { BrowserAgent } from './browser-agent'
@@ -229,7 +232,7 @@ export class Host {
   /** Progetti con un cambio di branch in corso nel checkout principale: le loro sessioni lì mettono i messaggi in coda finché non finisce. */
   private switchingBranch = new Set<string>()
   private stopped = false
-  private prefs: HostPrefs = { generatedTitles: true, generatedText: true, autonomyHint: true, stallHint: false, worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, busySend: 'steer' }
+  private prefs: HostPrefs = { generatedTitles: true, generatedText: true, autonomyHint: true, stallHint: false, worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, busySend: 'steer', defaults: {} }
   /** Sessioni con un titolo in generazione: un solo tentativo alla volta. */
   private titling = new Set<string>()
   /** LAD-57 parte 2: browser per l'agente (server MCP, stato, canale verso il main). */
@@ -799,7 +802,7 @@ export class Host {
   /** Preferenze dal processo main. */
   setPrefs(prefs: HostPrefs): void {
     if (prefs.locale) setLocale(prefs.locale)
-    this.prefs = { generatedTitles: prefs.generatedTitles ?? this.prefs.generatedTitles, generatedText: prefs.generatedText ?? this.prefs.generatedText, autonomyHint: prefs.autonomyHint ?? this.prefs.autonomyHint, stallHint: prefs.stallHint ?? this.prefs.stallHint, worktreesDir: prefs.worktreesDir !== undefined ? prefs.worktreesDir : this.prefs.worktreesDir, branchPrefix: prefs.branchPrefix !== undefined ? cleanBranchPrefix(prefs.branchPrefix) : this.prefs.branchPrefix, autoArchiveDays: prefs.autoArchiveDays !== undefined ? prefs.autoArchiveDays : this.prefs.autoArchiveDays, agentBrowser: prefs.agentBrowser ?? this.prefs.agentBrowser, busySend: prefs.busySend ?? this.prefs.busySend }
+    this.prefs = { generatedTitles: prefs.generatedTitles ?? this.prefs.generatedTitles, generatedText: prefs.generatedText ?? this.prefs.generatedText, autonomyHint: prefs.autonomyHint ?? this.prefs.autonomyHint, stallHint: prefs.stallHint ?? this.prefs.stallHint, worktreesDir: prefs.worktreesDir !== undefined ? prefs.worktreesDir : this.prefs.worktreesDir, branchPrefix: prefs.branchPrefix !== undefined ? cleanBranchPrefix(prefs.branchPrefix) : this.prefs.branchPrefix, autoArchiveDays: prefs.autoArchiveDays !== undefined ? prefs.autoArchiveDays : this.prefs.autoArchiveDays, agentBrowser: prefs.agentBrowser ?? this.prefs.agentBrowser, busySend: prefs.busySend ?? this.prefs.busySend, defaults: prefs.defaults ?? this.prefs.defaults }
     this.browserAgent.sync()
     void this.autoArchive()
   }
@@ -3398,12 +3401,76 @@ export class Host {
       .run(sessionId, item.id, item.seq, JSON.stringify(item))
   }
 
-  /** Per l'istantanea del telefono (LAD-51): tetto di permesso di ogni progetto e preferenza di invio a sessione al lavoro. */
-  async remoteExtras(): Promise<{ permissionsMax: Record<string, PermissionLevel | null>; busySend: 'steer' | 'queue' }> {
-    const entries = await Promise.all(
-      [...this.projects.values()].map(async (p) => [p.id, (await loadProjectSettings(p.path).catch(() => null))?.agents.permissionsMax ?? null] as const)
+  /** Per l'istantanea del telefono (LAD-51): tetto di permesso di ogni progetto, preferenza di invio e (LAD-89) predefiniti della nuova sessione. */
+  async remoteExtras(): Promise<{ permissionsMax: Record<string, PermissionLevel | null>; busySend: 'steer' | 'queue'; defaults: Record<string, RemoteProjectDefaults> }> {
+    const permissionsMax: Record<string, PermissionLevel | null> = {}
+    const defaults: Record<string, RemoteProjectDefaults> = {}
+    await Promise.all(
+      [...this.projects.values()].map(async (p) => {
+        const settings = await loadProjectSettings(p.path).catch(() => null)
+        permissionsMax[p.id] = settings?.agents.permissionsMax ?? null
+        const ui = this.uiStateOf(p.id)
+        // Stato di ogni agente per l'account assegnato al progetto: stesso elenco modelli che userà checkCreate.
+        const assigned = this.profiles.forProject(p.id)
+        const agents = [...this.agents.values()].map((a) => (isProfileAgent(a.agent) && assigned?.[a.agent] ? (this.profileAgents.get(assigned[a.agent]!) ?? a) : a))
+        defaults[p.id] = resolveRemoteDefaults({
+          agents,
+          project: ui?.defaults,
+          global: this.prefs.defaults,
+          tomlAgent: (settings?.agents.default as AgentId | null | undefined) ?? null,
+          lastAgent: ui?.lastAgent ?? null,
+          allowed: (settings?.agents.allowed ?? []) as AgentId[],
+          maxPermission: permissionsMax[p.id],
+          agentDefaults: (agent) => this.agentDefaults(agent, p.id, isProfileAgent(agent) ? assigned?.[agent] : undefined)
+        })
+      })
     )
-    return { permissionsMax: Object.fromEntries(entries), busySend: this.prefs.busySend === 'queue' ? 'queue' : 'steer' }
+    return { permissionsMax, busySend: this.prefs.busySend === 'queue' ? 'queue' : 'steer', defaults }
+  }
+
+  /** LAD-90: agente e account di `agents.usage` verificati; il predefinito (assente o `default:*`) torna senza profileId. */
+  usageTarget(agent: string, profileId?: string): { agent: string; profileId?: string } {
+    if (!this.agents.has(agent)) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
+    const custom = isProfileAgent(agent) ? customProfileId(profileId) : undefined
+    if (custom) {
+      const profile = this.profiles.get(custom)
+      if (!profile || profile.agent !== agent) throw new Error(t('Account not found.'))
+    }
+    return { agent, ...(custom ? { profileId: custom } : {}) }
+  }
+
+  private uiStateOf(projectId: string): ProjectUiState | null {
+    const row = this.db.prepare('select json from ui_state where project_id = ?').get(projectId) as { json: string } | undefined
+    try {
+      return row ? (JSON.parse(row.json) as ProjectUiState) : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * LAD-89: controlli di `session.create` dal telefono che richiedono lo stato dell'host (progetto, agente ammesso e disponibile, account,
+   * modello ed effort noti). Nessun effetto: lancia un errore tradotto, o torna i nomi di agente e progetto per il log.
+   * Il livello di permesso lo riduce poi createSession (tetto del progetto); "Allow Full" lo controlla il gateway.
+   */
+  async checkCreate(command: RemoteSessionCreate): Promise<{ agent: string; project: string }> {
+    const project = this.mustProject(command.projectId)
+    const settings = await loadProjectSettings(project.path)
+    if (settings.agents.allowed.length && !settings.agents.allowed.includes(command.agent)) {
+      throw new Error(t('{agent} is not allowed in this project (.ladder/settings.toml, [agents] allowed).', { agent: this.agentName(command.agent) }))
+    }
+    const base = this.agents.get(command.agent)
+    if (!base) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
+    if (!base.available) throw new Error(base.error ?? t('{agent} is not available.', { agent: base.name }))
+    // Lancia se l'account non esiste o è di un altro agente.
+    const custom = this.profiles.resolve(command.agent, project.id, command.profileId)
+    const status = (custom ? this.profileAgents.get(custom) : null) ?? base
+    if (command.model !== null && !isValidModel(status, command.model)) throw new Error(t('Unknown model for {agent}.', { agent: base.name }))
+    if (command.effort !== null) {
+      const model = command.model ?? status.models.find((m) => m.isDefault)?.id ?? null
+      if (!isValidEffort(status, model, command.effort)) throw new Error(t('This model does not support that effort level.'))
+    }
+    return { agent: base.name, project: project.name }
   }
 
   /** Sessioni archiviate di un progetto, a pagine (comando remoto project.sessions.archived). */

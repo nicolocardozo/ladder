@@ -39,14 +39,17 @@ const snapshot = {
   projects: [{ id: 'p1', name: 'Demo project', path: '/tmp/demo', branch: 'main', isGit: true, addedAt: 1 }],
   sessions: [{ id: 's1', projectId: 'p1', title: 'Relay demo', agent: 'claude', run: 'waiting', waitingLabel: 'Needs approval' }],
   ui: {},
-  agents: [],
+  agents: [
+    { agent: 'claude-code', name: 'Claude Code', kind: 'native', available: true, version: '1', account: 'Claude Max', email: 'me@example.com', path: '/usr/local/bin/claude', models: [{ id: 'opus', label: 'Opus', efforts: ['low', 'high'], isDefault: true, defaultEffort: 'high' }], error: null, usage: [{ key: 'w5h', minutes: 300, model: null, percent: 12, resetsAt: null, state: 'ok' }], usageAt: Date.now() }
+  ],
   drafts: {},
-  profiles: [],
+  profiles: [{ id: 'default:claude-code', agent: 'claude-code', name: 'Default', configDir: null, isDefault: true, addedAt: 1 }],
   connections: [],
   terminals: [],
   shortcuts: { preset: 'default', overrides: {} }
 } as unknown as Extract<HostEvent, { type: 'snapshot' }>
 
+let created_n = 1
 const host: RemoteHostApi = {
   snapshot: async () => snapshot,
   handle: async (command) => {
@@ -55,8 +58,24 @@ const host: RemoteHostApi = {
       ;(items[2] as { state: string }).state = 'resolved'
       gateway.broadcast({ type: 'session.items', sessionId: 's1', items: [items[2]], replace: false } as unknown as HostEvent)
     }
+    if (command.type === 'agents.usage') {
+      console.log(`[harness] agents.usage read (provider hit) for ${command.agent}`)
+      return { ...snapshot.agents[0], usageAt: Date.now() }
+    }
+    if (command.type === 'session.create') {
+      console.log(`[harness] session.create ${JSON.stringify({ ...command, text: `<${command.text.length} chars>` })}`)
+      const created = { id: `s${++created_n}`, projectId: command.projectId, title: command.text.slice(0, 40), agent: command.agent, run: 'running' }
+      gateway.broadcast({ type: 'session.upsert', session: created } as unknown as HostEvent)
+      return created
+    }
     return null
   },
+  checkCreate: async (command) => {
+    if (command.projectId !== 'p1') throw new Error('Project not found.')
+    if (command.agent !== 'claude-code') throw new Error(`${command.agent} is not allowed in this project.`)
+    return { agent: 'Claude Code', project: 'Demo project' }
+  },
+  remoteExtras: async () => ({ permissionsMax: { p1: null }, busySend: 'steer', defaults: { p1: { allowed: ['claude-code'], agent: 'claude-code', lastAgent: 'claude-code', launch: { 'claude-code': { model: 'opus', effort: 'high' } }, permission: 'edit' } } }),
   pageItems: (sessionId) => ({ sessionId, items, hasMore: false }),
   connectionClosed: () => undefined
 }

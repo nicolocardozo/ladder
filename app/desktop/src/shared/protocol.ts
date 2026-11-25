@@ -1809,6 +1809,70 @@ export type RemoteCommand =
    * Non sono nello snapshot. Progetto sconosciuto: errore.
    */
   | { type: 'project.sessions.archived'; projectId: string; before?: number; limit?: number }
+  /**
+   * LAD-89: nuova sessione di chat dal telefono. Risponde SessionSummary (la stessa della finestra); la sessione arriva anche
+   * con `session.upsert` (di solito prima del risultato), e si può seguire subito con `session.watch` (poi `session.page` per
+   * gli item già scritti: gli eventi session.items partono solo per le sessioni seguite).
+   * Validazione stretta (errore tradotto, nessuna sessione creata se qualcosa non va):
+   * - chiavi ammesse solo quelle di RemoteSessionCreate; `attachments` non vuoti (`[]` vale come nessuno), `command`,
+   *   `worktree`, `branch`, `baseBranch`, `newBranch`, `setupWait`, `source`, `title` o `mode` diverso da 'chat' = richiesta rifiutata;
+   * - `projectId` esistente; `agent` conosciuto, disponibile e ammesso dal progetto (`agents.allowed`);
+   * - `text` non vuoto (dopo trim), al massimo 200000 caratteri;
+   * - `model`: id di AgentStatus.models di quell'agente (del profilo, se `profileId` c'è) oppure null = predefinito dell'agente;
+   *   `effort`: livello accettato dal modello scelto (o da quello predefinito) oppure null = predefinito; agenti senza effort: null;
+   * - `permission`: uno dei quattro livelli. 'full' con "Allow Full access from phone" spento = RIFIUTATA (come `session.permission.set`,
+   *   niente riduzione silenziosa a edit: il telefono mostra già Full disabilitato). Sopra `permissionsMax` del progetto si RIDUCE
+   *   al tetto (come per la finestra);
+   * - `profileId` (opzionale) esistente e dell'agente scelto.
+   * La sessione parte nel checkout principale del progetto (nessun worktree dal telefono) e in chat (mai terminale).
+   * Nel log delle azioni (`create`): "New session: <agente> in <progetto>", senza il testo.
+   */
+  | RemoteSessionCreate
+  /**
+   * LAD-90: rilegge i limiti d'uso del piano (stessi parametri del comando della finestra). Risponde AgentStatus senza `email` né `path`
+   * (RemoteAgentStatus). Al massimo una lettura vera ogni 60 secondi per agente+profilo per connessione: prima, risponde con l'ultimo
+   * valore letto (cache dell'host) senza toccare il provider. Il valore arriva anche con `agent.status`.
+   */
+  | { type: 'agents.usage'; agent: AgentId; profileId?: string }
+
+/** LAD-89: comando `session.create` del telefono; vedi RemoteCommand. */
+export interface RemoteSessionCreate {
+  type: 'session.create'
+  projectId: string
+  agent: AgentId
+  text: string
+  model: string | null
+  effort: Effort | null
+  permission: PermissionLevel
+  profileId?: string | null
+  /** Solo 'chat' (o assente). */
+  mode?: 'chat'
+}
+
+/** LAD-90: AgentStatus come lo vede il telefono: senza email dell'account né percorso della CLI. */
+export type RemoteAgentStatus = Omit<AgentStatus, 'email' | 'path'>
+
+/** LAD-90: profilo (account) senza la cartella di configurazione. `Project.profiles` dice quale usa ogni progetto. */
+export type RemoteProfile = Pick<Profile, 'id' | 'agent' | 'name' | 'isDefault'>
+
+/**
+ * LAD-89: come parte una nuova sessione in un progetto, già risolto dal Mac con le stesse regole della nuova chat
+ * (progetto, poi [agents] default del TOML, poi predefiniti globali, poi ultimo agente, poi Claude Code o il primo disponibile).
+ * - `allowed`: agenti ammessi dal progetto; vuoto = tutti quelli disponibili;
+ * - `agent`: agente proposto (null se nessuno è usabile); `lastAgent`: ultimo usato in chat nel progetto (può non essere più ammesso);
+ * - `launch`: per ogni agente disponibile e ammesso, modello ed effort scelti da Ladder (progetto, poi globale) da mandare a
+ *   `session.create`; null = nessun livello sceglie: si manda null e la sessione segue il predefinito dell'agente (sul Mac compare come Default).
+ *   Per mostrarlo il telefono usa il modello `isDefault` di AgentStatus.models (dell'account del progetto, `Project.profiles`). Valori validi per l'account
+ *   assegnato al progetto per quell'agente;
+ * - `permission`: permesso proposto, già ridotto al tetto del progetto e a 'edit' se "Allow Full access from phone" è spento.
+ */
+export interface RemoteProjectDefaults {
+  allowed: AgentId[]
+  agent: AgentId | null
+  lastAgent: AgentId | null
+  launch: Partial<Record<AgentId, { model: string | null; effort: Effort | null }>>
+  permission: PermissionLevel
+}
 
 /** Eventi che possono diventare un push: gli stessi di AttentionEvent tranne `resolved`. */
 export type PushKind = 'request' | 'turn' | 'error' | 'agents'
@@ -1865,8 +1929,16 @@ export interface RemoteSnapshot {
   /** Di ProjectUiState solo gruppi di sessioni e `seenAt` ("While you were away"). */
   ui: Record<string, Pick<ProjectUiState, 'groups' | 'groupOf' | 'seenAt'>>
   projectGroups?: ProjectGroupsState
-  /** Agenti e modelli, per le righe di sessione e il permesso. */
-  agents: AgentStatus[]
+  /** Agenti e modelli, per le righe di sessione e il permesso. LAD-90: senza `email` né `path`; `usage`/`usageAt`/`limits`/`account` (piano) ci sono. */
+  agents: RemoteAgentStatus[]
+  /** LAD-90: account (abbonamenti) di Claude Code e Codex: nome e agente, per elencare le sottoscrizioni (`AgentStatus.profileId` le lega allo stato). Mai la cartella di configurazione. */
+  profiles: RemoteProfile[]
+  /**
+   * LAD-89: predefiniti della nuova sessione per progetto (chiave: id del progetto). Letti all'hello e aggiornati dall'evento
+   * `remote.defaults` quando cambiano i predefiniti globali, i modelli degli agenti, l'elenco dei progetti o la UI del progetto
+   * (ultimo agente, predefiniti del progetto); le modifiche ai file `.ladder/settings*.toml` si vedono al prossimo hello.
+   */
+  defaults: Record<string, RemoteProjectDefaults>
   /**
    * Tetto di permesso per progetto (`permissions_max` delle impostazioni del progetto, già con i file personali): null = nessun tetto.
    * Il telefono disabilita i livelli sopra il tetto; l'host li clampa comunque. Letto all'hello: se cambia sul Mac si vede al prossimo hello.
@@ -1891,6 +1963,11 @@ export type RemoteEvent =
   | RemoteSnapshot
   /** LAD-51: le preferenze del Mac sono cambiate (per esempio "Allow Full access from phone"): sostituiscono `RemoteSnapshot.prefs`. */
   | { type: 'remote.prefs'; prefs: RemotePrefs }
+  /** LAD-89: sostituisce `RemoteSnapshot.defaults` e `permissionsMax` (cambiano insieme: predefiniti, tetti, modelli). */
+  /** LAD-90: gli account (profili) cambiano: stessi eventi della finestra, ma senza la cartella di configurazione. */
+  | { type: 'profile.upsert'; profile: RemoteProfile }
+  | { type: 'profile.removed'; profileId: string }
+  | { type: 'remote.defaults'; defaults: Record<string, RemoteProjectDefaults>; permissionsMax: Record<string, PermissionLevel | null> }
   | Extract<
       HostEvent,
       {
@@ -2108,7 +2185,7 @@ export interface RemotePairStart {
 }
 
 /** Azioni dal telefono che finiscono nel log (visibile sul Mac). */
-export type RemoteLogAction = 'respond' | 'send' | 'queue' | 'interrupt' | 'permission'
+export type RemoteLogAction = 'respond' | 'send' | 'queue' | 'interrupt' | 'permission' | 'create'
 
 /**
  * Una voce del log delle azioni remote. `detail` è un riassunto breve, già tradotto nella lingua del Mac al momento
@@ -2206,6 +2283,8 @@ export interface HostPrefs {
   remote?: { enabled: boolean; relayUrl: string | null; allowFull?: boolean }
   /** Cosa fa l'invio a sessione al lavoro (AppPrefs.busySend): il telefono lo ripete nel suo tasto di invio (RemotePrefs). Assente = invariato. */
   busySend?: 'steer' | 'queue'
+  /** LAD-89: predefiniti globali delle nuove sessioni (AppPrefs.defaults), per risolvere quelli mostrati al telefono. */
+  defaults?: SessionDefaults
 }
 
 /** LAD-53: evento da mandare ai telefoni; niente testi (il push è generico). */

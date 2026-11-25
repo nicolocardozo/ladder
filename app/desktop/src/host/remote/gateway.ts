@@ -1,7 +1,7 @@
 // Gateway remoto: porta il protocollo della finestra su una connessione cifrata (Noise NK), per il telefono.
 // Non sa nulla del trasporto (WebSocket oggi, relay con LAD-50): riceve un RemoteLink già aperto.
 // Import relativi (niente alias @shared): il file è provato in-process con `node --test`.
-import type { FromRemoteHost, HostEvent, PermissionLevel, RemoteAuthErrorCode, RemoteCommand, RemoteEvent, RemoteLogAction, RemoteLogEntry, RemotePage, RemoteSnapshot, RequestResponse, SessionSummary } from '../../shared/protocol.ts'
+import type { AgentId, AgentStatus, FromRemoteHost, HostCommand, HostEvent, PermissionLevel, RemoteAgentStatus, RemoteAuthErrorCode, RemoteCommand, RemoteEvent, RemoteLogAction, RemoteLogEntry, RemotePage, RemoteProfile, RemoteProjectDefaults, RemoteSessionCreate, RemoteSnapshot, RequestResponse, SessionSummary } from '../../shared/protocol.ts'
 import { isLocale, t, type Locale } from '../../shared/i18n.ts'
 import { serverHandshake, type RemoteSession } from '../../shared/remote/session.ts'
 import type { NoiseKeyPair } from '../../shared/remote/noise.ts'
@@ -23,10 +23,20 @@ export interface RemoteLink {
 /** Quello che il gateway usa dell'Host. */
 export interface RemoteHostApi {
   snapshot(): Promise<Extract<HostEvent, { type: 'snapshot' }>>
-  handle(command: Exclude<RemoteCommand, { type: 'session.page' | 'session.watch' | 'device.push.set' | 'device.notify.set' | 'device.state' | 'project.sessions.archived' }>, origin: object): Promise<unknown>
+  handle(command: Exclude<RemoteCommand, { type: 'session.page' | 'session.watch' | 'device.push.set' | 'device.notify.set' | 'device.state' | 'project.sessions.archived' | 'session.create' | 'agents.usage' }> | Extract<HostCommand, { type: 'session.create' | 'agents.usage' }>, origin: object): Promise<unknown>
   pageItems(sessionId: string, before?: number, limit?: number): RemotePage
   /** Tetto di permesso per progetto e preferenza di invio, per l'istantanea; manca = nessun tetto e 'steer'. */
-  remoteExtras?(): Promise<{ permissionsMax: RemoteSnapshot['permissionsMax']; busySend: RemoteSnapshot['prefs']['busySend'] }>
+  remoteExtras?(): Promise<{ permissionsMax: RemoteSnapshot['permissionsMax']; busySend: RemoteSnapshot['prefs']['busySend']; defaults?: RemoteSnapshot['defaults'] }>
+  /**
+   * LAD-89: controlli di `session.create` che richiedono lo stato dell'host (progetto, agente ammesso e disponibile, modello, effort, account).
+   * Lancia un errore tradotto se qualcosa non va; torna i nomi per il log. Manca = nessun controllo oltre a quelli di createSession.
+   */
+  checkCreate?(command: RemoteSessionCreate): Promise<{ agent: string; project: string }>
+  /**
+   * LAD-90: agente e account di `agents.usage` controllati e normalizzati: agente sconosciuto o account inesistente (o di un altro agente) = errore;
+   * il profilo predefinito (assente o `default:*`) torna senza `profileId`. Manca = si normalizza solo `default:*`.
+   */
+  usageTarget?(agent: string, profileId?: string): { agent: string; profileId?: string }
   /** Sessioni archiviate di un progetto (project.sessions.archived). */
   archivedSessions?(projectId: string, before?: number, limit?: number): SessionSummary[]
   connectionClosed(origin: object): void
@@ -69,12 +79,38 @@ export const MAX_UNAUTHENTICATED = 4
 export const MAX_CONNECTIONS = 8
 export const IDLE_TIMEOUT_MS = 120_000
 /** Comandi al secondo (a regime) e raffica massima per connessione; oltre rispondono con un errore, e dopo troppi rifiuti di fila la connessione si chiude. */
+/** LAD-90: una lettura vera dei limiti d'uso ogni 60 secondi per agente+profilo e connessione; nel mezzo vale l'ultimo valore. */
+export const USAGE_REFRESH_MS = 60_000
+const MAX_USAGE_KEYS = 32
+const MAX_USAGE_CACHE = 64
+/** LAD-89: nuove sessioni dal telefono, per dispositivo: a raffica 3, poi 5 al minuto. */
+export const CREATE_BURST = 3
+export const CREATE_PER_MINUTE = 5
+/** Attesa prima di rimandare i predefiniti (più cambi ravvicinati = un solo evento). */
+const DEFAULTS_DEBOUNCE_MS = 300
 export const RATE_PER_SECOND = 20
 export const RATE_BURST = 40
 const MAX_REJECTED_IN_A_ROW = 100
 
 /** Istantanea ridotta: niente bozze, terminali, scorciatoie, collegamenti, profili; della UI solo gruppi e seenAt. */
-export function toRemoteSnapshot(full: Extract<HostEvent, { type: 'snapshot' }>, extras: Pick<RemoteSnapshot, 'permissionsMax' | 'prefs'>): RemoteSnapshot {
+/** LAD-90: niente email dell'account né percorso della CLI verso il telefono. */
+export function toRemoteAgent(status: AgentStatus): RemoteAgentStatus {
+  const { email: _email, path: _path, ...rest } = status
+  return { ...rest, error: status.error ? safeError(status.error) : null }
+}
+
+/** Di un agente contano per i predefiniti disponibilità e modelli (con effort e predefiniti), non i limiti d'uso. */
+function agentSignature(status: AgentStatus): string {
+  return JSON.stringify([status.available, status.models.map((m) => [m.id, m.isDefault ?? false, m.defaultEffort ?? null, m.efforts ?? null])])
+}
+
+/** L'errore di un agente può citare percorsi o output della CLI: al telefono va una riga breve senza percorsi. */
+function safeError(error: string): string {
+  const flat = error.replace(/\s+/g, ' ').replace(/(?:~|[A-Za-z]:)?(?:[\\/][^\s'"“”:;,)]+){2,}/g, '…').trim()
+  return flat.length > 140 ? `${flat.slice(0, 139)}…` : flat
+}
+
+export function toRemoteSnapshot(full: Extract<HostEvent, { type: 'snapshot' }>, extras: Pick<RemoteSnapshot, 'permissionsMax' | 'prefs'> & { defaults?: RemoteSnapshot['defaults'] }): RemoteSnapshot {
   const ui: RemoteSnapshot['ui'] = {}
   for (const [projectId, state] of Object.entries(full.ui)) {
     ui[projectId] = {
@@ -83,7 +119,7 @@ export function toRemoteSnapshot(full: Extract<HostEvent, { type: 'snapshot' }>,
       ...(state.seenAt !== undefined ? { seenAt: state.seenAt } : {})
     }
   }
-  return { type: 'snapshot', projects: full.projects, sessions: full.sessions, ui, ...(full.projectGroups ? { projectGroups: full.projectGroups } : {}), agents: full.agents, permissionsMax: extras.permissionsMax, prefs: extras.prefs }
+  return { type: 'snapshot', projects: full.projects, sessions: full.sessions, ui, ...(full.projectGroups ? { projectGroups: full.projectGroups } : {}), agents: full.agents.map(toRemoteAgent), profiles: (full.profiles ?? []).map((p) => ({ id: p.id, agent: p.agent, name: p.name, isDefault: p.isDefault })), defaults: extras.defaults ?? {}, permissionsMax: extras.permissionsMax, prefs: extras.prefs }
 }
 
 /** Una connessione remota: è anche l'`origin` che l'Host associa alle iscrizioni. */
@@ -148,6 +184,18 @@ export class RemoteGateway {
   private identity: NoiseKeyPair
   /** LAD-53: ultimo device.state per dispositivo. */
   private readonly foreground = new Map<string, { foreground: boolean; at: number; conn: RemoteConnection }>()
+  /** LAD-90: ultimo valore dei limiti letto per agente+profilo (di qualunque connessione). */
+  private readonly usageCache = new Map<string, RemoteAgentStatus>()
+  /** LAD-90: ultima lettura vera per dispositivo (non per connessione: riconnettersi non azzera il limite) e agente+account. */
+  private readonly usageReads = new Map<string, Map<string, number>>()
+  /** LAD-89: gettoni delle nuove sessioni per dispositivo. */
+  private readonly createBuckets = new Map<string, { tokens: number; at: number }>()
+  /** LAD-89: generazione dell'ultimo invio di predefiniti (un invio più vecchio che finisce dopo è scartato) e firma degli agenti già visti. */
+  private defaultsGen = 0
+  private readonly agentSigs = new Map<string, string>()
+  /** LAD-89: ultimi predefiniti mandati ai telefoni e timer dell'invio ritardato. */
+  private lastDefaults = ''
+  private defaultsTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(options: RemoteGatewayOptions) {
     this.options = options
@@ -205,6 +253,51 @@ export class RemoteGateway {
     const extras = await this.options.host.remoteExtras?.()
     const event: RemoteEvent = { type: 'remote.prefs', prefs: { busySend: extras?.busySend ?? 'steer', allowFull: this.options.access.allowFull } }
     for (const conn of this.connections) if (conn.auth) this.send(conn, { kind: 'event', event })
+    // Il permesso proposto dipende da "Allow Full access from phone".
+    this.pushDefaults(true)
+  }
+
+  /** 'full' proposto con "Allow Full access from phone" spento diventa 'edit': il telefono non deve proporre un livello che il Mac rifiuta. */
+  private phoneDefaults(defaults: Record<string, RemoteProjectDefaults> | undefined): Record<string, RemoteProjectDefaults> {
+    if (!defaults) return {}
+    if (this.options.access.allowFull) return defaults
+    const out: Record<string, RemoteProjectDefaults> = {}
+    for (const [id, d] of Object.entries(defaults)) out[id] = d.permission === 'full' ? { ...d, permission: 'edit' } : d
+    return out
+  }
+
+  /**
+   * LAD-89: manda ai telefoni i predefiniti e i tetti di permesso di adesso (evento `remote.defaults`), solo se sono cambiati dall'ultimo invio.
+   * Ritardato di 300 ms (più cambi = un invio); `now` salta l'attesa.
+   */
+  pushDefaults(now = false): void {
+    if (this.defaultsTimer) clearTimeout(this.defaultsTimer)
+    const run = () => {
+      this.defaultsTimer = null
+      // Nessun telefono: il prossimo parte da un hello fresco, e il confronto con l'ultimo invio non vale più.
+      if (![...this.connections].some((c) => c.auth)) {
+        this.lastDefaults = ''
+        return
+      }
+      const gen = ++this.defaultsGen
+      void this.options.host
+        .remoteExtras?.()
+        .then((extras) => {
+          // Un invio più nuovo è partito mentre questo leggeva: il suo risultato è più recente.
+          if (!extras || gen !== this.defaultsGen) return
+          const event: RemoteEvent = { type: 'remote.defaults', defaults: this.phoneDefaults(extras.defaults), permissionsMax: extras.permissionsMax }
+          const key = JSON.stringify(event)
+          if (key === this.lastDefaults) return
+          this.lastDefaults = key
+          for (const conn of this.connections) if (conn.auth) this.send(conn, { kind: 'event', event })
+        })
+        .catch(() => undefined)
+    }
+    if (now) run()
+    else {
+      this.defaultsTimer = setTimeout(run, DEFAULTS_DEBOUNCE_MS)
+      this.defaultsTimer.unref()
+    }
   }
 
   /** Revoca: avvisa il telefono e chiude subito tutte le connessioni di quel dispositivo. */
@@ -262,7 +355,8 @@ export class RemoteGateway {
   /** Istantanea per il telefono: quella ridotta più tetti di permesso e preferenze del Mac. */
   private async buildSnapshot(full: Extract<HostEvent, { type: 'snapshot' }>): Promise<RemoteSnapshot> {
     const extras = (await this.options.host.remoteExtras?.()) ?? { permissionsMax: {}, busySend: 'steer' as const }
-    return toRemoteSnapshot(full, { permissionsMax: extras.permissionsMax, prefs: { busySend: extras.busySend, allowFull: this.options.access.allowFull } })
+    const defaults = this.phoneDefaults((extras as { defaults?: RemoteSnapshot['defaults'] }).defaults)
+    return toRemoteSnapshot(full, { permissionsMax: extras.permissionsMax, defaults, prefs: { busySend: extras.busySend, allowFull: this.options.access.allowFull } })
   }
 
   /** Un evento dell'host: va ai client remoti solo se è tra quelli ammessi (e, per le chat, solo a chi segue la sessione). */
@@ -277,8 +371,22 @@ export class RemoteGateway {
         })
         .catch(() => undefined)
       return
-    } else if (isForwardedEventType(event.type)) out = event as RemoteEvent
-    else return
+    } else if (isForwardedEventType(event.type)) {
+      // LAD-90: l'email dell'account e il percorso della CLI non escono dal Mac.
+      if (event.type === 'agent.status') out = { ...event, status: toRemoteAgent(event.status) } as unknown as RemoteEvent
+      // LAD-90: l'account senza la cartella di configurazione.
+      else if (event.type === 'profile.upsert') out = { type: 'profile.upsert', profile: { id: event.profile.id, agent: event.profile.agent, name: event.profile.name, isDefault: event.profile.isDefault } satisfies RemoteProfile }
+      else out = event as RemoteEvent
+      // LAD-89: modelli (non i soli limiti d'uso), agenti, progetti e account cambiano i predefiniti mostrati al telefono.
+      if (event.type === 'agent.status') {
+        const sig = agentSignature(event.status)
+        const id = `${event.status.agent}|${event.status.profileId ?? ''}`
+        if (this.agentSigs.get(id) !== sig) {
+          this.agentSigs.set(id, sig)
+          this.pushDefaults()
+        }
+      } else if (event.type === 'project.upsert' || event.type === 'project.removed' || event.type === 'profile.upsert' || event.type === 'profile.removed') this.pushDefaults()
+    } else return
     // replace: true (anche da session.open sul Mac) porta la chat intera: al telefono va solo l'ultima pagina, calcolata una volta.
     let lastPage: RemoteEvent | null | undefined
     for (const conn of this.connections) {
@@ -319,6 +427,8 @@ export class RemoteGateway {
 
   /** Chiude tutte le connessioni (spegnimento del canale). */
   close(): void {
+    if (this.defaultsTimer) clearTimeout(this.defaultsTimer)
+    this.defaultsTimer = null
     for (const conn of [...this.connections]) this.drop(conn)
   }
 
@@ -449,6 +559,19 @@ export class RemoteGateway {
       })
   }
 
+  /** Un gettone per nuova sessione, per dispositivo: raffica 3, poi 5 al minuto. */
+  private takeCreate(conn: RemoteConnection): boolean {
+    const id = conn.auth?.id ?? ''
+    const now = this.now()
+    const bucket = this.createBuckets.get(id) ?? { tokens: CREATE_BURST, at: now }
+    bucket.tokens = Math.min(CREATE_BURST, bucket.tokens + ((now - bucket.at) / 60_000) * CREATE_PER_MINUTE)
+    bucket.at = now
+    this.createBuckets.set(id, bucket)
+    if (bucket.tokens < 1) return false
+    bucket.tokens -= 1
+    return true
+  }
+
   private async run(conn: RemoteConnection, command: RemoteCommand): Promise<unknown> {
     const { host } = this.options
     switch (command.type) {
@@ -479,6 +602,48 @@ export class RemoteGateway {
       case 'device.state':
         if (conn.auth) this.foreground.set(conn.auth.id, { foreground: command.foreground, at: this.now(), conn })
         return null
+      case 'session.create': {
+        // Limite proprio per dispositivo: ogni tentativo conta, anche se poi non passa i controlli; un rifiuto finisce nel log.
+        if (!this.takeCreate(conn)) {
+          this.record(conn, 'create', null, t('New session refused: too many requests'))
+          throw new Error(t('Too many new sessions. Try again in a moment.'))
+        }
+        const info = (await host.checkCreate?.(command)) ?? { agent: command.agent, project: command.projectId }
+        const detail = t('New session: {agent} in {project}', { agent: info.agent, project: info.project })
+        if (command.permission === 'full' && !this.options.access.allowFull) {
+          this.record(conn, 'create', null, t('{detail} (blocked)', { detail }))
+          throw new Error(t('Full access cannot be turned on from the phone. Allow it in Settings on your Mac.'))
+        }
+        // Chat, nessun worktree, nessun allegato: il comando si ricostruisce campo per campo (il testo non va nel log).
+        const created = (await host.handle({ type: 'session.create', projectId: command.projectId, agent: command.agent, text: command.text, model: command.model, effort: command.effort, permission: command.permission, ...(command.profileId ? { profileId: command.profileId } : {}), mode: 'chat' }, conn)) as SessionSummary | null
+        this.record(conn, 'create', created?.id ?? null, detail)
+        return created
+      }
+      case 'agents.usage': {
+        // Agente e account verificati prima di tutto (niente chiavi inventate); il predefinito ha una sola chiave.
+        const target = host.usageTarget ? host.usageTarget(command.agent, command.profileId) : { agent: command.agent, ...(command.profileId && !command.profileId.startsWith('default:') ? { profileId: command.profileId } : {}) }
+        const key = `${target.agent}|${target.profileId ?? ''}`
+        const deviceId = conn.auth?.id ?? ''
+        let reads = this.usageReads.get(deviceId)
+        if (!reads) this.usageReads.set(deviceId, (reads = new Map()))
+        const last = reads.get(key)
+        const now = this.now()
+        if (last !== undefined && now - last < USAGE_REFRESH_MS) {
+          const cached = this.usageCache.get(key)
+          if (cached) return cached
+        }
+        reads.delete(key)
+        reads.set(key, now)
+        while (reads.size > MAX_USAGE_KEYS) reads.delete(reads.keys().next().value as string)
+        const status = (await host.handle({ type: 'agents.usage', agent: target.agent as AgentId, ...(target.profileId ? { profileId: target.profileId } : {}) }, conn)) as AgentStatus | null
+        const clean = status ? toRemoteAgent(status) : null
+        if (clean) {
+          this.usageCache.delete(key)
+          this.usageCache.set(key, clean)
+          while (this.usageCache.size > MAX_USAGE_CACHE) this.usageCache.delete(this.usageCache.keys().next().value as string)
+        }
+        return clean
+      }
       case 'session.send': {
         // Gli allegati non passano dal telefono.
         const { attachments: _attachments, ...rest } = command

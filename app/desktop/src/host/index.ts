@@ -83,6 +83,8 @@ async function main(): Promise<void> {
       void remote?.configure(message.prefs.remote)
       // Il tasto di invio del telefono segue quello del Mac.
       if (busySend !== busyBefore) void remote?.gateway?.pushPrefs().catch(() => undefined)
+      // LAD-89: predefiniti globali delle nuove sessioni (e "Allow Full") cambiati: i telefoni ricevono quelli di adesso.
+      else remote?.gateway?.pushDefaults()
       return
     }
     // LAD-54: il Mac dorme, si sveglia o l'app sta uscendo; con 'quit' si risponde appena il relay è stato avvisato (al massimo mezzo secondo).
@@ -116,6 +118,8 @@ async function main(): Promise<void> {
         // LAD-51: i comandi remote.* li gestisce il canale remoto (dispositivi, QR, password); solo dalla finestra.
         const result = isRemoteWindowCommand(command) ? await remote!.handleCommand(command) : await host.handle(command, port)
         if (rid) post(port, { kind: 'result', rid, ok: true, data: result })
+        // LAD-89: ultimo agente e predefiniti del progetto vivono nella UI del progetto: i telefoni ne ricevono la versione nuova.
+        if (command.type === 'ui.set' || command.type === 'project.worktree.set') remote?.gateway?.pushDefaults()
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         console.error(`[host] ${command.type}: ${message}`)

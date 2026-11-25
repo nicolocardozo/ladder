@@ -7,13 +7,16 @@
 //   node scripts/remote-client.ts [list]
 //   node scripts/remote-client.ts watch <sessionId>      pagina finale + item dal vivo
 //   node scripts/remote-client.ts approve <sessionId>    approva la prima richiesta aperta (anche una che arriva dopo)
+//   node scripts/remote-client.ts create <projectId> "<testo>" [--agent <id>] [--permission <livello>]   nuova sessione (LAD-89), poi la segue
+//   node scripts/remote-client.ts usage [agentId] [profileId]   limiti del piano (LAD-90); due volte di fila: la seconda dalla cache
+//   node scripts/remote-client.ts defaults               predefiniti della nuova sessione per progetto e account (LAD-89/90)
 // Il percorso si sceglie con quello che c'era nel link: `ws` (WebSocket locale, sviluppo) se presente, altrimenti il relay.
 // Si può forzare: LADDER_REMOTE_PORT=7777 oppure --relay ws://127.0.0.1:8787 --id <id del Mac>. Con --wait, se il Mac è offline il client aspetta che torni (altrimenti esce).
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import WebSocket from 'ws'
-import type { ChatItem, FromRemoteHost, RemoteFirstMessage, RemotePairingPayload, RemoteCommand, RemotePage, RemoteSnapshot, ToRemoteHost } from '../src/shared/protocol.ts'
+import type { AgentId, ChatItem, FromRemoteHost, PermissionLevel, RemoteAgentStatus, SessionSummary, RemoteFirstMessage, RemotePairingPayload, RemoteCommand, RemotePage, RemoteSnapshot, ToRemoteHost } from '../src/shared/protocol.ts'
 import { decodePairingUrl, fromBase64Url, generateDeviceKey, keyFingerprint, signChannelBinding, toBase64Url } from '../src/shared/remote/pairing.ts'
 import { RelayTransport } from '../src/shared/remote/relay-transport.ts'
 import { clientHandshake, type RemoteSession } from '../src/shared/remote/session.ts'
@@ -54,10 +57,13 @@ interface DeviceFile {
 const devicePath = deviceFlag ?? process.env.LADDER_REMOTE_DEVICE ?? join(homedir(), '.ladder-remote-client.json')
 const loadDevice = (): DeviceFile | null => (existsSync(devicePath) ? (JSON.parse(readFileSync(devicePath, 'utf8')) as DeviceFile) : null)
 
-const [cmd = 'list', target] = args
+const agentFlag = flag('--agent')
+const permissionFlag = flag('--permission')
+const [cmd = 'list', target, extraArg] = args
 const pairing = cmd === 'pair'
 if (!pairing && ((cmd === 'watch' || cmd === 'approve') && !target)) fail(`Uso: remote-client.ts ${cmd} <sessionId>`)
-if (!['list', 'watch', 'approve', 'pair'].includes(cmd)) fail('Comandi: pair <link> | list | watch <sessionId> | approve <sessionId>')
+if (cmd === 'create' && (!target || !extraArg)) fail('Uso: remote-client.ts create <projectId> "<testo>" [--agent <id>] [--permission <livello>]')
+if (!['list', 'watch', 'approve', 'pair', 'create', 'usage', 'defaults'].includes(cmd)) fail('Comandi: pair <link> | list | watch <sessionId> | approve <sessionId> | create <projectId> "<testo>" | usage [agentId] [profileId] | defaults')
 
 // Con `pair` il percorso e la chiave del Mac vengono dal link; negli altri casi dal file del dispositivo.
 let payload: RemotePairingPayload | null = null
@@ -150,6 +156,8 @@ async function approveOpen(items: ChatItem[]): Promise<void> {
 function onEvent(message: Extract<FromRemoteHost, { kind: 'event' }>): void {
   const { event } = message
   if (event.type === 'snapshot') currentSnapshot = event
+  else if (event.type === 'session.items' && cmd === 'create') printItems(event.items)
+  else if (event.type === 'session.upsert' && cmd === 'create') console.log(`  [session] ${event.session.id} ${event.session.run}`)
   else if (event.type === 'session.items' && event.sessionId === target) {
     const fresh = event.items.filter((i) => event.replace || !seen.has(`${i.id}:${i.kind}:${JSON.stringify(i).length}`))
     for (const i of event.items) seen.add(`${i.id}:${i.kind}:${JSON.stringify(i).length}`)
@@ -171,6 +179,43 @@ async function run(): Promise<void> {
       }
     }
     ws.close()
+    return
+  }
+  if (cmd === 'defaults') {
+    for (const p of snapshot.projects) console.log(`${p.name} (${p.id}): ${JSON.stringify(snapshot.defaults[p.id])}  max=${snapshot.permissionsMax[p.id] ?? 'none'}`)
+    console.log('accounts:', snapshot.profiles.map((x) => `${x.id}=${x.agent}/${x.name}${x.isDefault ? ' (default)' : ''}`).join(', ') || 'none')
+    for (const a of snapshot.agents) console.log(`agent ${a.agent}${a.profileId ? `#${a.profileId}` : ''}: ${a.account ?? 'no plan'} · models ${a.models.map((m) => m.id).join(',') || 'none'}`)
+    ws.close()
+    return
+  }
+  if (cmd === 'usage') {
+    // Per ogni agente (o quello chiesto): due letture di fila, la seconda deve arrivare dalla cache.
+    const targets = snapshot.agents.filter((a) => (!target || a.agent === target) && (!extraArg || a.profileId === extraArg))
+    for (const a of targets) {
+      for (const round of [1, 2]) {
+        const t0 = Date.now()
+        const status = await request<RemoteAgentStatus | null>({ type: 'agents.usage', agent: a.agent as AgentId, ...(a.profileId ? { profileId: a.profileId } : {}) })
+        console.log(`usage ${a.agent}${a.profileId ? `#${a.profileId}` : ''} read ${round} (${Date.now() - t0} ms): ${status?.account ?? 'no plan'} · ${(status?.usage ?? []).map((w) => `${w.label ?? `${w.minutes}m`} ${w.percent ?? '?'}%`).join(', ') || 'no windows'} · at ${status?.usageAt ?? '-'}`)
+      }
+    }
+    ws.close()
+    return
+  }
+  if (cmd === 'create') {
+    const project = snapshot.projects.find((p) => p.id === target)
+    if (!project) fail(`Progetto ${target} non trovato (prova "list").`)
+    const d = snapshot.defaults[project.id]
+    const agent = (agentFlag ?? d?.agent ?? 'claude-code') as AgentId
+    const launch = d?.launch[agent]
+    const permission = (permissionFlag ?? d?.permission ?? 'edit') as PermissionLevel
+    console.log(`create in "${project.name}": ${agent} model=${launch?.model ?? 'default'} effort=${launch?.effort ?? 'default'} permission=${permission}`)
+    // Si segue la sessione appena nata dall'evento session.upsert (arriva prima del risultato), poi si legge la prima pagina.
+    const created = await request<SessionSummary>({ type: 'session.create', projectId: project.id, agent, text: extraArg!, model: launch?.model ?? null, effort: launch?.effort ?? null, permission })
+    console.log(`created ${created.id} "${created.title}" (${created.run})`)
+    await request({ type: 'session.watch', sessionId: created.id, on: true })
+    const page = await request<RemotePage>({ type: 'session.page', sessionId: created.id, limit: 20 })
+    printItems(page.items)
+    console.log('listening for live items (Ctrl+C to stop)')
     return
   }
   const known = currentSnapshot.sessions.find((s) => s.id === target)

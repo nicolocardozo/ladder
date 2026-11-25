@@ -197,7 +197,7 @@ test('hello: snapshot ridotto (niente bozze, terminali, scorciatoie, profili; de
   const result = await c.call({ type: 'hello' })
   assert.equal(result.kind, 'result')
   const data = (result as { data: Record<string, unknown> }).data
-  assert.deepEqual(Object.keys(data).sort(), ['agents', 'permissionsMax', 'prefs', 'projects', 'sessions', 'type', 'ui'])
+  assert.deepEqual(Object.keys(data).sort(), ['agents', 'defaults', 'permissionsMax', 'prefs', 'profiles', 'projects', 'sessions', 'type', 'ui'])
   assert.deepEqual((data as { prefs: unknown }).prefs, { busySend: 'steer', allowFull: true })
   assert.deepEqual(data.ui, { p1: { groups: [{ id: 'g', name: 'G' }], groupOf: { s1: 'g' }, seenAt: 5 } })
   // Lo snapshot viaggia una volta sola, come risultato: nessun evento duplicato.
@@ -999,5 +999,286 @@ test('allowFull cambia: i telefoni collegati ricevono remote.prefs', async () =>
   env.access.allowFull = false
   await env.gateway.pushPrefs()
   await c.flush()
-  assert.deepEqual(c.events.at(-1), { kind: 'event', event: { type: 'remote.prefs', prefs: { busySend: 'queue', allowFull: false } } })
+  assert.deepEqual(c.events.find((e) => e.kind === 'event' && e.event.type === 'remote.prefs'), { kind: 'event', event: { type: 'remote.prefs', prefs: { busySend: 'queue', allowFull: false } } })
+})
+
+// ── LAD-89 / LAD-90 ──────────────────────────────────────────────────────────
+
+const createBase = { type: 'session.create', projectId: 'p1', agent: 'claude-code', text: 'do the thing', model: null, effort: null, permission: 'edit' }
+
+/** Host con i controlli di creazione veri (simulati): progetto p1, agenti claude-code (modello m1 con effort low/high) e codex non ammesso. */
+function createHost(extra: Partial<RemoteHostApi> = {}) {
+  const env = fakeHost()
+  env.host.checkCreate = async (command) => {
+    if (command.projectId !== 'p1') throw new Error('Project not found.')
+    if (command.agent !== 'claude-code') throw new Error('not allowed in this project')
+    if (command.model !== null && command.model !== 'm1') throw new Error('Unknown model')
+    if (command.effort !== null && !['low', 'high'].includes(command.effort)) throw new Error('effort')
+    return { agent: 'Claude Code', project: 'P' }
+  }
+  env.host.handle = async (command, origin) => {
+    env.calls.push({ command, origin })
+    return command.type === 'session.create' ? { id: 'new1', projectId: command.projectId } : { ok: command.type }
+  }
+  Object.assign(env.host, extra)
+  return env
+}
+
+test('session.create: forma e campi in più (allegati, terminale, worktree, command) respinti prima dell’host', async () => {
+  const env = setup({ host: createHost().host })
+  const c = await connect({ env })
+  const bad: Record<string, unknown>[] = [
+    { ...createBase, text: '' },
+    { ...createBase, text: '   ' },
+    { ...createBase, text: 'x'.repeat(200_001) },
+    { ...createBase, projectId: '' },
+    { ...createBase, permission: 'root' },
+    { ...createBase, effort: 'turbo' },
+    { ...createBase, mode: 'terminal' },
+    { ...createBase, command: 'rm -rf /' },
+    { ...createBase, worktree: true },
+    { ...createBase, branch: { name: 'x', existing: false } },
+    { ...createBase, attachments: [{ id: 'a' }] },
+    { ...createBase, attachments: 'x' },
+    { ...createBase, profileId: 5 }
+  ]
+  for (const command of bad) {
+    const r = await c.call(command)
+    assert.ok(r.kind === 'result' && !r.ok, JSON.stringify(command).slice(0, 80))
+    assert.match((r as { error: string }).error, /Invalid request/)
+  }
+  assert.equal(env.fake.calls.length, 0)
+})
+
+test('session.create: ok, comando ricostruito (chat, nessun campo extra), risposta e log senza testo', async () => {
+  const entries: RemoteLogEntry[] = []
+  const fake = createHost()
+  const env = setup({ host: fake.host, log: entries })
+  const c = await connect({ env })
+  const r = await c.call({ ...createBase, text: 'my secret prompt', model: 'm1', effort: 'high', mode: 'chat', profileId: 'prof1' })
+  assert.ok(r.kind === 'result' && r.ok)
+  assert.deepEqual((r as { data: unknown }).data, { id: 'new1', projectId: 'p1' })
+  assert.deepEqual(fake.calls[0].command, { type: 'session.create', projectId: 'p1', agent: 'claude-code', text: 'my secret prompt', model: 'm1', effort: 'high', permission: 'edit', profileId: 'prof1', mode: 'chat' })
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].action, 'create')
+  assert.equal(entries[0].sessionId, 'new1')
+  assert.equal(entries[0].detail, 'New session: Claude Code in P')
+  assert.ok(!JSON.stringify(entries).includes('secret'))
+  // model/effort assenti = null.
+  const d = await c.call({ type: 'session.create', projectId: 'p1', agent: 'claude-code', text: 'hi', permission: 'plan' })
+  assert.ok(d.kind === 'result' && d.ok)
+  assert.deepEqual(fake.calls[1].command, { type: 'session.create', projectId: 'p1', agent: 'claude-code', text: 'hi', model: null, effort: null, permission: 'plan', mode: 'chat' })
+})
+
+test('session.create: progetto, agente, modello, effort non validi (controlli dell’host) = errore e nessuna sessione', async () => {
+  const fake = createHost()
+  let clock = 5_000_000
+  const c = await connect({ env: setup({ host: fake.host, now: () => clock }) })
+  const cases: [Record<string, unknown>, RegExp][] = [
+    [{ ...createBase, projectId: 'nope' }, /Project not found/],
+    [{ ...createBase, agent: 'codex' }, /not allowed/],
+    [{ ...createBase, model: 'zzz' }, /Unknown model/],
+    [{ ...createBase, effort: 'max' }, /effort/]
+  ]
+  for (const [command, re] of cases) {
+    clock += 60_000 // fuori dal limite delle nuove sessioni
+    const r = await c.call(command)
+    assert.ok(r.kind === 'result' && !r.ok)
+    assert.match((r as { error: string }).error, re)
+  }
+  assert.equal(fake.calls.length, 0)
+})
+
+test('session.create: Full con allowFull spento = rifiutato (nessuna riduzione silenziosa), con voce di log; edit passa', async () => {
+  const entries: RemoteLogEntry[] = []
+  const fake = createHost()
+  const env = setup({ host: fake.host, log: entries })
+  env.access.allowFull = false
+  const c = await connect({ env })
+  const blocked = await c.call({ ...createBase, permission: 'full' })
+  assert.ok(blocked.kind === 'result' && !blocked.ok)
+  assert.match((blocked as { error: string }).error, /Full access cannot be turned on from the phone/)
+  assert.equal(fake.calls.length, 0)
+  assert.deepEqual(entries.map((e) => e.detail), ['New session: Claude Code in P (blocked)'])
+  const ok = await c.call({ ...createBase, permission: 'edit' })
+  assert.ok(ok.kind === 'result' && ok.ok)
+  env.access.allowFull = true
+  const full = await c.call({ ...createBase, permission: 'full' })
+  assert.ok(full.kind === 'result' && full.ok)
+  // Il tetto del progetto lo applica l'host (createSession): il gateway passa il livello chiesto.
+  assert.equal((fake.calls[1].command as { permission: string }).permission, 'full')
+})
+
+test('agents.usage: ammesso, senza email né percorso, al massimo una lettura al minuto per agente+profilo e connessione', async () => {
+  let reads = 0
+  let clock = 1_000_000
+  const fake = createHost()
+  fake.host.handle = async (command, origin) => {
+    fake.calls.push({ command, origin })
+    reads++
+    return { agent: 'claude-code', name: 'Claude Code', kind: 'native', available: true, version: '1', account: 'Claude Max', email: 'me@example.com', path: '/usr/bin/claude', models: [], error: null, usage: [{ key: 'w', minutes: 300, model: null, percent: 10, resetsAt: null, state: 'ok' }], usageAt: reads }
+  }
+  const env = setup({ host: fake.host, now: () => clock })
+  const c = await connect({ env })
+  assert.ok(isRemoteCommandType('agents.usage'))
+  const first = await c.call({ type: 'agents.usage', agent: 'claude-code' })
+  assert.ok(first.kind === 'result' && first.ok)
+  const data = (first as { data: Record<string, unknown> }).data
+  assert.equal(data.account, 'Claude Max')
+  assert.ok(!('email' in data) && !('path' in data))
+  assert.ok(!JSON.stringify(first).includes('example.com'))
+  // Entro 60 secondi: valore in cache, il provider non si tocca.
+  clock += 30_000
+  const second = await c.call({ type: 'agents.usage', agent: 'claude-code' })
+  assert.deepEqual((second as { data: unknown }).data, data)
+  assert.equal(reads, 1)
+  // Altro profilo = altra chiave; un'altra connessione ha il suo limite.
+  await c.call({ type: 'agents.usage', agent: 'claude-code', profileId: 'p2' })
+  assert.equal(reads, 2)
+  const other = await connect({ env })
+  await other.call({ type: 'agents.usage', agent: 'claude-code' })
+  assert.equal(reads, 3)
+  // Passati i 60 secondi: lettura vera.
+  clock += 31_000
+  const third = await c.call({ type: 'agents.usage', agent: 'claude-code' })
+  assert.equal((third as { data: { usageAt: number } }).data.usageAt, 4)
+  assert.equal(reads, 4)
+  // Forma non valida.
+  const bad = await c.call({ type: 'agents.usage', agent: '' })
+  assert.ok(bad.kind === 'result' && !bad.ok)
+})
+
+test('agent.status inoltrato senza email e percorso; hello senza email, profili senza cartella', async () => {
+  const c = await connect()
+  c.gateway.broadcast({ type: 'agent.status', status: { agent: 'codex', name: 'Codex', kind: 'native', available: true, version: null, account: 'ChatGPT Plus', email: 'a@b.c', path: '/x/codex', models: [], error: null } })
+  await c.flush()
+  const ev = c.events.find((e) => e.kind === 'event' && e.event.type === 'agent.status') as unknown as { event: { status: Record<string, unknown> } }
+  assert.equal(ev.event.status.account, 'ChatGPT Plus')
+  assert.ok(!('email' in ev.event.status) && !('path' in ev.event.status))
+  const withProfiles = { ...snapshotEvent, agents: [{ agent: 'codex', name: 'Codex', kind: 'native', available: true, version: null, account: 'Plus', email: 'a@b.c', path: '/x', models: [], error: null }], profiles: [{ id: 'pr', agent: 'codex', name: 'Work', configDir: '/secret/dir', isDefault: false, addedAt: 1 }] } as unknown as typeof snapshotEvent
+  const snap = toRemoteSnapshot(withProfiles, { permissionsMax: {}, prefs: { busySend: 'steer', allowFull: true } })
+  assert.deepEqual(snap.profiles, [{ id: 'pr', agent: 'codex', name: 'Work', isDefault: false }])
+  assert.ok(!JSON.stringify(snap).includes('a@b.c') && !JSON.stringify(snap).includes('/secret'))
+})
+
+test('predefiniti: nello snapshot, full ridotto a edit con allowFull spento, evento remote.defaults solo se cambiano', async () => {
+  const fake = createHost()
+  let max: 'plan' | null = null
+  fake.host.remoteExtras = async () => ({ permissionsMax: { p1: max }, busySend: 'steer', defaults: { p1: { allowed: [], agent: 'claude-code', lastAgent: null, launch: {}, permission: 'full' } } })
+  const env = setup({ host: fake.host })
+  env.access.allowFull = false
+  const c = await connect({ env })
+  const hello = (await c.call({ type: 'hello' })) as { data: { defaults: Record<string, { permission: string }> } }
+  assert.equal(hello.data.defaults.p1.permission, 'edit')
+  env.access.allowFull = true
+  env.gateway.pushDefaults(true)
+  await c.flush()
+  const sent = () => c.events.filter((e) => e.kind === 'event' && e.event.type === 'remote.defaults')
+  assert.equal(sent().length, 1)
+  assert.equal((sent()[0] as { event: { defaults: Record<string, { permission: string }> } }).event.defaults.p1.permission, 'full')
+  env.gateway.pushDefaults(true)
+  await c.flush()
+  assert.equal(sent().length, 1)
+  max = 'plan'
+  env.gateway.pushDefaults(true)
+  await c.flush()
+  assert.equal(sent().length, 2)
+})
+
+test('session.create: attachments [] = nessuno', async () => {
+  const fake = createHost()
+  const c = await connect({ env: setup({ host: fake.host }) })
+  const r = await c.call({ ...createBase, attachments: [] })
+  assert.ok(r.kind === 'result' && r.ok)
+  assert.ok(!('attachments' in (fake.calls[0].command as object)))
+})
+
+test('session.create: limite per dispositivo (raffica 3, poi 5 al minuto), rifiuto nel log', async () => {
+  const entries: RemoteLogEntry[] = []
+  let clock = 9_000_000
+  const fake = createHost()
+  const env = setup({ host: fake.host, log: entries, now: () => clock })
+  const c = await connect({ env })
+  for (let i = 0; i < 3; i++) assert.ok((await c.call(createBase)).kind === 'result')
+  assert.equal(fake.calls.length, 3)
+  const refused = await c.call(createBase)
+  assert.ok(refused.kind === 'result' && !refused.ok)
+  assert.match((refused as { error: string }).error, /Too many new sessions/)
+  assert.equal(fake.calls.length, 3)
+  assert.equal(entries.at(-1)?.detail, 'New session refused: too many requests')
+  // Dopo 12 secondi (5 al minuto) un gettone è tornato.
+  clock += 12_000
+  await c.call(createBase)
+  assert.equal(fake.calls.length as number, 4)
+  // Il limite è del dispositivo, non della connessione.
+  const again = await c.call(createBase)
+  assert.ok(again.kind === 'result' && !again.ok)
+})
+
+test('agents.usage: account predefinito = una sola chiave, account sconosciuto e agente sconosciuto respinti, limite per dispositivo', async () => {
+  let reads = 0
+  const fake = createHost()
+  fake.host.usageTarget = (agent, profileId) => {
+    if (agent !== 'claude-code') throw new Error('Unknown agent')
+    if (profileId && !profileId.startsWith('default:') && profileId !== 'real') throw new Error('Account not found.')
+    return { agent, ...(profileId && profileId !== 'default:claude-code' && !profileId.startsWith('default:') ? { profileId } : {}) }
+  }
+  fake.host.handle = async (command, origin) => {
+    fake.calls.push({ command, origin })
+    reads++
+    return { agent: 'claude-code', name: 'C', kind: 'native', available: true, version: null, account: 'Max', models: [], error: 'ENOENT /Users/me/.claude/secret/x failed', usageAt: reads }
+  }
+  const env = setup({ host: fake.host, now: () => 1_000_000 })
+  const c = await connect({ env })
+  const first = await c.call({ type: 'agents.usage', agent: 'claude-code' })
+  assert.ok(!JSON.stringify(first).includes('/Users/me'))
+  await c.call({ type: 'agents.usage', agent: 'claude-code', profileId: 'default:claude-code' })
+  await c.call({ type: 'agents.usage', agent: 'claude-code', profileId: 'default:whatever' })
+  assert.equal(reads, 1)
+  for (const bad of [{ agent: 'nope' }, { agent: 'claude-code', profileId: 'ghost' }]) {
+    const r = await c.call({ type: 'agents.usage', ...bad })
+    assert.ok(r.kind === 'result' && !r.ok)
+  }
+  assert.equal(reads, 1)
+})
+
+test('predefiniti: invii sovrapposti (vince il più recente), reset senza telefoni, usage-only non ricalcola', async () => {
+  const fake = createHost()
+  let calls = 0
+  const resolvers: ((v: Awaited<ReturnType<NonNullable<RemoteHostApi['remoteExtras']>>>) => void)[] = []
+  fake.host.remoteExtras = () => {
+    calls++
+    return new Promise((resolve) => resolvers.push(resolve))
+  }
+  const env = setup({ host: fake.host })
+  const c = await connect({ env })
+  const ext = (permission: 'plan' | 'edit') => ({ permissionsMax: {}, busySend: 'steer' as const, defaults: { p1: { allowed: [], agent: 'claude-code' as const, lastAgent: null, launch: {}, permission } } })
+  env.gateway.pushDefaults(true)
+  env.gateway.pushDefaults(true)
+  resolvers[1](ext('edit'))
+  resolvers[0](ext('plan')) // arriva dopo ma è più vecchio: scartato
+  await c.flush()
+  const sent = c.events.filter((e) => e.kind === 'event' && e.event.type === 'remote.defaults') as unknown as { event: { defaults: Record<string, { permission: string }> } }[]
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].event.defaults.p1.permission, 'edit')
+  // Solo limiti d'uso cambiati: nessun nuovo calcolo. Cambia un modello: sì.
+  const status = (usageAt: number, models: { id: string; label: string }[]) => ({ type: 'agent.status' as const, status: { agent: 'codex' as const, name: 'Codex', kind: 'native' as const, available: true, version: null, account: null, models, error: null, usageAt } })
+  env.gateway.broadcast(status(1, [{ id: 'a', label: 'A' }]))
+  await new Promise((r) => setTimeout(r, 400))
+  const before = calls
+  env.gateway.broadcast(status(2, [{ id: 'a', label: 'A' }]))
+  await new Promise((r) => setTimeout(r, 400))
+  assert.equal(calls, before)
+  env.gateway.broadcast(status(3, [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }]))
+  await new Promise((r) => setTimeout(r, 400))
+  assert.equal(calls, before + 1)
+})
+
+test('account: profile.upsert e profile.removed arrivano ai telefoni senza la cartella di configurazione', async () => {
+  const c = await connect()
+  c.gateway.broadcast({ type: 'profile.upsert', profile: { id: 'pr', agent: 'codex', name: 'Work', configDir: '/secret/x', isDefault: false, addedAt: 1 } })
+  c.gateway.broadcast({ type: 'profile.removed', profileId: 'pr' })
+  await c.flush()
+  const evs = c.events.filter((e) => e.kind === 'event').map((e) => (e as { event: unknown }).event)
+  assert.deepEqual(evs.slice(0, 2), [{ type: 'profile.upsert', profile: { id: 'pr', agent: 'codex', name: 'Work', isDefault: false } }, { type: 'profile.removed', profileId: 'pr' }])
 })

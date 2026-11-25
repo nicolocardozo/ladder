@@ -1,6 +1,6 @@
 // Allowlist dei comandi del canale remoto. Import relativi e solo `import type` dal protocollo: il file gira anche sotto `node --test`.
 import { cleanNotifyPrefs } from './push-policy.ts'
-import type { PermissionLevel, RemoteAllowedType, RemoteCommand, RemoteEvent, ToRemoteHost } from '../../shared/protocol.ts'
+import type { Effort, PermissionLevel, RemoteAllowedType, RemoteCommand, RemoteEvent, ToRemoteHost } from '../../shared/protocol.ts'
 
 // `satisfies Record<…, true>` fa fallire il typecheck se un tipo viene aggiunto (o tolto) da una parte sola:
 // chiave mancante o chiave in più.
@@ -23,12 +23,17 @@ const REMOTE_ONLY = {
   'device.push.set': true,
   'device.notify.set': true,
   'device.state': true,
-  'project.sessions.archived': true
+  'project.sessions.archived': true,
+  'session.create': true,
+  'agents.usage': true
 } satisfies Record<Exclude<RemoteCommand['type'], RemoteAllowedType>, true>
 
 /** Eventi dell'host inoltrati as-is; `snapshot` no: si ricostruisce come RemoteSnapshot. */
 const EVENTS = {
   'remote.prefs': true,
+  'remote.defaults': true,
+  'profile.upsert': true,
+  'profile.removed': true,
   'session.upsert': true,
   'session.items': true,
   'session.subagents': true,
@@ -47,6 +52,9 @@ const MAX_TEXT = 200_000
 const MAX_QUEUE = 50
 const MAX_ANSWERS = 32
 const MAX_PUSH_TOKEN = 512
+const EFFORTS = { low: true, medium: true, high: true, xhigh: true, max: true } satisfies Record<Effort, true>
+/** LAD-89: le sole chiavi di `session.create` dal telefono; tutto il resto (allegati, worktree, comando…) fa rifiutare la richiesta. */
+const CREATE_KEYS = new Set(['type', 'projectId', 'agent', 'text', 'model', 'effort', 'permission', 'profileId', 'mode', 'attachments'])
 
 const has = (table: object, key: string): boolean => Object.prototype.hasOwnProperty.call(table, key)
 
@@ -132,6 +140,25 @@ export function parseRemoteMessage(value: unknown, messages: { invalid: string; 
       return ok(isId(command.sessionId) && typeof command.on === 'boolean')
     case 'project.sessions.archived':
       return ok(isId(command.projectId) && (command.before === undefined || isCount(command.before)) && (command.limit === undefined || isCount(command.limit)))
+    case 'session.create': {
+      // Nessun campo in più (allegati, command, worktree, branch, source, title…): per il telefono non esistono. `mode`: solo 'chat'.
+      const strict = Object.keys(command).every((k) => CREATE_KEYS.has(k)) && (command.mode === undefined || command.mode === 'chat') && (command.attachments === undefined || (Array.isArray(command.attachments) && command.attachments.length === 0))
+      const valid =
+        strict &&
+        isId(command.projectId) &&
+        isId(command.agent) &&
+        isString(command.text) &&
+        command.text.trim().length > 0 &&
+        command.text.length <= MAX_TEXT &&
+        (command.model == null || isId(command.model)) &&
+        (command.effort == null || (isString(command.effort) && has(EFFORTS, command.effort))) &&
+        isString(command.permission) &&
+        has(PERMISSIONS, command.permission) &&
+        (command.profileId === undefined || command.profileId === null || isId(command.profileId))
+      return ok(valid, valid ? ({ type: 'session.create', projectId: command.projectId, agent: command.agent, text: command.text, model: (command.model as string | null | undefined) ?? null, effort: (command.effort as Effort | null | undefined) ?? null, permission: command.permission, ...(command.profileId ? { profileId: command.profileId } : {}), mode: 'chat' } as RemoteCommand) : undefined)
+    }
+    case 'agents.usage':
+      return ok(isId(command.agent) && (command.profileId === undefined || isId(command.profileId)), isId(command.agent) ? ({ type: 'agents.usage', agent: command.agent, ...(command.profileId ? { profileId: command.profileId } : {}) } as RemoteCommand) : undefined)
     case 'device.push.set':
       return ok((command.token === null || (isString(command.token) && command.token.length > 0 && command.token.length <= MAX_PUSH_TOKEN)) && (command.platform === 'ios' || command.platform === 'android'))
     case 'device.notify.set': {

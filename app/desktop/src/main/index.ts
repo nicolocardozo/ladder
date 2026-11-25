@@ -202,7 +202,7 @@ function cleanRemote(value: unknown): { enabled: boolean; relayUrl: string | nul
   return { enabled: raw.enabled === true, relayUrl: typeof raw.relayUrl === 'string' && raw.relayUrl.trim() ? raw.relayUrl.trim() : null, allowFull: raw.allowFull !== false }
 }
 
-const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser, remote: settings.remote, busySend: settings.busySend })
+const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser, remote: settings.remote, busySend: settings.busySend, defaults: settings.defaults })
 
 // LAD-53: schermo bloccato (powerMonitor), per decidere i push ai telefoni.
 let screenLocked = false
