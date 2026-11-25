@@ -26,6 +26,7 @@ import { SystemSection } from '@/components/settings-system'
 import { WorkspaceSection } from '@/components/settings-workspace'
 import { REQUEST_SOUNDS, system } from '@/lib/system-bridge'
 import { cn } from '@/lib/utils'
+import { phoneAccessAllowed } from '@shared/remote/availability'
 
 /** Anteprima del tema con i suoi colori: sidebar, messaggio, risposta, richiesta, stati. */
 function ThemePreview({ theme }: { theme: ThemeInfo }) {
@@ -63,7 +64,7 @@ function ThemePreview({ theme }: { theme: ThemeInfo }) {
 
 type Section = SettingsSection
 
-const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
+const ALL_SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'subscriptions', label: 'Subscriptions', icon: BadgeCheck },
@@ -75,6 +76,9 @@ const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: 'system', label: 'Data and system', icon: Database },
   { id: 'integrations', label: 'Integrations', icon: Plug }
 ]
+
+// Devices (access from the phone) only where it's available: see shared/remote/availability.ts.
+const SECTIONS = ALL_SECTIONS.filter((s) => s.id !== 'devices' || phoneAccessAllowed(!import.meta.env.DEV))
 
 export function SettingsDialog() {
   const open = useSettings((s) => s.settingsOpen)

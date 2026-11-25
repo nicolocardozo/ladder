@@ -30,6 +30,7 @@ import { runAgentOp } from './browser-agent'
 import { registerFileProtocol, registerFileScheme, revealFile, setFileRoots } from './file-protocol'
 import { linearIssues, linearStatus, setLinearKey } from './linear'
 import { remoteIsOn, staysInBackground, wantKeepAwake } from './power-logic'
+import { phoneAccessAllowed } from '@shared/remote/availability'
 import { TRAY_ICON_1X, TRAY_ICON_2X } from './tray-icon'
 import { registerUpdater } from './updater'
 
@@ -202,7 +203,7 @@ function cleanRemote(value: unknown): { enabled: boolean; relayUrl: string | nul
   return { enabled: raw.enabled === true, relayUrl: typeof raw.relayUrl === 'string' && raw.relayUrl.trim() ? raw.relayUrl.trim() : null, allowFull: raw.allowFull !== false }
 }
 
-const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser, remote: settings.remote, busySend: settings.busySend, defaults: settings.defaults })
+const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser, remote: phoneAccessAllowed(app.isPackaged) ? settings.remote : undefined, busySend: settings.busySend, defaults: settings.defaults })
 
 // LAD-53: schermo bloccato (powerMonitor), per decidere i push ai telefoni.
 let screenLocked = false
@@ -282,7 +283,7 @@ function applyKeepAwake(): void {
 }
 
 /** Canale remoto acceso: dalle preferenze dell'host (HostPrefs.remote, LAD-51) o, in sviluppo, dalle variabili d'ambiente. */
-const remoteOn = () => remoteIsOn(settings.remote?.enabled === true, app.isPackaged, process.env)
+const remoteOn = () => remoteIsOn(phoneAccessAllowed(app.isPackaged) && settings.remote?.enabled === true, app.isPackaged, process.env)
 
 // ── Background (LAD-54): senza finestre Ladder resta nella barra dei menu, con l'host e il canale remoto attivi ──
 let tray: Tray | null = null
