@@ -13,7 +13,7 @@ Workspace desktop per macOS in cui si lavora su più repository insieme con agen
 
 Le istruzioni di una parte si caricano quando si legge un file di quella cartella. Prima di verificare o rivedere una modifica, leggi il CLAUDE.md della parte toccata.
 
-L'app mobile (milestone M6) non esiste ancora: c'è solo il prototipo `docs/m6-mobile-prototype.html`. Quando parte, avrà la sua cartella e il suo CLAUDE.md.
+L'app mobile (`app/mobile`, Expo) e il relay Cloudflare (`app/relay`) della milestone M6 sono in sviluppo sui branch `m6/*`, con i worktree in `.claude/worktrees/m6-*`, e non sono ancora in `development`. Quando entrano, ognuna avrà la sua riga qui e il suo CLAUDE.md. Prototipo: `docs/m6-mobile-prototype.html`.
 
 ## Comandi
 
