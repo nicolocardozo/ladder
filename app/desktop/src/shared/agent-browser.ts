@@ -1,12 +1,12 @@
-// Regole sugli indirizzi del browser dell'agente (LAD-57 parte 2), condivise da host (decide) e main (fa rispettare).
-// Funzioni pure: si provano senza Electron.
+// Rules on the agent browser's addresses, shared by host (decides) and main (enforces).
+// Pure functions: they can be tested without Electron.
 
-/** Nome dell'host senza punto finale e in minuscolo; l'IPv6 resta tra parentesi quadre, come in `URL.hostname`. */
+/** Host name without the trailing dot and lowercase; IPv6 stays in square brackets, as in `URL.hostname`. */
 export function normalizeHost(host: string): string {
   return host.toLowerCase().replace(/\.$/, '')
 }
 
-/** Solo il computer stesso: localhost, *.localhost, 127.0.0.1 e ::1. Le reti private (192.168.x, 10.x) non contano come locali. */
+/** Only the machine itself: localhost, *.localhost, 127.0.0.1 and ::1. Private networks (192.168.x, 10.x) don't count as local. */
 export function isLoopbackHost(host: string): boolean {
   const h = normalizeHost(host)
   return h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '[::1]'
@@ -14,7 +14,7 @@ export function isLoopbackHost(host: string): boolean {
 
 export const AGENT_URL_MAX = 2000
 
-/** Indirizzo accettabile per l'agente: http/https, senza credenziali nell'indirizzo, lunghezza limitata. */
+/** Address acceptable for the agent: http/https, no credentials in the address, limited length. */
 export function parseAgentUrl(input: string): { ok: true; url: URL; host: string; local: boolean } | { ok: false; reason: 'invalid' | 'scheme' | 'credentials' | 'long' } {
   const text = input.trim()
   if (text.length > AGENT_URL_MAX) return { ok: false, reason: 'long' }

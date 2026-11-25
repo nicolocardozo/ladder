@@ -1,7 +1,7 @@
-// File temporanei con titolo e descrizione della PR (LAD-59): l'agente riceve solo i percorsi e legge i dati da lì,
-// così nessun carattere del titolo o del corpo passa per una riga di comando né per un delimitatore di heredoc.
-// Cartella privata (0700) con nome casuale, file 0600; si cancella alla chiusura della sessione, a una nuova
-// preparazione e all'uscita dell'app. Quelle rimaste da un'uscita brusca si tolgono alla prima preparazione.
+// Temporary files with the PR title and description: the agent receives only the paths and reads the data from there,
+// so no character of the title or body goes through a command line or a heredoc delimiter.
+// Private folder (0700) with a random name, files 0600; deleted when the session closes, on a new
+// preparation and when the app exits. Folders left by an abrupt exit are removed on the first preparation.
 import { randomBytes } from 'node:crypto'
 import { readdirSync, rmSync, statSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -11,10 +11,10 @@ import { t } from '@shared/i18n'
 import { MAX_PR_BODY, MAX_PR_TITLE } from '@shared/protocol'
 
 const PREFIX = 'ladder-pr-'
-/** Cartelle di un'esecuzione precedente: dopo un giorno non servono a nessuno. */
+/** Folders from a previous run: after a day they are of no use to anyone. */
 const STALE_MS = 24 * 60 * 60_000
 
-/** Titolo (una riga, senza NUL, entro il limite) e descrizione (senza NUL, entro il limite); errore tradotto altrimenti. */
+/** Title (one line, no NUL, within the limit) and description (no NUL, within the limit); translated error otherwise. */
 export function checkPrText(title: string, body: string): void {
   if (typeof title !== 'string' || typeof body !== 'string') throw new Error(t('The pull request text is not valid.'))
   if (!title.trim()) throw new Error(t('The pull request needs a title.'))
@@ -28,17 +28,17 @@ export class PrFiles {
   private dirs = new Map<string, string>()
   private swept = false
 
-  /** Scrive titolo e descrizione per la sessione (e toglie i file della preparazione precedente). */
+  /** Writes the title and description for the session (and removes the previous preparation's files). */
   async prepare(sessionId: string, title: string, body: string): Promise<{ titlePath: string; bodyPath: string }> {
     checkPrText(title, body)
     this.sweep()
     await this.forget(sessionId)
-    // mkdtemp crea la cartella con permessi 0700 e un suffisso casuale; anche i file hanno un nome casuale.
+    // mkdtemp creates the folder with 0700 permissions and a random suffix; the files also have random names.
     const dir = await mkdtemp(join(tmpdir(), PREFIX))
     try {
       const titlePath = join(dir, `title-${randomBytes(6).toString('hex')}.txt`)
       const bodyPath = join(dir, `body-${randomBytes(6).toString('hex')}.md`)
-      // Contenuto identico a ciò che l'utente ha scritto: niente a capo aggiunto. 'wx': mai su un file già esistente.
+      // Content identical to what the user wrote: no newline added. 'wx': never over an existing file.
       await writeFile(titlePath, title.trim(), { mode: 0o600, flag: 'wx' })
       await writeFile(bodyPath, body, { mode: 0o600, flag: 'wx' })
       this.dirs.set(sessionId, dir)
@@ -49,7 +49,7 @@ export class PrFiles {
     }
   }
 
-  /** Cancella i file della sessione (chiusa, archiviata o con una nuova preparazione). */
+  /** Deletes the session's files (closed, archived or with a new preparation). */
   async forget(sessionId: string): Promise<void> {
     const dir = this.dirs.get(sessionId)
     if (!dir) return
@@ -57,13 +57,13 @@ export class PrFiles {
     await rm(dir, { recursive: true, force: true })
   }
 
-  /** All'uscita dell'app: tutto via, in modo sincrono. */
+  /** On app exit: everything goes, synchronously. */
   shutdown(): void {
     for (const dir of this.dirs.values()) rmSync(dir, { recursive: true, force: true })
     this.dirs.clear()
   }
 
-  /** Una volta per esecuzione: toglie le cartelle `ladder-pr-*` vecchie lasciate da un'uscita senza pulizia. */
+  /** Once per run: removes old `ladder-pr-*` folders left by an exit without cleanup. */
   private sweep(): void {
     if (this.swept) return
     this.swept = true
@@ -74,7 +74,7 @@ export class PrFiles {
         if (Date.now() - statSync(path).mtimeMs > STALE_MS) rmSync(path, { recursive: true, force: true })
       }
     } catch {
-      // Un elenco che non si legge non deve impedire la PR.
+      // A listing that cannot be read must not block the PR.
     }
   }
 }

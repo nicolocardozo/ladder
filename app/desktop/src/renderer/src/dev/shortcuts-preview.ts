@@ -1,5 +1,5 @@
-// Host finto per l'anteprima web: risponde ai comandi shortcuts.* come farebbe l'host vero, così Impostazioni → Shortcuts
-// si prova senza Electron. Entra dalla stessa porta dell'app (window.postMessage), quindi passa da host-client.
+// Fake host for the web preview: answers shortcuts.* commands as the real host would, so Settings → Shortcuts
+// can be tried without Electron. It enters through the same port as the app (window.postMessage), so it goes through host-client.
 import type { FromHost, HostCommand, HostEvent, ShortcutsState } from '@shared/protocol'
 import type { Keybinding, ShortcutPreset } from '@shared/shortcuts'
 
@@ -9,12 +9,12 @@ let channelPort: MessagePort | null = null
 type PreviewAnswer = { ok: true; data: unknown } | { ok: false; error: string }
 const extraHandlers: ((command: HostCommand) => PreviewAnswer | undefined)[] = []
 
-/** Altri comandi che l'host finto deve capire (dev/settings-preview.ts); il primo che risponde vince. */
+/** Other commands the fake host must understand (dev/settings-preview.ts); the first that answers wins. */
 export function registerPreviewHandler(handler: (command: HostCommand) => PreviewAnswer | undefined): void {
   extraHandlers.push(handler)
 }
 
-/** Manda un evento all'app come farebbe l'host. Serve dopo installShortcutsHost. */
+/** Sends an event to the app as the host would. Needed after installShortcutsHost. */
 export function emitPreviewEvent(event: HostEvent): void {
   channelPort?.postMessage({ kind: 'event', event } satisfies FromHost)
 }

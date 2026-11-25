@@ -1,23 +1,23 @@
-// Scheda Branches: scelta delle righe, stato a parole e raggruppamento. Funzioni pure, nessun React.
+// Branches tab: row selection, state in words and grouping. Pure functions, no React.
 import type { BranchMapEntry, SessionSummary } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { sessionState } from '@/lib/session-state'
 
-/** Stato mostrato per un branch: colore, forma ed etichetta vengono da qui. */
+/** State shown for a branch: color, shape and label come from here. */
 export type MapKind = 'working' | 'waiting' | 'error' | 'merged' | 'idle' | 'archived'
 
-/** Gli uniti da più di 7 giorni spariscono dalla mappa. */
+/** Merged branches older than 7 days disappear from the map. */
 export const MERGED_VISIBLE_MS = 7 * 24 * 60 * 60_000
-/** Da questo scarto in poi "indietro" rispetto a main si evidenzia. */
+/** From this gap on, "behind" main is highlighted. */
 export const FAR_BEHIND = 10
-/** Uniti mostrati prima di "Show N more". */
+/** Merged branches shown before "Show N more". */
 export const MERGED_SHOWN = 1
 
-/** Stesse regole della sidebar (`sessionState`): in esecuzione, ti aspetta, errore, ferma. L'unito viene dal git, non dalla sessione. */
+/** Same rules as the sidebar (`sessionState`): running, waiting for you, error, stopped. "Merged" comes from git, not from the session. */
 export function kindOf(entry: BranchMapEntry, session: SessionSummary | undefined): MapKind {
   if (entry.merged) return 'merged'
   if (entry.archived) return 'archived'
-  // La riga del checkout principale riassume tutte le sue sessioni (l'host sceglie lo stato più urgente): non vale quello della sola più recente.
+  // The main checkout row summarizes all of its sessions (the host picks the most urgent state): the most recent one alone doesn't count.
   if (session && !entry.mainCheckout) {
     const state = sessionState(session)
     if (state === 'waiting') return 'waiting'
@@ -63,13 +63,13 @@ export function problemText(entry: BranchMapEntry): string | null {
   }
 }
 
-/** Sessione senza una sessione vera dietro: la riga del checkout principale quando nessuna sessione ci lavora (non si apre). */
+/** A session without a real session behind it: the main checkout row when no session is working there (it can't be opened). */
 export const hasNoSession = (e: BranchMapEntry): boolean => e.sessionId.startsWith('main-checkout:')
 
 /**
- * Righe della mappa intera: i worktree e, se è su un branch diverso dal ramo principale, il checkout principale (una riga sola). Le
- * sessioni sul ramo principale non sono righe. Niente archiviati non uniti, niente uniti da più di 7 giorni (il checkout principale resta:
- * è dove lavori adesso). Le più recenti prima.
+ * Rows of the full map: the worktrees and, if it is on a branch other than the main one, the main checkout (a single row). Sessions
+ * on the main branch are not rows. No unmerged archived ones, no merged ones older than 7 days (the main checkout stays:
+ * it is where you are working now). Most recent first.
  */
 export function visibleEntries(entries: BranchMapEntry[], now: number): BranchMapEntry[] {
   return entries
@@ -92,7 +92,7 @@ export interface Group {
   rows: Row[]
 }
 
-/** Gruppo naturale di una riga: al lavoro (o in attesa, o in errore), pronta all'unione (ferma con commit avanti), unita, altro. */
+/** Natural group of a row: working (or waiting, or in error), ready to merge (stopped with commits ahead), merged, other. */
 export function groupOf(entry: BranchMapEntry, kind: MapKind): GroupId {
   if (kind === 'working' || kind === 'waiting' || kind === 'error') return 'working'
   if (kind === 'merged') return 'merged'
@@ -100,7 +100,7 @@ export function groupOf(entry: BranchMapEntry, kind: MapKind): GroupId {
   return 'other'
 }
 
-/** Righe in gruppi, nell'ordine Working, Ready to merge, Merged, altri; i gruppi vuoti non ci sono. */
+/** Rows in groups, in the order Working, Ready to merge, Merged, others; empty groups are omitted. */
 export function groupRows(entries: BranchMapEntry[], kindFor: (e: BranchMapEntry) => MapKind): Group[] {
   const order: GroupId[] = ['working', 'ready', 'merged', 'other']
   const rows: Row[] = entries.map((entry) => {

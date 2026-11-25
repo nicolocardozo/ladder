@@ -1,5 +1,5 @@
-// Abbonamenti con limiti d'uso (LAD-82): un account per agente nativo e profilo, con le sessioni in corso su di esso.
-// Il pannello dei limiti nel composer e Impostazioni → Abbonamenti leggono da qui.
+// Subscriptions with usage limits: one account per native agent and profile, with the sessions running on it.
+// The limits panel in the composer and Settings → Subscriptions read from here.
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { AgentId, AgentStatus, SessionSummary } from '@shared/protocol'
@@ -8,24 +8,24 @@ import { agentsRunning } from '@/lib/session-state'
 import { PROFILE_AGENTS, connectionFor, hostProfileId, isProfileAgent, normalizeProfileId, profilesOf } from '@/lib/profiles'
 import { useApp } from '@/store/app-store'
 
-/** Chiave stabile di un account: l'agente e, per Claude e Codex, il profilo (il predefinito è sempre `default:<agente>`). */
+/** Stable key of an account: the agent and, for Claude and Codex, the profile (the default is always `default:<agent>`). */
 export function accountKey(agent: AgentId, profileId?: string | null): string {
   return isProfileAgent(agent) ? `${agent}:${normalizeProfileId(agent, profileId)}` : agent
 }
 
-/** La sessione consuma il piano adesso: lavora, parte, aspetta una risposta nel turno, o è ferma ma con sotto-agenti ancora al lavoro. */
+/** The session consumes the plan right now: working, starting, waiting for an answer in the turn, or idle but with subagents still working. */
 export function isInUse(session: SessionSummary): boolean {
   return session.run === 'running' || session.run === 'starting' || session.run === 'waiting' || agentsRunning(session) > 0
 }
 
-/** Sessioni in uso per account (chiave di `accountKey`), in un solo passaggio. */
+/** Sessions in use per account (key of `accountKey`), in a single pass. */
 export function sessionsInUse(sessions: Iterable<SessionSummary>): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const session of sessions) if (isInUse(session)) counts[accountKey(session.agent, session.profileId)] = (counts[accountKey(session.agent, session.profileId)] ?? 0) + 1
   return counts
 }
 
-/** Sessioni in uso con quell'account: stesso agente e stesso profilo. */
+/** Sessions in use with that account: same agent and same profile. */
 export function runningSessionsOn(sessions: Iterable<SessionSummary>, agent: AgentId, profileId?: string | null): number {
   return sessionsInUse(sessions)[accountKey(agent, profileId)] ?? 0
 }
@@ -33,21 +33,21 @@ export function runningSessionsOn(sessions: Iterable<SessionSummary>, agent: Age
 export interface UsageAccount {
   key: string
   agent: AgentId
-  /** Profilo da passare all'host: assente per il predefinito e per gli agenti senza profili. */
+  /** Profile to pass to the host: absent for the default and for agents without profiles. */
   profileId: string | undefined
-  /** Nome del profilo, solo se l'agente ne ha più di uno. */
+  /** Profile name, only if the agent has more than one. */
   profileName: string | null
   status: AgentStatus | null
-  /** Solo gli agenti nativi espongono i limiti e si possono rileggere. */
+  /** Only native agents expose limits and can be reread. */
   native: boolean
-  /** È l'account della sessione aperta. */
+  /** It is the open session's account. */
   current: boolean
   running: number
 }
 
 /**
- * Account collegati di Claude e Codex (uno per profilo), con quello della sessione aperta per primo.
- * L'account della sessione compare sempre, anche se non è un agente nativo o se il collegamento non è leggibile.
+ * Connected Claude and Codex accounts (one per profile), with the open session's account first.
+ * The session's account always appears, even if it isn't a native agent or the connection can't be read.
  */
 export function useUsageAccounts(current: { agent: AgentId; profileId?: string | null }): UsageAccount[] {
   const agents = useApp((s) => s.agents)
@@ -55,7 +55,7 @@ export function useUsageAccounts(current: { agent: AgentId; profileId?: string |
   const profiles = useApp((s) => s.profiles)
   const connections = useApp((s) => s.connections)
   const profileConnections = useApp((s) => s.profileConnections)
-  // Un oggetto di conteggi, confrontato campo per campo: il pannello non si ridisegna a ogni evento di una sessione.
+  // An object of counts, compared field by field: the panel doesn't redraw on every session event.
   const inUse = useApp(useShallow((s) => sessionsInUse(Object.values(s.sessions))))
   const { agent: currentAgent, profileId: currentProfile } = current
   return useMemo(() => {
@@ -74,14 +74,14 @@ export function useUsageAccounts(current: { agent: AgentId; profileId?: string |
         const id = profile.isDefault ? undefined : profile.id
         const connection = connectionFor({ connections, profileConnections }, agent, profile.id)
         const key = accountKey(agent, profile.id)
-        // Collegato; o, se l'host non manda i collegamenti, un agente disponibile con un account.
+        // Connected; or, if the host doesn't send connections, an available agent with an account.
         const linked = connection ? isLinked(connection) : Boolean(statusOf(agent, id)?.available && statusOf(agent, id)?.account)
         if (linked || key === currentKey) add(agent, id, own.length > 1 ? profile.name : null)
       }
     }
-    // L'account della sessione c'è sempre: un profilo rimosso o un agente senza profili compaiono lo stesso, senza nome di profilo.
+    // The session's account is always there: a removed profile or an agent without profiles still appear, without a profile name.
     add(currentAgent, hostProfileId(currentProfile), null)
-    // L'account della sessione per primo, gli altri nell'ordine di sempre.
+    // The session's account first, the others in the usual order.
     return list.sort((a, b) => Number(b.current) - Number(a.current))
   }, [agents, profileAgents, profiles, connections, profileConnections, inUse, currentAgent, currentProfile])
 }

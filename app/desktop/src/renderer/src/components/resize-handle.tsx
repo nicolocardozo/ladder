@@ -1,7 +1,7 @@
-// Divisore trascinabile (LAD-75): sidebar, colonne affiancate e ispettore. Pointer events con il nucleo di
-// lib/pointer-drag.ts (Esc annulla, la vista nativa del browser si nasconde da sola), tastiera con le frecce.
-// Durante il trascinamento non cambia lo stato di React: `onPreview` ritocca il DOM (un aggiornamento per frame) e solo
-// a fine gesto `onCommit` salva la misura.
+// Draggable divider: sidebar, side-by-side columns and inspector. Pointer events with the core of
+// lib/pointer-drag.ts (Esc cancels, the browser's native view hides on its own), keyboard with the arrows.
+// While dragging, React state doesn't change: `onPreview` adjusts the DOM (one update per frame) and only
+// at the end of the gesture does `onCommit` save the size.
 import { useEffect, useRef, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { startPointerDrag } from '@/lib/pointer-drag'
 import { clamp, RESIZE_STEP, RESIZE_STEP_LARGE } from '@/lib/panel-size'
@@ -15,33 +15,33 @@ export interface ResizeRange {
 
 interface ResizeHandleProps extends ResizeRange {
   label: string
-  /** Il valore cresce spostando il divisore a sinistra (ispettore). */
+  /** The value grows when moving the divider to the left (inspector). */
   invert?: boolean
-  /** Misura attuale al momento del gesto, se `value`, `min` e `max` di render possono essere vecchi (colonne). */
+  /** Current size at the time of the gesture, if the render's `value`, `min` and `max` may be stale (columns). */
   measure?: () => ResizeRange
-  /** Ogni frame del trascinamento e ogni passo di tastiera: solo DOM, niente stato. */
+  /** Every drag frame and every keyboard step: DOM only, no state. */
   onPreview: (value: number) => void
-  /** Fine del gesto (o passo di tastiera, dopo una breve pausa): salva. */
+  /** End of the gesture (or keyboard step, after a short pause): save. */
   onCommit: (value: number) => void
-  /** Doppio clic: torna al predefinito. */
+  /** Double click: back to the default. */
   onReset: () => void
-  /** Trascinamento annullato con Esc: il chiamante ripristina l'anteprima. */
+  /** Drag cancelled with Esc: the caller restores the preview. */
   onCancel?: (value: number) => void
   className?: string
 }
 
 const COMMIT_DELAY = 250
 
-/** Zona di presa larga 8 px e linea sottile al centro; il chiamante la posiziona (assoluta o dentro una fila flex). */
+/** Grab area 8 px wide and a thin line in the center; the caller positions it (absolute or inside a flex row). */
 export function ResizeHandle({ label, value, min, max, invert, measure, onPreview, onCommit, onReset, onCancel, className }: ResizeHandleProps) {
   const node = useRef<HTMLDivElement>(null)
   const latest = useRef({ value, min, max, onPreview, onCommit, onCancel, measure })
   latest.current = { value, min, max, onPreview, onCommit, onCancel, measure }
-  // Valore mostrato durante un gesto: l'aria-valuenow si aggiorna a mano, senza ridisegnare.
+  // Value shown during a gesture: aria-valuenow is updated by hand, without re-rendering.
   const live = useRef<number | null>(null)
   const timer = useRef<number | null>(null)
   const stop = useRef<(() => void) | null>(null)
-  // Gesto di trascinamento in corso: ripristina l'anteprima se il divisore sparisce a metà (es. ⌘B con il mouse premuto).
+  // Drag gesture in progress: restores the preview if the divider disappears midway (e.g. ⌘B with the mouse pressed).
   const abort = useRef<(() => void) | null>(null)
 
   const flush = () => {
@@ -54,7 +54,7 @@ export function ResizeHandle({ label, value, min, max, invert, measure, onPrevie
   useEffect(
     () => () => {
       stop.current?.()
-      // Smontato a gesto in corso: niente salvataggio di una misura a metà, si torna al valore iniziale.
+      // Unmounted mid-gesture: a half-way size is not saved, we go back to the initial value.
       abort.current?.()
       abort.current = null
       flush()
@@ -70,7 +70,7 @@ export function ResizeHandle({ label, value, min, max, invert, measure, onPrevie
 
   const onPointerDown = (event: ReactPointerEvent) => {
     if (event.button !== 0) return
-    // Niente selezione di testo mentre si trascina; il focus lo prendiamo noi.
+    // No text selection while dragging; we take focus ourselves.
     event.preventDefault()
     node.current?.focus({ preventScroll: true })
     flush()
@@ -119,7 +119,7 @@ export function ResizeHandle({ label, value, min, max, invert, measure, onPrevie
         live.current = null
       }
     })
-    // Un clic senza trascinamento non chiama onEnd: il marcatore si toglie al rilascio.
+    // A click without dragging doesn't call onEnd: the marker is removed on release.
     window.addEventListener(
       'pointerup',
       () => {
@@ -131,7 +131,7 @@ export function ResizeHandle({ label, value, min, max, invert, measure, onPrevie
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
-    // Con ⌘, Ctrl o Alt passano le scorciatoie globali (cambio colonna, spostamento tab): qui solo frecce semplici, Maiusc per il passo grande.
+    // With ⌘, Ctrl or Alt the global shortcuts pass through (column change, tab move): only plain arrows here, Shift for the big step.
     if (event.metaKey || event.ctrlKey || event.altKey) return
     const current = range()
     const step = event.shiftKey ? RESIZE_STEP_LARGE : RESIZE_STEP
@@ -143,7 +143,7 @@ export function ResizeHandle({ label, value, min, max, invert, measure, onPrevie
     else if (event.key === 'End') next = invert ? current.min : current.max
     else if (event.key === 'Enter') {
       event.preventDefault()
-      // Come il doppio clic: un passo di freccia ancora in attesa non deve sovrascrivere il ripristino.
+      // Like the double click: a pending arrow step must not overwrite the reset.
       window.clearTimeout(timer.current ?? undefined)
       timer.current = null
       live.current = null
@@ -177,7 +177,7 @@ export function ResizeHandle({ label, value, min, max, invert, measure, onPrevie
       }}
       onKeyDown={onKeyDown}
       onFocus={() => {
-        // I limiti di render possono essere vecchi (finestra ridimensionata, colonne cambiate): si rileggono quando arriva il focus.
+        // Render limits may be stale (window resized, columns changed): they are re-read when focus arrives.
         const now = range()
         node.current?.setAttribute('aria-valuenow', String(Math.round(now.value)))
         node.current?.setAttribute('aria-valuemin', String(Math.round(now.min)))

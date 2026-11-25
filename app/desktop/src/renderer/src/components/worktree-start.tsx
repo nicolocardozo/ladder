@@ -1,4 +1,4 @@
-// Nuova chat con un nuovo worktree: da quale branch parte e che nome ha il branch nuovo (vuoto = nome generato).
+// New chat with a new worktree: which branch it starts from and the name of the new branch (empty = generated name).
 import { useState, type ReactNode } from 'react'
 import { ChevronDown, GitBranch } from 'lucide-react'
 import type { LocalBranch } from '@shared/protocol'
@@ -8,7 +8,7 @@ import { BranchList } from '@/components/branch-switcher'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 
-/** Messaggio per un nome di branch scritto a mano, o null se va bene (vuoto va bene: lo genera l'host). */
+/** Message for a hand-written branch name, or null if it is fine (empty is fine: the host generates it). */
 export function branchNameProblem(name: string, existing: LocalBranch[]): string | null {
   const value = name.trim()
   if (!value) return null
@@ -18,8 +18,8 @@ export function branchNameProblem(name: string, existing: LocalBranch[]): string
 }
 
 /**
- * Pulsante della riga di contesto (compare solo con un worktree nuovo, non da un'issue o una PR): apre la scelta del branch di partenza
- * e il campo del nome. Il predefinito è il branch attuale del checkout principale.
+ * Button of the context row (shown only with a new worktree, not from an issue or a PR): opens the choice of the starting branch
+ * and the name field. The default is the current branch of the main checkout.
  */
 export function WorktreeStart({
   branches,
@@ -32,7 +32,7 @@ export function WorktreeStart({
   children
 }: {
   branches: LocalBranch[]
-  /** Branch di partenza in uso. */
+  /** Starting branch in use. */
   base: string | null
   onBase: (branch: LocalBranch) => void
   name: string

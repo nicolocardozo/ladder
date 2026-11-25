@@ -1,7 +1,7 @@
 "use client"
 
-// Link di download che punta al DMG giusto per questo Mac (vedi lib/mac-arch.ts).
-// Senza JavaScript, o finché non ha capito, resta /download (Apple Silicon).
+// Download link that points to the right DMG for this Mac (see lib/mac-arch.ts).
+// Without JavaScript, or until it has figured it out, it stays /download (Apple Silicon).
 import { useEffect, useState, type ComponentProps } from "react"
 import { detectMacArch } from "@/lib/mac-arch"
 import { DOWNLOADS } from "@/lib/site"

@@ -1,5 +1,5 @@
-// Pannello Modifiche: ambito (turno, sessione, non committate), file con +/−, diff unificato o affiancato,
-// commenti sulle righe inviati all'agente in un solo messaggio, ripristino di un file o di tutto con annullamento.
+// Changes panel: scope (turn, session, uncommitted), files with +/−, unified or side-by-side diff,
+// line comments sent to the agent in a single message, restore of one file or everything with undo.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Columns2, ExternalLink, Eye, Rows3, ScanSearch, Send, Undo2, X } from 'lucide-react'
 import type { AgentId, ChatItem, DiffResult, DiffScope, FileChange, FilePatch, ReviewState, SessionSummary } from '@shared/protocol'
@@ -16,9 +16,9 @@ import { openInEditor } from './open-file'
 
 const MODE_KEY = 'ladder.diff-mode'
 const NO_COMMENTS: LineComment[] = []
-/** Ambito scelto per cartella e sessione: resta quando cambi scheda e torni. */
+/** Scope chosen per folder and session: it stays when you switch tabs and come back. */
 const rememberedScope = new Map<string, DiffScope>()
-/** Ultima richiesta esterna già applicata: rimontare il pannello non la riapplica. */
+/** Last external request already applied: remounting the panel doesn't reapply it. */
 let handledNonce = 0
 
 export function scopeKey(scope: DiffScope): string {
@@ -43,7 +43,7 @@ interface TurnOption {
   index: number
 }
 
-/** Turni con file modificati, dal più recente, con il messaggio che li ha avviati. */
+/** Turns with changed files, most recent first, with the message that started them. */
 function turnOptions(items: ChatItem[]): TurnOption[] {
   const prompts = new Map<string, string>()
   for (const item of items) {
@@ -104,7 +104,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
   const { restore, busy, banner } = useRestore(root)
   const expandedFor = useRef<string | null>(null)
 
-  // Richiesta dall'esterno (card del turno, Cronologia): nuovo ambito e file da mostrare.
+  // External request (turn card, History): new scope and file to show.
   useEffect(() => {
     if (!openRequest || openRequest.nonce <= handledNonce || openRequest.tab !== 'changes') return
     handledNonce = openRequest.nonce
@@ -113,7 +113,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequest])
 
-  // Sessione cambiata: l'ambito torna quello predefinito per la nuova sessione.
+  // Session changed: the scope goes back to the default for the new session.
   const sessionId = session?.id ?? null
   const firstRender = useRef(true)
   useEffect(() => {
@@ -134,7 +134,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
         if (cancelled) return
         setResult(data)
         setError(null)
-        // Nuovo ambito: aperti tutti i file se sono pochi. Un aggiornamento dello stesso ambito non tocca ciò che hai aperto.
+        // New scope: all files open if there are few. An update of the same scope doesn't touch what you have open.
         if (expandedFor.current !== key) {
           expandedFor.current = key
           const next = new Set<string>()
@@ -156,7 +156,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root, key, isGit, live ? version : 0, live ? session?.run : null])
 
-  // Il file richiesto si apre e scorre in vista.
+  // The requested file opens and scrolls into view.
   useEffect(() => {
     if (!focusPath || !result) return
     setExpanded((current) => new Set(current).add(focusPath))
@@ -168,7 +168,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
     try {
       localStorage.setItem(MODE_KEY, next)
     } catch {
-      // Preferenza solo di questa finestra.
+      // Preference for this window only.
     }
   }
 
@@ -202,7 +202,7 @@ export function ChangesPanel({ projectId, root, isGit, session, items, request: 
     if (!session || comments.length === 0) return
     const text = commentsMessage(comments)
     if (session.mode === 'terminal') {
-      // Nella TUI dell'agente il testo arriva come incolla: resta nel prompt, lo invii tu.
+      // In the agent's TUI the text arrives as a paste: it stays in the prompt, you send it.
       if (session.terminalId) send({ type: 'terminal.input', id: session.terminalId, data: `\x1b[200~${text}\x1b[201~` })
     } else {
       void request({ type: 'session.send', sessionId: session.id, text })
@@ -493,13 +493,13 @@ export function PanelNote({ children, tone }: { children: React.ReactNode; tone?
   return <p className={cn('px-3 py-3 text-sm', tone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>{children}</p>
 }
 
-// ── Chiedi una review a… ─────────────────────────────────────────────────────
+// ── Ask for a review from… ───────────────────────────────────────────────────
 
 const sameScope = (a: DiffScope, b: DiffScope) => JSON.stringify(a) === JSON.stringify(b)
-/** Review già trasformate in commenti: non si aggiungono due volte. */
+/** Reviews already turned into comments: they are not added twice. */
 const appliedReviews = new Set<string>()
 
-/** Un altro agente legge le modifiche in sola lettura e risponde con commenti sulle righe. */
+/** Another agent reads the changes read-only and answers with line comments. */
 function ReviewMenu({ session, scope }: { session: SessionSummary; scope: DiffScope }) {
   const agents = useApp((s) => s.agents)
   const running = useApp((s) => Object.values(s.reviews).some((r) => r.sessionId === session.id && r.state === 'running'))
@@ -548,7 +548,7 @@ function ReviewMenu({ session, scope }: { session: SessionSummary; scope: DiffSc
   )
 }
 
-/** Stato della review per questo ambito; a review finita i commenti entrano nel diff, pronti da inviare. */
+/** Review state for this scope; when the review is done the comments enter the diff, ready to send. */
 function ReviewBar({ session, scope, commentScope }: { session: SessionSummary; scope: DiffScope; commentScope: string }) {
   const review = useApp((s) =>
     Object.values(s.reviews)

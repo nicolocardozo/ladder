@@ -1,19 +1,19 @@
-// Trascinamento di progetti e sezioni nella sidebar, sul nucleo di pointer-drag (soglia, Esc, clic che resta clic).
-// Il DOM dice dove si può rilasciare: `data-project-list` (l'area scorrevole), `data-project-zone` (sezione o elenco senza
-// sezione), `data-project-row` (la riga di un progetto) e `data-section` (il blocco di una sezione).
+// Drag-and-drop of projects and sections in the sidebar, built on the pointer-drag core (threshold, Esc, a click stays a click).
+// The DOM says where to drop: `data-project-list` (the scrollable area), `data-project-zone` (a section or the list with no
+// section), `data-project-row` (a project row) and `data-section` (a section block).
 import { create } from 'zustand'
 import { startPointerDrag } from '@/lib/pointer-drag'
 import { useApp } from '@/store/app-store'
 
-/** Valore di `data-project-zone` per i progetti fuori da ogni sezione. */
+/** Value of `data-project-zone` for projects outside any section. */
 export const NO_SECTION = 'none'
 
 export interface ProjectDropTarget {
-  /** Id della sezione, o `NO_SECTION`. Per una sezione trascinata vale sempre `NO_SECTION`. */
+  /** Section id, or `NO_SECTION`. For a dragged section it is always `NO_SECTION`. */
   zone: string
-  /** Posizione tra gli altri elementi della zona, contati senza quello trascinato. */
+  /** Position among the other items in the zone, counted without the dragged one. */
   index: number
-  /** Sezione chiusa: il progetto va in fondo e la sezione si apre. */
+  /** Closed section: the project goes to the bottom and the section opens. */
   collapsed: boolean
 }
 
@@ -37,7 +37,7 @@ function midY(element: Element): number {
   return rect.top + rect.height / 2
 }
 
-/** Dove cadrebbe un progetto rilasciato in (x, y): la zona sotto il puntatore, o la più vicina se è nello spazio tra due. */
+/** Where a project dropped at (x, y) would land: the zone under the pointer, or the nearest one if it is in the gap between two. */
 function projectTarget(x: number, y: number, id: string): ProjectDropTarget | null {
   const list = inList(x, y)
   if (!list) return null
@@ -53,7 +53,7 @@ function projectTarget(x: number, y: number, id: string): ProjectDropTarget | nu
   return { zone: zone.dataset.projectZone ?? NO_SECTION, index: collapsed ? rows.length : rows.filter((row) => midY(row) < y).length, collapsed }
 }
 
-/** Dove cadrebbe una sezione rilasciata in (x, y): tra le altre, contate senza quella trascinata. */
+/** Where a section dropped at (x, y) would land: among the others, counted without the dragged one. */
 function sectionTarget(x: number, y: number, id: string): ProjectDropTarget | null {
   const list = inList(x, y)
   if (!list) return null
@@ -61,7 +61,7 @@ function sectionTarget(x: number, y: number, id: string): ProjectDropTarget | nu
   return { zone: NO_SECTION, index: others.filter((section) => midY(section) < y).length, collapsed: false }
 }
 
-/** Vicino al bordo dell'elenco lo fa scorrere, così si raggiungono anche i progetti fuori vista. */
+/** Near the list edge it scrolls the list, so projects out of view can be reached too. */
 function autoScroll(x: number, y: number): void {
   const list = inList(x, y)
   const viewport = list?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')
@@ -94,7 +94,7 @@ function startDrag(kind: 'project' | 'section', { event, id, label }: DragOption
   })
 }
 
-/** Trascina un progetto: tra le sezioni e dentro la sua. Rilasciare fuori dall'elenco non fa nulla. */
+/** Drags a project: between sections and within its own. Dropping outside the list does nothing. */
 export function startProjectDrag(options: DragOptions): void {
   startDrag('project', options, projectTarget, (target) => {
     const section = target.zone === NO_SECTION ? null : target.zone
@@ -102,7 +102,7 @@ export function startProjectDrag(options: DragOptions): void {
   })
 }
 
-/** Trascina una sezione per cambiarne il posto tra le altre. */
+/** Drags a section to change its place among the others. */
 export function startSectionDrag(options: DragOptions): void {
   startDrag('section', options, sectionTarget, (target) => {
     const ids = (useApp.getState().projectGroups?.groups ?? []).map((g) => g.id).filter((id) => id !== options.id)

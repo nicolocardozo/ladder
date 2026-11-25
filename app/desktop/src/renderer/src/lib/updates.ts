@@ -1,4 +1,4 @@
-// Stato degli aggiornamenti dal main (src/main/updater.ts). Nell'anteprima web non c'è Electron: resta null.
+// Update state from main (src/main/updater.ts). In the web preview there is no Electron: it stays null.
 import { useEffect, useState } from 'react'
 import type { UpdateState } from '@shared/updates'
 

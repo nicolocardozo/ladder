@@ -1,6 +1,6 @@
-// Scorciatoie globali: il registro (shared/shortcuts.ts) dice quale tasto fa cosa, qui stanno le azioni.
-// Un solo ascoltatore di keydown per tutta la finestra; composer, editor e terminale leggono lo stesso registro
-// per i tasti del proprio contesto.
+// Global shortcuts: the registry (shared/shortcuts.ts) says which key does what, the actions live here.
+// A single keydown listener for the whole window; composer, editor and terminal read the same registry
+// for the keys of their own context.
 import { fileTabId } from '@shared/file-tabs'
 import { findBinding, type CommandId, type KeyLike } from '@shared/shortcuts'
 import { getBuffer } from '@/components/editor/buffers'
@@ -11,10 +11,10 @@ import { useApp } from '@/store/app-store'
 
 type State = ReturnType<typeof useApp.getState>
 
-/** Vero se l'azione ha fatto qualcosa: solo allora l'evento si ferma (preventDefault). */
+/** True if the action did something: only then is the event stopped (preventDefault). */
 type Action = (state: State) => boolean
 
-/** Senza `tab` apre sull'ultima scheda usata o chiude il pannello. */
+/** Without `tab` it opens on the last used tab or closes the panel. */
 const inspector = (tab?: 'changes' | 'files' | 'history' | 'merge'): Action => (state) => {
   const projectId = state.selection.projectId
   if (!projectId) return false
@@ -25,14 +25,14 @@ const inspector = (tab?: 'changes' | 'files' | 'history' | 'merge'): Action => (
 const selectProject =
   (position: number): Action =>
   (state) => {
-    // L'ordine è quello che si vede nella sidebar: le sezioni chiuse non contano.
+    // The order is the one visible in the sidebar: closed sections don't count.
     const project = visibleProjects(state.projects, state.projectGroups, state.selection.projectId)[position - 1]
     if (!project) return false
     state.selectProject(project.id)
     return true
   }
 
-/** Azioni dei comandi di contesto 'global'. Quelli del menu (app.openSettings, window.close) li gestisce main. */
+/** Actions of the 'global' context commands. The menu ones (app.openSettings, window.close) are handled by main. */
 const ACTIONS: Partial<Record<CommandId, Action>> = {
   'palette.toggle': (state) => {
     state.setQuickOpen(false)
@@ -59,12 +59,12 @@ const ACTIONS: Partial<Record<CommandId, Action>> = {
     state.select({ kind: 'new', projectId: state.selection.projectId })
     return true
   },
-  // Nuova sessione da una issue, una PR o un branch.
+  // New session from an issue, a PR or a branch.
   'chat.newFrom': (state) => {
     if (state.selection.projectId) state.setNewFromOpen(true)
     return true
   },
-  // Affianca: la sessione aperta e un'altra chat una accanto all'altra.
+  // Side by side: the open session and another chat next to each other.
   'chat.split': (state) => {
     state.splitActive()
     return true
@@ -78,18 +78,18 @@ const ACTIONS: Partial<Record<CommandId, Action>> = {
   'project.select7': selectProject(7),
   'project.select8': selectProject(8),
   'project.select9': selectProject(9),
-  // Colonna a sinistra o a destra tra le sessioni affiancate.
+  // Column to the left or right among the side-by-side sessions.
   'column.focusLeft': (state) => state.focusColumn(-1),
   'column.focusRight': (state) => state.focusColumn(1),
-  // Sposta la tab attiva.
+  // Move the active tab.
   'tab.moveLeft': (state) => Boolean(state.selection.projectId && state.moveActiveTab(state.selection.projectId, -1)),
   'tab.moveRight': (state) => Boolean(state.selection.projectId && state.moveActiveTab(state.selection.projectId, 1)),
-  // Tab successiva e precedente del progetto, in ciclo (chat e poi file, come nella barra).
+  // Next and previous tab of the project, cycling (chat then files, as in the bar).
   'tab.next': (state) => Boolean(state.selection.projectId && state.cycleTab(state.selection.projectId, 1)),
   'tab.previous': (state) => Boolean(state.selection.projectId && state.cycleTab(state.selection.projectId, -1)),
-  // Riapre l'ultima tab chiusa del progetto.
+  // Reopen the project's last closed tab.
   'tab.reopenClosed': (state) => Boolean(state.selection.projectId && state.reopenClosedTab(state.selection.projectId)),
-  // Non c'è ancora una ricerca nel contenuto dei file: apre il pannello File con il focus sul filtro per nome.
+  // There is no search in file contents yet: opens the Files panel with focus on the name filter.
   'search.project': (state) => {
     if (!state.selection.projectId) return false
     state.searchInProject(state.selection.projectId)
@@ -106,9 +106,9 @@ const ACTIONS: Partial<Record<CommandId, Action>> = {
   'inspector.files': inspector('files'),
   'inspector.history': inspector('history'),
   'inspector.merge': inspector('merge'),
-  // Pannello di destra: apre sull'ultima scheda usata o chiude.
+  // Right panel: opens on the last used tab or closes.
   'inspector.toggle': inspector(),
-  // Pannello terminale del progetto. Si ferma sempre l'evento; con la palette aperta (vedi ALWAYS_ACTIVE) non fa nulla.
+  // Project terminal panel. The event is always stopped; with the palette open (see ALWAYS_ACTIVE) it does nothing.
   'terminal.toggle': (state) => {
     const projectId = state.selection.projectId
     if (!projectId || state.paletteOpen || state.quickOpen) return true
@@ -123,7 +123,7 @@ const ACTIONS: Partial<Record<CommandId, Action>> = {
     getBuffer(fileTabId(current.root, current.path))?.onSave()
     return true
   },
-  // Prossima sessione che ti aspetta, in qualunque progetto.
+  // Next session waiting for you, in any project.
   'session.nextWaiting': (state) => {
     state.goToNextWaiting()
     return true
@@ -136,10 +136,10 @@ const ACTIONS: Partial<Record<CommandId, Action>> = {
   }
 }
 
-/** Con la palette o la ricerca file aperte le altre scorciatoie aspettano: agirebbero sotto la finestra di dialogo. */
+/** With the palette or file search open, the other shortcuts wait: they would act beneath the dialog. */
 const ALWAYS_ACTIVE = new Set<CommandId>(['palette.toggle', 'quickOpen.toggle', 'terminal.toggle'])
 
-/** Vero se il focus è dove si scrive: campo di testo, area di testo, contenteditable (editor di codice) o terminale (xterm usa una textarea). */
+/** True if focus is where you type: text field, textarea, contenteditable (code editor) or terminal (xterm uses a textarea). */
 function typingInField(): boolean {
   const el = document.activeElement
   if (!(el instanceof HTMLElement)) return false
@@ -148,12 +148,12 @@ function typingInField(): boolean {
   return el.closest('.xterm') !== null || el.getAttribute('role') === 'textbox'
 }
 
-/** Ascoltatore di keydown della finestra (e delle scorciatoie inoltrate dal main quando la pagina del browser ha il focus): cerca il comando globale che l'evento attiva e lo esegue. */
+/** Window keydown listener (and of shortcuts forwarded by main when the browser page has focus): finds the global command the event triggers and runs it. */
 export function handleGlobalKeydown(event: KeyLike & { preventDefault?: () => void }): void {
   const binding = findBinding(event, 'global')
   const action = binding && ACTIONS[binding.id]
   if (!binding || !action) return
-  // Una scorciatoia senza ⌘/⌃/⌥ (nessun modificatore o solo ⇧) è un carattere come un altro: mentre si scrive non scatta.
+  // A shortcut without ⌘/⌃/⌥ (no modifier or only ⇧) is a character like any other: it doesn't fire while typing.
   const { ctrl, meta, alt } = binding.chord
   if (!ctrl && !meta && !alt && typingInField()) return
   const state = useApp.getState()

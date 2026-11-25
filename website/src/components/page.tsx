@@ -1,5 +1,5 @@
-// Mattoni delle pagine interne (agents, docs, changelog, privacy): testata, sezioni e tipografia del testo.
-// Tutto server component: il contenuto arriva completo nell'HTML.
+// Building blocks of the inner pages (agents, docs, changelog, privacy): header, sections and text typography.
+// All server components: the content arrives complete in the HTML.
 import type { ReactNode } from "react"
 import { SiteFooter } from "@/components/site-footer"
 import { cn } from "@/lib/utils"
@@ -47,7 +47,7 @@ export function Section({
   )
 }
 
-/** Testo lungo: paragrafi, elenchi, link e codice in linea con uno stile unico. */
+/** Long text: paragraphs, lists, links and inline code in a single style. */
 export function Prose({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div

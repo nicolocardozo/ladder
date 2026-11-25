@@ -6,8 +6,8 @@ import { useTheme } from "@/lib/theme"
 
 const GhostFibers = dynamic(() => import("@/components/react-bits/GhostFibers"), { ssr: false })
 
-// Layer a tutta la sezione: la fascia resta bassa riducendo spread e onde, non l'altezza del canvas
-// (con un canvas basso e largo la camera inquadra più mondo in orizzontale e le fibre non arrivano ai bordi) (nessun layout shift); WebGL montato solo vicino al viewport.
+// Full-section layer: the band stays low by reducing spread and waves, not the canvas height
+// (with a short, wide canvas the camera frames more of the world horizontally and the fibers don't reach the edges) (no layout shift); WebGL mounted only near the viewport.
 export function FibersLazy() {
   const box = useRef<HTMLDivElement>(null)
   const [near, setNear] = useState(false)

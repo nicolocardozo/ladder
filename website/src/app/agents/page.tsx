@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   openGraph: { url: "/agents" },
 }
 
-// Agenti integrati: adapter scritto apposta in Ladder
+// Built-in agents: adapter written specifically in Ladder
 const BUILT_IN = [
   {
     id: "claude",
@@ -50,7 +50,7 @@ const CURATED: { id: string; name: string; login: string | null }[] = [
   { id: "grok-build", name: "Grok Build", login: "grok login" },
 ]
 
-// id del registro già raccontati sopra, da non ripetere nell'elenco completo
+// registry ids already described above, not to repeat in the full list
 const SHOWN = new Set(["claude-acp", "codex-acp", "gemini", "cursor", "github-copilot-cli", "opencode", "amp-acp", "goose", "cline", "qwen-code", "kiro", "junie", "factory-droid", "grok-build"])
 
 type Cell = boolean | string

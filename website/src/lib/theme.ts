@@ -1,7 +1,7 @@
 "use client"
 
-// Tema del sito: segue il sistema finché l'utente non sceglie con l'interruttore (scelta salvata in localStorage).
-// La classe "dark" su <html> la mette lo script inline del layout prima del primo paint.
+// Site theme: follows the system until the user chooses with the switch (choice saved in localStorage).
+// The "dark" class on <html> is set by the layout's inline script before first paint.
 import { useSyncExternalStore } from "react"
 
 export type Theme = "light" | "dark"
@@ -14,12 +14,12 @@ const subscribe = (cb: () => void) => {
 }
 const read = (): Theme => (document.documentElement.classList.contains("dark") ? "dark" : "light")
 
-/** Tema corrente; sul server vale sempre "light". */
+/** Current theme; on the server it is always "light". */
 export function useTheme(): Theme {
   return useSyncExternalStore(subscribe, read, () => "light")
 }
 
-/** Scelta salvata dall'utente, o null se il sito segue il sistema. */
+/** Choice saved by the user, or null if the site follows the system. */
 function stored(): Theme | null {
   try {
     const t = localStorage.getItem(THEME_KEY)
@@ -29,7 +29,7 @@ function stored(): Theme | null {
   }
 }
 
-/** Finché non c'è una scelta salvata, segue i cambi di tema del sistema mentre la pagina è aperta. */
+/** Until a saved choice exists, it follows system theme changes while the page is open. */
 export function followSystem() {
   const mq = window.matchMedia("(prefers-color-scheme: dark)")
   const apply = () => {
@@ -44,6 +44,6 @@ export function setTheme(theme: Theme) {
   try {
     localStorage.setItem(THEME_KEY, theme)
   } catch {
-    // storage non disponibile: il tema vale solo per questa visita
+    // storage not available: the theme only applies to this visit
   }
 }

@@ -49,7 +49,7 @@ export const viewport: Viewport = {
   ],
 }
 
-// Applica il tema prima del primo paint: la scelta salvata se c'è, altrimenti quello del sistema
+// Applies the theme before first paint: the saved choice if any, otherwise the system's
 const themeScript = `(function(){var t;try{t=localStorage.getItem("ladder-theme")}catch(e){}var d=t?t==="dark":matchMedia("(prefers-color-scheme: dark)").matches;if(d)document.documentElement.classList.add("dark")})()`
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

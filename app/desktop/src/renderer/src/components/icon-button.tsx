@@ -11,7 +11,7 @@ interface IconButtonProps {
   className?: string
 }
 
-/** Pulsante con sola icona, sempre con etichetta accessibile e tooltip. */
+/** Icon-only button, always with an accessible label and tooltip. */
 export function IconButton({ icon: Icon, label, shortcut, onClick, className }: IconButtonProps) {
   return (
     <Tooltip>

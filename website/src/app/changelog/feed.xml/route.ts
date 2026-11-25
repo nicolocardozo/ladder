@@ -1,4 +1,4 @@
-// Feed RSS del changelog, generato statico in fase di build dalle stesse voci della pagina.
+// RSS feed of the changelog, statically generated at build time from the same entries as the page.
 import { SITE } from "@/lib/site"
 import { ENTRIES } from "../entries"
 

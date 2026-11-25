@@ -19,28 +19,28 @@ const CANDIDATES = [
 ]
 
 /**
- * Il binario di Claude Code che porta l'Agent SDK (pacchetto opzionale della piattaforma), per chi non ha la CLI.
- * Nell'app impacchettata sta fuori dall'asar (asarUnpack); in sviluppo si risolve accanto al pacchetto dell'SDK.
+ * The Claude Code binary shipped with the Agent SDK (optional platform package), for users without the CLI.
+ * In the packaged app it lives outside the asar (asarUnpack); in development it resolves next to the SDK package.
  */
 export function bundledClaudeCli(): string | null {
   const name = `claude-agent-sdk-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`
   const pkg = join('node_modules/@anthropic-ai', name, 'claude')
   const found: string[] = []
   if (process.resourcesPath) found.push(join(process.resourcesPath, 'app.asar.unpacked', pkg))
-  // In sviluppo host.js sta in out/main: il pacchetto è dipendenza diretta, quindi in apps/desktop/node_modules.
+  // In development host.js lives in out/main: the package is a direct dependency, so it is in apps/desktop/node_modules.
   found.push(join(__dirname, '../..', pkg))
   return found.find((p) => existsSync(p)) ?? null
 }
 
-/** Percorso della CLI `claude` installata dall'utente, se c'è: stesso login della sua CLI. */
+/** Path of the user's installed `claude` CLI, if any: same login as their CLI. */
 export async function findUserClaudeCli(): Promise<string | null> {
   for (const path of CANDIDATES) if (existsSync(path)) return path
-  // L'utility process eredita un PATH ridotto: chiediamo alla shell di login.
+  // The utility process inherits a reduced PATH: ask the login shell.
   const path = await whichInShell('claude')
   return path && existsSync(path) ? path : null
 }
 
-/** La CLI dell'utente se c'è, altrimenti il binario incluso in Ladder. */
+/** The user's CLI if present, otherwise the binary bundled with Ladder. */
 export async function findClaudeCli(): Promise<string | null> {
   return (await findUserClaudeCli()) ?? bundledClaudeCli()
 }
@@ -51,24 +51,24 @@ function asEffort(value: unknown): Effort | null {
   return typeof value === 'string' && (EFFORTS as string[]).includes(value) ? (value as Effort) : null
 }
 
-/** Solo i campi che servono (model, effortLevel, modelSettings.*.effortLevel): il resto dei settings può contenere segreti e non si tiene. */
+/** Only the needed fields (model, effortLevel, modelSettings.*.effortLevel): the rest of the settings may contain secrets and is not kept. */
 export interface ClaudeDefaults {
   model: string | null
   effort: Effort | null
-  /** Senza prototipo: i nomi dei modelli vengono dai file. */
+  /** No prototype: model names come from files. */
   modelEffort: Record<string, Effort>
 }
 
 /**
- * Modello ed effort predefiniti dai settings di Claude Code: progetto locale > progetto > utente, campo per campo.
- * `configDir` è la cartella del profilo (altrimenti ~/.claude); senza `cwd` contano solo i settings utente.
+ * Default model and effort from Claude Code settings: local project > project > user, field by field.
+ * `configDir` is the profile folder (otherwise ~/.claude); without `cwd` only user settings count.
  */
 export function readClaudeDefaults(configDir: string | null, cwd?: string | null): ClaudeDefaults {
-  // I summary partono spesso: i file si rileggono al più ogni 5 secondi per percorso.
+  // Summaries start often: files are re-read at most every 5 seconds per path.
   const key = `${configDir ?? ''}\0${cwd ?? ''}`
   const cached = defaultsCache.get(key)
   if (cached && Date.now() - cached.at < 5000) {
-    // LRU: l'ultimo usato in coda.
+    // LRU: most recently used last.
     defaultsCache.delete(key)
     defaultsCache.set(key, cached)
     return cached.value
@@ -82,17 +82,17 @@ export function readClaudeDefaults(configDir: string | null, cwd?: string | null
 
 const defaultsCache = new Map<string, { at: number; value: ClaudeDefaults }>()
 
-/** Alias e id risolto dello stesso modello (value <-> resolvedModel), dall'ultimo elenco visto: i settings possono usare l'uno o l'altro. */
+/** Alias and resolved id of the same model (value <-> resolvedModel), from the last list seen: settings may use either. */
 const modelAliases = new Map<string, string>()
-/** id risolto -> value dell'elenco. */
+/** resolved id -> list value. */
 const resolvedToValue = new Map<string, string>()
 
-/** L'id dell'elenco modelli (value) per un id wire come quello dell'init (claude-sonnet-5); invariato se non lo conosce. */
+/** The model list id (value) for a wire id like the init one (claude-sonnet-5); unchanged if unknown. */
 export function claudeListId(name: string): string {
   return resolvedToValue.get(name) ?? name
 }
 
-/** Il nome del modello e il suo equivalente (alias o id risolto), se noto. */
+/** The model name and its equivalent (alias or resolved id), if known. */
 export function claudeModelNames(name: string): string[] {
   const other = modelAliases.get(name)
   return other ? [name, other] : [name]
@@ -102,7 +102,7 @@ function loadClaudeDefaults(configDir: string | null, cwd?: string | null): Clau
   const files = [join(configDir ?? join(homedir(), '.claude'), 'settings.json')]
   if (cwd) files.push(join(cwd, '.claude/settings.json'), join(cwd, '.claude/settings.local.json'))
   const out: ClaudeDefaults = { model: null, effort: null, modelEffort: Object.create(null) }
-  // Dal più generico al più specifico: l'ultimo che dice qualcosa vince.
+  // From most generic to most specific: the last one that says something wins.
   for (const file of files) {
     const text = readSmallFile(file)
     if (text === null) continue
@@ -129,8 +129,8 @@ function loadClaudeDefaults(configDir: string | null, cwd?: string | null): Clau
 type ClaudeModelInfo = { value: string; resolvedModel?: string; displayName: string; supportsEffort?: boolean; supportedEffortLevels?: string[] }
 
 /**
- * Elenco modelli per Ladder: la riga alias "default" non compare, e il modello che parte è marcato `isDefault`
- * (settings, poi il resolvedModel della riga alias). `defaultEffort` viene dai settings, per modello o globale.
+ * Model list for Ladder: the "default" alias row is not shown, and the model that starts is marked `isDefault`
+ * (settings, then the alias row's resolvedModel). `defaultEffort` comes from settings, per model or global.
  */
 export function claudeModels(models: ClaudeModelInfo[], defaults: ClaudeDefaults): AgentStatus['models'] {
   const alias = models.find((m) => m.value === 'default')
@@ -143,9 +143,9 @@ export function claudeModels(models: ClaudeModelInfo[], defaults: ClaudeDefaults
   }
   const matches = (m: ClaudeModelInfo, name: string) => m.value === name || m.resolvedModel === name
   const wanted = defaults.model && defaults.model !== 'default' ? defaults.model : null
-  // Un modello configurato che non è nell'elenco (opusplan, id sconosciuto): nessun default, niente ripiego.
+  // A configured model that is not in the list (opusplan, unknown id): no default, no fallback.
   let target = wanted ? rows.find((m) => matches(m, wanted)) : alias?.resolvedModel ? rows.find((m) => matches(m, alias.resolvedModel!)) : undefined
-  // Alias che non coincide con nessuna riga: diventa la riga del modello che parte.
+  // Alias that matches no row: it becomes the row of the model that starts.
   if (!target && !wanted && alias?.resolvedModel) {
     target = { ...alias, value: alias.resolvedModel, displayName: alias.displayName.replace(/\s*\(recommended\)$/i, '') }
     rows.push(target)
@@ -164,7 +164,7 @@ const CLAUDE_WINDOWS: Record<string, { minutes: number; model: string | null }> 
   seven_day_sonnet: { minutes: 10080, model: 'Sonnet' }
 }
 
-/** Evento dei limiti di Claude Code come finestra di Ladder. `utilization` è una frazione da 0 a 1. */
+/** Claude Code rate limit event as a Ladder window. `utilization` is a fraction from 0 to 1. */
 export function claudeUsage(info: Record<string, unknown>): UsageWindow | null {
   const type = typeof info.rateLimitType === 'string' ? info.rateLimitType : null
   const window = type ? CLAUDE_WINDOWS[type] : null
@@ -187,7 +187,7 @@ function planWindow(key: string, window: PlanWindow, minutes: number, model: str
   return { key, minutes, model, percent, resetsAt: Number.isFinite(resetsAt) ? resetsAt : null, state: percent !== null && percent >= 100 ? 'limited' : percent !== null && percent >= 80 ? 'warning' : 'ok', ...(label ? { label } : {}) }
 }
 
-/** Limiti del piano Claude letti su richiesta (la stessa fonte di /usage): tutte le finestre, con percentuale e reset. */
+/** Claude plan limits read on demand (same source as /usage): all windows, with percentage and reset. */
 export function claudePlanUsage(data: unknown): UsageWindow[] | null {
   const limits = (data as { rate_limits?: Record<string, unknown> | null } | null)?.rate_limits
   if (!limits) return null
@@ -219,13 +219,13 @@ export function claudeAccountLabel(info: { subscriptionType?: string; apiKeySour
 }
 
 /**
- * Account e modelli senza aprire una sessione: la CLI parte, risponde e si chiude senza ricevere messaggi,
- * quindi nessuna quota. Le informazioni arrivano dall'SDK: i file delle credenziali restano fuori da Ladder.
+ * Account and models without opening a session: the CLI starts, answers and exits without receiving messages,
+ * so no quota is used. The information comes from the SDK: credential files stay out of Ladder.
  */
 export async function probeClaude(cli: string, configDir: string | null = null): Promise<{ account: string | null; email: string | null; models: AgentStatus['models']; usage?: UsageWindow[]; usageAt?: number }> {
   const abort = new AbortController()
   const closed = new Promise<void>((resolve) => abort.signal.addEventListener('abort', () => resolve(), { once: true }))
-  // Input che non manda niente: resta aperto finché la risposta non è arrivata.
+  // Input that sends nothing: stays open until the answer has arrived.
   async function* silent(): AsyncGenerator<SDKUserMessage> {
     await closed
   }
@@ -241,7 +241,7 @@ export async function probeClaude(cli: string, configDir: string | null = null):
         timer = setTimeout(() => reject(new Error('timeout')), 20000)
       })
     ])
-    // API sperimentale dell'SDK: se cambia forma o non risponde, restano i limiti visti nelle sessioni.
+    // Experimental SDK API: if its shape changes or it does not answer, the limits seen in sessions remain.
     const usage = await Promise.race([
       q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }).then(claudePlanUsage),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000))
@@ -264,11 +264,11 @@ export async function claudeVersion(cli: string): Promise<string | null> {
 }
 
 /**
- * Ambiente per il processo `claude`: copia di quello dell'host senza variabili ANTHROPIC_* e CLAUDE*.
- * Una ANTHROPIC_API_KEY passerebbe alla fatturazione a consumo; avviato da Claude Code, l'host
- * erediterebbe anche CLAUDE_CODE_SIMPLE (= --bare), un proxy e altre variabili della sessione madre.
- * CLAUDE_CONFIG_DIR passa solo se la imposta Ladder: `configDir` è la cartella di un profilo non predefinito (LAD-23);
- * senza, la CLI usa la sua (~/.claude) e un CLAUDE_CONFIG_DIR ereditato non conta.
+ * Environment for the `claude` process: copy of the host's without ANTHROPIC_* and CLAUDE* variables.
+ * An ANTHROPIC_API_KEY would switch to pay-as-you-go billing; when started from Claude Code, the host
+ * would also inherit CLAUDE_CODE_SIMPLE (= --bare), a proxy and other variables of the parent session.
+ * CLAUDE_CONFIG_DIR is passed only if Ladder sets it: `configDir` is the folder of a non-default profile;
+ * without it, the CLI uses its own (~/.claude) and an inherited CLAUDE_CONFIG_DIR is ignored.
  */
 export function claudeEnv(configDir: string | null = null): Record<string, string | undefined> {
   const env = cleanEnv()
@@ -280,8 +280,8 @@ export function claudeEnv(configDir: string | null = null): Record<string, strin
 }
 
 /**
- * Predefiniti di Claude per un progetto: settings utente + progetto + locale. `model` è un id dell'elenco;
- * `known` false se i settings nominano un modello che l'elenco non ha (opusplan, id sconosciuto).
+ * Claude defaults for a project: user + project + local settings. `model` is a list id;
+ * `known` is false if the settings name a model the list does not have (opusplan, unknown id).
  */
 export function claudeProjectDefaults(models: AgentStatus['models'], configDir: string | null, cwd: string | null): { model: string | null; effort: Effort | null; known: boolean } {
   const defaults = readClaudeDefaults(configDir, cwd)

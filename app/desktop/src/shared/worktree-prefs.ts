@@ -1,8 +1,8 @@
-// Controlli sulle preferenze dei worktree, comuni a main (che le salva) e host (che le usa).
+// Checks on worktree preferences, shared by main (which saves them) and host (which uses them).
 
 export const DEFAULT_BRANCH_PREFIX = 'ladder/'
 
-/** Prefisso valido per i nomi di branch di git, altrimenti quello predefinito. Vuoto = nessun prefisso. */
+/** Valid prefix for git branch names, otherwise the default. Empty = no prefix. */
 export function cleanBranchPrefix(raw: unknown): string {
   if (typeof raw !== 'string') return DEFAULT_BRANCH_PREFIX
   const prefix = raw.trim()

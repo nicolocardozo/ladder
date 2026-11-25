@@ -1,9 +1,9 @@
-// Larghezze regolabili (LAD-75): sidebar e ispettore si ricordano per tutta l'app, in localStorage come il resto delle
-// preferenze di interfaccia. Le colonne affiancate invece stanno nello stato del progetto (ProjectUiState.columnWidths).
+// Adjustable widths: sidebar and inspector are remembered across the whole app, in localStorage like the rest of the
+// interface preferences. Side-by-side columns instead live in the project state (ProjectUiState.columnWidths).
 
-/** Il contenuto principale non scende sotto questa larghezza quando si allarga la sidebar o l'ispettore. */
+/** The main content does not shrink below this width when the sidebar or inspector is widened. */
 export const MIN_CONTENT_WIDTH = 480
-/** Passo delle frecce su un divisore; con Maiusc, il passo grande. */
+/** Arrow-key step on a divider; with Shift, the large step. */
 export const RESIZE_STEP = 16
 export const RESIZE_STEP_LARGE = 64
 
@@ -25,13 +25,13 @@ export function writeSize(key: string, value: number): void {
   try {
     localStorage.setItem(key, String(Math.round(value)))
   } catch {
-    // Solo una comodità: senza storage la misura torna quella predefinita al prossimo avvio.
+    // Only a convenience: without storage the size returns to the default at the next launch.
   }
 }
 
 /**
- * La larghezza della sidebar è una variabile CSS su <html>: la sidebar e il pannello "All sessions" (che le sta accanto)
- * la leggono senza ridisegnarsi a ogni pixel del trascinamento.
+ * The sidebar width is a CSS variable on <html>: the sidebar and the "All sessions" panel (which sits next to it)
+ * read it without redrawing on every pixel of the drag.
  */
 export function applySidebarWidth(px: number): void {
   document.documentElement.style.setProperty('--sidebar-w', `${Math.round(px)}px`)

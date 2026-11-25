@@ -4,15 +4,15 @@ import { useApp } from '@/store/app-store'
 let seq = 0
 let inFlight = 0
 
-/** Vero mentre una prefs.set è in volo: le notifiche di cambio non devono scavalcare l'aggiornamento ottimistico. */
+/** True while a prefs.set is in flight: change notifications must not override the optimistic update. */
 export const prefsPending = () => inFlight > 0
 
-/** Preferenze dell'app e come cambiarle. Il main fa un merge superficiale: per `defaults` si manda l'oggetto intero. */
+/** App preferences and how to change them. The main process does a shallow merge: for `defaults` the whole object is sent. */
 export function usePrefs(): [AppPrefs | null, (patch: Partial<AppPrefs>) => void] {
   const prefs = useApp((s) => s.prefs)
   const update = (patch: Partial<AppPrefs>) => {
     if (prefs) useApp.getState().setPrefs({ ...prefs, ...patch })
-    // Risposte fuori ordine: conta solo l'ultima richiesta.
+    // Out-of-order responses: only the latest request counts.
     const api = window.ladder?.prefs
     if (!api) return
     const mine = ++seq
@@ -22,7 +22,7 @@ export function usePrefs(): [AppPrefs | null, (patch: Partial<AppPrefs>) => void
       .then((next) => {
         if (mine === seq) useApp.getState().setPrefs(next)
       })
-      // Se il salvataggio fallisce si torna a ciò che sta nel main.
+      // If the save fails, go back to what is in the main process.
       .catch(() => api.get().then((current) => useApp.getState().setPrefs(current)).catch(() => undefined))
       .finally(() => {
         inFlight--

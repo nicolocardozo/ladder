@@ -1,7 +1,7 @@
 "use client"
 
-// Finestra di Ladder (tema Circuit) con la storia animata: una sessione al lavoro, una richiesta
-// di approvazione da un altro progetto, ⏎, fine lavoro, nuova richiesta. Parte già piena.
+// Ladder window (Circuit theme) with the animated story: a session at work, an approval
+// request from another project, ⏎, work done, new request. It starts already full.
 import {
   ArrowUp,
   AtSign,
@@ -95,7 +95,7 @@ const mk = {
   sub: (x: string, done = false): Item => ({ id: ++uid, t: "sub", x, done }),
 }
 
-// Conversazione già avviata da un po': scambio precedente, richiesta attuale, letture, diff, sotto-agenti
+// Conversation already going for a while: previous exchange, current request, reads, diff, subagents
 function history(): Item[] {
   return [
     mk.u("Where do we persist the window state?"),
@@ -143,7 +143,7 @@ function initial(): Demo {
   }
 }
 
-// Stato statico per prefers-reduced-motion: tutto già avvenuto, una richiesta ancora in attesa
+// Static state for prefers-reduced-motion: everything has already happened, one request still waiting
 function finalState(): Demo {
   const s = SCENARIOS[0]
   return {
@@ -230,7 +230,7 @@ export default function LadderWindow() {
   const billingWaiting = useRef(false)
   billingWaiting.current = live.billing === "waiting"
 
-  // Approvazione: clic, ⏎ oppure automatica dopo qualche secondo
+  // Approval: click, ⏎ or automatic after a few seconds
   const approve = () => {
     approveRef.current?.()
     approveRef.current = null
@@ -286,7 +286,7 @@ export default function LadderWindow() {
         for (;;) {
           const sc = SCENARIOS[n % SCENARIOS.length]
           if (n > 0) {
-            // Nuova richiesta nel composer; la chat non resta mai vuota
+            // New request in the composer; the chat is never empty
             await typeIn(sc.prompt)
             patch((d) => ({
               view: "tabs",

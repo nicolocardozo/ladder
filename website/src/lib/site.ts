@@ -1,27 +1,27 @@
-// Costanti uniche del sito: nome, descrizione, URL. Da aggiornare qui.
+// Single constants of the site: name, description, URL. Update them here.
 export const SITE = {
   name: "Ladder",
   tagline: "Every agent, every repo, one calm window.",
   description:
     "Ladder is a calm desktop app for macOS that runs Claude Code, Codex, Gemini CLI and other coding agents across all your repos, with approvals, worktrees and plan limits in one window.",
   url: "https://itsladder.dev",
-  // Link al repo pubblico, se e quando ci sarà: con null header e footer non mostrano GitHub
+  // Link to the public repo, if and when there is one: with null header and footer don't show GitHub
   githubUrl: null as string | null,
-  // Link al file dell'app (dati strutturati): /download rimanda all'ultimo DMG (vedi next.config.ts)
+  // Link to the app file (structured data): /download redirects to the latest DMG (see next.config.ts)
   downloadUrl: "https://itsladder.dev/download" as string | null,
-  // Indirizzo di contatto per privacy e domande (va attivato su Cloudflare Email Routing)
+  // Contact address for privacy and questions (must be enabled on Cloudflare Email Routing)
   email: "hello@itsladder.dev",
   locale: "en_US",
 } as const
 
-// I DMG pubblicati (redirect in next.config.ts). /download è il predefinito, Apple Silicon.
+// Published DMGs (redirect in next.config.ts). /download is the default, Apple Silicon.
 export const DOWNLOADS = {
   auto: "/download",
   arm64: "/download/apple-silicon",
   x64: "/download/intel",
 } as const
 
-// Azione principale di tutto il sito (header, hero, chiusura): scarica l'ultima versione per Mac.
+// Main action of the whole site (header, hero, closing): download the latest version for Mac.
 export const CTA = {
   href: "/download",
   label: "Download for Mac",
@@ -29,7 +29,7 @@ export const CTA = {
   aria: "Download Ladder for macOS",
 } as const
 
-// Pagine del sito, usate da sitemap e footer
+// Pages of the site, used by sitemap and footer
 export const PAGES = [
   { path: "/", label: "Home", priority: 1 },
   { path: "/agents", label: "Agents", priority: 0.8 },

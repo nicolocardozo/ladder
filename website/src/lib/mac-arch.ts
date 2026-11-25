@@ -1,6 +1,6 @@
-// Quale DMG serve a questo Mac. Safari e Firefox scrivono "Intel Mac OS X" nello user agent anche sui Mac
-// Apple Silicon, quindi si guarda altrove: prima i Client Hints (Chrome, Edge, Arc), poi la GPU via WebGL.
-// Nel dubbio null: il link resta /download, che porta al DMG Apple Silicon (la maggior parte dei Mac di oggi).
+// Which DMG this Mac needs. Safari and Firefox write "Intel Mac OS X" in the user agent even on
+// Apple Silicon Macs, so we look elsewhere: first Client Hints (Chrome, Edge, Arc), then the GPU via WebGL.
+// When in doubt null: the link stays /download, which leads to the Apple Silicon DMG (most Macs today).
 export type MacArch = "arm64" | "x64"
 
 let cached: Promise<MacArch | null> | null = null
@@ -28,7 +28,7 @@ async function detect(): Promise<MacArch | null> {
   const renderer = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : ""
   if (/Apple M\d/.test(renderer)) return "arm64"
   if (/Intel|AMD|Radeon|NVIDIA/i.test(renderer)) return "x64"
-  // Safari maschera la GPU ("Apple GPU"): le texture ASTC le hanno solo le GPU Apple, non quelle dei Mac Intel.
+  // Safari masks the GPU ("Apple GPU"): only Apple GPUs have ASTC textures, not those of Intel Macs.
   if (gl.getExtension("WEBGL_compressed_texture_astc")) return "arm64"
   return renderer ? "x64" : null
 }

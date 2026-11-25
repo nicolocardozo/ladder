@@ -1,14 +1,14 @@
-// Sezioni di progetti nella sidebar: disposizione, ordine visibile (⌘1…9) e lo stesso modello dell'host, per lo stato locale
-// quando l'host non c'è (anteprima web) e per l'aggiornamento ottimistico dei comandi.
+// Project sections in the sidebar: layout, visible order (⌘1…9) and the same model as the host, for local state
+// when there is no host (web preview) and for optimistic command updates.
 import type { Project, ProjectGroup, ProjectGroupsState } from '@shared/protocol'
 
 export interface ProjectLayout {
-  /** Progetti fuori da ogni sezione, in alto. */
+  /** Projects outside any section, at the top. */
   ungrouped: Project[]
   sections: { group: ProjectGroup; projects: Project[] }[]
 }
 
-/** Stato coerente con i progetti noti: niente orfani né doppioni, i progetti non elencati in coda a `ungrouped`. Senza stato: nessuna sezione. */
+/** State consistent with known projects: no orphans or duplicates, unlisted projects at the end of `ungrouped`. Without state: no sections. */
 export function normalizeProjectGroups(projects: Project[], state: ProjectGroupsState | null | undefined): ProjectGroupsState {
   const alive = new Set(projects.map((p) => p.id))
   const seen = new Set<string>()
@@ -32,8 +32,8 @@ export function layoutProjects(projects: Project[], state: ProjectGroupsState | 
 }
 
 /**
- * Progetti nell'ordine in cui si vedono nella sidebar, dall'alto in basso. Quelli di una sezione chiusa non contano,
- * tranne il progetto selezionato, che la sidebar tiene visibile.
+ * Projects in the order they appear in the sidebar, top to bottom. Those in a closed section don't count,
+ * except the selected project, which the sidebar keeps visible.
  */
 export function visibleProjects(projects: Project[], state: ProjectGroupsState | null | undefined, selectedId: string | null): Project[] {
   const { ungrouped, sections } = layoutProjects(projects, state)
@@ -48,7 +48,7 @@ export type ProjectGroupOp =
   | { type: 'reorder'; groupIds: string[] }
   | { type: 'move'; projectId: string; groupId: string | null; index?: number }
 
-/** Come l'host applica un comando. Id sconosciuti: nessuna modifica (l'host risponderebbe con un errore). */
+/** How the host applies a command. Unknown ids: no change (the host would reply with an error). */
 export function applyProjectGroupOp(state: ProjectGroupsState, op: ProjectGroupOp): ProjectGroupsState {
   const groups = state.groups.map((g) => ({ ...g, projectIds: [...g.projectIds] }))
   let ungrouped = [...state.ungrouped]

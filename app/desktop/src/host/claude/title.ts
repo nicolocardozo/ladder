@@ -1,4 +1,4 @@
-// Titolo della sessione da un modello piccolo: una query() separata dell'Agent SDK, senza strumenti né impostazioni.
+// Session title from a small model: a separate Agent SDK query(), with no tools or settings.
 import { tmpdir } from 'node:os'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { TITLE_SYSTEM, cleanTitle } from '../titles'
@@ -7,34 +7,34 @@ import { claudeEnv } from './environment'
 
 const TIMEOUT_MS = 30_000
 
-/** Titolo proposto da Haiku (abbonamento dell'utente, stesso login della CLI); null se fallisce o scade. */
+/** Title proposed by Haiku (user's subscription, same login as the CLI); null if it fails or times out. */
 export async function claudeTitle(cli: string | null, prompt: string, configDir: string | null = null): Promise<string | null> {
   try {
     const raw = await claudeText(cli, TITLE_SYSTEM, prompt, TIMEOUT_MS, configDir)
     return raw === null ? null : cleanTitle(raw)
   } catch (error) {
-    // Un titolo è un di più: se la generazione ha tentato uno strumento si scarta, senza errori per l'utente.
+    // A title is a nice-to-have: if generation attempted a tool it is discarded, with no error for the user.
     if (isTextBlocked(error)) return null
     throw error
   }
 }
 
 /**
- * Testo libero dal modello piccolo (commit, PR, branch): stessa query() dei titoli, SOLO testo e nessuno strumento (vedi
- * claudeTextOnly). null se fallisce o scade; se il modello prova a usare uno strumento la generazione si ferma e lancia
- * TextToolAttempt (il diff è un dato non affidabile).
+ * Free text from the small model (commit, PR, branch): same query() as titles, text ONLY and no tools (see
+ * claudeTextOnly). null if it fails or times out; if the model tries to use a tool, generation stops and throws
+ * TextToolAttempt (the diff is untrusted data).
  */
 export async function claudeText(cli: string | null, system: string, prompt: string, timeoutMs: number, configDir: string | null = null, signal?: AbortSignal): Promise<string | null> {
   const abort = new AbortController()
   let blocked = null as string | null
-  // Annullamento dall'esterno (text.cancel): ferma la query.
+  // Cancellation from outside (text.cancel): stops the query.
   if (signal?.aborted) return null
   signal?.addEventListener('abort', () => abort.abort(), { once: true })
   const timer = setTimeout(() => abort.abort(), timeoutMs)
   const q = query({
     prompt,
     options: {
-      // Cartella neutra: niente CLAUDE.md né file del progetto.
+      // Neutral folder: no CLAUDE.md or project files.
       cwd: tmpdir(),
       env: claudeEnv(configDir),
       abortController: abort,
@@ -49,7 +49,7 @@ export async function claudeText(cli: string | null, system: string, prompt: str
   })
   try {
     for await (const message of q) {
-      // Fail-closed: se il processo parte con strumenti o server MCP la generazione non comincia nemmeno.
+      // Fail-closed: if the process starts with tools or MCP servers, generation does not even begin.
       if (message.type === 'system' && message.subtype === 'init' && !claudeInitIsClean(message)) {
         blocked = 'init'
         break
@@ -70,7 +70,7 @@ export async function claudeText(cli: string | null, system: string, prompt: str
     abort.abort()
     q.close()
   }
-  // Arriva qui solo se uno strumento è stato tentato o negato: mai restituire testo in quel caso.
+  // Reached only if a tool was attempted or denied: never return text in that case.
   console.warn(`[text] tool attempt blocked: ${blocked}`)
   throw blocked === 'init' ? new TextUnsafe() : new TextToolAttempt(blocked ?? 'unknown')
 }

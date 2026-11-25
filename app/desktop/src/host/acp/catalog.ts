@@ -1,4 +1,4 @@
-// Catalogo degli agenti ACP (LAD-56): registro + elenco curato + CLI rilevate nel PATH della shell di login + login noto dal protocollo.
+// Catalog of ACP agents: registry + curated list + CLIs found in the login shell's PATH + login known from the protocol.
 import { spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { normalize } from 'node:path'
@@ -9,49 +9,49 @@ import { githubReleaseDigest, remoteSize } from '../downloads'
 import { binaryTarget, checksumSource, hasUnsafeArgs, loadRegistry, pathSpec, type RegistryEntry } from './registry'
 
 /**
- * Elenco curato, nell'ordine in cui compare in cima al catalogo: id del registro → eseguibile da cercare nel PATH,
- * pagina d'installazione del vendor (`site`, fissata qui) e dove può stare l'archivio (`hosts`, fissati qui).
- * Un host è `dominio` (uguale) o `dominio/percorso/` (github.com/<organizzazione>/); `*.dominio` ammette anche i sottodomini.
- * Se l'URL dell'archivio nel registro non rientra, il download è bloccato (`host`). Gli host vengono dagli URL reali del registro.
- * `cmd`: percorso del programma nell'archivio (relativo, normalizzato) fissato per i curati scaricabili: un registro che lo cambia (es. verso il `java` del JDK di un'app) è bloccato.
- * `team`: TeamIdentifier Apple fissato per chi distribuisce un binario firmato con Developer ID (letto dai binari reali della release
- * e verificato con codesign); l'installazione richiede quel team esatto. Mancano per chi distribuisce ad hoc (amp-acp, goose) o via npx.
+ * Curated list, in the order it appears at the top of the catalog: registry id → executable to look for in the PATH,
+ * the vendor's install page (`site`, pinned here) and where the archive may live (`hosts`, pinned here).
+ * A host is `domain` (exact match) or `domain/path/` (github.com/<organization>/); `*.domain` also allows subdomains.
+ * If the archive URL in the registry doesn't fit, the download is blocked (`host`). The hosts come from the registry's real URLs.
+ * `cmd`: path of the program inside the archive (relative, normalized), pinned for the downloadable curated entries: a registry that changes it (e.g. to the `java` of an app's JDK) is blocked.
+ * `team`: Apple TeamIdentifier pinned for vendors that ship a binary signed with a Developer ID (read from the real release binaries
+ * and verified with codesign); the install requires exactly that team. Missing for ad hoc distributors (amp-acp, goose) or npx ones.
  */
 export const CURATED: { id: string; exe: string; site: string; hosts: string[]; cmd?: string; team?: string }[] = [
   { id: 'gemini', exe: 'gemini', site: 'https://geminicli.com', hosts: ['github.com/google-gemini/'] },
   { id: 'cursor', exe: 'cursor-agent', site: 'https://cursor.com/cli', hosts: ['downloads.cursor.com'], cmd: 'dist-package/cursor-agent' },
   { id: 'github-copilot-cli', exe: 'copilot', site: 'https://github.com/features/copilot/cli/', hosts: ['github.com/github/'] },
   { id: 'opencode', exe: 'opencode', site: 'https://opencode.ai', hosts: ['github.com/anomalyco/'], cmd: 'opencode', team: '5NZ4Q7NXJ4' },
-  // `amp` è la CLI di Amp e non parla ACP: l'adattatore ACP è `amp-acp`.
+  // `amp` is Amp's CLI and doesn't speak ACP: the ACP adapter is `amp-acp`.
   { id: 'amp-acp', exe: 'amp-acp', site: 'https://github.com/tao12345666333/amp-acp', hosts: ['github.com/tao12345666333/'], cmd: 'amp-acp' },
   { id: 'goose', exe: 'goose', site: 'https://block.github.io/goose/', hosts: ['github.com/block/'], cmd: 'goose' },
   { id: 'cline', exe: 'cline', site: 'https://cline.bot/cli', hosts: ['github.com/cline/'] },
   { id: 'qwen-code', exe: 'qwen', site: 'https://qwenlm.github.io/qwen-code-docs/en/users/overview', hosts: ['github.com/QwenLM/'] },
   { id: 'kiro', exe: 'kiro-cli', site: 'https://kiro.dev/cli/', hosts: ['prod.download.cli.kiro.dev'], cmd: 'kirocli/bin/kiro-cli', team: '94KV3E626L' },
   { id: 'junie', exe: 'junie', site: 'https://junie.jetbrains.com', hosts: ['github.com/JetBrains/'], cmd: 'Applications/junie.app/Contents/MacOS/junie', team: '2ZEFAR8TH3' },
-  // Nel registro è solo npx: nessun URL di archivio da leggere, quindi il dominio del vendor.
+  // The registry only has npx: no archive URL to read, so the vendor's domain is used.
   { id: 'factory-droid', exe: 'droid', site: 'https://factory.ai/product/cli', hosts: ['factory.ai', '*.factory.ai'] },
-  // LAD-85: solo npx nel registro (@xai-official/grok, `agent stdio`); con `grok` nel PATH parte come `grok agent stdio`.
+  // npx only in the registry (@xai-official/grok, `agent stdio`); with `grok` in the PATH it starts as `grok agent stdio`.
   { id: 'grok-build', exe: 'grok', site: 'https://x.ai/cli', hosts: ['x.ai', '*.x.ai'] }
 ]
 
 export const UNKNOWN_LOGIN: AgentLogin = { state: 'unknown', methods: [], checkedAt: null }
 
 export interface CatalogDeps {
-  /** Agenti ACP già aggiunti, per id del registro. */
+  /** ACP agents already added, by registry id. */
   specs: Map<string, AcpAgentSpec>
   login: (id: string) => AgentLogin
   installs: (id: string) => AgentInstall | null
-  /** Checksum già registrato per una versione scaricata da Ladder (null se mai scaricata). */
+  /** Checksum already recorded for a version downloaded by Ladder (null if never downloaded). */
   recorded: (id: string, version: string) => string | null
-  /** Firma registrata all'installazione di quella versione (null se ignota). */
+  /** Signature recorded when that version was installed (null if unknown). */
   signature: (id: string, version: string) => AgentSignature | null
 }
 
-/** Per percorso e data di modifica; la promessa evita di lanciare due volte lo stesso eseguibile. */
+/** Keyed by path and modification time; the promise avoids launching the same executable twice. */
 const versions = new Map<string, { mtime: number; version: Promise<string | null> }>()
 
-/** Esegue `--version` con tempo massimo e, scaduto, ferma tutto il gruppo di processi (un nome ambiguo come `goose` può fare altro). */
+/** Runs `--version` with a timeout and, once expired, kills the whole process group (an ambiguous name like `goose` may do something else). */
 async function runVersion(path: string): Promise<string | null> {
   const env = await agentEnv()
   return new Promise((resolve) => {
@@ -86,13 +86,13 @@ async function runVersion(path: string): Promise<string | null> {
     child.on('close', (code) => {
       const line = out.trim().split('\n')[0]?.trim() ?? ''
       done(code === 0 && line && line.length <= 80 ? line : null)
-      // Eventuali figli rimasti nel gruppo non devono sopravvivere.
+      // Any children left in the group must not survive.
       kill()
     })
   })
 }
 
-/** Versione da `--version`: solo per `agents.catalog`. Il nome dell'eseguibile può essere un altro programma: la versione è un'indicazione, non una prova. */
+/** Version from `--version`: only for `agents.catalog`. The executable's name may belong to another program: the version is a hint, not proof. */
 export function cliVersion(path: string): Promise<string | null> {
   let mtime = 0
   try {
@@ -104,14 +104,14 @@ export function cliVersion(path: string): Promise<string | null> {
   if (known && known.mtime === mtime) return known.version
   const version = runVersion(path)
   versions.set(path, { mtime, version })
-  // Un esito nullo (timeout, errore) non resta in cache: il Rescan riprova.
+  // A null result (timeout, error) is not cached: Rescan retries.
   void version.then((value) => {
     if (value === null && versions.get(path)?.version === version) versions.delete(path)
   })
   return version
 }
 
-/** CLI degli agenti curati presenti nel PATH della shell di login: id del registro → percorso. */
+/** CLIs of the curated agents present in the login shell's PATH: registry id → path. */
 export async function detectCurated(): Promise<Map<string, string>> {
   const found = await whichManyInShell(CURATED.map((c) => c.exe))
   const out = new Map<string, string>()
@@ -122,7 +122,7 @@ export async function detectCurated(): Promise<Map<string, string>> {
   return out
 }
 
-/** Eseguibile da usare per un agente curato, se c'è. */
+/** Executable to use for a curated agent, if there is one. */
 export function curatedExe(id: string): string | null {
   return CURATED.find((c) => c.id === id)?.exe ?? null
 }
@@ -137,7 +137,7 @@ function hostOf(url: string): string {
   }
 }
 
-/** Testo per un archivio che Ladder non scarica dall'indirizzo dato: dice l'indirizzo, oppure lo schema se non è https. */
+/** Text for an archive that Ladder does not download from the given address: states the address, or the scheme if it isn't https. */
 export function hostReason(archive: string): string {
   try {
     const url = new URL(archive)
@@ -149,37 +149,37 @@ export function hostReason(archive: string): string {
 }
 
 /**
- * Id usabile come nome di cartella; gli strumenti di Ladder (gh, codex) hanno la loro. Niente `.`: le cartelle temporanee
- * di un agente sono `<id>.download`, `<id>.new` e `<id>.old`, e un id come `gemini.new` ci si scontrerebbe.
+ * Id usable as a folder name; Ladder's own tools (gh, codex) have theirs. No `.`: an agent's temporary folders
+ * are `<id>.download`, `<id>.new` and `<id>.old`, and an id like `gemini.new` would collide with them.
  */
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
 export const isSafeAgentId = (id: string): boolean => SAFE_ID.test(id) && id !== 'gh' && id !== 'codex'
 
-/** Suffissi pubblici a più etichette più comuni (la Public Suffix List completa non c'è: nessuna dipendenza che la porti): `a.co.uk` e `b.co.uk` sono vendor diversi. */
+/** The most common multi-label public suffixes (the full Public Suffix List isn't bundled, to avoid a dependency): `a.co.uk` and `b.co.uk` are different vendors. */
 const MULTI_SUFFIXES = new Set(['co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'ltd.uk', 'plc.uk', 'net.uk', 'sch.uk', 'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au', 'co.nz', 'org.nz', 'net.nz', 'co.jp', 'ne.jp', 'or.jp', 'ac.jp', 'co.kr', 'or.kr', 'co.in', 'net.in', 'org.in', 'com.br', 'net.br', 'org.br', 'com.cn', 'net.cn', 'org.cn', 'com.hk', 'com.tw', 'com.sg', 'com.mx', 'com.ar', 'com.tr', 'co.za', 'co.il', 'co.id', 'co.th', 'com.my', 'com.ph', 'com.vn', 'com.ua', 'com.pl', 'com.es', 'com.pt', 'com.ru',
   'com.de', 'co.at', 'or.at', 'gv.at', 'ac.at', 'gov.br', 'edu.br', 'mil.br', 'gov.cn', 'edu.cn', 'ac.cn', 'edu.hk', 'gov.hk', 'org.hk', 'edu.tw', 'org.tw', 'gov.tw', 'edu.sg', 'gov.sg', 'org.sg', 'edu.mx', 'gob.mx', 'org.mx', 'net.mx', 'edu.ar', 'gob.ar', 'org.ar', 'net.ar', 'edu.tr', 'gov.tr', 'org.tr', 'net.tr', 'org.za', 'ac.za', 'gov.za', 'net.za', 'net.pl', 'org.pl', 'edu.pl', 'gov.pl', 'net.ua', 'org.ua', 'edu.ua', 'org.ru', 'net.ru', 'go.jp', 'go.kr', 'ne.kr', 'ac.kr', 'go.id', 'or.id', 'ac.id', 'web.id', 'ac.nz', 'govt.nz', 'gen.nz', 'ac.il', 'org.il', 'net.il', 'com.co', 'com.pe', 'com.ve', 'com.uy', 'com.ec', 'com.gt', 'com.bo', 'co.ke', 'co.tz', 'co.ug', 'co.zw', 'com.ng', 'com.eg', 'com.pk', 'com.bd', 'com.sa', 'com.qa', 'com.kw', 'com.lb', 'com.gr', 'com.cy', 'com.mt', 'com.hr', 'com.ro', 'co.hu', 'co.rs', 'com.fr', 'asso.fr', 'gouv.fr', 'co.cr'])
 
-/** Vero se l'host è un indirizzo IP (v4 o v6) o ha il punto finale: per questi non esiste un "dominio" da confrontare. */
+/** True if the host is an IP address (v4 or v6) or has a trailing dot: there is no "domain" to compare for these. */
 const isIpOrDotted = (host: string): boolean => host.endsWith('.') || host.startsWith('[') || /^\d+(\.\d+){3}$/.test(host)
 
-/** Domini condivisi da molti proprietari: per questi "stesso dominio" vale solo con l'host identico. */
+/** Domains shared by many owners: for these, "same domain" holds only with an identical host. */
 const SHARED_SUFFIXES = new Set(['github.com', 'github.io', 'githubusercontent.com', 'githubassets.com', 'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'herokuapp.com', 'amazonaws.com', 'cloudfront.net', 'azurewebsites.net', 'web.app', 'firebaseapp.com', 'r2.dev',
   'gitlab.io', 'bitbucket.io', 'appspot.com', 'blogspot.com', 'googleapis.com', 'googleusercontent.com', 'azureedge.net', 'azurestaticapps.net', 'windows.net', 'trafficmanager.net', 'fly.dev', 'onrender.com', 'deno.dev', 'surge.sh', 'glitch.me', 'repl.co', 'replit.dev', 'railway.app', 'ondigitalocean.app', 'digitaloceanspaces.com', 'fastly.net', 'b-cdn.net', 'pythonanywhere.com', 'wordpress.com', 'wixsite.com', 'weebly.com', 'github.dev', 'codeberg.page', 'neocities.org', 'netlify.com', 'sourceforge.io',
   'gitlab.com', 'bitbucket.org', 'codeberg.org', 'sourceforge.net', 'gitee.com', 'huggingface.co'])
 
-/** Dominio "registrabile" approssimato: le ultime due etichette, tre sotto un suffisso pubblico noto a più etichette (co.uk…); i domini condivisi restano interi. */
+/** Approximate "registrable" domain: the last two labels, three under a known multi-label public suffix (co.uk…); shared domains stay whole. */
 function baseDomain(host: string): string {
   const parts = host.toLowerCase().split('.')
   const base = parts.slice(-2).join('.')
   if (parts.length < 2 || SHARED_SUFFIXES.has(base)) return host.toLowerCase()
-  // Un host che è il suffisso stesso (`co.uk`) non è di nessuno.
+  // A host that is the suffix itself (`co.uk`) belongs to no one.
   if (MULTI_SUFFIXES.has(base)) return parts.length >= 3 ? parts.slice(-3).join('.') : host.toLowerCase()
   return base
 }
 
 /**
- * Indirizzo da mostrare e da confermare per un download: l'host, e per github.com anche `<proprietario>/<repository>` (l'host da solo
- * direbbe poco: github.com è di tutti). Minuscolo. È quello che `download.host` espone e che `agents.install` deve rimandare.
+ * Address to show and confirm for a download: the host, and for github.com also `<owner>/<repository>` (the host alone
+ * would say little: github.com belongs to everyone). Lowercase. It is what `download.host` exposes and what `agents.install` must send back.
  */
 export function downloadAddress(archive: string): string {
   try {
@@ -193,7 +193,7 @@ export function downloadAddress(archive: string): string {
   }
 }
 
-/** Proprietario GitHub (minuscolo) di un URL github.com/<proprietario>/…, se lo è. */
+/** GitHub owner (lowercase) of a github.com/<owner>/… URL, if it is one. */
 const githubOwner = (url: string | undefined): string | null => {
   try {
     const u = new URL(url ?? '')
@@ -203,10 +203,10 @@ const githubOwner = (url: string | undefined): string | null => {
   }
 }
 
-/** Host dove il percorso dice di chi è il file: per questi un non curato deve dichiarare lo stesso proprietario nel sito o nel repository, come per github.com. */
+/** Hosts where the path says who owns the file: for these, a non-curated entry must declare the same owner in its site or repository, as with github.com. */
 const OWNER_HOSTS = new Set(['gitlab.com', 'bitbucket.org', 'codeberg.org', 'sourceforge.net', 'gitee.com', 'huggingface.co'])
 
-/** Proprietario (minuscolo) nel percorso di un URL su un host OWNER_HOSTS: il primo segmento, per SourceForge il nome del progetto in /projects/<nome>/. */
+/** Owner (lowercase) in the path of a URL on an OWNER_HOSTS host: the first segment, for SourceForge the project name in /projects/<name>/. */
 function pathOwner(url: string | undefined): { host: string; owner: string } | null {
   try {
     const u = new URL(url ?? '')
@@ -220,11 +220,11 @@ function pathOwner(url: string | undefined): { host: string; owner: string } | n
 }
 
 /**
- * L'archivio si può scaricare da qui per questa voce? Sempre https (porta standard, senza credenziali).
- * - Curati: solo gli host fissati in `CURATED`.
- * - Altri: github.com (percorso di release; se la voce dichiara un repository GitHub, lo stesso proprietario), gitlab.com, bitbucket.org,
- *   codeberg.org, sourceforge.net, gitee.com e huggingface.co (stesso proprietario dichiarato nel sito o nel repository) oppure un host
- *   dello stesso dominio del sito o del repository dichiarati dalla voce.
+ * Can the archive be downloaded from here for this entry? Always https (standard port, no credentials).
+ * - Curated: only the hosts pinned in `CURATED`.
+ * - Others: github.com (release path; if the entry declares a GitHub repository, the same owner), gitlab.com, bitbucket.org,
+ *   codeberg.org, sourceforge.net, gitee.com and huggingface.co (same owner declared in the site or repository), or a host
+ *   on the same domain as the site or repository declared by the entry.
  */
 export function downloadHostOk(entry: RegistryEntry, archive: string): boolean {
   let url: URL
@@ -248,7 +248,7 @@ export function downloadHostOk(entry: RegistryEntry, archive: string): boolean {
   }
   if (host === 'github.com') {
     if (!/^\/[^/]+\/[^/]+\/releases\/download\//.test(url.pathname)) return false
-    // Senza un proprietario dichiarato dalla voce, qualunque proprietario andrebbe bene: non si scarica.
+    // Without an owner declared by the entry, any owner would do: don't download.
     const declared = githubOwner(entry.repository) ?? githubOwner(entry.website)
     return declared !== null && declared === url.pathname.split('/')[1].toLowerCase()
   }
@@ -265,26 +265,26 @@ export function downloadHostOk(entry: RegistryEntry, archive: string): boolean {
   })
 }
 
-/** Vero se il programma dell'archivio è quello fissato per l'agente curato (gli altri non hanno un `cmd` fissato). `cmd` è già normalizzato da `binaryTarget`. */
+/** True if the archive's program is the one pinned for the curated agent (the others have no pinned `cmd`). `cmd` is already normalized by `binaryTarget`. */
 export function cmdPinnedOk(id: string, cmd: string): boolean {
   const pinned = CURATED.find((c) => c.id === id)?.cmd
   return pinned === undefined || normalize(pinned) === cmd
 }
 
-/** Il programma sbagliato per un curato: BlockError `signature` (nessun codice nuovo: il binario scelto dal registro non è quello che Ladder si aspetta). */
+/** The wrong program for a curated agent: BlockError `signature` (no new code: the binary picked by the registry is not what Ladder expects). */
 export function wrongCmdReason(): string {
   return t('The registry points this agent to a different program than the one Ladder expects, so Ladder will not install it.')
 }
 
-/** Pagina d'installazione del vendor: quella fissata per i curati, altrimenti sito o repository del registro. */
+/** Vendor's install page: the pinned one for curated agents, otherwise the registry's site or repository. */
 export function installUrlOf(entry: RegistryEntry): string | null {
   return CURATED.find((c) => c.id === entry.id)?.site ?? httpsUrl(entry.website) ?? httpsUrl(entry.repository)
 }
 
-/** Esito della lettura del checksum di una release GitHub: letto, non pubblicato (l'asset non ha `digest`) o non leggibile ora (rete, limite di richieste). */
+/** Outcome of reading a GitHub release's checksum: read, not published (the asset has no `digest`) or not readable now (network, rate limit). */
 type ReleaseDigest = { state: 'ok'; sha256: string; size: number | null } | { state: 'none' } | { state: 'unreadable' }
 
-/** Checksum di una release GitHub, 5 minuti se letto e 3 se non leggibile (il limite per IP è di 60 richieste all'ora). */
+/** Checksum of a GitHub release, cached 5 minutes if read and 3 if not readable (the per-IP limit is 60 requests per hour). */
 const digests = new Map<string, Promise<ReleaseDigest>>()
 function releaseDigest(url: string): Promise<ReleaseDigest> {
   const known = digests.get(url)
@@ -302,7 +302,7 @@ function releaseDigest(url: string): Promise<ReleaseDigest> {
   return value
 }
 
-/** Dimensioni dall'HEAD, tenute 30 minuti (anche quelle ignote: un server lento non va richiamato a ogni apertura). */
+/** Sizes from HEAD, kept 30 minutes (unknown ones too: a slow server must not be called again on every open). */
 const sizes = new Map<string, Promise<number | null>>()
 function archiveSize(url: string): Promise<number | null> {
   let size = sizes.get(url)
@@ -317,13 +317,13 @@ function archiveSize(url: string): Promise<number | null> {
   return size
 }
 
-/** Dimenticare checksum e dimensione letti per un archivio: l'installazione li rilegge da sé e il catalogo non deve mostrare dati vecchi (checksum cambiato, nuovo tentativo). */
+/** Forget the checksum and size read for an archive: the install rereads them on its own and the catalog must not show stale data (changed checksum, new attempt). */
 export function forgetDownloadCache(url: string): void {
   digests.delete(url)
   sizes.delete(url)
 }
 
-/** Esegue `fn` su tutti gli elementi con al massimo `limit` richieste insieme. */
+/** Runs `fn` on all items with at most `limit` requests at once. */
 async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   const queue = [...items]
   await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, async () => {
@@ -331,12 +331,12 @@ async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>
   }))
 }
 
-/** Il catalogo: i curati in cima nell'ordine fisso, poi il resto del registro per nome. */
+/** The catalog: curated entries on top in the fixed order, then the rest of the registry by name. */
 export async function agentCatalog(deps: CatalogDeps, onlyDetected = false): Promise<AgentCatalogEntry[]> {
   const entries = await loadRegistry()
   const detected = await detectCurated()
   const [npx, uvx] = onlyDetected ? [null, null] : await Promise.all([whichInShell('npx'), whichInShell('uvx')])
-  // Le versioni solo per il catalogo completo (il primo avvio guarda i percorsi e basta), tutte insieme.
+  // Versions only for the full catalog (the first launch just looks at paths), all together.
   const found = [...detected.entries()]
   const versionOf = new Map(onlyDetected ? [] : await Promise.all(found.map(async ([id, path]) => [id, await cliVersion(path)] as const)))
   const rank = (id: string) => CURATED.findIndex((c) => c.id === id)
@@ -349,7 +349,7 @@ export async function agentCatalog(deps: CatalogDeps, onlyDetected = false): Pro
   interface Draft {
     entry: RegistryEntry
     out: AgentCatalogEntry
-    /** Per i binari con checksum: i dati per il dialog si leggono dopo, in parallelo. */
+    /** For binaries with a checksum: the data for the dialog is read later, in parallel. */
     archive: string | null
   }
   const drafts: Draft[] = []
@@ -365,7 +365,7 @@ export async function agentCatalog(deps: CatalogDeps, onlyDetected = false): Pro
     const checksum = binary ? checksumSource(binary) : null
     const hostOkay = binary ? downloadHostOk(entry, binary.archive) : false
     const recorded = binary && !hasUnsafeArgs(entry) ? deps.recorded(entry.id, entry.version) : null
-    // Registro: il checksum è già qui. Release GitHub: si legge dopo (il conflitto si valuta allora).
+    // Registry: the checksum is already here. GitHub release: read later (the conflict is evaluated then).
     const conflict = Boolean(recorded && binary?.sha256 && recorded !== binary.sha256)
     const offer = Boolean(binary && checksum !== 'missing' && isSafeAgentId(entry.id))
     const cmdOk = binary ? cmdPinnedOk(entry.id, binary.cmd) : true
@@ -386,7 +386,7 @@ export async function agentCatalog(deps: CatalogDeps, onlyDetected = false): Pro
       state = 'unavailable'
       reason = t('No build for Apple silicon Macs.')
     } else if (checksum === 'missing') {
-      // Nessun checksum verificabile: non si scarica; resta usabile se la CLI c'è già (stato detected sopra). Vale anche se l'indirizzo non è fidato: il link al sito del vendor è la via d'uscita.
+      // No verifiable checksum: don't download; still usable if the CLI is already there (detected state above). Holds even if the address is untrusted: the link to the vendor's site is the way out.
       state = 'unavailable'
       reason = t('Install from the official site')
       reasonCode = 'no-checksum'
@@ -403,7 +403,7 @@ export async function agentCatalog(deps: CatalogDeps, onlyDetected = false): Pro
       reason = t('The registry now lists a different checksum for version {version}, which Ladder already downloaded. Ladder will not install it.', { version: entry.version })
       reasonCode = 'checksum-conflict'
     } else state = 'downloadable'
-    // L'id diventa il nome di una cartella: uno che non lo può essere fallirebbe solo all'installazione, meglio dirlo subito.
+    // The id becomes a folder name: one that can't be would only fail at install time, better to say so right away.
     const idOk = isSafeAgentId(entry.id)
     if (state === 'downloadable' && distribution === 'binary' && !idOk) {
       state = 'unavailable'
@@ -434,9 +434,9 @@ export async function agentCatalog(deps: CatalogDeps, onlyDetected = false): Pro
       }
     })
   }
-  // Dimensione dell'archivio (HEAD) e, per le release GitHub, il checksum: solo per chi si può scaricare, mai bloccanti.
-  // Il dialog di conferma si offre solo con `sha256` noto: se la release non lo pubblica (`no-checksum`) o non si riesce a leggerlo
-  // ora (`checksum-unavailable`) la voce non è scaricabile e `download.blocked` lo dice.
+  // Archive size (HEAD) and, for GitHub releases, the checksum: only for what can be downloaded, never blocking.
+  // The confirmation dialog is offered only with a known `sha256`: if the release doesn't publish it (`no-checksum`) or it can't be read
+  // now (`checksum-unavailable`) the entry is not downloadable and `download.blocked` says so.
   await pool(
     drafts.filter((x) => x.archive && x.out.download && x.out.download.blocked !== 'host' && x.out.download.blocked !== 'signature'),
     6,
@@ -471,9 +471,9 @@ export async function agentCatalog(deps: CatalogDeps, onlyDetected = false): Pro
 }
 
 /**
- * Voce da aggiungere per un agente del registro: il binario già scaricato, poi la CLI trovata nel PATH (solo curati).
- * null negli altri casi: il ripiego npx/uvx lo sceglie il chiamante (`registrySpec`); senza, resta il binario da
- * scaricare (si installa prima con `agents.install`).
+ * Entry to add for a registry agent: the already downloaded binary, then the CLI found in the PATH (curated only).
+ * null in other cases: the npx/uvx fallback is chosen by the caller (`registrySpec`); without it, what's left is the binary to
+ * download (installed first with `agents.install`).
  */
 export async function resolveAgentSpec(entry: RegistryEntry, installed: AcpAgentSpec | undefined): Promise<AcpAgentSpec | null> {
   if (installed?.distribution === 'binary' && existsSync(installed.command)) return installed

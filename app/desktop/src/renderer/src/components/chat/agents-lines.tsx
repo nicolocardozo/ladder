@@ -1,5 +1,5 @@
-// Righe di sistema dei sotto-agenti in background: "in attesa di N agenti" sotto l'ultimo turno
-// e la fine degli agenti con il coordinatore fermo (riga con "Continue").
+// System rows for background sub-agents: "waiting for N agents" below the last turn
+// and the end of agents with the coordinator stopped (row with "Continue").
 import { Bot, CornerDownRight } from 'lucide-react'
 import { memo, useEffect, useState } from 'react'
 import { plural, t } from '@shared/i18n'
@@ -8,7 +8,7 @@ import { Spinner } from './bits'
 import { useChatActions } from './chat-context'
 import type { AgentsFinishedItem } from './turns'
 
-/** Il coordinatore è fermo ma N agenti in background lavorano: la sessione aspetta loro, non te. */
+/** The coordinator is stopped but N background agents are working: the session is waiting for them, not you. */
 export function WaitingAgentsLine({ count }: { count: number }) {
   return (
     <div role="status" className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
@@ -18,7 +18,7 @@ export function WaitingAgentsLine({ count }: { count: number }) {
   )
 }
 
-/** Dopo il clic il pulsante resta spento finché l'host non aggiorna la riga; se non lo fa si riaccende dopo qualche secondo. */
+/** After the click the button stays off until the host updates the row; if it does not, it turns back on after a few seconds. */
 const RETRY_AFTER_MS = 4000
 
 function ContinueButton({ itemId }: { itemId: string }) {
@@ -54,7 +54,7 @@ function ContinueButton({ itemId }: { itemId: string }) {
   )
 }
 
-/** Fine dei sotto-agenti in background. 'dismissed' non si vede; 'resumed' sparisce se il turno aperto dall'agente ha già la sua riga. */
+/** End of background sub-agents. 'dismissed' is not shown; 'resumed' disappears if the turn opened by the agent already has its row. */
 export const AgentsFinishedLine = memo(function AgentsFinishedLine({ item, hideResumed }: { item: AgentsFinishedItem; hideResumed: boolean }) {
   if (item.state === 'dismissed') return null
   if (item.state === 'resumed' && hideResumed) return null

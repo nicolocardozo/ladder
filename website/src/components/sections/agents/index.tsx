@@ -2,8 +2,8 @@ import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 import { AgentIcon } from "@/components/brand/agent-icon"
 
-// Agenti mostrati con il comando di accesso, solo quelli presenti nel codice dell'app
-// (host/connections.ts, host/acp/others.ts). Dove non c'è un comando verificato: null.
+// Agents shown with their sign-in command, only those present in the app's code
+// (host/connections.ts, host/acp/others.ts). Where there is no verified command: null.
 const AGENTS = [
   { id: "claude", name: "Claude Code", login: "claude auth login" },
   { id: "codex", name: "Codex", login: "codex login" },

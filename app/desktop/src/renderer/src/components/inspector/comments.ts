@@ -1,17 +1,17 @@
-// Commenti sulle righe del diff: si raccolgono per ambito e partono insieme come un solo messaggio all'agente.
+// Comments on diff lines: collected per scope and sent together as a single message to the agent.
 import { create } from 'zustand'
 import { t } from '@shared/i18n'
 
 export interface LineComment {
   id: string
   path: string
-  /** Riga nel file nuovo, oppure nel vecchio per le righe tolte. */
+  /** Line in the new file, or in the old one for removed lines. */
   side: 'new' | 'old'
   line: number
-  /** Codice della riga, per dare contesto all'agente. */
+  /** Code of the line, to give context to the agent. */
   code: string
   text: string
-  /** Chi l'ha scritto, se non sei tu: l'agente della review ("Codex"). */
+  /** Who wrote it, if not you: the review agent ("Codex"). */
   author?: string
 }
 
@@ -40,7 +40,7 @@ export const useComments = create<CommentsState>((set) => ({
     })
 }))
 
-/** Messaggio per l'agente: ogni commento con file, riga e codice citato. */
+/** Message for the agent: each comment with file, line and quoted code. */
 export function commentsMessage(comments: LineComment[]): string {
   const sorted = [...comments].sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
   const blocks = sorted.map((c, i) => {

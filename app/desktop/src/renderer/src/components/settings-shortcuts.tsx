@@ -1,6 +1,6 @@
-// Impostazioni → Shortcuts: elenco dei comandi con la loro scorciatoia, come in VS Code e Cursor.
-// Si cerca per nome o per tasto, si registra una nuova combinazione premendola, si risolvono i conflitti e si sceglie il preset.
-// Le personalizzazioni stanno in keybindings.json (l'host le scrive e le rilegge); qui si calcola solo la nuova lista di voci.
+// Settings → Shortcuts: list of commands with their shortcut, as in VS Code and Cursor.
+// You search by name or key, record a new combination by pressing it, resolve conflicts and pick the preset.
+// Customizations live in keybindings.json (the host writes and rereads it); here we only compute the new list of entries.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CircleAlert, FileJson, RotateCcw, Search, X } from 'lucide-react'
 import type { ShortcutsState } from '@shared/protocol'
@@ -29,11 +29,11 @@ import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Nomi dei comandi
+// Command names
 
 const PROJECT_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `project.select${n}` as CommandId)
 
-/** Nome inglese di ogni comando (si traduce con t al momento di mostrarlo). Il Record obbliga a nominarli tutti. */
+/** English name of every command (translated with t when shown). The Record forces naming all of them. */
 const LABELS: Record<CommandId, string> = {
   'palette.toggle': 'Search Ladder',
   'quickOpen.toggle': 'Open file…',
@@ -97,45 +97,45 @@ const PRESET_NAMES: Record<ShortcutPreset, string> = { vscode: 'VS Code', cursor
 const PRESET_ORDER: ShortcutPreset[] = ['vscode', 'cursor', 'ladder']
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Voci di keybindings.json
+// keybindings.json entries
 
-/** Le voci senza quelle del comando (la scorciatoia propria e l'eventuale "-comando"). */
+/** The entries without those of the command (its own shortcut and any "-command"). */
 const withoutCommand = (list: Keybinding[], id: CommandId): Keybinding[] => list.filter((entry) => entry.command !== id && entry.command !== `-${id}`)
 
-/** Il comando passa a una sola scorciatoia: la nuova voce sostituisce predefinita e preset. */
+/** The command switches to a single shortcut: the new entry replaces the default and the preset ones. */
 const assign = (list: Keybinding[], id: CommandId, key: string): Keybinding[] => [...withoutCommand(list, id), { key, command: id }]
 
-/** Toglie la scorciatoia al comando: "-comando" cancella quelle predefinite. */
+/** Removes the command's shortcut: "-command" cancels the default ones. */
 const unassign = (list: Keybinding[], id: CommandId, key: string): Keybinding[] => [...withoutCommand(list, id), { key, command: `-${id}` }]
 
 const isCustomized = (list: Keybinding[], id: CommandId) => list.some((entry) => entry.command === id || entry.command === `-${id}`)
 
 const keyOf = (binding: Binding) => serializeShortcut(binding.chord)
 
-/** Vero se due contesti si pestano i piedi: il globale e il menu valgono ovunque, gli altri solo in sé stessi. */
+/** True if two contexts overlap: global and menu apply everywhere, the others only to themselves. */
 function overlaps(a: readonly ShortcutContext[], b: readonly ShortcutContext[]): boolean {
   const everywhere = (context: ShortcutContext) => context === 'global' || context === 'menu'
-  // Un comando del terminale ha la precedenza su uno globale sullo stesso tasto (⌘K pulisce lì, apre la palette altrove): non è un doppione.
-  // Non vale per il menu: gli acceleratori li prende il main prima del renderer, quindi lì il conflitto è vero.
+  // A terminal command takes precedence over a global one on the same key (⌘K clears there, opens the palette elsewhere): it is not a duplicate.
+  // Not so for the menu: the main process takes accelerators before the renderer, so there the conflict is real.
   const terminalVsGlobal = (x: ShortcutContext, y: ShortcutContext) => (x === 'terminal' && y === 'global') || (x === 'global' && y === 'terminal')
   return a.some((x) => b.some((y) => x === y || ((everywhere(x) || everywhere(y)) && !terminalVsGlobal(x, y))))
 }
 
-/** Gli altri comandi che usano già questa combinazione in un contesto in comune. */
+/** The other commands that already use this combination in a shared context. */
 function conflictsOf(id: CommandId, key: string): CommandId[] {
   return (Object.keys(COMMANDS) as CommandId[]).filter(
     (other) => other !== id && overlaps(COMMANDS[id].contexts, COMMANDS[other].contexts) && bindingsOf(other).some((binding) => keyOf(binding) === key)
   )
 }
 
-/** Toglie a `other` la combinazione `key`; se ne ha altre (alias del preset) ne resta una, altrimenti non ne ha più. */
+/** Removes the combination `key` from `other`; if it has others (preset aliases) one remains, otherwise it has none left. */
 function takeAway(list: Keybinding[], other: CommandId, key: string): Keybinding[] {
   const rest = bindingsOf(other).filter((binding) => keyOf(binding) !== key)
   return rest.length > 0 ? assign(list, other, keyOf(rest[0])) : unassign(list, other, key)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Registrazione dei tasti
+// Key recording
 
 const CODE_KEYS: Record<string, string> = {
   ArrowLeft: 'left',
@@ -165,7 +165,7 @@ const CODE_KEYS: Record<string, string> = {
   Equal: '='
 }
 
-/** Tasto canonico dal tasto fisico (event.code): serve con ⌥, dove event.key cambia carattere. */
+/** Canonical key from the physical key (event.code): needed with ⌥, where event.key changes character. */
 function keyFromCode(code: string): string | null {
   if (CODE_KEYS[code]) return CODE_KEYS[code]
   const letter = /^Key([A-Z])$/.exec(code)
@@ -177,12 +177,12 @@ function keyFromCode(code: string): string | null {
 
 const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'Fn'])
 
-/** ⌃⌘⌥⇧ dei modificatori premuti, nell'ordine in cui l'interfaccia li mostra. */
+/** ⌃⌘⌥⇧ of the pressed modifiers, in the order the interface shows them. */
 const heldModifiers = (e: { ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }) => `${e.ctrlKey ? '⌃' : ''}${e.metaKey ? '⌘' : ''}${e.altKey ? '⌥' : ''}${e.shiftKey ? '⇧' : ''}`
 
 /**
- * La combinazione premuta come la capirebbe l'ascoltatore globale. Si prova prima il tasto fisico, poi il carattere, e
- * si tiene il primo che `matchesChord` riconosce davvero con quell'evento: una scorciatoia che poi non scatta non si salva.
+ * The pressed combination as the global listener would understand it. The physical key is tried first, then the character, and
+ * the first one that `matchesChord` really recognizes with that event is kept: a shortcut that would then not fire is not saved.
  */
 function chordFromEvent(event: KeyboardEvent): Chord | null {
   const candidates = [keyFromCode(event.code), event.key.length > 1 ? event.key.toLowerCase() : event.key === ' ' ? 'space' : event.key.toLowerCase()]
@@ -194,7 +194,7 @@ function chordFromEvent(event: KeyboardEvent): Chord | null {
   return null
 }
 
-/** Campo che cattura la combinazione premuta. Esc annulla, perdere il focus annulla. */
+/** Field that captures the pressed combination. Esc cancels, losing focus cancels. */
 function Recorder({ name, onCapture, onCancel }: { name: string; onCapture: (key: string) => void; onCancel: (restoreFocus: boolean) => void }) {
   const [held, setHeld] = useState('')
   const [hint, setHint] = useState<string | null>(null)
@@ -206,11 +206,11 @@ function Recorder({ name, onCapture, onCancel }: { name: string; onCapture: (key
       ref={field}
       type="button"
       aria-label={t('Press the new shortcut for {command}. Esc cancels.', { command: name })}
-      // Se il focus se ne va da solo (un clic altrove) non lo si richiama indietro.
+      // If focus leaves on its own (a click elsewhere) it is not pulled back.
       onBlur={() => onCancel(false)}
       onKeyUp={(e) => setHeld(heldModifiers(e))}
       onKeyDown={(e) => {
-        // Niente di ciò che si preme deve arrivare all'app: né ⌘K né Esc (che chiuderebbe le impostazioni).
+        // Nothing that is pressed must reach the app: neither ⌘K nor Esc (which would close the settings).
         e.preventDefault()
         e.stopPropagation()
         if (e.nativeEvent.isComposing) return
@@ -236,7 +236,7 @@ function Recorder({ name, onCapture, onCancel }: { name: string; onCapture: (key
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Ricerca
+// Search
 
 const normalize = (text: string) =>
   text
@@ -244,7 +244,7 @@ const normalize = (text: string) =>
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
 
-/** Parole con cui si dice un tasto o un modificatore: "cmd", "command", "option"… Valgono solo come parola intera. */
+/** Words used to name a key or modifier: "cmd", "command", "option"… They count only as whole words. */
 function keyWordsOf(id: CommandId): Set<string> {
   const words = new Set<string>()
   for (const { chord } of bindingsOf(id)) {
@@ -257,7 +257,7 @@ function keyWordsOf(id: CommandId): Set<string> {
   return words
 }
 
-/** Il comando risponde alla ricerca: ogni parola cercata sta nel nome (da due lettere), è un tasto o un modificatore intero, o è nel simbolo (⌘⇧P). */
+/** The command matches the search: every searched word is in the name (from two letters), is a whole key or modifier, or is in the symbol (⌘⇧P). */
 function matchesQuery(id: CommandId, tokens: string[]): boolean {
   const name = normalize(`${commandName(id)} ${LABELS[id]} ${id}`)
   const symbols = bindingsOf(id).map((binding) => normalize(formatShortcut(binding.chord))).join(' ')
@@ -266,7 +266,7 @@ function matchesQuery(id: CommandId, tokens: string[]): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Sezione
+// Section
 
 const EMPTY_STATE: ShortcutsState = { preset: 'ladder', overrides: [], warnings: [], file: '', invalid: false }
 
@@ -291,14 +291,14 @@ export function ShortcutsSection() {
   const list = useRef<HTMLDivElement>(null)
   const lastRecorded = useRef<CommandId | null>(null)
 
-  // Il file può essere cambiato a mano mentre l'app era altrove: all'apertura si rilegge (l'evento lo applica).
+  // The file may have been edited by hand while the app was elsewhere: on open it is reread (the event applies it).
   useEffect(() => {
     request<ShortcutsState>({ type: 'shortcuts.get' })
       .then((next) => useApp.getState().applyShortcuts(next))
       .catch(() => undefined)
   }, [])
 
-  /** Manda un comando all'host e applica lo stato che risponde. */
+  /** Sends a command to the host and applies the state it answers with. */
   const run = async (command: Extract<Parameters<typeof request>[0], { type: 'shortcuts.save' | 'shortcuts.reset' | 'shortcuts.openFile' }>): Promise<boolean> => {
     setBusy(true)
     busyRef.current = true
@@ -318,15 +318,15 @@ export function ShortcutsSection() {
   const save = (preset: ShortcutPreset, overrides: Keybinding[]) => run({ type: 'shortcuts.save', preset, overrides })
 
   const tokens = useMemo(() => normalize(query).split(/[\s+]+/).filter(Boolean), [query])
-  // Lo stato è nelle dipendenze: cambiate le scorciatoie, il testo su cui si cerca si rifà.
+  // The state is in the dependencies: when shortcuts change, the text being searched is rebuilt.
   const groups = useMemo(() => {
     void state
     return GROUPS.map((group) => ({ ...group, ids: group.ids.filter((id) => matchesQuery(id, tokens)) })).filter((group) => group.ids.length > 0)
   }, [tokens, state])
 
-  // Il focus torna sul tasto di modifica appena è di nuovo attivo: durante un salvataggio il tasto è disabilitato e
-  // il dialogo, che rimette il focus su di sé quando smonta il registratore, lo terrebbe. Si riprova finché il salvataggio
-  // è in corso (anche se l'host è lento) e per un secondo ancora dopo la sua fine.
+  // Focus returns to the edit button as soon as it is active again: during a save the button is disabled and
+  // the dialog, which takes focus back when it unmounts the recorder, would keep it. We retry while the save
+  // is in progress (even if the host is slow) and for one more second after it ends.
   const refocusEdit = () => {
     let tries = 0
     const attempt = () => {
@@ -334,13 +334,13 @@ export function ShortcutsSection() {
       if (button && !button.disabled) button.focus()
       else if (busyRef.current || ++tries < 60) requestAnimationFrame(attempt)
     }
-    // Almeno due frame: il dialogo si riprende il focus dopo il primo.
+    // At least two frames: the dialog takes focus back after the first.
     requestAnimationFrame(() => requestAnimationFrame(attempt))
   }
 
   const stopRecording = (restoreFocus = true) => {
     setRecording(null)
-    // Il tasto che aveva aperto la registrazione era stato smontato: il focus va al suo nuovo tasto, appena ridisegnato.
+    // The button that started the recording was unmounted: focus goes to its new button, just redrawn.
     if (restoreFocus) refocusEdit()
   }
 
@@ -352,10 +352,10 @@ export function ShortcutsSection() {
   }
 
   const capture = (id: CommandId, key: string) => {
-    // Stessa combinazione di prima: niente da cambiare.
+    // Same combination as before: nothing to change.
     if (bindingsOf(id).length === 1 && keyOf(bindingsOf(id)[0]) === key) return stopRecording()
     const conflicts = conflictsOf(id, key)
-    // Con un conflitto il focus resta sulla scelta (Annulla): se tornasse al tasto di modifica, Esc chiuderebbe le impostazioni.
+    // With a conflict focus stays on the choice (Cancel): if it went back to the edit button, Esc would close the settings.
     stopRecording(conflicts.length === 0)
     if (conflicts.length > 0) setPending({ id, key, conflicts })
     else void save(state.preset, assign(state.overrides, id, key))
@@ -370,7 +370,7 @@ export function ShortcutsSection() {
 
   const addressable = !state.invalid
   const customCount = new Set(state.overrides.map((entry) => entry.command.replace(/^-/, ''))).size
-  // Il preset "ladder" ha già ⌘⇧P: l'elenco mostra solo ciò che il preset scelto aggiunge a quei predefiniti.
+  // The "ladder" preset already has ⌘⇧P: the list shows only what the chosen preset adds to those defaults.
   const own = new Set(PRESET_BINDINGS.ladder.map((entry) => `${entry.command} ${entry.key}`))
   const added = PRESET_BINDINGS[state.preset].filter((entry) => !own.has(`${entry.command} ${entry.key}`)).map((entry) => formatShortcut(entry.key)).filter(Boolean)
 
@@ -389,7 +389,7 @@ export function ShortcutsSection() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape' && query) {
-                // Esc svuota la ricerca prima di chiudere le impostazioni.
+                // Esc clears the search before closing the settings.
                 e.preventDefault()
                 e.stopPropagation()
                 setQuery('')
@@ -489,7 +489,7 @@ export function ShortcutsSection() {
         </p>
       )}
 
-      {/* Da 820 px i gruppi stanno su due colonne (ognuno intero, senza spezzarsi). */}
+      {/* From 820 px the groups sit in two columns (each whole, never split). */}
       <div ref={list} className="mt-5 flex flex-col gap-5 @[820px]:block @[820px]:columns-2 @[820px]:gap-x-10">
         {groups.length === 0 && (
           <p role="status" className="text-sm text-muted-foreground">

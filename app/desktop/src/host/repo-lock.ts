@@ -1,22 +1,22 @@
-// Un'operazione alla volta per repository (LAD-69): push, merge e archiviazione si escludono tra loro; il fetch in background
-// cede il passo (si ferma e si ritenta) invece di far fallire chi ha chiesto l'operazione.
+// One operation at a time per repository: push, merge and archive exclude each other; the background fetch
+// yields (it stops and retries) instead of failing whoever asked for the operation.
 import { t } from '@shared/i18n'
 import { gitRead } from './git'
 
 const locks = new Set<string>()
 const fetches = new Map<string, { cancel: () => void; done: Promise<unknown> }>()
 
-/** Chiave del repo: cartella git comune a tutti i worktree, assoluta (la stessa che usa il tracker del fetch). */
+/** Repo key: git folder shared by all worktrees, absolute (the same one the fetch tracker uses). */
 export async function repoKey(root: string): Promise<string> {
   return (await gitRead(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']).catch(() => '')).trim() || root
 }
 
-/** C'è un push, un merge o un'archiviazione in corso su questo repo? */
+/** Is a push, merge or archive in progress on this repo? */
 export function repoLocked(key: string): boolean {
   return locks.has(key)
 }
 
-/** Il fetch in background dichiara di girare su `key`: chi prende il lock lo ferma e ne aspetta la fine. */
+/** The background fetch declares it is running on `key`: whoever takes the lock stops it and waits for it to finish. */
 export function registerFetch(key: string, job: { cancel: () => void; done: Promise<unknown> }): () => void {
   fetches.set(key, job)
   return () => {
@@ -24,7 +24,7 @@ export function registerFetch(key: string, job: { cancel: () => void; done: Prom
   }
 }
 
-/** Esegue `fn` se nessun'altra operazione di rete (push, merge, archivia) gira sullo stesso repo; altrimenti lancia subito. Un fetch in background si ferma e basta. */
+/** Runs `fn` if no other network operation (push, merge, archive) is running on the same repo; otherwise throws immediately. A background fetch just stops. */
 export async function withRepoLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
   const key = await repoKey(root)
   if (locks.has(key)) throw new Error(t('Another push or merge is already running on this repository: wait for it to finish.'))
@@ -33,7 +33,7 @@ export async function withRepoLock<T>(root: string, fn: () => Promise<T>): Promi
     const fetch = fetches.get(key)
     if (fetch) {
       fetch.cancel()
-      // Il fetch si ferma da solo (SIGTERM, poi SIGKILL dopo 3 s): si aspetta un po', non all'infinito.
+      // The fetch stops by itself (SIGTERM, then SIGKILL after 3 s): wait a little, not forever.
       await Promise.race([fetch.done.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 5_000).unref())])
     }
     return await fn()

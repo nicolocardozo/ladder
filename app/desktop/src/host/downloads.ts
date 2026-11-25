@@ -1,4 +1,4 @@
-// Download di strumenti esterni (gh, Codex) nella cartella dati di Ladder: HTTPS, checksum SHA-256 e archivio estratto qui.
+// Downloads of external tools (gh, Codex) into Ladder's data folder: HTTPS, SHA-256 checksum and archive extracted here.
 import { createHash, X509Certificate } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm } from 'node:fs/promises'
@@ -15,14 +15,14 @@ import { cleanEnv } from './agents/common'
 const run = promisify(execFile)
 
 /**
- * Ambiente dei processi che trattano dati non fidati (bsdtar, gzip, bzip2, xattr, codesign): PATH fisso ai soli binari di sistema, perché
- * bsdtar avvia come filtri esterni i programmi che trova nel PATH (zstd, lz4, lzop…) e un archivio può chiederli. Locale UTF-8, così
- * i nomi non ASCII si elencano e si estraggono come sono (nel locale C bsdtar li stampa come `\303\251` e non li converte).
+ * Environment for processes that handle untrusted data (bsdtar, gzip, bzip2, xattr, codesign): PATH fixed to system binaries only, because
+ * bsdtar launches as external filters the programs it finds in PATH (zstd, lz4, lzop…) and an archive can ask for them. UTF-8 locale, so
+ * non-ASCII names are listed and extracted as they are (in the C locale bsdtar prints them as `\303\251` and does not convert them).
  */
 const untrustedEnv = () => ({ ...cleanEnv(), PATH: '/usr/bin:/bin', LC_ALL: 'en_US.UTF-8' })
 const tarEnv = untrustedEnv
 
-/** Errore con un codice stabile per la UI (AgentBlockCode): i blocchi di sicurezza dell'installazione. */
+/** Error with a stable code for the UI (AgentBlockCode): the installation's security blocks. */
 export class BlockError extends Error {
   constructor(
     readonly code: AgentBlockCode,
@@ -32,26 +32,26 @@ export class BlockError extends Error {
   }
 }
 
-/** Limiti dei download: l'archivio (anche se il server non dà Content-Length, si conta mentre arriva), il contenuto estratto e il numero di voci. */
+/** Download limits: the archive (counted as it arrives, even if the server sends no Content-Length), the extracted content and the number of entries. */
 export const MAX_ARCHIVE_BYTES = 600 * 1024 * 1024
 export const MAX_EXTRACTED_BYTES = 2 * 1024 * 1024 * 1024
 export const MAX_ENTRIES = 50_000
 const tooLarge = () => new BlockError('too-large', t('The download is larger than Ladder allows.'))
 
-/** Cartella dati di Ladder (la stessa del database). */
+/** Ladder's data folder (the same as the database). */
 export function dataDir(): string {
   const db = process.env.LADDER_DB_PATH
   return db ? dirname(db) : join(process.env.HOME ?? '/tmp', '.ladder')
 }
 
-/** Gli strumenti scaricati stanno in `bin/<nome>`. */
+/** Downloaded tools live in `bin/<name>`. */
 export function toolDir(name: string): string {
   return join(dataDir(), 'bin', name)
 }
 
 export interface ReleaseAsset {
   url: string
-  /** SHA-256 in esadecimale, dall'API di GitHub (campo `digest`) o dal file dei checksum. */
+  /** SHA-256 in hex, from the GitHub API (`digest` field) or from the checksum file. */
   sha256: string
   size: number
 }
@@ -68,8 +68,8 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
 }
 
 /**
- * Ultima release di un repository GitHub e il suo asset. Il checksum viene dal `digest` dell'asset; se manca,
- * da `checksums` (nome del file con "sha256  nome" per riga).
+ * Latest release of a GitHub repository and its asset. The checksum comes from the asset's `digest`; if missing,
+ * from `checksums` (file contents with a "sha256  name" line per file).
  */
 export async function latestAsset(repo: string, pick: (tag: string) => string, signal: AbortSignal, checksums?: (tag: string) => string): Promise<ReleaseAsset & { tag: string }> {
   const release = await getJson<GithubRelease>(`https://api.github.com/repos/${repo}/releases/latest`, signal)
@@ -80,7 +80,7 @@ export async function latestAsset(repo: string, pick: (tag: string) => string, s
   if (!sha && checksums) {
     const file = release.assets.find((a) => a.name === checksums(release.tag_name))
     if (file) {
-      // Stessa fonte (la release GitHub), ma con i controlli sui redirect e sull'esito: una pagina d'errore non è un file di checksum.
+      // Same source (the GitHub release), but with checks on redirects and on the outcome: an error page is not a checksum file.
       const { response } = await fetchChecked(file.browser_download_url, { headers: { 'User-Agent': 'Ladder' } }, signal)
       if (!response.ok) throw new Error(t('Download failed: the server responded {status}.', { status: response.status }))
       const text = await response.text()
@@ -93,16 +93,16 @@ export async function latestAsset(repo: string, pick: (tag: string) => string, s
   return { tag: release.tag_name, url: asset.browser_download_url, sha256: sha.toLowerCase(), size: asset.size }
 }
 
-/** Host su cui può finire un download dopo i redirect, oltre a quello dell'URL: le release GitHub passano da queste CDN. */
+/** Hosts a download may end up on after redirects, besides the URL's own: GitHub releases go through these CDNs. */
 const DOWNLOAD_HOSTS = ['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']
 
-/** Un salto di redirect è accettabile solo su https, senza credenziali, sulla porta standard e sull'host di partenza (o, per GitHub, le sue CDN). */
+/** A redirect hop is acceptable only over https, without credentials, on the standard port and on the starting host (or, for GitHub, its CDNs). */
 function hopAllowed(origin: URL, next: URL): boolean {
   if (next.protocol !== 'https:' || next.username || next.password || (next.port && next.port !== '443')) return false
   return next.host === origin.host || (origin.host === 'github.com' && DOWNLOAD_HOSTS.includes(next.host))
 }
 
-/** fetch che segue i redirect uno a uno (al massimo 5) e controlla ogni indirizzo, non solo l'ultimo. Restituisce anche l'URL finale. */
+/** fetch that follows redirects one at a time (at most 5) and checks every address, not just the last. Also returns the final URL. */
 export async function fetchChecked(url: string, init: RequestInit, signal: AbortSignal): Promise<{ response: Response; url: URL }> {
   const origin = new URL(url)
   if (!hopAllowed(origin, origin)) throw new BlockError('host', t('The download was redirected to an unexpected address.'))
@@ -127,7 +127,7 @@ export async function fetchChecked(url: string, init: RequestInit, signal: Abort
   throw new BlockError('host', t('The download was redirected to an unexpected address.'))
 }
 
-/** Dimensione dell'archivio senza scaricarlo (HEAD e Content-Length, 6 secondi): null se ignota o se qualcosa non va. */
+/** Size of the archive without downloading it (HEAD and Content-Length, 6 seconds): null if unknown or if something goes wrong. */
 export async function remoteSize(url: string): Promise<number | null> {
   try {
     const { response } = await fetchChecked(url, { method: 'HEAD', headers: { 'User-Agent': 'Ladder' } }, AbortSignal.timeout(6000))
@@ -140,8 +140,8 @@ export async function remoteSize(url: string): Promise<number | null> {
 }
 
 /**
- * Scarica in `dest` con avanzamento e verifica lo SHA-256; se non corrisponde cancella il file. Oltre `maxBytes` si
- * ferma (anche senza Content-Length: si conta mentre arriva). Gli indirizzi dei redirect si controllano uno a uno.
+ * Downloads to `dest` with progress and verifies the SHA-256; if it does not match, the file is deleted. Past `maxBytes` it
+ * stops (even without Content-Length: counted as it arrives). Redirect addresses are checked one at a time.
  */
 export async function downloadVerified(asset: ReleaseAsset, dest: string, signal: AbortSignal, onProgress: (bytes: number, total: number | null) => void, maxBytes = MAX_ARCHIVE_BYTES): Promise<void> {
   await mkdir(dirname(dest), { recursive: true })
@@ -161,7 +161,7 @@ export async function downloadVerified(asset: ReleaseAsset, dest: string, signal
       bytes += chunk.length
       if (bytes > maxBytes) return done(tooLarge())
       hash.update(chunk)
-      // L'avanzamento arriva alla UI al massimo 5 volte al secondo.
+      // Progress reaches the UI at most 5 times per second.
       if (Date.now() - last > 200) {
         last = Date.now()
         onProgress(bytes, total)
@@ -183,14 +183,14 @@ export async function downloadVerified(asset: ReleaseAsset, dest: string, signal
 }
 
 /**
- * Estrae l'archivio (zip o tar.gz) in una cartella vuota di lavoro e sposta in `target` il primo file eseguibile
- * che `match` riconosce. La cartella finale si sostituisce solo a estrazione riuscita.
+ * Extracts the archive (zip or tar.gz) into an empty work folder and moves to `target` the first executable file
+ * that `match` recognizes. The final folder is replaced only after a successful extraction.
  */
 export async function extractBinary(archive: string, target: string, match: (relativePath: string) => boolean): Promise<void> {
   const work = `${target}.extract`
   await rm(work, { recursive: true, force: true })
   try {
-    // Stessi controlli degli agenti ACP (percorsi, link, formato): poi si sposta solo l'eseguibile.
+    // Same checks as for ACP agents (paths, links, format): then only the executable is moved.
     await extractArchive(archive, work, basename(target))
     const found = await findFile(work, '', match)
     if (!found) throw new Error(t('The downloaded archive does not contain the expected program.'))
@@ -199,7 +199,7 @@ export async function extractBinary(archive: string, target: string, match: (rel
     await rename(join(work, found), target)
     await chmod(target, 0o755)
   } finally {
-    // Cartella di lavoro e archivio si tolgono sempre, anche se l'eseguibile non c'è.
+    // Work folder and archive are always removed, even if the executable is not there.
     await rm(work, { recursive: true, force: true })
     await rm(archive, { force: true })
   }
@@ -216,11 +216,11 @@ async function findFile(root: string, rel: string, match: (relativePath: string)
   return null
 }
 
-// ── Binari degli agenti ACP (LAD-56) ─────────────────────────────────────────
+// ── ACP agent binaries ───────────────────────────────────────────────────────
 
 /**
- * Checksum di un archivio ospitato su una release GitHub (`github.com/<utente>/<repo>/releases/download/<tag>/<file>`):
- * il campo `digest` dell'asset di quella release. null se l'URL non è di una release o la release non lo pubblica.
+ * Checksum of an archive hosted on a GitHub release (`github.com/<user>/<repo>/releases/download/<tag>/<file>`):
+ * the `digest` field of that release's asset. null if the URL is not a release's or the release does not publish it.
  */
 export async function githubReleaseDigest(url: string, signal: AbortSignal): Promise<{ sha256: string; size: number | null } | null> {
   const match = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/releases\/download\/([^/?#]+)\/([^/?#]+)$/.exec(url)
@@ -235,7 +235,7 @@ export async function githubReleaseDigest(url: string, signal: AbortSignal): Pro
   } catch {
     return null
   }
-  // Tag sparito (404): la release non esiste più, quindi nessun checksum pubblicato (diverso da "non leggibile ora").
+  // Tag gone (404): the release no longer exists, so no checksum is published (different from "not readable right now").
   const release = await getJson<GithubRelease>(`https://api.github.com/repos/${owner}/${repo}/releases/tags/${encodeURIComponent(tagName)}`, signal).catch((error: { status?: number }) => {
     if (error.status === 404) return null
     throw error
@@ -246,7 +246,7 @@ export async function githubReleaseDigest(url: string, signal: AbortSignal): Pro
   return sha ? { sha256: sha.toLowerCase(), size: asset?.size ?? null } : null
 }
 
-/** Percorso relativo del programma nell'archivio: niente percorsi assoluti, niente `..`, niente caratteri strani. */
+/** Relative path of the program in the archive: no absolute paths, no `..`, no odd characters. */
 export function safeRelativePath(cmd: string): string | null {
   if (!cmd || cmd.length > 512 || isAbsolute(cmd) || /[\0\n\r]/.test(cmd)) return null
   const clean = normalize(cmd)
@@ -256,7 +256,7 @@ export function safeRelativePath(cmd: string): string | null {
 
 const MACHO = new Set(['cffaedfe', 'cefaedfe', 'cafebabe', 'cafebabf', 'feedface', 'feedfacf'])
 
-/** Inizio dei formati che bsdtar riconosce da sé e tratta come filtro (programma esterno) o come altro archivio: un tar il cui primo nome inizia così non si accetta. */
+/** Start of the formats bsdtar recognizes on its own and treats as a filter (external program) or as another archive: a tar whose first name starts like this is not accepted. */
 const FILTER_MAGICS: number[][] = [
   [0x28, 0xb5, 0x2f, 0xfd], // zstd
   [0x04, 0x22, 0x4d, 0x18], // lz4
@@ -268,15 +268,15 @@ const FILTER_MAGICS: number[][] = [
   [0x1f, 0x9d], // compress
   [0xed, 0xab, 0xee, 0xdb], // rpm
   [0xc7, 0x71],
-  [0x71, 0xc7], // cpio binario
+    [0x71, 0xc7], // binary cpio
   ...['LRZI', 'LZIP', 'GRZipII', '#mtree', 'Rar!', 'MSCF', 'xar!', '!<arch>', '070701', '070702', '070707', 'begin '].map((m) => [...Buffer.from(m, 'latin1')])
 ]
 
-/** Vero se la testa (512 byte) è un header ustar valido: magic, checksum (byte 148-155, somma degli header con il campo a spazi) e non inizia come un filtro noto. */
+/** True if the head (512 bytes) is a valid ustar header: magic, checksum (bytes 148-155, sum of the header with the field as spaces) and does not start like a known filter. */
 export function isUstarHead(buf: Buffer): boolean {
   if (buf.length < 512 || buf.toString('latin1', 257, 262) !== 'ustar') return false
   if (FILTER_MAGICS.some((m) => m.every((byte, i) => buf[i] === byte))) return false
-  // Frame saltabili di zstd e lz4: il primo byte va da 0x50 a 0x5f, poi 2a 4d 18.
+  // Skippable zstd and lz4 frames: the first byte ranges from 0x50 to 0x5f, then 2a 4d 18.
   if ((buf[0] & 0xf0) === 0x50 && buf[1] === 0x2a && buf[2] === 0x4d && buf[3] === 0x18) return false
   const field = /^[ 0]*([0-7]+)[\0 ]/.exec(buf.toString('latin1', 148, 156))?.[1]
   if (!field) return false
@@ -307,7 +307,7 @@ async function sniff(file: string): Promise<'zip' | 'gzip' | 'bzip2' | 'tar' | '
   }
 }
 
-/** Vero se il nome del file nell'URL (o il parametro `file=`) ha un'estensione da archivio o da compressione. */
+/** True if the file name in the URL (or the `file=` parameter) has an archive or compression extension. */
 function hasArchiveExtension(url: string): boolean {
   try {
     const u = new URL(url)
@@ -319,7 +319,7 @@ function hasArchiveExtension(url: string): boolean {
 
 const entryOk = (entry: string) => !isAbsolute(entry) && !entry.includes('\0') && !normalize(entry).split(sep).includes('..')
 
-/** Chiave di confronto di un percorso: il disco di macOS non distingue maiuscole né forme Unicode (NFC/NFD), quindi `A/x` e `a/x` sono lo stesso posto. */
+/** Comparison key for a path: macOS disks do not distinguish case or Unicode forms (NFC/NFD), so `A/x` and `a/x` are the same place. */
 const folded = (entry: string) =>
   normalize(entry)
     .replace(/\/+$/, '')
@@ -327,8 +327,8 @@ const folded = (entry: string) =>
     .toLowerCase()
 
 /**
- * Nessuna voce può stare sotto un'altra voce che non è una cartella (tar potrebbe scrivere attraverso un link creato prima).
- * `types` sono i tipi letti da `tar -tv` (primo carattere di ogni riga: `d` cartella); i nomi si confrontano senza maiuscole e in NFD.
+ * No entry may sit under another entry that is not a folder (tar could write through a link created earlier).
+ * `types` are the types read from `tar -tv` (first character of each line: `d` folder); names are compared case-insensitively and in NFD.
  */
 function noFileParents(entries: string[], types: string[]): boolean {
   const names = entries.map(folded)
@@ -340,13 +340,13 @@ function noFileParents(entries: string[], types: string[]): boolean {
   })
 }
 
-/** Esegue un programma (mai una shell) e passa a `onLine` ogni riga dell'output; se `onLine` lancia, il processo si ferma e l'errore risale. 120 secondi al massimo. */
+/** Runs a program (never a shell) and passes each output line to `onLine`; if `onLine` throws, the process stops and the error propagates. 120 seconds at most. */
 function spawnLines(file: string, args: string[], onLine: (line: string) => void, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { env: tarEnv(), stdio: ['ignore', 'pipe', 'ignore'], signal, timeout: 120_000 })
     let rest = ''
     let failure: unknown = null
-    // Con la codifica sul flusso un carattere multibyte spezzato tra due chunk non diventa U+FFFD (le due letture, -tf e -tvf, devono dare gli stessi nomi).
+    // With stream encoding, a multibyte character split between two chunks does not become U+FFFD (the two reads, -tf and -tvf, must give the same names).
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
       if (failure) return
@@ -374,9 +374,9 @@ function spawnLines(file: string, args: string[], onLine: (line: string) => void
 }
 
 /**
- * Elenco dell'archivio con bsdtar, lo stesso programma che poi estrae (con un altro programma i nomi della directory
- * centrale di uno zip e quelli degli header locali potrebbero non coincidere): i nomi da `-tf` e, riga per riga, i tipi e
- * le dimensioni da `-tvf`. Si ferma appena un limite è superato (zip-bomb). Rifiuta hard link e file speciali.
+ * Archive listing with bsdtar, the same program that later extracts (with another program the names in a zip's central
+ * directory and those in the local headers might not match): names from `-tf` and, line by line, types and
+ * sizes from `-tvf`. Stops as soon as a limit is exceeded (zip bomb). Rejects hard links and special files.
  */
 async function listArchive(archive: string, signal?: AbortSignal): Promise<{ entries: string[]; types: string[] }> {
   const notSafe = Object.assign(new Error(t('The downloaded archive is not safe to extract.')), { final: true })
@@ -388,7 +388,7 @@ async function listArchive(archive: string, signal?: AbortSignal): Promise<{ ent
     ['-tf', archive],
     (line) => {
       if (!line) return
-      // bsdtar stampa i caratteri di controllo e la barra rovesciata con una sequenza di escape: un nome così non è un file di un programma.
+      // bsdtar prints control characters and backslash as an escape sequence: such a name is not a program's file.
       if (/[\\\u0000-\u001f]/.test(line)) throw notSafe
       entries.push(line)
       if (entries.length > MAX_ENTRIES) throw tooLarge()
@@ -399,12 +399,12 @@ async function listArchive(archive: string, signal?: AbortSignal): Promise<{ ent
       '/usr/bin/tar',
       ['-tvf', archive],
       (line) => {
-        // "-rw-r--r--  0 utente gruppo  12345 Jan  1 00:00 nome": primo carattere = tipo, 5° campo = dimensione.
+        // "-rw-r--r--  0 user group  12345 Jan  1 00:00 name": first character = type, 5th field = size.
         if (!/^[-dlhcbps?][-rwxsStT?]{9}/.test(line)) return
         if ('hcbps'.includes(line[0])) throw notSafe
-        // La dimensione si legge da destra: tolto il nome (noto dalla `-tf`, stesso indice) restano `... dimensione utente data`. uname e gname
-        // possono contenere spazi e numeri (anche una data finta), quindi non si conta per campo né con un'espressione che parte da sinistra.
-        // Un link non ha contenuto e il suo "-> bersaglio" è scelto da chi crea l'archivio: la dimensione conta solo per le altre voci.
+        // The size is read from the right: with the name removed (known from `-tf`, same index) what remains is `... size user date`. uname and gname
+        // may contain spaces and numbers (even a fake date), so we do not count by field nor use an expression that starts from the left.
+        // A link has no content and its "-> target" is chosen by whoever creates the archive: size counts only for the other entries.
         let size = 0
         if (line[0] !== 'l') {
           const name = entries[types.length]
@@ -423,12 +423,12 @@ async function listArchive(archive: string, signal?: AbortSignal): Promise<{ ent
     if (error === notSafe || error instanceof BlockError || signal?.aborted) throw error
     throw new Error(t('The downloaded file is in a format Ladder can’t unpack.'))
   })
-  // Le due letture devono vedere le stesse voci, nello stesso ordine.
+  // The two reads must see the same entries, in the same order.
   if (entries.length !== types.length) throw notSafe
   return { entries, types }
 }
 
-/** Primi 512 byte del contenuto decompresso di un gzip o bzip2 (si ferma lì): serve a verificare che dentro ci sia solo un tar. */
+/** First 512 bytes of the decompressed content of a gzip or bzip2 (stops there): used to check that only a tar is inside. */
 function decompressedHead(program: string, archive: string): Promise<Buffer> {
   return new Promise((resolveHead) => {
     const child = spawn(program, ['-dc', archive], { env: untrustedEnv(), stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 })
@@ -445,7 +445,7 @@ function decompressedHead(program: string, archive: string): Promise<Buffer> {
   })
 }
 
-/** Estrae con un controllo periodico sul contenuto: se supera i limiti (dimensione reale, non quella dichiarata) il processo si ferma. */
+/** Extracts with a periodic check on the content: if it exceeds the limits (real size, not the declared one) the process stops. */
 function extractLimited(file: string, args: string[], dest: string, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { env: tarEnv(), stdio: 'ignore', signal, timeout: 120_000 })
@@ -471,7 +471,7 @@ function extractLimited(file: string, args: string[], dest: string, signal?: Abo
     child.on('close', (code) => {
       clearInterval(timer)
       if (exceeded) return reject(tooLarge())
-      // Controllo finale: l'ultimo giro del timer può non aver visto la fine.
+      // Final check: the timer's last tick may not have seen the end.
       measure(dest)
         .then(({ bytes, entries }) => {
           if (bytes > MAX_EXTRACTED_BYTES || entries > MAX_ENTRIES) reject(tooLarge())
@@ -482,7 +482,7 @@ function extractLimited(file: string, args: string[], dest: string, signal?: Abo
   })
 }
 
-/** Byte e voci di una cartella, senza seguire i link. */
+/** Bytes and entries of a folder, without following links. */
 async function measure(dir: string): Promise<{ bytes: number; entries: number }> {
   let bytes = 0
   let entries = 0
@@ -500,14 +500,14 @@ async function measure(dir: string): Promise<{ bytes: number; entries: number }>
 }
 
 /**
- * Estrae l'archivio (zip, tar, tar.gz, tar.bz2) in `dest`, cartella nuova, sempre con bsdtar (elenco ed estrazione con lo stesso
- * programma); il formato si riconosce dai primi byte e non dall'estensione e dentro gzip/bzip2 deve esserci un tar. Prima legge l'elenco e rifiuta percorsi assoluti o con `..`, link simbolici negli zip, hard link,
- * file speciali e voci sotto un file, e ferma tutto se le dimensioni dichiarate o le voci superano i limiti; durante
- * l'estrazione controlla anche la dimensione reale (zip-bomb con intestazioni false). Dopo rifiuta ogni link simbolico
- * che, seguito fino in fondo, porti fuori da `dest` o abbia un bersaglio assoluto, ogni file con più link e ogni file speciale; toglie
- * a TUTTI i file normali i bit di esecuzione, setuid e setgid (il permesso di esecuzione lo dà poi chi installa, solo al file atteso).
- * Un file che non è un archivio si accetta solo se è un eseguibile Mach-O o se `sourceUrl` non ha un'estensione da
- * archivio: `rawName` è il percorso relativo in cui metterlo. Altri formati (tar.xz, tar.zst, gz non tar…) si rifiutano.
+ * Extracts the archive (zip, tar, tar.gz, tar.bz2) into `dest`, a new folder, always with bsdtar (listing and extraction with the same
+ * program); the format is recognized from the first bytes and not from the extension, and inside gzip/bzip2 there must be a tar. It first reads the listing and rejects absolute paths or paths with `..`, symlinks in zips, hard links,
+ * special files and entries under a file, and stops everything if the declared sizes or the entries exceed the limits; during
+ * extraction it also checks the real size (zip bombs with false headers). Afterwards it rejects every symlink
+ * that, followed all the way, leads outside `dest` or has an absolute target, every file with multiple links and every special file; it removes
+ * from ALL regular files the execute, setuid and setgid bits (execute permission is then granted by the installer, only to the expected file).
+ * A file that is not an archive is accepted only if it is a Mach-O executable or if `sourceUrl` has no archive
+ * extension: `rawName` is the relative path to put it in. Other formats (tar.xz, tar.zst, non-tar gz…) are rejected.
  */
 export async function extractArchive(archive: string, dest: string, rawName: string, sourceUrl?: string, signal?: AbortSignal): Promise<void> {
   await removeTree(dest)
@@ -521,23 +521,23 @@ export async function extractArchive(archive: string, dest: string, rawName: str
   }
   if (kind === 'raw') throw new Error(t('The downloaded file is in a format Ladder can’t unpack.'))
   const unsafe = () => new Error(t('The downloaded archive is not safe to extract.'))
-  // Dentro gzip e bzip2 ci deve essere un tar: bsdtar riconosce da sé altri filtri (lrzip, lzop, grzip) e li avvierebbe come programmi esterni.
+  // Inside gzip and bzip2 there must be a tar: bsdtar recognizes other filters on its own (lrzip, lzop, grzip) and would launch them as external programs.
   if (kind === 'gzip' || kind === 'bzip2') {
     const head = await decompressedHead(kind === 'gzip' ? '/usr/bin/gzip' : '/usr/bin/bzip2', archive)
     if (!isUstarHead(head)) throw new Error(t('The downloaded file is in a format Ladder can’t unpack.'))
   }
-  // Elenco ed estrazione con lo stesso programma (bsdtar, anche per gli zip). I link simbolici negli zip non servono a un programma: si rifiutano (`l` in `-tv`).
+  // Listing and extraction with the same program (bsdtar, also for zips). Symlinks in zips are of no use to a program: they are rejected (`l` in `-tv`).
   const { entries, types } = await listArchive(archive, signal)
   if (!entries.every(entryOk) || !noFileParents(entries, types)) throw unsafe()
   if (kind === 'zip' && types.includes('l')) throw unsafe()
-  // Senza attributi estesi, ACL e metadati di macOS (AppleDouble): solo i dati e i permessi; i default di bsdtar già rifiutano `..` e tolgono la `/` iniziale.
+  // Without extended attributes, ACLs and macOS metadata (AppleDouble): only data and permissions; bsdtar's defaults already reject `..` and strip the leading `/`.
   await extractLimited('/usr/bin/tar', ['--no-xattrs', '--no-acls', '--no-mac-metadata', '-xf', archive, '-C', dest], dest, signal)
-  // Percorsi dal realpath di `dest`: se la cartella dati passa da un link (/tmp → /private/tmp) i link interni restano validi.
+  // Paths from the realpath of `dest`: if the data folder goes through a link (/tmp → /private/tmp) internal links remain valid.
   const root = await realpath(dest)
   await assertSafeTree(root, root)
 }
 
-/** Cancella una cartella temporanea anche se l'archivio vi ha lasciato cartelle senza permessi (modo 0000): riapre u+rwx, senza seguire i link, solo dentro `path`. */
+/** Deletes a temporary folder even if the archive left folders without permissions in it (mode 0000): reopens u+rwx, without following links, only inside `path`. */
 export async function removeTree(path: string): Promise<void> {
   try {
     await rm(path, { recursive: true, force: true })
@@ -553,29 +553,29 @@ export async function removeTree(path: string): Promise<void> {
   }
 }
 
-/** Dentro `dir`: link simbolici relativi che restano nella radice (seguiti fino in fondo), nessun file speciale o con più link; a ogni file normale si tolgono esecuzione, setuid e setgid. */
+/** Inside `dir`: relative symlinks that stay within the root (followed all the way), no special files or files with multiple links; every regular file loses execute, setuid and setgid. */
 async function assertSafeTree(dir: string, root: string): Promise<void> {
   const unsafe = () => new Error(t('The downloaded archive is not safe to extract.'))
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name)
     const info = await lstat(path)
     if (info.isSymbolicLink()) {
-      // Solo link relativi: uno assoluto punta fuori dall'albero qualunque cosa ci sia oggi in quel percorso.
+      // Only relative links: an absolute one points outside the tree whatever exists today at that path.
       const to = await readlink(path)
       if (isAbsolute(to)) throw unsafe()
-      // Il testo del link non può risalire sopra la radice nemmeno di un passo: dopo lo scambio della cartella (`<id>.new` diventa `<id>`) un link che
-      // passa dal nome della cartella temporanea (`../../<id>.new/x`) punterebbe a un posto che non esiste più.
+      // The link text must not climb above the root even by one step: after the folder swap (`<id>.new` becomes `<id>`) a link that
+      // goes through the temporary folder name (`../../<id>.new/x`) would point to a place that no longer exists.
       const up = normalize(join(relative(root, dirname(path)), to))
       if (up === '..' || up.startsWith(`..${sep}`)) throw unsafe()
-      // Con realpath si seguono anche i link a catena (a → b/.. → fuori), che un controllo sul solo testo del link non vede.
+      // With realpath, chained links are followed too (a → b/.. → outside), which a check on the link text alone does not see.
       const real = await realpath(path).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'ENOENT') throw unsafe()
-        // Link che non porta da nessuna parte: conta il testo del link, che deve restare dentro.
+        // A link that leads nowhere: the link text counts, and it must stay inside.
         return resolve(dirname(path), to)
       })
       if (real !== root && !real.startsWith(root + sep)) throw unsafe()
     } else if (info.isDirectory()) {
-      // Una cartella senza permessi (modo 0000 nel tar) non si legge né si cancella: si riapre al proprietario prima di entrarci.
+      // A folder without permissions (mode 0000 in the tar) can be neither read nor deleted: reopen it for the owner before entering.
       if ((info.mode & 0o700) !== 0o700) await chmod(path, info.mode | 0o700)
       await assertSafeTree(path, root)
     }
@@ -584,7 +584,7 @@ async function assertSafeTree(dir: string, root: string): Promise<void> {
   }
 }
 
-/** Percorso assoluto del programma dentro `root`, a patto che sia un file e (anche seguendo i link) resti dentro `root`. */
+/** Absolute path of the program inside `root`, provided it is a file and (even following links) stays inside `root`. */
 export async function resolveInside(root: string, cmd: string): Promise<string> {
   const rel = safeRelativePath(cmd)
   if (!rel) throw new Error(t('The registry gives an unsafe path for the program.'))
@@ -595,7 +595,7 @@ export async function resolveInside(root: string, cmd: string): Promise<string> 
   return full
 }
 
-/** Vero se il file porta l'attributo di quarantena di macOS (Gatekeeper lo valuterebbe all'avvio). */
+/** True if the file carries the macOS quarantine attribute (Gatekeeper would evaluate it at launch). */
 export async function hasQuarantine(path: string): Promise<boolean> {
   try {
     await run('/usr/bin/xattr', ['-p', 'com.apple.quarantine', path], { env: untrustedEnv(), timeout: 5000 })
@@ -605,7 +605,7 @@ export async function hasQuarantine(path: string): Promise<boolean> {
   }
 }
 
-/** Il pacchetto `.app` che contiene il programma (dentro `root`), se c'è: la firma di un'app si verifica sul pacchetto intero. */
+/** The `.app` bundle that contains the program (inside `root`), if any: an app's signature is verified on the whole bundle. */
 function enclosingApp(root: string, program: string): string | null {
   const parts = program.slice(root.length + 1).split(sep)
   const index = parts.findIndex((part) => part.endsWith('.app'))
@@ -613,13 +613,13 @@ function enclosingApp(root: string, program: string): string | null {
 }
 
 /**
- * Cartelle di un `.app` dove sta il programma da avviare (il resto, come Contents/Resources, può avere file fuori dal sigillo). Non ci sono
- * `Contents/runtime` e `Contents/jbr`: contengono il JDK (`java` firmato dal vendor accetta `-XX:OnOutOfMemoryError=…`), e il programma è
- * comunque fissato per ogni agente curato scaricabile (`CURATED.cmd`).
+ * Folders of an `.app` where the program to launch lives (the rest, like Contents/Resources, may have files outside the seal). `Contents/runtime`
+ * and `Contents/jbr` are excluded: they contain the JDK (a vendor-signed `java` accepts `-XX:OnOutOfMemoryError=…`), and the program is
+ * anyway fixed for every downloadable curated agent (`CURATED.cmd`).
  */
 const APP_EXECUTABLE_DIRS = ['Contents/MacOS', 'Contents/Helpers', 'Contents/Frameworks']
 
-/** Vero se il file inizia con la firma di un Mach-O (o di un binario universale). */
+/** True if the file starts with a Mach-O signature (or a universal binary's). */
 async function isMachO(file: string): Promise<boolean> {
   const handle = await open(file, 'r')
   try {
@@ -632,28 +632,28 @@ async function isMachO(file: string): Promise<boolean> {
 }
 
 /**
- * Requisito sul certificato: la catena deve arrivare ad Apple (`anchor apple generic`) e la foglia essere un Developer ID
- * Application (OID 1.2.840.113635.100.6.1.13); i binari di sistema di Apple valgono con `anchor apple`. Senza, il nome
- * dentro il certificato lo può scrivere chiunque: un certificato autofirmato "Developer ID Application: Google LLC" passa
- * `--verify` (che controlla solo l'integrità).
+ * Requirement on the certificate: the chain must reach Apple (`anchor apple generic`) and the leaf be a Developer ID
+ * Application (OID 1.2.840.113635.100.6.1.13); Apple system binaries pass with `anchor apple`. Without it, the name
+ * inside the certificate can be written by anyone: a self-signed "Developer ID Application: Google LLC" certificate passes
+ * `--verify` (which only checks integrity).
  */
 const SIGNER_REQUIREMENT = 'anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists)'
 
 /**
- * Firma del programma (o dell'app che lo contiene) con `codesign`, senza eseguirlo. Si lavora sul realpath del programma: se `cmd`
- * è un link a un eseguibile dentro un `.app`, la firma si verifica sul pacchetto e sul programma.
- * - Non firmato: `unsigned`; ad hoc: `adhoc`. Si installano comunque.
- * - Firma rotta (`--verify --deep --strict` fallisce) o `codesign` non risponde: BlockError `signature`.
- * - Firma integra e requisito su Apple/Developer ID soddisfatto: `signed`, con firmatario e team. Se il programma sta dentro un `.app` deve anche stare
- *   in una cartella degli eseguibili dell'app, essere un Mach-O e soddisfare da solo lo stesso requisito (altrimenti `signature`, o `team` se il team è fissato);
- *   firmatario e team sono quelli del certificato del programma.
- * - Firma integra ma requisito non soddisfatto (autofirmata, catena non Apple, certificato non Developer ID): `unverified`,
- *   senza firmatario né team (il nome nel certificato non è attendibile).
- * Firmatario e team NON si leggono dal testo di `codesign -d`: l'Identifier lo sceglie chi firma e può contenere a capo, con righe
- * `TeamIdentifier=`/`Authority=` finte prima di quelle vere. Si leggono dal certificato foglia estratto (`--extract-certificates`),
- * già verificato dal requisito. `expectedTeam` (agenti curati con team fissato in Ladder): il team sta dentro il requisito
- * (`certificate leaf[subject.OU]`), quindi lo controlla codesign sul certificato; se non è soddisfatto (non firmato, ad hoc o altro
- * team) è BlockError `team`.
+ * Signature of the program (or of the app that contains it) with `codesign`, without running it. It works on the program's realpath: if `cmd`
+ * is a link to an executable inside an `.app`, the signature is verified on the bundle and on the program.
+ * - Unsigned: `unsigned`; ad hoc: `adhoc`. They are installed anyway.
+ * - Broken signature (`--verify --deep --strict` fails) or `codesign` does not respond: BlockError `signature`.
+ * - Intact signature and Apple/Developer ID requirement satisfied: `signed`, with signer and team. If the program is inside an `.app` it must also be
+ *   in one of the app's executable folders, be a Mach-O and satisfy the same requirement on its own (otherwise `signature`, or `team` if the team is fixed);
+ *   signer and team are those of the program's certificate.
+ * - Intact signature but requirement not satisfied (self-signed, non-Apple chain, non-Developer ID certificate): `unverified`,
+ *   with no signer or team (the name in the certificate is not trustworthy).
+ * Signer and team are NOT read from the text of `codesign -d`: the Identifier is chosen by whoever signs and may contain newlines, with fake
+ * `TeamIdentifier=`/`Authority=` lines before the real ones. They are read from the extracted leaf certificate (`--extract-certificates`),
+ * already verified by the requirement. `expectedTeam` (curated agents with a team fixed in Ladder): the team is inside the requirement
+ * (`certificate leaf[subject.OU]`), so codesign checks it on the certificate; if it is not satisfied (unsigned, ad hoc or another
+ * team) it is BlockError `team`.
  */
 export async function codeSignature(root: string, program: string, expectedTeam?: string): Promise<AgentSignature> {
   const realRoot = await realpath(root)
@@ -662,11 +662,11 @@ export async function codeSignature(root: string, program: string, expectedTeam?
   const opts = { env: untrustedEnv(), timeout: 60_000, maxBuffer: 1024 * 1024 }
   const bad = () => new BlockError('signature', t('The program is signed but its signature does not verify.'))
   const wrongTeam = () => new BlockError('team', t('The program is not signed by the developer Ladder expects for this agent.'))
-  // Il team finisce dentro un requisito di codesign: solo il formato del TeamIdentifier.
+  // The team ends up inside a codesign requirement: only the TeamIdentifier format.
   if (expectedTeam !== undefined && !/^[A-Z0-9]{10}$/.test(expectedTeam)) throw wrongTeam()
   let info: string
   try {
-    // `-d` scrive su stderr; qui serve solo a distinguere "non firmato" e "ad hoc".
+    // `-d` writes to stderr; here it only serves to tell "unsigned" from "ad hoc".
     info = (await run('/usr/bin/codesign', ['-d', '--verbose=2', target], opts)).stderr
   } catch (error) {
     if (/not signed at all/i.test(String((error as { stderr?: string }).stderr ?? ''))) {
@@ -678,7 +678,7 @@ export async function codeSignature(root: string, program: string, expectedTeam?
   await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', target], opts).catch(() => {
     throw bad()
   })
-  // Firma integra: il certificato risale ad Apple ed è un Developer ID (e, se fissato, del team atteso)? (`-R=` col requisito attaccato: è la forma che codesign accetta.)
+  // Intact signature: does the certificate chain to Apple and is it a Developer ID (and, if fixed, of the expected team)? (`-R=` with the requirement attached: it is the form codesign accepts.)
   const requirement = expectedTeam ? `anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${expectedTeam}"` : SIGNER_REQUIREMENT
   const trusted = await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', `-R=${requirement}`, target], opts).then(
     () => true,
@@ -686,12 +686,12 @@ export async function codeSignature(root: string, program: string, expectedTeam?
   )
   if (!trusted) {
     if (expectedTeam) throw wrongTeam()
-    // Ad hoc o senza certificati: lo dice il campo Signature (al peggio una riga finta scambia adhoc e unverified, che non mostrano nomi).
+    // Ad hoc or without certificates: the Signature field tells (at worst a fake line swaps adhoc and unverified, which show no names).
     return { state: /^Signature=adhoc$/m.test(info) ? 'adhoc' : 'unverified', signer: null, team: null }
   }
-  // Il programma dentro un'app: la firma del pacchetto non basta. Le regole standard del sigillo (rules2) escludono percorsi come `.DS_Store` o
-  // `PkgInfo`, dove chi pubblica una release senza la chiave di firma può mettere un eseguibile qualunque e farlo puntare da `cmd`. Quindi il programma
-  // deve stare dove un'app tiene i suoi eseguibili, essere un Mach-O e passare da solo lo stesso requisito; firmatario e team si leggono dal suo certificato.
+  // The program inside an app: the bundle's signature is not enough. The standard seal rules (rules2) exclude paths like `.DS_Store` or
+  // `PkgInfo`, where whoever publishes a release without the signing key can put any executable and have `cmd` point to it. So the program
+  // must be where an app keeps its executables, be a Mach-O and pass the same requirement on its own; signer and team are read from its certificate.
   if (target !== realProgram) {
     const inside = realProgram.slice(target.length + 1)
     if (!APP_EXECUTABLE_DIRS.some((dir) => inside.startsWith(`${dir}/`)) || !(await isMachO(realProgram))) throw bad()
@@ -700,26 +700,26 @@ export async function codeSignature(root: string, program: string, expectedTeam?
     })
   }
   const leaf = await leafSubject(realProgram, opts)
-  // Sono righe di testo mostrate all'utente: corte e senza caratteri di controllo.
+  // These are lines of text shown to the user: short and without control characters.
   const clean = (value: string | null) => (value && value.length <= 200 && !/[\u0000-\u001f]/.test(value) ? value : null)
   return { state: 'signed', signer: clean(leaf.cn), team: expectedTeam ?? clean(leaf.ou) }
 }
 
 /**
- * Valore di un nome distinto (RFC 2253) come lo scrive Node in `cert.subject`: `\,` `\+` `\;` `\"` `\\` `\<` `\>` `\=` `\#` e `\XX` (byte esadecimali di UTF-8)
- * tornano il carattere; le virgolette attorno a tutto il valore si tolgono.
+ * Value of a distinguished name (RFC 2253) as Node writes it in `cert.subject`: `\,` `\+` `\;` `\"` `\\` `\<` `\>` `\=` `\#` and `\XX` (hex bytes of UTF-8)
+ * turn back into the character; the quotes around the whole value are removed.
  */
 export function unescapeDn(value: string): string {
   const quoted = value.length >= 2 && value.startsWith('"') && value.endsWith('"') && !value.endsWith('\\"') ? value.slice(1, -1) : value
   return quoted.replace(/((?:\\[0-9a-fA-F]{2})+)|\\([\s\S])/g, (_, hex: string | undefined, char: string) => (hex ? Buffer.from(hex.replaceAll('\\', ''), 'hex').toString('utf8') : char))
 }
 
-/** Nome comune e unità organizzativa (team) del certificato foglia della firma, letti dal certificato e non dall'output di codesign. */
+/** Common name and organizational unit (team) of the signature's leaf certificate, read from the certificate and not from codesign's output. */
 async function leafSubject(target: string, opts: { env: Record<string, string | undefined>; timeout: number; maxBuffer: number }): Promise<{ cn: string | null; ou: string | null }> {
   const dir = await mkdtemp(join(tmpdir(), 'ladder-cert-'))
   try {
     await run('/usr/bin/codesign', ['-d', `--extract-certificates=${join(dir, 'c')}`, target], opts)
-    // I certificati sono `c0` (foglia), `c1`… in DER.
+    // Certificates are `c0` (leaf), `c1`… in DER.
     const cert = new X509Certificate(await readFile(join(dir, 'c0')))
     const field = (name: string) => {
       const raw = new RegExp(`^${name}=(.+)$`, 'm').exec(cert.subject)?.[1].trim()

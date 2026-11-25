@@ -1,4 +1,4 @@
-// Stato dei file aperti come tab: vive fuori da React, così testo, annullamenti e scorrimento sopravvivono al cambio di tab.
+// State of files open as tabs: lives outside React, so text, undo history and scroll survive tab switches.
 import { EditorState, Text } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import type { FileWriteResult } from '@shared/protocol'
@@ -8,15 +8,15 @@ export interface FileBuffer {
   root: string
   path: string
   state: EditorState | null
-  /** Contenuto su disco all'ultima lettura o salvataggio: decide se ci sono modifiche. */
+  /** Content on disk at the last read or save: decides whether there are changes. */
   saved: Text
-  /** Ora di modifica su disco che il testo conosce: serve a non sovrascrivere il lavoro di un agente. */
+  /** Modification time on disk that the text knows about: used to avoid overwriting an agent's work. */
   mtime: number
   crlf: boolean
   scrollTop: number
   saving: boolean
   view: EditorView | null
-  /** Tasti e modifiche passano da qui: l'EditorState conserva questa funzione anche quando la vista si smonta. */
+  /** Keys and edits go through here: the EditorState keeps this function even when the view unmounts. */
   onChange: (state: EditorState) => void
   onSave: () => void
 }
@@ -37,7 +37,7 @@ export function createBuffer(id: string, root: string, path: string, text: strin
     state: null,
     saved: toText(text),
     mtime,
-    // Un file tutto CRLF resta CRLF: altrimenti il primo salvataggio cambierebbe ogni riga.
+    // A fully CRLF file stays CRLF: otherwise the first save would change every line.
     crlf: /\r\n/.test(text) && !/(^|[^\r])\n/.test(text),
     scrollTop: 0,
     saving: false,
@@ -53,7 +53,7 @@ export function currentDoc(buffer: FileBuffer): Text {
   return buffer.state?.doc ?? buffer.saved
 }
 
-/** Sostituisce il testo toccando solo la parte diversa, così cursore e scorrimento restano dove sono. */
+/** Replaces the text touching only the differing part, so cursor and scroll stay where they are. */
 export function replaceDoc(buffer: FileBuffer, text: string): void {
   const state = buffer.view?.state ?? buffer.state
   if (!state) return

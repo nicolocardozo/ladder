@@ -1,30 +1,30 @@
-// Catalogo degli agenti ACP (LAD-56): comandi verso l'host e stato di una lista letta una volta.
-// Il catalogo si chiede all'apertura di Impostazioni → Agenti (fa un giro della shell di login per CLI), mai a ogni render.
-// L'installazione di un binario avanza con eventi `agent.install`: la lista li applica alla voce, e a fine corsa si rilegge.
+// ACP agent catalog: commands to the host and state of a list read once.
+// The catalog is requested when Settings → Agents opens (it does a login-shell pass for CLIs), never on every render.
+// The installation of a binary advances through `agent.install` events: the list applies them to the entry, and at the end it rereads.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentBlockCode, AgentCatalogEntry, AgentChecksumSource, AgentInstall, AgentLogin, AgentSignature } from '@shared/protocol'
 import { localeTag, t } from '@shared/i18n'
 import { onHostEvent, request } from '@/lib/host-client'
 
-/** Comandi del catalogo. Come `ConnectionActions`: la stessa lista vale per l'app e per l'anteprima web con un host finto. */
+/** Catalog commands. Like `ConnectionActions`: the same list serves the app and the web preview with a fake host. */
 export interface AgentCatalogActions {
   catalog: () => Promise<AgentCatalogEntry[]>
-  /** Solo le CLI già installate (primo avvio): più leggero del catalogo. */
+  /** Only the CLIs already installed (first launch): lighter than the catalog. */
   detect: () => Promise<AgentCatalogEntry[]>
-  /** CLI rilevata, binario già scaricato o pacchetto npx/uvx: l'host sceglie la voce dal registro. */
+  /** Detected CLI, already downloaded binary or npx/uvx package: the host picks the entry from the registry. */
   add: (entry: AgentCatalogEntry) => Promise<void>
-  /** Chiamare solo dopo la conferma dell'utente (`confirmed: true`): versione fissata dal registro. */
+  /** Call only after the user's confirmation (`confirmed: true`): version pinned by the registry. */
   install: (entry: AgentCatalogEntry) => Promise<AgentInstall | void>
-  /** Accesso con un metodo dichiarato dall'agente (solo `agent`): Ladder non vede mai le credenziali. Può durare minuti; risponde il login aggiornato. */
+  /** Sign-in with a method declared by the agent (`agent` only): Ladder never sees the credentials. It can take minutes; the updated login is returned. */
   authenticate: (id: string, methodId: string, projectId?: string) => Promise<AgentLogin>
-  /** "Stop waiting": l'host ferma l'accesso in corso e libera l'id; la richiesta `authenticate` pendente risponde con il login com'era. */
+  /** "Stop waiting": the host stops the sign-in in progress and frees the id; the pending `authenticate` request answers with the login as it was. */
   cancelAuthenticate: (id: string) => Promise<void>
-  /** Cambi del login di un agente (id del registro); restituisce la funzione per smettere di ascoltare. */
+  /** Changes to an agent's login (registry id); returns the function to stop listening. */
   onLogin: (listener: (id: string, login: AgentLogin) => void) => () => void
   cancel: (id: string) => Promise<void>
-  /** Passi dell'installazione; restituisce la funzione per smettere di ascoltare. */
+  /** Installation steps; returns the function to stop listening. */
   onInstall: (listener: (install: AgentInstall) => void) => () => void
-  /** Un agente tolto da "I tuoi agenti" (id del registro, senza `acp:`); restituisce la funzione per smettere di ascoltare. */
+  /** An agent removed from "Your agents" (registry id, without `acp:`); returns the function to stop listening. */
   onRemoved: (listener: (id: string) => void) => () => void
 }
 
@@ -32,11 +32,11 @@ export const liveAgentCatalogActions: AgentCatalogActions = {
   catalog: () => request<AgentCatalogEntry[]>({ type: 'agents.catalog' }),
   detect: () => request<AgentCatalogEntry[]>({ type: 'agents.detect' }),
   add: async (entry) => {
-    // Per `source: 'registry'` l'host ricava comando e argomenti dalla voce del registro: conta solo l'id.
+    // For `source: 'registry'` the host derives command and arguments from the registry entry: only the id matters.
     await request({ type: 'agents.add', spec: { id: entry.id, name: entry.name, command: '', args: [], source: 'registry' } })
   },
   install: (entry) => {
-    // Versione, checksum e host mostrati nella conferma viaggiano con il comando: se il registro ne dà un altro l'host rifiuta.
+    // Version, checksum and host shown in the confirmation travel with the command: if the registry gives different ones, the host rejects.
     const download = entry.download
     if (!download || !download.sha256) return Promise.reject(new Error(t('The checksum is not available now. Try again later.')))
     return request<AgentInstall>({ type: 'agents.install', id: entry.id, version: entry.registryVersion, confirmed: true, sha256: download.sha256, host: download.host })
@@ -54,32 +54,32 @@ export const liveAgentCatalogActions: AgentCatalogActions = {
 }
 
 export interface CatalogState {
-  /** null: non ancora letto. Le installazioni vengono dalla mappa degli eventi, non dalla risposta del catalogo. */
+  /** null: not read yet. Installations come from the events map, not from the catalog response. */
   entries: AgentCatalogEntry[] | null
   loading: boolean
   error: string | null
   /**
-   * `onRead` riceve la lista letta dall'ultima lettura (anche se la sua è stata superata): serve a confrontarla con ciò che l'utente ha confermato.
-   * `manual: true` per una lettura voluta dall'utente (Rescan, Try again): solo allora un errore non definitivo si considera superato
-   * dalla voce senza blocchi. Una lettura nata dal rifiuto stesso, o da un altro evento, toglie un errore solo se la versione del registro è cambiata.
+   * `onRead` receives the list read by the latest read (even if its own was superseded): used to compare it with what the user confirmed.
+   * `manual: true` for a read requested by the user (Rescan, Try again): only then is a non-final error considered superseded
+   * by an entry without blocks. A read caused by the rejection itself, or by another event, removes an error only if the registry version has changed.
    */
   reload: (onRead?: (list: AgentCatalogEntry[]) => void, options?: { manual?: boolean }) => void
-  /** Registra un login nuovo (evento o risposta di `authenticate`). */
+  /** Records a new login (event or `authenticate` response). */
   setLogin: (id: string, login: AgentLogin) => void
-  /** Cambia una voce in locale (es. "aggiunta"). */
+  /** Changes an entry locally (e.g. "added"). */
   patch: (id: string, change: Partial<AgentCatalogEntry>) => void
-  /** Registra lo stato di un'installazione (evento, risposta o rifiuto del comando). Restituisce il numero d'ordine di arrivo. */
+  /** Records the state of an installation (event, response or command rejection). Returns the arrival sequence number. */
   setInstall: (install: AgentInstall) => number
-  /** Applica la risposta di `agents.install` solo se nel frattempo non è arrivato niente di più recente (`seq` è quello di `setInstall`). */
+  /** Applies the `agents.install` response only if nothing more recent has arrived in the meantime (`seq` is the one from `setInstall`). */
   setInstallIfCurrent: (install: AgentInstall, seq: number) => void
 }
 
 type Tracked = { install: AgentInstall; seq: number }
 
 /**
- * Legge il catalogo e tiene le installazioni allineate agli eventi dell'host.
- * Le installazioni stanno in una mappa a parte, nutrita solo da eventi e risposte di `agents.install`, in ordine di arrivo;
- * si sovrappone al risultato di `catalog()`, che può essere stato costruito prima di un evento più recente.
+ * Reads the catalog and keeps installations aligned with the host's events.
+ * Installations live in a separate map, fed only by events and `agents.install` responses, in arrival order;
+ * it is overlaid on the `catalog()` result, which may have been built before a more recent event.
  */
 export function useAgentCatalog(actions: AgentCatalogActions): CatalogState {
   const [list, setList] = useState<AgentCatalogEntry[] | null>(null)
@@ -87,13 +87,13 @@ export function useAgentCatalog(actions: AgentCatalogActions): CatalogState {
   const [logins, setLogins] = useState<Record<string, AgentLogin>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // Ordine delle risposte: una lettura vecchia non sovrascrive una più nuova.
+  // Response order: an old read does not overwrite a newer one.
   const reads = useRef(0)
-  // Chi ha chiesto una lettura che poi è stata superata (es. un `done` di un'altra installazione) la riceve dalla lettura che vince: mai persa.
+  // Whoever requested a read that was then superseded (e.g. a `done` from another installation) receives it from the winning read: never lost.
   const waiting = useRef<Array<(list: AgentCatalogEntry[]) => void>>([])
-  // Una lettura manuale poi superata da una più nuova passa il suo carattere manuale a quella che vince.
+  // A manual read later superseded by a newer one passes its manual flag to the winning one.
   const manualRead = useRef(false)
-  // Ordine d'arrivo degli stati di installazione.
+  // Arrival order of installation states.
   const arrivals = useRef(0)
   const mounted = useRef(true)
   useEffect(() => {
@@ -120,16 +120,16 @@ export function useAgentCatalog(actions: AgentCatalogActions): CatalogState {
         const callbacks = waiting.current
         waiting.current = []
         for (const callback of callbacks) callback(next)
-        // Un `done` visto prima di questa lettura è ormai nel catalogo (aggiunto, versione); uno successivo resta finché non arriva la sua lettura.
+        // A `done` seen before this read is by now in the catalog (added, version); a later one stays until its read arrives.
         setInstalls((map) => {
-          // Un "running" visto prima della lettura, che ora dice install: null, è finito o annullato senza evento.
+          // A "running" seen before the read, which now says install: null, finished or was cancelled without an event.
           const absent = new Set(next.filter((entry) => entry.install === null).map((entry) => entry.id))
           const stale = Object.keys(map).filter((id) => {
             const { install, seq } = map[id]
             if (seq > startedAt) return false
             if (install.state === 'error') {
-              // Un errore superato dal catalogo non resta fino al riavvio: con una versione nuova del registro sempre; per un codice non definitivo
-              // (404 momentaneo, redirect) solo dopo una lettura manuale. Quella nata dal rifiuto non lo toglie: il catalogo non vede ciò che l'host ha visto al download.
+              // An error superseded by the catalog does not stay until restart: with a new registry version always; for a non-final code
+              // (transient 404, redirect) only after a manual read. One caused by the rejection does not remove it: the catalog does not see what the host saw at download.
               const fresh = next.find((entry) => entry.id === id)
               return fresh !== undefined && supersededError(install, fresh) && (manual || install.version !== fresh.registryVersion)
             }
@@ -178,7 +178,7 @@ export function useAgentCatalog(actions: AgentCatalogActions): CatalogState {
     () =>
       actions.onInstall((install) => {
         setInstall(install)
-        // Finita bene: stato, versione e "added" sono cambiati sull'host.
+        // Finished successfully: state, version and "added" have changed on the host.
         if (install.state === 'done') reload()
       }),
     [actions, setInstall, reload]
@@ -189,7 +189,7 @@ export function useAgentCatalog(actions: AgentCatalogActions): CatalogState {
   }, [])
   useEffect(() => actions.onLogin(setLogin), [actions, setLogin])
 
-  // Agente tolto da "I tuoi agenti": la riga torna Add subito, poi la lettura conferma (copre anche una rimozione durante il download).
+  // Agent removed from "Your agents": the row goes back to Add immediately, then the read confirms (it also covers a removal during the download).
   useEffect(
     () =>
       actions.onRemoved((id) => {
@@ -199,7 +199,7 @@ export function useAgentCatalog(actions: AgentCatalogActions): CatalogState {
     [actions, patch, reload]
   )
 
-  // Il login più recente vince, che arrivi da un evento, dalla risposta di `authenticate` o dalla lettura del catalogo.
+  // The most recent login wins, whether it comes from an event, from the `authenticate` response or from the catalog read.
   const entries = useMemo(
     () =>
       list?.map((entry) => {
@@ -213,7 +213,7 @@ export function useAgentCatalog(actions: AgentCatalogActions): CatalogState {
   return { entries, loading, error, reload, setLogin, patch, setInstall, setInstallIfCurrent }
 }
 
-/** Da dove viene il checksum, per la conferma prima del download. */
+/** Where the checksum comes from, for the confirmation before the download. */
 export function checksumLabel(source: AgentChecksumSource): string {
   switch (source) {
     case 'registry':
@@ -225,9 +225,9 @@ export function checksumLabel(source: AgentChecksumSource): string {
   }
 }
 
-/** Link aperti solo se https, come fa il main (`ladder:open-external`); mai `window.open` con un URL qualunque. */
+/** Links opened only if https, as the main process does (`ladder:open-external`); never `window.open` with an arbitrary URL. */
 export function openSecure(url: string): void {
-  // Come il main: URL analizzato (schema e host senza distinzione di maiuscole), solo https con un host.
+  // Like the main process: parsed URL (scheme and host case-insensitive), https only with a host.
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== 'https:' || !parsed.hostname) return
@@ -238,32 +238,32 @@ export function openSecure(url: string): void {
   else window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-/** Perché Ladder non scarica questa voce: il codice dell'host, oppure ciò che si deduce dai dati (un checksum assente è `no-checksum`). */
+/** Why Ladder does not download this entry: the host's code, or what is inferred from the data (a missing checksum is `no-checksum`). */
 export function blockOf(entry: AgentCatalogEntry): AgentBlockCode | null {
   if (entry.reasonCode) return entry.reasonCode
   if (entry.download?.blocked) return entry.download.blocked
   if (entry.download?.checksum === 'missing' && entry.state === 'unavailable') return 'no-checksum'
-  // Senza checksum noto (e senza un blocco dichiarato) non c'è conferma: si dice che ora non è leggibile.
+  // Without a known checksum (and without a declared block) there is no confirmation: we say it is not readable right now.
   if (entry.download && entry.download.sha256 === null) return entry.download.checksum === 'missing' ? 'no-checksum' : 'checksum-unavailable'
   return null
 }
 
-/** Esiti dell'installazione che nessuna nuova lettura cambia: niente "Try again" e il catalogo non è obsoleto. */
+/** Installation outcomes that no new read changes: no "Try again" and the catalog is not stale. */
 export function isFinalFailure(code: AgentBlockCode | null): boolean {
   return code === 'signature' || code === 'team' || code === 'quarantine' || code === 'too-large'
 }
 
-/** Come `isFinalFailure`, più il conflitto di checksum: un avviso che una nuova lettura non cancella (solo una versione nuova del registro). */
+/** Like `isFinalFailure`, plus the checksum conflict: a warning that a new read does not clear (only a new registry version). */
 export function isDefinitiveFailure(code: AgentBlockCode | null): boolean {
   return isFinalFailure(code) || code === 'checksum-conflict'
 }
 
 /**
- * Un errore di installazione con codice che il catalogo riletto ha superato: la versione del registro è un'altra (l'errore riguarda quella vecchia),
- * oppure il codice non è definitivo (es. un 404 momentaneo = `no-checksum`, un redirect cambiato = `host`)
- * e la voce ora non ha blocchi. Per un codice non definitivo la riga offre "Try again"; per uno definitivo, finché la versione è la stessa, resta la nota.
- * Chi la usa decide quando applicarla: la lista solo dopo una lettura manuale (o con la versione cambiata), la riga per offrire "Try again" subito.
- * `checksum-changed` e gli errori senza codice restano: hanno già il loro "Try again" e la riapertura della conferma.
+ * An installation error with a code that the reread catalog has superseded: the registry version is different (the error concerns the old one),
+ * or the code is not final (e.g. a transient 404 = `no-checksum`, a changed redirect = `host`)
+ * and the entry now has no blocks. For a non-final code the row offers "Try again"; for a final one, as long as the version is the same, the note stays.
+ * The caller decides when to apply it: the list only after a manual read (or with a changed version), the row to offer "Try again" right away.
+ * `checksum-changed` and errors without a code stay: they already have their "Try again" and the confirmation reopening.
  */
 export function supersededError(install: AgentInstall, entry: AgentCatalogEntry): boolean {
   if (install.state !== 'error' || !install.errorCode || install.errorCode === 'checksum-changed') return false
@@ -271,7 +271,7 @@ export function supersededError(install: AgentInstall, entry: AgentCatalogEntry)
   return !isDefinitiveFailure(install.errorCode) && blockOf(entry) === null
 }
 
-/** Titolo breve del blocco (la riga che si legge per prima). */
+/** Short title of the block (the line read first). */
 export function blockTitle(code: AgentBlockCode): string {
   switch (code) {
     case 'no-checksum':
@@ -295,7 +295,7 @@ export function blockTitle(code: AgentBlockCode): string {
   }
 }
 
-/** Spiegazione del blocco, in chiaro: descrive cosa è successo, non dice mai che qualcosa è "sicuro". */
+/** Plain explanation of the block: describes what happened, never says that something is "safe". */
 export function blockText(code: AgentBlockCode, name: string): string {
   switch (code) {
     case 'no-checksum':
@@ -319,7 +319,7 @@ export function blockText(code: AgentBlockCode, name: string): string {
   }
 }
 
-/** Firma del binario installato, solo come stato: chi l'ha firmato o che non si sa. */
+/** Signature of the installed binary, as a state only: who signed it, or that it is unknown. */
 export function signatureText(signature: AgentSignature): string {
   if (signature.state === 'signed') {
     const who = signature.signer ?? (signature.team ? t('team {team}', { team: signature.team }) : null)
@@ -329,18 +329,18 @@ export function signatureText(signature: AgentSignature): string {
   return signature.state === 'adhoc' ? t('Ad hoc signature, signer unknown') : t('Not signed')
 }
 
-/** Dimensione dell'archivio per la conferma; null se l'host non l'ha saputa. */
+/** Archive size for the confirmation; null if the host could not determine it. */
 export function sizeLabel(size: number | null): string {
   return size === null ? t('Unknown') : formatBinaryBytes(size, localeTag())
 }
 
-/** Byte in unità binarie con la loro etichetta (KiB, MiB, GiB), come i limiti del blocco "too large" (600 MiB). */
+/** Bytes in binary units with their label (KiB, MiB, GiB), like the limits of the "too large" block (600 MiB). */
 export function formatBinaryBytes(bytes: number, locale?: string): string {
   const units = ['B', 'KiB', 'MiB', 'GiB']
   const digits = (value: number, unit: number) => (unit === 0 || value >= 10 ? 0 : 1)
   let value = bytes
   let unit = 0
-  // Si sale d'unità anche quando il valore ARROTONDATO arriva a 1024 (1048575 B è "1 MiB", non "1.024 KiB").
+  // Move up a unit also when the ROUNDED value reaches 1024 (1048575 B is "1 MiB", not "1.024 KiB").
   while (unit < units.length - 1 && Number(value.toFixed(digits(value, unit))) >= 1024) {
     value /= 1024
     unit++
@@ -348,12 +348,12 @@ export function formatBinaryBytes(bytes: number, locale?: string): string {
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: digits(value, unit) }).format(value)} ${units[unit]}`
 }
 
-/** "a1b2c3d4 … 9f8e7d6c": abbastanza per riconoscerlo, il resto si apre. */
+/** "a1b2c3d4 … 9f8e7d6c": enough to recognize it, the rest can be expanded. */
 export function shortChecksum(sha256: string): string {
   return sha256.length > 20 ? `${sha256.slice(0, 8)} … ${sha256.slice(-8)}` : sha256
 }
 
-/** Il checksum intero in gruppi di 8, per leggerlo e confrontarlo a pezzi. */
+/** The whole checksum in groups of 8, to read and compare it piece by piece. */
 export function groupedChecksum(sha256: string): string {
   return sha256.replace(/(.{8})(?=.)/g, '$1 ')
 }

@@ -1,4 +1,4 @@
-// Lettura del diff unificato di git in blocchi e righe, più l'allineamento per la vista affiancata.
+// Parsing of git's unified diff into hunks and lines, plus the alignment for the side-by-side view.
 
 export interface DiffLine {
   kind: 'context' | 'add' | 'del'
@@ -9,7 +9,7 @@ export interface DiffLine {
 
 export interface Hunk {
   header: string
-  /** Testo dopo il secondo @@: di solito la funzione che contiene il blocco. */
+  /** Text after the second @@: usually the function containing the hunk. */
   section: string
   oldStart: number
   newStart: number
@@ -32,7 +32,7 @@ export function parsePatch(patch: string): Hunk[] {
       hunks.push(current)
       continue
     }
-    if (!current) continue // intestazione del file: diff --git, index, ---, +++
+    if (!current) continue // file header: diff --git, index, ---, +++
     if (raw.startsWith('\\')) continue // "\ No newline at end of file"
     const sign = raw[0]
     const text = raw.slice(1)
@@ -40,7 +40,7 @@ export function parsePatch(patch: string): Hunk[] {
     else if (sign === '-') current.lines.push({ kind: 'del', oldNo: oldNo++, newNo: null, text })
     else if (sign === ' ' || raw === '') current.lines.push({ kind: 'context', oldNo: oldNo++, newNo: newNo++, text })
   }
-  // Una riga vuota finale del patch non è una riga di contesto.
+  // A trailing empty line of the patch is not a context line.
   for (const hunk of hunks) {
     const last = hunk.lines[hunk.lines.length - 1]
     if (last && last.kind === 'context' && last.text === '' && hunk === hunks[hunks.length - 1]) hunk.lines.pop()
@@ -53,7 +53,7 @@ export interface SplitRow {
   right: DiffLine | null
 }
 
-/** Righe affiancate: le tolte a sinistra e le aggiunte a destra, appaiate nell'ordine in cui arrivano. */
+/** Side-by-side rows: removed lines on the left and added ones on the right, paired in the order they arrive. */
 export function splitRows(lines: DiffLine[]): SplitRow[] {
   const rows: SplitRow[] = []
   let i = 0
@@ -73,7 +73,7 @@ export function splitRows(lines: DiffLine[]): SplitRow[] {
   return rows
 }
 
-/** Chiave stabile di una riga per i commenti: lato e numero di riga. */
+/** Stable key of a line for comments: side and line number. */
 export function lineKey(line: DiffLine): string {
   return line.kind === 'del' ? `o${line.oldNo}` : `n${line.newNo}`
 }

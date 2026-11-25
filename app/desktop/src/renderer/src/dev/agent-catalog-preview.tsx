@@ -1,16 +1,16 @@
-// Anteprima di "Aggiungi un agente" (LAD-56) e del rilevamento del primo avvio, con un host finto:
-// l'installazione scorre davvero i passi (download, verifica, installazione, fine), si annulla, e Junie fallisce al checksum.
-// Scenari di sicurezza: voci bloccate (senza checksum, host, conflitto, troppo grande), conferma con dimensione e checksum
-// (host github.com/owner/repo mostrato così e rimandato uguale), versione, checksum o host cambiati con riapertura della conferma
-// e successo al secondo tentativo senza Rescan (rifiuto della promessa, evento con `checksum-changed`, voce che diventa bloccata),
-// checksum non leggibile (Try again, anche per un aggiornamento) e release senza digest, team di firma (curato non firmato o di un
-// altro team), firma (signed, unverified, adhoc, unsigned, fallita, quarantena) e accesso (agent, terminale, non supportato, Stop waiting).
-// LAD-56 stati superati ("Stati superati e conflitto"): errore non definitivo (404 momentaneo) che dopo Rescan torna azionabile; firma fallita che si
-// sblocca solo quando il registro pubblica un'altra versione (secondo Rescan); due rifiuti quasi insieme con una riga nel gruppo chiuso; checksum-conflict
-// come promessa rifiutata e come evento (stesso avviso in colore attenzione, niente Try again, niente riapertura).
-// Come l'host vero, il codice dell'errore viaggia nell'evento `agent.install` (prima del rifiuto) e la promessa rifiutata porta solo il messaggio. Un redirect verso un host non
-// ammesso (`host`) e un checksum momentaneamente assente rifiutato da start() (`no-checksum`) restano visibili con Try again anche dopo la rilettura nata dal rifiuto.
-// Il finto host si comporta come il vero: confronta versione, sha256 e host che arrivano con quelli del registro ADESSO e rifiuta in start().
+// Preview of "Add an agent" and of first-launch detection, with a fake host:
+// the install really goes through the steps (download, verification, installation, done), can be cancelled, and Junie fails at the checksum.
+// Safety scenarios: blocked entries (no checksum, host, conflict, too large), confirmation with size and checksum
+// (host github.com/owner/repo shown that way and sent back unchanged), version, checksum or host changed with the confirmation reopening
+// and success on the second attempt without Rescan (promise rejection, event with `checksum-changed`, entry that becomes blocked),
+// unreadable checksum (Try again, also for an update) and release without digest, signing team (curated but unsigned, or from another
+// team), signature (signed, unverified, adhoc, unsigned, failed, quarantine) and sign-in (agent, terminal, unsupported, Stop waiting).
+// Stale states ("Stale states and conflict"): a non-final error (transient 404) that becomes actionable again after Rescan; a failed signature that
+// unblocks only when the registry publishes another version (second Rescan); two rejections almost at once with a row in the closed group; checksum-conflict
+// as a rejected promise and as an event (same warning in attention color, no Try again, no reopening).
+// Like the real host, the error code travels in the `agent.install` event (before the rejection) and the rejected promise carries only the message. A redirect to a disallowed
+// host (`host`) and a momentarily missing checksum rejected by start() (`no-checksum`) stay visible with Try again even after the reread caused by the rejection.
+// The fake host behaves like the real one: it compares the version, sha256 and host it receives with the registry's NOW and rejects in start().
 import { useMemo, useState } from 'react'
 import type { AgentBlockCode, AgentCatalogEntry, AgentInstall, AgentLogin, AgentSignature } from '@shared/protocol'
 import { AgentCatalog } from '@/components/agents/agent-catalog'
@@ -71,7 +71,7 @@ const unsigned: AgentSignature = { state: 'unsigned', signer: null, team: null }
 const failure = (id: string, version: string, error: string, errorCode: AgentBlockCode | null = null): AgentInstall => ({ id, version, state: 'error', stage: null, progress: null, bytes: null, total: null, error, errorCode, signature: null })
 const agentLogin = (methods: AgentLogin['methods']): AgentLogin => ({ state: 'required', methods, checkedAt: Date.now() - 300_000 })
 
-/** Dati di prova: curati rilevati, scaricabili, non disponibili senza checksum, download in corso, errore, aggiornamento e login richiesto. */
+/** Test data: curated entries detected, downloadable, unavailable without checksum, download in progress, error, update and login required. */
 export function catalogFixture(): AgentCatalogEntry[] {
   return [
     entry({ id: 'gemini', name: 'Gemini CLI', curated: true, description: 'Google’s open-source agent for the terminal, with a large context window.', registryVersion: '0.14.0', state: 'detected', added: true, distribution: 'npx', detected: { path: '/opt/homebrew/bin/gemini', version: '0.14.0' }, login: ready }),
@@ -85,7 +85,7 @@ export function catalogFixture(): AgentCatalogEntry[] {
       id: 'opencode', name: 'OpenCode', curated: true, description: 'Open-source coding agent that works with many model providers.', registryVersion: '1.5.0', state: 'detected', added: true,
       ...binary('registry'), installed: { version: '1.4.2', updateAvailable: true, signature: signed }, login: ready
     }),
-    // Aggiornamento segnalato su una voce npx: senza dati di download non c'è conferma, quindi niente Update.
+    // Update reported on an npx entry: without download data there is no confirmation, so no Update.
     entry({ id: 'kilo', name: 'Kilo Code', curated: true, description: 'Open-source coding agent with several modes.', registryVersion: '2.1.0', state: 'detected', added: true, installed: { version: '2.0.0', updateAvailable: true, signature: null }, login: ready }),
     entry({ id: 'amp', name: 'Amp', curated: true, description: 'Sourcegraph’s agent for large codebases.', registryVersion: '0.9.2', state: 'detected', detected: { path: '/usr/local/bin/amp', version: null } }),
     entry({ id: 'goose', name: 'goose', curated: true, description: 'Block’s extensible local agent, with tools through MCP.', registryVersion: '1.12.0', ...binary('registry') }),
@@ -112,7 +112,7 @@ export function catalogFixture(): AgentCatalogEntry[] {
 
 const download = (checksum: 'registry' | 'github-release', extra: Partial<NonNullable<AgentCatalogEntry['download']>>) => binary(checksum, 'github.com/acme/agent-cli', extra)
 
-/** Scenari di sicurezza: ognuno ha solo le voci che servono a vederlo. */
+/** Safety scenarios: each has only the entries needed to see it. */
 function scenarioFixture(scenario: CatalogScenario): AgentCatalogEntry[] {
   switch (scenario) {
     case 'blocked':
@@ -208,15 +208,15 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
   const timers = new Map<string, number[]>()
   const emit = (install: AgentInstall) => {
     const current = world.get(install.id)
-    // Come l'host: a fine corsa riuscita il catalogo dice install: null, mai `done`.
+    // Like the host: on a successful run the catalog says install: null, never `done`.
     if (current) world.set(install.id, { ...current, install: install.state === 'done' ? null : install })
     listeners.forEach((l) => l(install))
   }
   const later = (id: string, ms: number, fn: () => void) => timers.set(id, [...(timers.get(id) ?? []), window.setTimeout(fn, ms)])
   const wait = <T,>(ms: number, value: () => T) => new Promise<T>((resolve) => window.setTimeout(() => resolve(value()), ms))
 
-  // Il registro cambia tra la lettura e il comando (una sola volta per voce): al primo `agents.install` il mondo è già cambiato, e ciò che l'utente
-  // aveva confermato non coincide più. Come il vero host, il rifiuto avviene in start() (e a volte anche come evento con `checksum-changed`).
+  // The registry changes between the read and the command (once per entry): at the first `agents.install` the world has already changed, and what the user
+  // had confirmed no longer matches. Like the real host, the rejection happens in start() (and sometimes also as an event with `checksum-changed`).
   const moves: Record<string, (current: AgentCatalogEntry) => AgentCatalogEntry> = {
     goose: (c) => ({ ...c, registryVersion: '1.13.0' }),
     'host-moved': (c) => ({ ...c, download: { ...c.download!, host: 'cdn.vendor.example' } }),
@@ -227,7 +227,7 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
     'checksum-blocked': (c) => ({ ...c, download: { ...c.download!, blocked: 'checksum-conflict' } })
   }
   const moved = new Set<string>()
-  /** Cosa rifiuta l'host adesso: versione, host, sha256 o blocco, con il messaggio grezzo; null se tutto coincide con ciò che l'utente ha visto. */
+  /** What the host rejects right now: version, host, sha256 or block, with the raw message; null if everything matches what the user saw. */
   const refusal = (sent: AgentCatalogEntry, now: AgentCatalogEntry): string | null => {
     if (sent.registryVersion !== now.registryVersion) return `The registry now lists version ${now.registryVersion} for ${now.name}, not ${sent.registryVersion}. Review the new version and try again.`
     if (!now.download || now.download.blocked) return `${now.name} cannot be downloaded any more: the registry entry changed. Review it and try again.`
@@ -236,7 +236,7 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
     return null
   }
   const hanging = new Map<string, (login: AgentLogin) => void>()
-  // StrictMode monta due volte e la prima lettura viene scartata: le letture dei primi 250 ms contano come quella iniziale.
+  // StrictMode mounts twice and the first read is discarded: reads in the first 250 ms count as the initial one.
   let firstRead: number | null = null
   const initialRead = () => {
     const now = performance.now()
@@ -244,12 +244,12 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
     return now - firstRead < 250
   }
   let lateScheduled = false
-  // Scenario "stale": cosa il catalogo dice dopo i tentativi. Il 404 momentaneo passa da solo; la firma fallita cambia solo con una versione nuova.
+  // "stale" scenario: what the catalog says after the attempts. The transient 404 goes away by itself; the failed signature changes only with a new version.
   const original = new Map<string, AgentCatalogEntry>()
   const healed = new Set<string>()
   let sigFailed = false
   let sigReads = 0
-  /** Evento verso la lista senza scriverlo nel mondo: il catalogo dell'host non conserva questi errori. */
+  /** Event towards the list without writing it into the world: the host catalog does not keep these errors. */
   const emitOnly = (install: AgentInstall) => listeners.forEach((l) => l(install))
 
   const actions: AgentCatalogActions & { remove: (id: string) => void } = {
@@ -262,7 +262,7 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
       if (scenario === 'empty') return wait(300, () => [])
       if (scenario === 'loading') return new Promise(() => undefined)
       if (scenario === 'late' && initialRead()) {
-        // Lettura lenta: la risposta è costruita ora (kiro in download) e arriva dopo l'errore di kiro e il suo "running" fuori ordine.
+        // Slow read: the response is built now (kiro downloading) and arrives after kiro's error and its out-of-order "running".
         const snapshot = [...world.values()]
         const kiro = world.get('kiro')?.install
         if (lateScheduled) return wait(3000, () => snapshot)
@@ -273,7 +273,7 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
         return wait(3000, () => snapshot)
       }
       if (scenario === 'error') return new Promise((_, reject) => window.setTimeout(() => reject(new Error('getaddrinfo ENOTFOUND cdn.agentclientprotocol.com')), 500))
-      // "Flaky Checksum" e "Update Without Checksum": la lettura iniziale non riesce a leggere il checksum, quelle dopo (Try again) sì.
+      // "Flaky Checksum" and "Update Without Checksum": the initial read cannot read the checksum, the later ones (Try again) can.
       if (scenario === 'checksum' && !initialRead()) {
         for (const id of ['cu-flaky', 'update-flaky']) {
           const flaky = world.get(id)
@@ -301,17 +301,17 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
       if (scenario === 'stale') {
         const base = { id: e.id, version: e.registryVersion, state: 'error' as const, stage: null, progress: null, bytes: null, total: null, signature: null }
         const code = (errorCode: AgentBlockCode, error: string): AgentInstall => ({ ...base, error, errorCode })
-        // Come l'host vero: il codice viaggia solo nell'evento, che parte PRIMA del rifiuto; la promessa porta solo il messaggio.
+        // Like the real host: the code travels only in the event, which fires BEFORE the rejection; the promise carries only the message.
         if (e.id === 'conflict-promise') {
           later(e.id, 20, () => emitOnly(code('checksum-conflict', 'Raw host message, replaced by the coded text.')))
           return new Promise((_, reject) => window.setTimeout(() => reject(new Error('Raw host message, replaced by the coded text.')), 300))
         }
-        // start() rifiuta per un checksum momentaneamente assente (evento con codice, poi rifiuto senza); la rilettura lo rivede intero: l'errore deve restare con Try again.
+        // start() rejects for a momentarily missing checksum (event with code, then rejection without); the reread sees it whole: the error must stay with Try again.
         if (e.id === 'flaky-start') {
           later(e.id, 20, () => emitOnly(code('no-checksum', 'The checksum was not found.')))
           return new Promise((_, reject) => window.setTimeout(() => reject(new Error('The checksum was not found.')), 300))
         }
-        // Durante il download un redirect va a un host non ammesso: errore con codice `host`; il catalogo (che controlla solo l'URL del registro) non vede blocchi.
+        // During the download a redirect goes to a disallowed host: error with code `host`; the catalog (which only checks the registry URL) sees no blocks.
         if (e.id === 'redirect-host') {
           later(e.id, 100, () => emitOnly({ ...base, state: 'running', stage: 'downloading', progress: 0.2, bytes: 18_000_000, total: 90_000_000, error: null, errorCode: null }))
           later(e.id, 700, () => emitOnly(code('host', 'Raw host message, replaced by the coded text.')))
@@ -322,7 +322,7 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
           return Promise.resolve()
         }
         if (e.id === 'flaky-404') {
-          // La rilettura di adesso vede la voce senza checksum; la prossima, dopo il Rescan, la rivede com'era.
+          // The current reread sees the entry without checksum; the next one, after Rescan, sees it as it was.
           const now = world.get(e.id)!
           original.set(e.id, now)
           world.set(e.id, { ...now, state: 'unavailable', reasonCode: 'no-checksum', reason: 'No checksum.', download: { ...now.download!, sha256: null, blocked: 'no-checksum' } })
@@ -340,7 +340,7 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
       const refused = now ? refusal(e, now) : null
       if (refused) {
         const code = { id: e.id, version: e.registryVersion, state: 'error' as const, stage: null, progress: null, bytes: null, total: null, error: refused, errorCode: 'checksum-changed' as const, signature: null }
-        // Solo evento: la richiesta risponde e poco dopo arriva l'errore con il codice. Promessa e evento: come l'host vero. Solo promessa: versione, host o blocco.
+        // Event only: the request answers and shortly after the error arrives with the code. Promise and event: like the real host. Promise only: version, host or block.
         if (e.id === 'checksum-event') {
           later(e.id, 500, () => emitOnly(code))
           return Promise.resolve()
@@ -381,7 +381,7 @@ function fakeActions(scenario: CatalogScenario): AgentCatalogActions & { remove:
       const ok = id === 'agent-ok' || (id === 'agent-fail' && n > 1)
       if (id === 'agent-fail' && n === 1) return new Promise((_, reject) => window.setTimeout(() => reject(new Error('The sign-in was not completed in the browser.')), 1200))
       if (id === 'agent-hang' && n === 1) {
-        // Resta in attesa finché non arriva `cancelAuthenticate`, che risponde con il login com'era (senza errore).
+        // Stays pending until `cancelAuthenticate` arrives, which answers with the login as it was (no error).
         return new Promise<AgentLogin>((resolve) => hanging.set(id, resolve))
       }
       if (id === 'agent-hang') return wait(1200, () => {

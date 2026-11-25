@@ -1,5 +1,5 @@
-// Selettore del composer: file e terminali per le citazioni con @, comandi per la / a inizio messaggio.
-// Non prende mai il focus: la tastiera resta nella textarea, che punta all'opzione attiva con aria-activedescendant.
+// Composer picker: files and terminals for @ mentions, commands for the / at the start of a message.
+// It never takes focus: the keyboard stays in the textarea, which points at the active option with aria-activedescendant.
 import { useEffect, type CSSProperties } from 'react'
 import { File, SquareTerminal } from 'lucide-react'
 import { plural, t } from '@shared/i18n'
@@ -8,20 +8,20 @@ import type { FileEntry } from './file-index'
 import { commandDescription, type CommandEntry } from './slash-commands'
 
 /**
- * Opzione del selettore: un file del progetto, un terminale (@terminal ne allega l'output) o un comando /.
- * `disabled` è il motivo per cui il comando non si può eseguire adesso (per esempio la sessione lavora).
+ * Picker option: a project file, a terminal (@terminal attaches its output) or a / command.
+ * `disabled` is the reason the command can't be run right now (for example the session is working).
  */
 export type PickerOption =
   | { kind: 'file'; entry: FileEntry }
   | { kind: 'terminal'; id: string; title: string; detail: string }
   | { kind: 'command'; entry: CommandEntry; disabled: string | null }
 
-/** Etichetta di origine, con le chiavi t() letterali. */
+/** Origin label, with literal t() keys. */
 const sourceTag = (source: CommandEntry['source']): string | null => (source === 'custom' ? t('custom') : source === 'skill' ? t('skill') : null)
 
 interface MentionPickerProps {
   id: string
-  /** @ per file e terminali, / per i comandi. */
+  /** @ for files and terminals, / for commands. */
   mode?: 'mention' | 'command'
   results: PickerOption[]
   active: number
@@ -38,7 +38,7 @@ export const optionId = (listId: string, index: number) => `${listId}-opt-${inde
 
 export function MentionPicker({ id, mode = 'mention', results, active, loading, error, hasProject, query, style, onHover, onChoose }: MentionPickerProps) {
   const commands = mode === 'command'
-  // L'opzione attiva resta visibile quando l'elenco scorre (molte skill).
+  // The active option stays visible when the list scrolls (many skills).
   useEffect(() => {
     document.getElementById(optionId(id, active))?.scrollIntoView({ block: 'nearest' })
   }, [id, active])
@@ -53,7 +53,7 @@ export function MentionPicker({ id, mode = 'mention', results, active, loading, 
   return (
     <div
       style={style}
-      // Il clic su un'opzione non deve togliere il focus alla textarea.
+      // Clicking an option must not take focus away from the textarea.
       onMouseDown={(event) => event.preventDefault()}
       className="absolute z-50 overflow-hidden rounded-xl border border-input bg-popover text-popover-foreground shadow-[0_12px_32px_rgb(3_8_20/0.18)] dark:shadow-[0_12px_32px_rgb(0_0_0/0.45)]"
     >
@@ -124,7 +124,7 @@ export function MentionPicker({ id, mode = 'mention', results, active, loading, 
                 <File aria-hidden className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.8} />
                 <span className="shrink-0 font-semibold text-foreground">{option.entry.base}</span>
                 {option.entry.dir && (
-                  // Le cartelle lunghe si tagliano a sinistra: conta la parte vicina al file.
+                  // Long folders are cut on the left: the part near the file matters.
                   <span className="min-w-0 truncate text-left text-muted-foreground [direction:rtl]">{`‎${option.entry.dir}‎`}</span>
                 )}
               </div>

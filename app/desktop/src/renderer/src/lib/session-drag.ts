@@ -1,20 +1,20 @@
-// Selezione multipla e trascinamento delle sessioni nella sidebar (gruppi). Stato locale dell'interfaccia: non si salva.
+// Multi-select and drag of sessions in the sidebar (groups). Local UI state: not persisted.
 import { create } from 'zustand'
 import { startPointerDrag } from '@/lib/pointer-drag'
 import { useApp } from '@/store/app-store'
 
-/** Valore di `data-drop-group` per "fuori dai gruppi". */
+/** Value of `data-drop-group` for "outside the groups". */
 export const NO_GROUP = 'none'
 
 interface PickState {
   projectId: string | null
   ids: string[]
-  /** Ultima riga toccata: da lì parte la selezione con ⇧. */
+  /** Last row touched: ⇧ selection starts from there. */
   anchor: string | null
   clear: () => void
 }
 
-/** Sessioni selezionate con ⌘ e ⇧ clic, in un solo progetto alla volta. */
+/** Sessions selected with ⌘ and ⇧ click, in one project at a time. */
 export const usePick = create<PickState>((set) => ({
   projectId: null,
   ids: [],
@@ -23,8 +23,8 @@ export const usePick = create<PickState>((set) => ({
 }))
 
 /**
- * Clic su una riga con i modificatori. ⌘ aggiunge o toglie la riga, ⇧ seleziona dall'ultima toccata a questa.
- * Restituisce true se il clic è stato preso (la sessione non si apre); con un clic semplice la selezione si azzera.
+ * Click on a row with modifiers. ⌘ adds or removes the row, ⇧ selects from the last touched to this one.
+ * Returns true if the click was consumed (the session does not open); a plain click clears the selection.
  */
 export function pickClick(event: { metaKey: boolean; shiftKey: boolean }, projectId: string, order: string[], id: string): boolean {
   const pick = usePick.getState()
@@ -38,7 +38,7 @@ export function pickClick(event: { metaKey: boolean; shiftKey: boolean }, projec
     const from = order.indexOf(pick.projectId === projectId && pick.anchor ? pick.anchor : id)
     const to = order.indexOf(id)
     const range = from < 0 || to < 0 ? [id] : order.slice(Math.min(from, to), Math.max(from, to) + 1)
-    // Come nel Finder: la selezione si estende dall'ancora, l'ancora resta dov'era.
+    // Like in Finder: the selection extends from the anchor, the anchor stays where it was.
     usePick.setState({ projectId, ids: range, anchor: from < 0 ? id : order[from] })
     return true
   }
@@ -48,7 +48,7 @@ export function pickClick(event: { metaKey: boolean; shiftKey: boolean }, projec
 
 interface DragState {
   active: { projectId: string; ids: string[]; label: string } | null
-  /** Id del gruppo sotto il puntatore, `NO_GROUP` fuori dai gruppi, null altrove. */
+  /** Id of the group under the pointer, `NO_GROUP` outside the groups, null elsewhere. */
   over: string | null
   x: number
   y: number
@@ -68,7 +68,7 @@ interface SessionDragOptions {
   label: string
 }
 
-/** Trascina una o più sessioni sui gruppi (zone `data-drop-group` del progetto). Rilasciare altrove non fa nulla. */
+/** Drags one or more sessions onto the groups (`data-drop-group` zones of the project). Dropping elsewhere does nothing. */
 export function startSessionDrag({ event, projectId, ids, label }: SessionDragOptions): void {
   const end = () => useSessionDrag.setState({ active: null, over: null })
   startPointerDrag(event, {

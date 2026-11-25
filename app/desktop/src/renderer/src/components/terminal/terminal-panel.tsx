@@ -1,5 +1,5 @@
-// Pannello terminale in basso o a destra (⌃`): i terminali del progetto in schede. Restano vivi quando cambi progetto
-// o chiudi il pannello; si chiudono solo con la ×.
+// Terminal panel at the bottom or right (⌃`): the project's terminals in tabs. They stay alive when you switch project
+// or close the panel; they close only with the ×.
 import { useEffect, useMemo, useRef } from 'react'
 import { ChevronDown, ChevronRight, PanelBottom, PanelRight, Play, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import type { TerminalInfo } from '@shared/protocol'
@@ -12,10 +12,10 @@ import { t } from '@shared/i18n'
 
 const NO_TERMINALS: TerminalInfo[] = []
 
-/** Azioni di avvio e servizi del worktree sono processi lanciati da Ladder: stessa icona, porta e riavvio. */
+/** Start actions and worktree services are processes launched by Ladder: same icon, port and restart. */
 const launched = (terminal: TerminalInfo) => terminal.kind === 'run' || terminal.kind === 'service'
 
-/** Terminali del pannello per un progetto: shell, azioni e servizi, non le CLI delle sessioni terminale. */
+/** Panel terminals for a project: shells, actions and services, not the CLIs of terminal sessions. */
 export function usePanelTerminals(projectId: string | null): TerminalInfo[] {
   const terminals = useApp((s) => s.terminals)
   return useMemo(() => {
@@ -54,7 +54,7 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
   const active = terminals.find((t) => t.id === panel?.active) ?? terminals[terminals.length - 1] ?? null
   const creating = useRef(false)
 
-  // Pannello aperto senza terminali: se ne apre uno nella cartella della sessione.
+  // Panel opened with no terminals: one is opened in the session's folder.
   useEffect(() => {
     if (terminals.length > 0 || creating.current) return
     creating.current = true
@@ -125,7 +125,7 @@ export function TerminalPanel({ projectId, sessionId, cwd, composerKey }: Termin
                 type="button"
                 aria-label={t('Close {title}', { title: terminal.title })}
                 onClick={() => {
-                  // Chiudere l'ultimo terminale nasconde il pannello invece di aprirne un altro.
+                  // Closing the last terminal hides the panel instead of opening another.
                   if (terminals.length === 1) setPanel(projectId, { open: false, active: null })
                   closeTerminal(terminal.id)
                 }}

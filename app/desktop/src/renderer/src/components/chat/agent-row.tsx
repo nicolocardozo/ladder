@@ -1,5 +1,5 @@
-// Riga di chat di un sotto-agente: una sola riga "titolo · tipo · modello · 5m 34s ✓", senza prompt e report.
-// Il clic apre il dialogo di dettaglio; la riga funziona anche per i turni vecchi, senza SubagentInfo.
+// Chat row for a sub-agent: a single row "title · type · model · 5m 34s ✓", without prompt and report.
+// A click opens the detail dialog; the row also works for old turns, without SubagentInfo.
 import { Bot } from 'lucide-react'
 import { memo } from 'react'
 import { t } from '@shared/i18n'
@@ -16,7 +16,7 @@ const FROM_TOOL = { running: 'running', done: 'done', error: 'error', denied: 's
 
 export const AgentToolRow = memo(function AgentToolRow({ item }: { item: ToolItem }) {
   const { sessionId } = useChatActions()
-  // Il selettore restituisce solo l'agente di questa riga: gli altri aggiornamenti dell'elenco non la ridisegnano.
+  // The selector returns only this row's agent: other updates to the list do not redraw it.
   const info = useSubagentLists((s) => (sessionId ? findAgentForTool(s.lists[sessionId], item.id) : null))
   const sessionAgent = useApp((s) => (sessionId ? s.sessions[sessionId]?.agent : undefined))
   const sessionModel = useApp((s) => (sessionId ? (s.sessions[sessionId]?.model ?? null) : null))
@@ -28,7 +28,7 @@ export const AgentToolRow = memo(function AgentToolRow({ item }: { item: ToolIte
   const now = useNow(1000, running)
   const elapsed = info ? agentElapsed(info, now) : (item.endedAt ?? (running ? now : item.at)) - item.at
   const title = info?.title ?? item.title
-  // Senza SubagentInfo (turni vecchi, dopo un riavvio) il modello è quello salvato sulla riga.
+  // Without SubagentInfo (old turns, after a restart) the model is the one saved on the row.
   const model = modelOf(info ?? item.agent ?? { model: null })
   const meta = [info?.kind, model].filter(Boolean).join(' · ')
 

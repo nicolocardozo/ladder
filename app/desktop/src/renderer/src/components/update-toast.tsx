@@ -1,5 +1,5 @@
-// Avviso una tantum quando un aggiornamento è scaricato: in basso a sinistra (a destra la colonna browser, vista nativa, lo coprirebbe).
-// Si chiude con la X o con Riavvia; chiuso, non torna per quella versione. La riga sopra il footer della sidebar resta comunque.
+// One-time notice when an update has been downloaded: bottom left (on the right the browser column, a native view, would cover it).
+// It closes with the X or with Restart; once closed, it does not return for that version. The row above the sidebar footer stays regardless.
 import { useState } from 'react'
 import { RefreshCw, X } from 'lucide-react'
 import { t } from '@shared/i18n'
@@ -20,7 +20,7 @@ function readDismissed(): string | null {
 export function UpdateToast() {
   const update = useUpdate()
   const [dismissed, setDismissed] = useState(readDismissed)
-  // Come la riga della sidebar: se qualche agente lavora, il riavvio lo interrompe e lo si dice prima.
+  // Like the sidebar row: if any agent is working, restarting interrupts it and we say so beforehand.
   const working = useApp((s) => Object.values(s.sessions).some((session) => session.run === 'running' || session.run === 'starting' || session.run === 'waiting'))
   if (update?.status !== 'ready' || dismissed === update.next) return null
   const next = update.next
@@ -29,7 +29,7 @@ export function UpdateToast() {
     try {
       localStorage.setItem(DISMISSED, next)
     } catch {
-      // Senza storage l'avviso tornerà al prossimo avvio: va bene lo stesso.
+      // Without storage the notice will return at the next launch: that is fine.
     }
   }
   return (

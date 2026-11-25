@@ -1,4 +1,4 @@
-// Ripristino dei file con annullamento: l'host salva lo stato attuale prima di toccare qualcosa.
+// Restoring files with undo: the host saves the current state before touching anything.
 import { useCallback, useEffect, useState } from 'react'
 import { Undo2, X } from 'lucide-react'
 import { request } from '@/lib/host-client'

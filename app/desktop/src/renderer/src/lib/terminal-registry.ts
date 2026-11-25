@@ -1,6 +1,6 @@
-// Istanze di xterm.js nel renderer, una per terminale dell'host. Restano vive quando la vista si smonta
-// (cambio progetto, pannello chiuso): al rientro l'elemento torna nel DOM senza rileggere nulla.
-// Dopo un ricaricamento o un riavvio dell'host lo schermo si ricostruisce con terminal.attach.
+// xterm.js instances in the renderer, one per host terminal. They stay alive when the view unmounts
+// (project change, panel closed): on return the element goes back to the DOM without rereading anything.
+// After a reload or a host restart the screen is rebuilt with terminal.attach.
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -16,14 +16,14 @@ interface Entry {
   fit: FitAddon
   element: HTMLDivElement
   opened: boolean
-  /** Fino alla risposta di attach l'output in arrivo è già nello stato ricostruito: si scarta. */
+  /** Until the attach reply, incoming output is already in the rebuilt state: it is discarded. */
   state: 'idle' | 'attaching' | 'live'
   size: { cols: number; rows: number }
   selectionListeners: Set<(text: string) => void>
 }
 
 const entries = new Map<string, Entry>()
-/** Il prossimo terminale montato prende il focus: solo quando lo apri tu, non al ripristino della finestra. */
+/** The next mounted terminal takes focus: only when you open it, not when the window is restored. */
 let focusNext = false
 let currentTheme: ThemeInfo = themeById(document.documentElement.dataset.theme ?? null)
 
@@ -32,14 +32,14 @@ export function routeTerminalData(id: string, data: string): void {
   if (entry?.state === 'live') entry.term.write(data)
 }
 
-/** L'host ha azzerato la sua copia dello schermo: anche questa finestra pulisce lo xterm di quel terminale, se ce l'ha. */
+/** The host cleared its copy of the screen: this window also clears that terminal's xterm, if it has one. */
 export function routeTerminalCleared(id: string): void {
   const entry = entries.get(id)
   if (entry) clearAfterWrites(entry.term)
 }
 
-// write() analizza in differita, clear() agisce subito: la pulizia va in coda alle scritture, o l'output appena arrivato ricompare.
-// Sul buffer alternativo (vim, less, la CLI di un agente) pulire romperebbe l'interfaccia.
+// write() parses deferred, clear() acts immediately: the clear is queued behind the writes, or the output that just arrived reappears.
+// On the alternate buffer (vim, less, an agent's CLI) clearing would break the interface.
 function clearAfterWrites(term: Terminal): void {
   term.write('', () => {
     if (term.buffer.active.type !== 'alternate') term.clear()
@@ -58,7 +58,7 @@ function mix(a: string, b: string, t: number): string {
   return `#${c(r1, r2)}${c(g1, g2)}${c(b1, b2)}`
 }
 
-/** Colori ANSI dai token del tema; i temi Mono hanno i loro, perché lì accento e stati sono grigi. */
+/** ANSI colors from the theme tokens; Mono themes have their own, because there accent and states are gray. */
 export function terminalTheme(theme: ThemeInfo): ITheme {
   const t = theme.tokens
   const dark = theme.appearance === 'dark'
@@ -104,9 +104,9 @@ export function setTerminalTheme(theme: ThemeInfo): void {
   for (const entry of entries.values()) entry.term.options.theme = terminalTheme(theme)
 }
 
-/** Monaspace Neon come nel codice e nei diff (DESIGN.md); SF Mono finché non è caricata. */
+/** Monaspace Neon as in code and diffs (DESIGN.md); SF Mono until it is loaded. */
 const TERMINAL_FONT = '"Monaspace Neon", "SF Mono", ui-monospace, Menlo, monospace'
-// Il carattere si scarica solo quando serve: lo si chiede subito, perché xterm misura le celle all'apertura.
+// The font is downloaded only when needed: it is requested right away, because xterm measures cells on open.
 const fontReady = typeof document !== 'undefined' ? document.fonts.load('12px "Monaspace Neon"').catch(() => []) : Promise.resolve([])
 
 function create(id: string): Entry {
@@ -117,24 +117,24 @@ function create(id: string): Entry {
     lineHeight: 1.2,
     cursorBlink: true,
     scrollback: 5000,
-    // Con la tastiera italiana ⌥ scrive @ # [ ]: non va usato come Meta.
+    // With the Italian keyboard ⌥ types @ # [ ]: it must not be used as Meta.
     macOptionIsMeta: false,
     theme: terminalTheme(currentTheme)
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
-  // Arrivato il carattere, xterm rimisura le celle e il terminale si riadatta.
+  // Once the font arrives, xterm remeasures the cells and the terminal refits.
   void fontReady.then(() => {
     term.options.fontFamily = TERMINAL_FONT
     try {
       fit.fit()
     } catch {
-      // Terminale non ancora visibile: si adatta all'apertura.
+      // Terminal not visible yet: it fits on open.
     }
   })
   term.loadAddon(new Unicode11Addon())
   term.unicode.activeVersion = '11'
-  // I link si aprono nel browser: il processo main gira window.open verso il browser predefinito.
+  // Links open in the browser: the main process runs window.open towards the default browser.
   term.loadAddon(new WebLinksAddon((_event, uri) => window.open(uri)))
   const element = document.createElement('div')
   element.className = 'h-full w-full'
@@ -145,16 +145,16 @@ function create(id: string): Entry {
     const text = term.getSelection()
     for (const listener of entry.selectionListeners) listener(text)
   })
-  // Le scorciatoie con ⌘ restano all'app (⌘K, ⌘W, ⌘1…), come ⌃` che chiude il pannello;
-  // al terminale vanno solo copia, incolla e seleziona tutto.
+  // ⌘ shortcuts stay with the app (⌘K, ⌘W, ⌘1…), like ⌃` which closes the panel;
+  // only copy, paste and select all go to the terminal.
   term.attachCustomKeyEventHandler((event) => {
     if (event.type !== 'keydown') return true
     if (matchesCommand(event, 'terminal.toggle')) return false
-    // Pulisce schermo e scrollback (il prompt resta). stopPropagation: l'ascoltatore globale non deve aprire la palette.
+    // Clears screen and scrollback (the prompt stays). stopPropagation: the global listener must not open the palette.
     if (matchesCommand(event, 'terminal.clear')) {
       event.preventDefault()
       event.stopPropagation()
-      // Sul buffer alternativo l'evento si consuma e basta.
+      // On the alternate buffer the event is just consumed.
       if (term.buffer.active.type !== 'alternate') {
         clearAfterWrites(term)
         send({ type: 'terminal.clear', id })
@@ -162,8 +162,8 @@ function create(id: string): Entry {
       return false
     }
     if (event.metaKey && !TERMINAL_NATIVE_KEYS.includes(event.key.toLowerCase())) return false
-    // Una scorciatoia globale con ⌃ (⌃Tab per cambiare tab) è dell'app: xterm la inghiottirebbe come tasto del terminale.
-    // Quelle senza ⌃ né ⌘ restano al terminale, così scrivere non viene intercettato.
+    // A global shortcut with ⌃ (⌃Tab to switch tabs) belongs to the app: xterm would swallow it as a terminal key.
+    // Those without ⌃ or ⌘ stay with the terminal, so typing isn't intercepted.
     const binding = event.ctrlKey ? findBinding(event, 'global') : null
     return !binding
   })
@@ -185,7 +185,7 @@ function attach(entry: Entry): void {
     })
 }
 
-/** Dimensiona il terminale sul contenitore e lo comunica all'host. */
+/** Sizes the terminal to the container and tells the host. */
 export function fitTerminal(id: string): void {
   const entry = entries.get(id)
   if (!entry?.opened || !entry.element.isConnected || entry.element.clientWidth === 0) return
@@ -201,7 +201,7 @@ export function fitTerminal(id: string): void {
   }
 }
 
-/** Mette il terminale nel contenitore. Restituisce la funzione che lo stacca senza chiuderlo. */
+/** Puts the terminal in the container. Returns the function that detaches it without closing it. */
 export function mountTerminal(id: string, container: HTMLElement): () => void {
   const entry = entries.get(id) ?? create(id)
   container.appendChild(entry.element)
@@ -251,12 +251,12 @@ export function disposeTerminal(id: string): void {
   entries.delete(id)
 }
 
-// Host riavviato: lo stato dei terminali aperti si ricostruisce da capo.
+// Host restarted: the state of open terminals is rebuilt from scratch.
 onHostConnect(() => {
   for (const entry of entries.values()) if (entry.opened) attach(entry)
 })
 
-// Cambio di tema (anche da un'altra finestra): i terminali aperti prendono subito i nuovi colori.
+// Theme change (also from another window): open terminals pick up the new colors right away.
 new MutationObserver(() => {
   const theme = themeById(document.documentElement.dataset.theme ?? null)
   if (theme.id !== currentTheme.id) setTerminalTheme(theme)

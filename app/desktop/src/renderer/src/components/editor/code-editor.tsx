@@ -1,4 +1,4 @@
-// Editor leggero per i file aperti come tab: CodeMirror 6 con i colori del tema. Niente linguaggi "intelligenti": per quelli c'è Cursor.
+// Lightweight editor for files open as tabs: CodeMirror 6 with the theme's colors. No "smart" language support: Cursor is for that.
 import { useEffect, useRef } from 'react'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -45,7 +45,7 @@ const control = {
 const theme = EditorView.theme({
   '&': { height: '100%', fontSize: 'var(--editor-size, 12px)', backgroundColor: 'var(--background)', color: 'var(--foreground)' },
   '&.cm-focused': { outline: 'none' },
-  // Corpo e interlinea seguono le preferenze (12/20 per default: l'interlinea è 5/3 del corpo).
+  // Body and line height follow the preferences (12/20 by default: line height is 5/3 of the body).
   '.cm-scroller': { fontFamily: 'var(--font-code, var(--font-mono))', lineHeight: 'calc(var(--editor-size, 12px) * 5 / 3)', overflow: 'auto' },
   '.cm-content': { caretColor: 'var(--primary)', padding: '8px 0' },
   '.cm-gutters': { backgroundColor: 'var(--background)', color: 'var(--faint)', border: 'none' },
@@ -96,7 +96,7 @@ function createState(buffer: FileBuffer): EditorState {
       highlightSelectionMatches(),
       search({ top: true }),
       EditorView.contentAttributes.of({ 'aria-label': t('Text of {file}', { file: buffer.path }) }),
-      // Salva: la scorciatoia si legge dal registro a ogni tasto, così una scorciatoia cambiata vale subito anche negli editor già aperti.
+      // Save: the shortcut is read from the registry on every key, so a changed shortcut applies immediately even in editors already open.
       EditorView.domEventHandlers({
         keydown: (event) => {
           if (!matchesCommand(event, 'file.save')) return false
@@ -135,7 +135,7 @@ export function CodeEditor({ buffer, compareWith }: { buffer: FileBuffer; compar
     view.scrollDOM.scrollTop = buffer.scrollTop
     view.focus()
     if (created) {
-      // La grammatica si carica a parte, solo per i linguaggi che apri.
+      // The grammar is loaded separately, only for the languages you open.
       void LanguageDescription.matchFilename(languages, buffer.path)
         ?.load()
         .then((support) => {

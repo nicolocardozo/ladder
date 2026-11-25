@@ -1,6 +1,6 @@
-// Dove trovare Codex: la CLI dell'utente, poi quella dell'app Codex, poi quella delle estensioni per Cursor e VS Code.
-// Il binario pesa circa 350 MB: Ladder non lo include, lo scarica nella cartella dati se manca (LAD-10).
-// LADDER_CODEX lo indica per le prove.
+// Where to find Codex: the user's CLI, then the Codex app's, then the one from the Cursor and VS Code extensions.
+// The binary weighs about 350 MB: Ladder does not ship it, it downloads it into the data folder if missing.
+// LADDER_CODEX points to it for testing.
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -14,7 +14,7 @@ import { CodexRpc } from './rpc'
 
 const run = promisify(execFile)
 
-/** Estensioni per gli editor che includono Codex: la versione più recente vince. */
+/** Editor extensions that bundle Codex: the most recent version wins. */
 function extensionBinaries(): string[] {
   const found: { path: string; at: number }[] = []
   for (const root of [join(homedir(), '.cursor/extensions'), join(homedir(), '.vscode/extensions')]) {
@@ -34,7 +34,7 @@ function extensionBinaries(): string[] {
   return found.sort((a, b) => b.at - a.at).map((f) => f.path)
 }
 
-/** Codex scaricato da Ladder: viene dopo tutti quelli dell'utente. */
+/** Codex downloaded by Ladder: comes after all the user's own. */
 export const downloadedCodexPath = () => join(toolDir('codex'), 'codex')
 
 export async function findCodexCli(): Promise<string | null> {
@@ -58,10 +58,10 @@ export async function codexVersion(cli: string): Promise<string | null> {
   }
 }
 
-/** Le chiavi API scavalcherebbero il login di ChatGPT: vale quello della CLI. */
+/** API keys would override the ChatGPT login: the CLI's login applies. */
 export const CODEX_STRIP_ENV = ['OPENAI_API_KEY', 'CODEX_API_KEY']
 
-/** Ambiente di Codex: CODEX_HOME solo per un profilo non predefinito (LAD-23); altrimenti vale quello dell'utente, se c'è. */
+/** Codex environment: CODEX_HOME only for a non-default profile; otherwise the user's own applies, if any. */
 export function codexEnv(configDir: string | null = null): Promise<Record<string, string>> {
   return agentEnv(CODEX_STRIP_ENV, configDir ? { CODEX_HOME: configDir } : {})
 }
@@ -107,13 +107,13 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export interface CodexConfig {
   model: string | null
-  /** Come scritto in config.toml: Codex accetta anche livelli (minimal, none) che Ladder non ha. */
+  /** As written in config.toml: Codex also accepts levels (minimal, none) that Ladder does not have. */
   effort: string | null
-  /** `profile` nomina un profilo che non c'è in config.toml: non si sa cosa parte. */
+  /** `profile` names a profile missing from config.toml: it is unknown what starts. */
   unresolved: boolean
 }
 
-/** Valore stringa TOML (basic con escape, o literal) all'inizio di `rest`; null se non è una stringa. */
+/** TOML string value (basic with escapes, or literal) at the start of `rest`; null if it is not a string. */
 function tomlString(rest: string): string | null {
   if (rest.startsWith("'")) {
     const end = rest.indexOf("'", 1)
@@ -132,7 +132,7 @@ function tomlString(rest: string): string | null {
   return null
 }
 
-/** Profondità delle parentesi quadre dopo `text` (fuori dalle stringhe e dai commenti), partendo da `depth`. */
+/** Square-bracket depth after `text` (outside strings and comments), starting from `depth`. */
 function bracketDepth(text: string, depth: number): number {
   let quote: string | null = null
   for (let i = 0; i < text.length; i++) {
@@ -149,12 +149,12 @@ function bracketDepth(text: string, depth: number): number {
 }
 
 /**
- * Modello ed effort scelti dall'utente in config.toml: `model` e `model_reasoning_effort` di primo livello, e quelli del
- * profilo nominato da `profile` ([profiles.<nome>]). Il resto del file non si tiene. Array e stringhe su più righe si saltano.
- * `configDir` è il CODEX_HOME del profilo di Ladder, altrimenti ~/.codex.
+ * Model and effort chosen by the user in config.toml: top-level `model` and `model_reasoning_effort`, and those of the
+ * profile named by `profile` ([profiles.<name>]). The rest of the file is not kept. Arrays and multi-line strings are skipped.
+ * `configDir` is the Ladder profile's CODEX_HOME, otherwise ~/.codex.
  */
 export function readCodexDefaults(configDir: string | null): CodexConfig {
-  // Come per Claude: cache per percorso, 5 secondi, al più 50 voci (LRU).
+  // As for Claude: cache per path, 5 seconds, at most 50 entries (LRU).
   const key = configDir ?? ''
   const cached = codexConfigCache.get(key)
   if (cached && Date.now() - cached.at < 5000) {
@@ -176,7 +176,7 @@ function loadCodexDefaults(configDir: string | null): CodexConfig {
   if (text === null) return { model: null, effort: null, unresolved: false }
   const top = { model: null as string | null, effort: null as string | null, profile: null as string | null }
   const profiles = new Map<string, { model: string | null; effort: string | null }>()
-  let table: string | null = null // null = primo livello; '' = tabella che non ci interessa
+  let table: string | null = null // null = top level; '' = a table we do not care about
   let depth = 0
   let multiline: string | null = null
   for (const raw of text.split('\n')) {
@@ -221,9 +221,9 @@ function loadCodexDefaults(configDir: string | null): CodexConfig {
 }
 
 /**
- * Elenco modelli per Ladder: `isDefault` da config.toml se nomina un modello dell'elenco, altrimenti dal flag di Codex.
- * Se il config nomina un modello sconosciuto o un profilo che non c'è, nessun default. `model_reasoning_effort` vale per ogni
- * modello che lo supporta; un livello che Ladder non ha (minimal, none) dà `null`.
+ * Model list for Ladder: `isDefault` from config.toml if it names a model in the list, otherwise from Codex's flag.
+ * If the config names an unknown model or a missing profile, no default. `model_reasoning_effort` applies to every
+ * model that supports it; a level Ladder does not have (minimal, none) gives `null`.
  */
 export function codexModels(models: CodexModel[], configDir: string | null): AgentStatus['models'] {
   const config = readCodexDefaults(configDir)
@@ -241,7 +241,7 @@ export function codexModels(models: CodexModel[], configDir: string | null): Age
   })
 }
 
-/** Predefiniti di Codex per `agents.defaults`: dall'elenco già calcolato; `known` false se il config non si risolve. */
+/** Codex defaults for `agents.defaults`: from the already computed list; `known` is false if the config does not resolve. */
 export function codexDefaults(models: AgentStatus['models'], configDir: string | null): { model: string | null; effort: Effort | null; known: boolean } {
   const config = readCodexDefaults(configDir)
   if (config.unresolved || (config.model && !models.some((m) => m.id === config.model))) return { model: null, effort: null, known: false }
@@ -249,7 +249,7 @@ export function codexDefaults(models: AgentStatus['models'], configDir: string |
   return { model: model?.id ?? null, effort: model?.defaultEffort ?? null, known: true }
 }
 
-/** Account e modelli, con un app-server di breve durata: non consuma quota (nessun turno). */
+/** Account and models, with a short-lived app-server: uses no quota (no turn). */
 export async function probeCodex(cli: string, version: string, configDir: string | null = null): Promise<Pick<AgentStatus, 'account' | 'email' | 'models' | 'limits' | 'usage' | 'usageAt'>> {
   const rpc = new CodexRpc(cli, await codexEnv(configDir), () => undefined, async () => ({ error: { code: -32601, message: t('unexpected') } }))
   try {
@@ -271,8 +271,8 @@ export async function probeCodex(cli: string, version: string, configDir: string
   }
 }
 
-/** "14% della finestra di 5 h · 11% settimanale" dai limiti d'uso di Codex. */
-/** Limiti di Codex come finestre di Ladder. */
+/** "14% of the 5 h window · 11% weekly" from Codex usage limits. */
+/** Codex limits as Ladder windows. */
 export function describeUsage(data: unknown): UsageWindow[] {
   const root = data as { rateLimits?: Record<string, unknown>; rateLimitsByLimitId?: Record<string, Record<string, unknown>> } | null
   const limits = root?.rateLimits ?? Object.values(root?.rateLimitsByLimitId ?? {})[0]

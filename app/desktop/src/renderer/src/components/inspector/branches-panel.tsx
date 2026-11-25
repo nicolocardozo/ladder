@@ -1,4 +1,4 @@
-// Scheda Branches (⌘⌥4): la mappa verticale dei branch del progetto e, sotto la riga della sessione aperta, le azioni di unione.
+// Branches tab (⌘⌥4): the vertical map of the project's branches and, below the open session's row, the merge actions.
 import type { SessionSummary } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { BranchMap } from './branch-map'

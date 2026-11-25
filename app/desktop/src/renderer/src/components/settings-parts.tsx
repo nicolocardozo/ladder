@@ -1,4 +1,4 @@
-// Pezzi comuni delle sezioni di Impostazioni: interruttore, riga etichetta + controllo, gruppo di scelte a pulsanti radio e stili dei pulsanti.
+// Shared building blocks for the Settings sections: switch, label + control row, radio-button choice group and button styles.
 import { useRef, type ReactNode } from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -20,7 +20,7 @@ export function Toggle({ label, description, checked, onChange, disabled }: { la
   )
 }
 
-/** Riga di un riquadro a righe: etichetta e spiegazione a sinistra, il controllo a destra. */
+/** A row in a boxed list of rows: label and explanation on the left, the control on the right. */
 export function SettingRow({ label, hint, warning, children }: { label: string; hint?: ReactNode; warning?: string | null; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-6 px-4 py-3">
@@ -33,7 +33,7 @@ export function SettingRow({ label, hint, warning, children }: { label: string; 
   )
 }
 
-/** Titolo e spiegazione di un blocco dentro una sezione, come "Chat font" in Aspetto. */
+/** Title and explanation of a block inside a section, such as "Chat font" in Appearance. */
 export function SettingsBlock({ id, title, description, children, className }: { id: string; title: string; description?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section className={cn('mt-8', className)} aria-labelledby={id}>
@@ -49,17 +49,17 @@ export function SettingsBlock({ id, title, description, children, className }: {
 export interface Choice<T extends string> {
   id: T
   label: string
-  /** Seconda riga, 12 px tenue. */
+  /** Second line, 12 px muted. */
   hint?: string
-  /** Etichetta accanto al nome, per esempio "default". */
+  /** Label next to the name, for example "default". */
   badge?: string
-  /** Nota in tono tenue a destra del nome, per esempio "not installed". */
+  /** Muted note to the right of the name, for example "not installed". */
   note?: string
 }
 
 /**
- * Scelta tra poche opzioni, a pulsanti radio (stesso aspetto di Chat font e Chat width): una sola tappa nella tabulazione,
- * frecce per spostarsi e scegliere. `minWidth` è la larghezza minima di una cella della griglia.
+ * Choice among a few options, as radio buttons (same look as Chat font and Chat width): a single tab stop,
+ * arrow keys to move and choose. `minWidth` is the minimum width of a grid cell.
  */
 export function ChoiceGroup<T extends string>({ label, value, choices, onChange, minWidth = 180, renderLabel }: {
   label: string
@@ -110,7 +110,7 @@ export function ChoiceGroup<T extends string>({ label, value, choices, onChange,
   )
 }
 
-/** Messaggio di esito sotto un'azione: tenue, o rosa se è un errore. */
+/** Outcome message under an action: muted, or pink if it is an error. */
 export function Outcome({ tone = 'muted', children }: { tone?: 'muted' | 'error'; children: ReactNode }) {
   return (
     <p role={tone === 'error' ? 'alert' : 'status'} className={cn('text-xs', tone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>

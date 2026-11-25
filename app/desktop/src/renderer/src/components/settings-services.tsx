@@ -1,7 +1,7 @@
-// Impostazioni → Workspace → Servizi del worktree (LAD-66): i comandi lunghi che partono in un terminale a parte alla creazione del worktree.
-// Il progetto li definisce in .ladder/settings.toml (sola lettura), la persona nel file personale: ogni modifica riscrive per intero l'elenco
-// personale (`personalServices`), mai `services`, che è già fuso. Disattivare un servizio del progetto = voce personale con stesso nome e comando
-// vuoto; riattivarlo = togliere quella voce.
+// Settings → Workspace → Worktree services: long-running commands that start in a separate terminal when the worktree is created.
+// The project defines them in .ladder/settings.toml (read-only), the person in their personal file: every edit rewrites the whole
+// personal list (`personalServices`), never `services`, which is already merged. Disabling a project service = a personal entry with the same name and an
+// empty command; re-enabling it = removing that entry.
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Plus } from 'lucide-react'
 import { t } from '@shared/i18n'
@@ -17,10 +17,10 @@ export interface PersonalService {
 
 type Change = (personal: PersonalService[]) => PersonalService[]
 
-/** Una modifica applicata all'elenco personale attuale dell'host. Restituisce null se va bene, altrimenti il messaggio d'errore. */
+/** An edit applied to the host's current personal list. Returns null on success, otherwise the error message. */
 type OnChange = (change: Change) => Promise<string | null>
 
-/** Sostituisce la voce di nome `name` (nella sua posizione) o la aggiunge in fondo; ne toglie le altre con lo stesso nome. */
+/** Replaces the entry named `name` (in its position) or appends it at the end; removes the others with the same name. */
 function upsert(personal: PersonalService[], name: string, entry: PersonalService): PersonalService[] {
   const others = personal.filter((p) => p.name !== entry.name || p.name === name)
   const index = others.findIndex((p) => p.name === name)
@@ -30,7 +30,7 @@ function upsert(personal: PersonalService[], name: string, entry: PersonalServic
 const without = (personal: PersonalService[], name: string) => personal.filter((p) => p.name !== name)
 
 export function ServicesBlock({ services, onChange }: { services: WorktreeService[]; onChange: OnChange }) {
-  // Nome del servizio in modifica, '' = nuovo, null = nessuna modifica in corso.
+  // Name of the service being edited, '' = new, null = no edit in progress.
   const [editing, setEditing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const addButton = useRef<HTMLButtonElement>(null)
@@ -43,7 +43,7 @@ export function ServicesBlock({ services, onChange }: { services: WorktreeServic
   }
   const close = () => {
     setEditing(null)
-    // Il tasto che ha aperto il modulo sparisce o resta: il focus torna comunque a un punto prevedibile.
+    // The button that opened the form disappears or stays: focus returns to a predictable spot either way.
     window.setTimeout(() => addButton.current?.focus(), 30)
   }
 
@@ -113,7 +113,7 @@ function ServiceRow({ service, onEdit, onChange }: { service: WorktreeService; o
   const { name, command, port, source, disabled } = service
   const overrides = source === 'both' && !disabled
   const row = useRef<HTMLLIElement>(null)
-  // Il tasto premuto può sparire (Disattiva diventa Riattiva): il focus passa al primo tasto della riga, o all'aggiunta se la riga non c'è più.
+  // The pressed button may disappear (Disable becomes Enable): focus moves to the first button of the row, or to the add button if the row is gone.
   const act = async (change: Change) => {
     await onChange(change)
     window.setTimeout(() => (row.current?.isConnected ? row.current.querySelector('button') : document.querySelector<HTMLElement>('[data-services-add]'))?.focus(), 30)
@@ -154,7 +154,7 @@ function ServiceRow({ service, onEdit, onChange }: { service: WorktreeService; o
               <button
                 type="button"
                 aria-label={t('Disable {name}', { name })}
-                // Con una versione personale sopra, disattivare la sostituisce con la voce vuota: il progetto resta com'è.
+                // With a personal version on top, disabling replaces it with the empty entry: the project stays as it is.
                 onClick={() => void act((personal) => upsert(personal, name, { name, command: '', port }))}
                 className={settingsButton}
               >
@@ -184,7 +184,7 @@ function ServiceRow({ service, onEdit, onChange }: { service: WorktreeService; o
   )
 }
 
-/** Aggiunta o modifica: Invio salva, Esc annulla. Nome e comando non vuoti, nome unico; l'errore dell'host resta nel modulo. */
+/** Add or edit: Enter saves, Esc cancels. Name and command non-empty, name unique; the host's error stays in the form. */
 function ServiceForm({ service, services, onSave, onCancel }: { service: WorktreeService | null; services: WorktreeService[]; onSave: (entry: PersonalService) => Promise<string | null>; onCancel: () => void }) {
   const [name, setName] = useState(service?.name ?? '')
   const [command, setCommand] = useState(service?.command ?? '')
@@ -194,7 +194,7 @@ function ServiceForm({ service, services, onSave, onCancel }: { service: Worktre
   const [saving, setSaving] = useState(false)
   const nameField = useRef<HTMLInputElement>(null)
   const commandField = useRef<HTMLInputElement>(null)
-  // Un servizio del progetto si modifica solo come versione personale: il nome è quello che lo lega all'originale.
+  // A project service is edited only as a personal version: the name is what links it to the original.
   const nameLocked = service !== null && service.source !== 'personal'
   useEffect(() => (service ? commandField : nameField).current?.focus(), [service])
 
@@ -211,13 +211,13 @@ function ServiceForm({ service, services, onSave, onCancel }: { service: Worktre
     setSaving(true)
     setHostError(null)
     const failed = await onSave({ name: trimmed, command: command.trim(), port })
-    // Se è andata bene il modulo viene chiuso dal chiamante: qui resta solo l'errore.
+    // On success the caller closes the form: only the error stays here.
     setSaving(false)
     if (failed) setHostError(failed)
   }
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'Escape') return
-    // Esc chiude solo il modulo, non la finestra delle impostazioni.
+    // Esc closes only the form, not the settings window.
     e.preventDefault()
     e.stopPropagation()
     onCancel()

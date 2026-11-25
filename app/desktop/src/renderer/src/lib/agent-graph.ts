@@ -1,46 +1,46 @@
-// Layout del grafico dei sotto-agenti, calcolato a mano e senza misure del DOM: un albero da sinistra a destra.
-// Una colonna per profondità, la sessione a sinistra, i figli impilati in colonna; ogni genitore sta al centro dei suoi figli.
-// Larghezze fisse (il testo si tronca), quindi il layout è una funzione pura dell'elenco: nessuna libreria.
+// Layout of the subagent graph, computed by hand without DOM measurements: a tree from left to right.
+// One column per depth, the session on the left, children stacked in a column; each parent sits at the center of its children.
+// Fixed widths (text is truncated), so the layout is a pure function of the list: no library.
 import type { SubagentInfo } from '@shared/protocol'
 import type { AgentNode } from '@/lib/subagents'
 
-/** Id del nodo della sessione, radice del grafico. */
+/** Id of the session node, the root of the graph. */
 export const SESSION_NODE = '__session__'
 
-/** Oltre questo numero il grafico non si propone: la lista è l'alternativa completa. */
+/** Beyond this number the graph is not offered: the list is the complete alternative. */
 export const GRAPH_MAX = 150
 
 export const NODE_HEIGHT = 44
 export const NODE_WIDTH = 264
 export const SESSION_WIDTH = 176
-/** Passo verticale fra due nodi vicini. */
+/** Vertical step between two adjacent nodes. */
 const ROW_PITCH = NODE_HEIGHT + 8
-/** Spazio fra le colonne: dentro corre il tronco dei collegamenti. */
+/** Space between columns: the links' trunk runs inside it. */
 const COL_GAP = 48
 const PAD = 12
-/** Raggio della curva fra tronco e raccordo. */
+/** Radius of the curve between trunk and connector. */
 const CORNER = 10
 
 export interface GraphNode {
   id: string
-  /** null per il nodo della sessione. */
+  /** null for the session node. */
   agent: SubagentInfo | null
   x: number
   y: number
   w: number
-  /** 1 per il nodo della sessione, poi 2, 3… come aria-level. */
+  /** 1 for the session node, then 2, 3… as aria-level. */
   level: number
   parent: string | null
   children: string[]
-  /** Posizione fra i fratelli (da 1) e quanti sono, per aria-posinset e aria-setsize. */
+  /** Position among siblings (from 1) and how many there are, for aria-posinset and aria-setsize. */
   pos: number
   setSize: number
 }
 
 export interface GraphEdge {
-  /** Il genitore: un solo tracciato per genitore, con il tronco e i raccordi di tutti i figli. */
+  /** The parent: one path per parent, with the trunk and the connectors of all its children. */
   from: string
-  /** Tracciato già scritto per un attributo `d`. */
+  /** Path already written for a `d` attribute. */
   d: string
 }
 
@@ -53,8 +53,8 @@ export interface GraphLayout {
 }
 
 /**
- * Posiziona i nodi. Le foglie prendono righe consecutive nell'ordine di visita in profondità; un genitore si centra
- * fra il primo e l'ultimo figlio. Così nessun collegamento attraversa un nodo e i fratelli restano nell'ordine dato.
+ * Positions the nodes. Leaves take consecutive rows in depth-first visit order; a parent is centered
+ * between its first and last child. This way no link crosses a node and siblings keep the given order.
  */
 export function layoutAgentGraph(forest: AgentNode[]): GraphLayout {
   const nodes: GraphNode[] = []
@@ -66,7 +66,7 @@ export function layoutAgentGraph(forest: AgentNode[]): GraphLayout {
     return colX[depth]
   }
 
-  /** Visita in profondità: restituisce il centro verticale del nodo. */
+  /** Depth-first visit: returns the node's vertical center. */
   const place = (node: AgentNode | null, id: string, children: AgentNode[], depth: number, parent: string | null, pos: number, setSize: number): number => {
     const childCenters = depth < 64 ? children.map((c, i) => place(c, c.agent.id, c.children, depth + 1, id, i + 1, children.length)) : []
     const center = childCenters.length ? (childCenters[0] + childCenters[childCenters.length - 1]) / 2 : PAD + NODE_HEIGHT / 2 + leaf++ * ROW_PITCH
@@ -95,9 +95,9 @@ export function layoutAgentGraph(forest: AgentNode[]): GraphLayout {
     height = Math.max(height, n.y + NODE_HEIGHT)
   }
 
-  // Un tracciato per genitore: dal bordo destro si esce a metà dello spazio fra le colonne (il tronco), che sale e scende
-  // fino ai figli; ogni raccordo curva verso il bordo sinistro del figlio. Tutto dello stesso colore pieno: dove si
-  // sovrappone non si vede, e il raccordo nasce dal centro del tronco.
+  // One path per parent: from the right edge it exits at the middle of the space between columns (the trunk), which goes up and down
+  // to the children; each connector curves toward the child's left edge. All in the same solid color: where it
+  // overlaps it is invisible, and the connector starts from the center of the trunk.
   const edges: GraphEdge[] = []
   for (const parent of nodes) {
     if (!parent.children.length) continue
@@ -124,8 +124,8 @@ export function layoutAgentGraph(forest: AgentNode[]): GraphLayout {
 }
 
 /**
- * Dove va il focus con una freccia: sinistra = genitore, destra = primo figlio, su e giù = fratelli;
- * Home e End il primo e l'ultimo fratello.
+ * Where focus goes with an arrow: left = parent, right = first child, up and down = siblings;
+ * Home and End the first and last sibling.
  */
 export function neighbor(layout: GraphLayout, id: string, key: string): string | null {
   const node = layout.byId.get(id)

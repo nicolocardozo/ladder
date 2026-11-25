@@ -1,5 +1,5 @@
-// "Chiedi una review a…": un altro agente legge il diff della sessione in sola lettura, con il prompt di review
-// del progetto, e risponde con commenti strutturati (file, riga, testo) che tornano nel pannello Modifiche.
+// "Ask for a review from…": another agent reads the session's diff read-only, with the project's review prompt,
+// and replies with structured comments (file, line, text) that go back into the Changes panel.
 import { randomUUID } from 'node:crypto'
 import { isAbsolute, relative } from 'node:path'
 import { getLocale, t } from '@shared/i18n'
@@ -10,7 +10,7 @@ import { git } from './git'
 const MAX_DIFF = 150_000
 const TIMEOUT_MS = 6 * 60_000
 
-/** Schema della risposta: Codex lo applica con outputSchema, agli altri si chiede a parole. */
+/** Response schema: Codex applies it with outputSchema, the others are asked in words. */
 export const REVIEW_SCHEMA = {
   type: 'object',
   properties: {
@@ -35,7 +35,7 @@ export async function patchText(root: string, from: string, to: string): Promise
 }
 
 export function reviewPrompt(base: string, patch: string): string {
-  // Istruzioni per l'agente: inglese predefinito, italiano se la lingua dell'app è l'italiano.
+  // Instructions for the agent: English by default, Italian if the app language is Italian.
   if (getLocale() === 'it') {
     return `${base}
 
@@ -60,7 +60,7 @@ ${patch}
 \`\`\``
 }
 
-/** Estrae { summary, comments } dal testo finale dell'agente, anche dentro un blocco di codice. */
+/** Extracts { summary, comments } from the agent's final text, even inside a code block. */
 export function parseReview(text: string, root: string): { summary: string | null; comments: ReviewNote[] } {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
@@ -81,7 +81,7 @@ export interface ReviewDeps {
   publish: (review: ReviewState) => void
 }
 
-/** Una review in corso: adapter di breve durata, in sola lettura, chiuso a fine turno. */
+/** A review in progress: short-lived adapter, read-only, closed at the end of the turn. */
 export class ReviewRun {
   readonly state: ReviewState
   private adapter: AgentSession | null = null
@@ -109,7 +109,7 @@ export class ReviewRun {
       usage: () => undefined,
       commands: () => undefined,
       compacted: () => undefined,
-      // In sola lettura non serve approvare nulla: ogni richiesta si rifiuta.
+      // Read-only needs no approvals: every request is rejected.
       request: async (request: UserRequest): Promise<RequestResponse> => {
         const deny = request.options.find((o) => o.kind === 'deny')
         return deny ? { optionId: deny.id, message: t('Read-only review: no edits and no commands that change files.') } : { answers: {} }
@@ -150,7 +150,7 @@ export class ReviewRun {
     if (this.timer) clearTimeout(this.timer)
     const adapter = this.adapter
     this.adapter = null
-    // Si chiude dopo la risposta: l'agente non deve restare acceso.
+    // Closed after the response: the agent must not stay running.
     setTimeout(() => adapter?.close(), 100)
     this.deps.publish(this.state)
   }

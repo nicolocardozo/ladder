@@ -1,4 +1,4 @@
-// Avviso sopra il composer quando una finestra d'uso del piano è quasi esaurita (da 95%) o esaurita. Si chiude, e riappare dopo il reset.
+// Notice above the composer when a plan usage window is nearly exhausted (from 95%) or exhausted. It can be dismissed, and reappears after the reset.
 import { useSyncExternalStore } from 'react'
 import { TriangleAlert, X } from 'lucide-react'
 import type { AgentId } from '@shared/protocol'
@@ -9,7 +9,7 @@ import { USAGE_BANNER_AT, useUsage, usageAlert, usageAlertText } from '@/compone
 
 const STORE_PREFIX = 'ladder:usage-banner:'
 
-// Chiusure in memoria (finestre senza reset) e ascoltatori: tutti i composer aperti restano allineati.
+// In-memory dismissals (windows without a reset) and listeners: all open composers stay in sync.
 const memory = new Set<string>()
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((l) => l())
@@ -31,7 +31,7 @@ function read(key: string): boolean {
   }
 }
 
-/** Salva la chiusura e toglie quelle dei reset passati della stessa finestra, che non servono più. */
+/** Saves the dismissal and removes those of past resets of the same window, which are no longer needed. */
 function write(prefix: string, key: string, persist: boolean) {
   if (!persist) {
     memory.add(key)
@@ -54,7 +54,7 @@ export function UsageBanner({ agent, profileId }: { agent: AgentId; profileId?: 
   const { windows, now } = useUsage(agent, profileId)
   const profileName = useSessionProfileName({ agent, profileId })
   const alert = usageAlert(windows, USAGE_BANNER_AT)
-  // Agente, profilo, finestra e momento del reset (al minuto): dopo il reset la chiave cambia e l'avviso torna.
+  // Agent, profile, window and reset time (to the minute): after the reset the key changes and the notice comes back.
   const resets = alert?.usage.resetsAt ?? null
   const prefix = `${STORE_PREFIX}${agent}:${profileId ?? 'default'}:${alert?.usage.key}:`
   const key = `${prefix}${resets === null ? 'none' : Math.round(resets / 60)}`

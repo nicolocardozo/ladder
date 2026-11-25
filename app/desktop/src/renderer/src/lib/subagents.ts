@@ -1,11 +1,11 @@
-// Sotto-agenti lato renderer: ordine della mappa, ricerca per riga di chat, dialogo di dettaglio.
+// Renderer-side subagents: map order, lookup per chat row, detail dialog.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { SubagentDetail, SubagentInfo } from '@shared/protocol'
 import { useApp } from '@/store/app-store'
 import { onHostConnect, onHostEvent, request } from '@/lib/host-client'
 
-/** Dove sta un agente nella mappa: in corso, errori (e fermati), completati (gruppo chiuso). */
+/** Where an agent sits in the map: running, errors (and stopped), completed (closed group). */
 export type Bucket = 'running' | 'failed' | 'done'
 
 const RANK: Record<Bucket, number> = { running: 0, failed: 1, done: 2 }
@@ -19,11 +19,11 @@ export function bucketOf(agent: SubagentInfo): Bucket {
 export interface AgentNode {
   agent: SubagentInfo
   children: AgentNode[]
-  /** Il più urgente fra l'agente e i suoi discendenti: un figlio in corso tiene il genitore fra gli agenti in corso. */
+  /** The most urgent among the agent and its descendants: a running child keeps the parent among the running agents. */
   bucket: Bucket
 }
 
-/** Albero per genitore, ordinato per sezione. Gli agenti con un genitore sconosciuto o in un ciclo diventano radici. */
+/** Tree by parent, sorted by section. Agents with an unknown parent or in a cycle become roots. */
 export function buildForest(agents: SubagentInfo[]): AgentNode[] {
   const nodes = new Map<string, AgentNode>()
   for (const agent of agents) nodes.set(agent.id, { agent, children: [], bucket: bucketOf(agent) })
@@ -33,7 +33,7 @@ export function buildForest(agents: SubagentInfo[]): AgentNode[] {
     if (parent && parent !== node) parent.children.push(node)
     else roots.push(node)
   }
-  // Un ciclo (a è figlio di b e b di a) non arriva a nessuna radice: si recuperano gli irraggiungibili.
+  // A cycle (a is a child of b and b of a) reaches no root: the unreachable ones are recovered.
   const seen = new Set<string>()
   const visit = (node: AgentNode) => {
     if (seen.has(node.agent.id)) return
@@ -61,14 +61,14 @@ export function buildForest(agents: SubagentInfo[]): AgentNode[] {
   for (const root of roots) sortChildren(root.children, 1)
   roots.sort((a, b) => {
     if (a.bucket !== b.bucket) return RANK[a.bucket] - RANK[b.bucket]
-    // Chi è finito per ultimo sta in alto; in corso ed errori nell'ordine di partenza.
+    // Last finished is on top; running and errors in start order.
     if (a.bucket === 'done') return (b.agent.endedAt ?? b.agent.startedAt) - (a.agent.endedAt ?? a.agent.startedAt)
     return a.agent.startedAt - b.agent.startedAt
   })
   return roots
 }
 
-/** Gli agenti nell'ordine della mappa (sezione, poi genitore e figli): è l'ordine di ↑↓ nel dialogo. */
+/** The agents in map order (section, then parent and children): it is the order of ↑↓ in the dialog. */
 export function orderedAgents(forest: AgentNode[]): SubagentInfo[] {
   const out: SubagentInfo[] = []
   const walk = (list: AgentNode[], depth: number) => {
@@ -81,7 +81,7 @@ export function orderedAgents(forest: AgentNode[]): SubagentInfo[] {
   return out
 }
 
-/** L'agente di una riga di chat 'tool': per toolId o, per Claude, perché l'id coincide. */
+/** The agent of a 'tool' chat row: by toolId or, for Claude, because the id matches. */
 export function findAgentForTool(agents: SubagentInfo[] | undefined, toolId: string): SubagentInfo | null {
   if (!agents?.length) return null
   return agents.find((a) => a.toolId === toolId) ?? agents.find((a) => a.id === toolId) ?? null
@@ -91,12 +91,12 @@ export function agentElapsed(agent: SubagentInfo, now: number): number {
   return (agent.endedAt ?? (agent.status === 'running' ? now : agent.startedAt)) - agent.startedAt
 }
 
-/** Cosa cambia di un agente e merita di ricaricare il dettaglio. */
+/** What changes about an agent and is worth reloading the detail for. */
 export function agentSignature(agent: SubagentInfo | null): string {
   return agent ? [agent.status, agent.endedAt, agent.tokens, agent.toolUses, agent.activity, agent.title, agent.model, agent.effort].join('|') : ''
 }
 
-/** Carica il dettaglio dall'host. Sostituibile: l'anteprima web non ha un host. */
+/** Loads the detail from the host. Replaceable: the web preview has no host. */
 type DetailLoader = (sessionId: string, id: string) => Promise<SubagentDetail>
 let detailLoader: DetailLoader = (sessionId, id) => request<SubagentDetail>({ type: 'subagent.detail', sessionId, id })
 export function setSubagentDetailLoader(loader: DetailLoader | null): void {
@@ -106,7 +106,7 @@ export function loadSubagentDetail(sessionId: string, id: string): Promise<Subag
   return detailLoader(sessionId, id)
 }
 
-/** Elenco dei sotto-agenti per sessione: non sta nel SessionSummary (ci sono solo i conteggi), arriva con subagent.list e session.subagents. */
+/** Subagent list per session: it isn't in SessionSummary (which has only counts), it arrives with subagent.list and session.subagents. */
 interface ListsState {
   lists: Record<string, SubagentInfo[]>
   set: (sessionId: string, list: SubagentInfo[]) => void
@@ -123,14 +123,14 @@ export const useSubagentLists = create<ListsState>((set) => ({
     })
 }))
 
-/** Conteggi come quelli del SessionSummary, ricavati da un elenco. */
+/** Counts like those in SessionSummary, derived from a list. */
 export function countsOf(list: SubagentInfo[]): { total: number; running: number; runningForeground: number; error: number } {
   const running = list.filter((a) => a.status === 'running')
   return { total: list.length, running: running.length, runningForeground: running.filter((a) => !a.background).length, error: list.filter((a) => a.status === 'error').length }
 }
 
 const requested = new Set<string>()
-/** Chiede l'elenco all'host. Gli errori (host non connesso) non contano: si riprova alla riconnessione. */
+/** Asks the host for the list. Errors (host not connected) don't matter: it retries on reconnect. */
 export function loadSubagentList(sessionId: string): Promise<void> {
   requested.add(sessionId)
   return request<SubagentInfo[]>({ type: 'subagent.list', sessionId }).then(
@@ -140,13 +140,13 @@ export function loadSubagentList(sessionId: string): Promise<void> {
 }
 onHostEvent((event) => {
   if (event.type !== 'session.subagents') return
-  // Elenco vuoto: la sessione non ha più sotto-agenti, non serve rileggerla alla riconnessione.
+  // Empty list: the session has no subagents left, no need to reread it on reconnect.
   if (event.subagents.length === 0) {
     requested.delete(event.sessionId)
     useSubagentLists.getState().drop(event.sessionId)
   } else useSubagentLists.getState().set(event.sessionId, event.subagents)
 })
-// Una sessione che esce dallo store (rimossa) porta via il suo elenco.
+// A session leaving the store (removed) takes its list with it.
 useApp.subscribe((state, prev) => {
   if (state.sessions === prev.sessions) return
   for (const id of Object.keys(useSubagentLists.getState().lists)) {
@@ -156,12 +156,12 @@ useApp.subscribe((state, prev) => {
     }
   }
 })
-// Dopo una riconnessione gli eventi persi si recuperano rileggendo gli elenchi già richiesti.
+// After a reconnect, missed events are recovered by rereading the lists already requested.
 onHostConnect(() => {
   for (const sessionId of requested) void loadSubagentList(sessionId)
 })
 
-/** L'elenco della sessione. Con `load` lo chiede all'host se non c'è ancora (o a ogni cambio di `refresh`). */
+/** The session's list. With `load` it asks the host if it isn't there yet (or on every change of `refresh`). */
 export function useSubagentList(sessionId: string, load = true, refresh = 0): SubagentInfo[] | undefined {
   const list = useSubagentLists((s) => s.lists[sessionId])
   const has = list !== undefined
@@ -177,21 +177,21 @@ export interface SubagentHint {
   status: SubagentInfo['status']
   startedAt: number
   endedAt: number | null
-  /** Modello ed effort salvati sulla riga 'tool' (ChatItem.agent). */
+  /** Model and effort saved on the 'tool' row (ChatItem.agent). */
   agent?: { model: string | null; effort: SubagentInfo['effort'] } | null
 }
 
 interface DialogState {
-  /** hint: i dati della riga di chat, per quando l'host non conosce più l'agente (turni vecchi). */
+  /** hint: the chat row's data, for when the host no longer knows the agent (old turns). */
   target: { sessionId: string; id: string; hint?: SubagentHint; returnFocus: HTMLElement | null } | null
-  /** returnFocus: dove riportare il focus alla chiusura; senza, l'elemento che ha il focus adesso. */
+  /** returnFocus: where to return focus on close; without it, the element that has focus now. */
   open: (sessionId: string, id: string, hint?: SubagentHint, returnFocus?: HTMLElement | null) => void
-  /** Passa a un altro agente restando nello stesso dialogo (frecce): il punto di ritorno non cambia. */
+  /** Switches to another agent within the same dialog (arrows): the return point doesn't change. */
   show: (id: string) => void
   close: () => void
 }
 
-/** Il dialogo di dettaglio è uno solo: lo aprono il popover del composer e le righe della chat. */
+/** There is only one detail dialog: the composer popover and the chat rows open it. */
 export const useSubagentDialog = create<DialogState>((set) => ({
   target: null,
   open: (sessionId, id, hint, returnFocus) =>

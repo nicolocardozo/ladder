@@ -1,5 +1,5 @@
-// Profili di sessione (LAD-60): logica pura per validarli alla lettura, riassumerli e nominarli, più i pochi gesti che toccano lo store.
-// Non sono i profili account di LAD-23 (lib/profiles.ts): qui `SessionPreset` è una combinazione salvata di agente, modello, effort e permessi.
+// Session presets: pure logic to validate them on read, summarize and name them, plus the few gestures that touch the store.
+// They are not the account profiles (lib/profiles.ts): here `SessionPreset` is a saved combination of agent, model, effort and permissions.
 import type { AgentId, AgentStatus, Effort, PermissionLevel, Profile, Project, SessionPreset, SessionSummary } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { modelLabel } from '@/components/agent-mark'
@@ -9,13 +9,13 @@ import { agentStatusFor, isProfileAgent, normalizeProfileId, profilesOf, project
 import { capPermission, isValidEffort, isValidModel, launchModel } from '@/lib/session-defaults'
 import { useApp } from '@/store/app-store'
 
-/** Limiti scelti dal main (cleanPresets in main/index.ts): oltre, i profili vengono scartati senza avviso. */
+/** Limits chosen by main (cleanPresets in main/index.ts): beyond them, presets are dropped without notice. */
 export const PRESET_NAME_MAX = 40
 export const PRESET_NOTE_MAX = 300
 export const PRESET_PROMPT_MAX = 4000
 export const PRESET_MAX = 50
 
-/** Cosa del profilo non vale più qui e ricade sui predefiniti. */
+/** What in the preset is no longer valid here and falls back to the defaults. */
 export type PresetIssue = 'agent' | 'account' | 'model' | 'effort' | 'permission' | 'worktree'
 
 export interface PresetContext {
@@ -23,16 +23,16 @@ export interface PresetContext {
   profileAgents: Record<string, AgentStatus>
   profiles: Profile[]
   project: Project | null
-  /** Agenti ammessi dal progetto; vuoto = tutti. */
+  /** Agents allowed by the project; empty = all. */
   allowed: AgentId[]
   maxPermission: PermissionLevel | null
-  /** Modello con cui parte ogni agente senza una scelta (predefinito dell'host per il progetto). */
+  /** Model each agent starts with when no choice is made (the host's default for the project). */
   agentModels?: Partial<Record<AgentId, string | null>>
 }
 
-/** Un profilo letto contro lo stato attuale: i valori che valgono ancora e l'elenco di quelli scartati. */
+/** A preset read against the current state: the values still valid and the list of discarded ones. */
 export interface AppliedPreset {
-  /** Null se l'agente non è più disponibile o ammesso: allora agente, account, modello ed effort ricadono sui predefiniti. */
+  /** Null if the agent is no longer available or allowed: then agent, account, model and effort fall back to the defaults. */
   agent: AgentId | null
   profileId: string | null
   model: string | null
@@ -51,13 +51,13 @@ const ISSUE_LABEL: Record<PresetIssue, string> = {
   worktree: 'worktree (not a git project)'
 }
 
-/** Frase discreta per l'elenco di ciò che è stato corretto; stringa vuota se non c'è niente. */
+/** Discreet phrase for the list of what was corrected; empty string if there is nothing. */
 export function presetIssuesNote(name: string, issues: PresetIssue[]): string {
   if (issues.length === 0) return ''
   return t('“{name}” no longer fits here, so Ladder adjusted: {items}.', { name, items: issues.map((issue) => t(ISSUE_LABEL[issue])).join(', ') })
 }
 
-/** Valida il profilo contro agenti, account, modelli e limiti del progetto. Non lancia mai: ciò che non vale si scarta e si segnala. */
+/** Validates the preset against the project's agents, accounts, models and limits. Never throws: what is invalid is dropped and reported. */
 export function applyPreset(preset: SessionPreset, ctx: PresetContext): AppliedPreset {
   const issues: PresetIssue[] = []
   const permission = capPermission(preset.permission, ctx.maxPermission)
@@ -70,7 +70,7 @@ export function applyPreset(preset: SessionPreset, ctx: PresetContext): AppliedP
 
   const agent = preset.agent
   const base = ctx.agents.find((s) => s.agent === agent)
-  // Account: solo se esiste ancora ed è di questo agente. Assente nel profilo = quello del progetto.
+  // Account: only if it still exists and belongs to this agent. Missing in the preset = the project's.
   let profileId: string | null = null
   if (preset.profileId && isProfileAgent(agent)) {
     const known = profilesOf(ctx.profiles, agent).some((p) => p.id === normalizeProfileId(agent, preset.profileId))
@@ -79,10 +79,10 @@ export function applyPreset(preset: SessionPreset, ctx: PresetContext): AppliedP
   } else if (preset.profileId) {
     issues.push('account')
   }
-  // Modelli ed effort sono quelli dell'account con cui parte la sessione.
+  // Models and effort are those of the account the session starts with.
   const effectiveProfile = isProfileAgent(agent) ? (profileId ?? projectProfileId(ctx.project, agent, profilesOf(ctx.profiles, agent))) : null
   const status = (isProfileAgent(agent) ? agentStatusFor(ctx, agent, effectiveProfile) : null) ?? base
-  // Senza elenco dei modelli (l'agente non è ancora partito) non si può smentire la scelta: si tiene.
+  // Without a model list (the agent hasn't started yet) the choice can't be disproved: it is kept.
   const known = Boolean(status && status.models.length > 0)
 
   let model: string | null = null
@@ -113,7 +113,7 @@ export function presetSummary(preset: SessionPreset, agents: AgentStatus[]): str
     .join(' · ')
 }
 
-/** Errore inline per il nome, o null se va bene. Il main scarta i doppi senza distinguere le maiuscole, quindi qui si dice subito. */
+/** Inline error for the name, or null if fine. Main drops duplicates ignoring case, so it is said right away here. */
 export function presetNameError(name: string, presets: SessionPreset[], ignoreId?: string | null, submitting = false): string | null {
   const clean = name.trim()
   if (!clean) return submitting ? t('Give the profile a name.') : null
@@ -122,14 +122,14 @@ export function presetNameError(name: string, presets: SessionPreset[], ignoreId
   return null
 }
 
-/** Punto di partenza di "Salva come profilo": agente, account, modello, effort e permessi della sessione, worktree se ne ha uno. */
+/** Starting point of "Save as preset": the session's agent, account, model, effort and permissions, worktree if it has one. */
 export function presetFromSession(session: SessionSummary, profiles: Profile[]): Partial<SessionPreset> {
-  // L'account si salva solo se l'agente ne ha più d'uno: con uno solo non c'è niente da distinguere.
+  // The account is saved only if the agent has more than one: with just one there is nothing to distinguish.
   const profileId = isProfileAgent(session.agent) && profilesOf(profiles, session.agent).length > 1 ? normalizeProfileId(session.agent, session.profileId) : null
   return { agent: session.agent, profileId, model: session.model, effort: session.effort, permission: session.permission, worktree: session.worktree !== null }
 }
 
-/** Apre "Salva come profilo" per una sessione. */
+/** Opens "Save as preset" for a session. */
 export function openSavePreset(sessionId: string): void {
   const state = useApp.getState()
   const session = state.sessions[sessionId]
@@ -137,7 +137,7 @@ export function openSavePreset(sessionId: string): void {
   state.setPresetEditor({ seed: presetFromSession(session, state.profiles) })
 }
 
-/** Scrive o toglie il profilo predefinito del progetto nello stato UI (`defaultPreset`). */
+/** Writes or removes the project's default preset in the UI state (`defaultPreset`). */
 export function setProjectDefaultPreset(projectId: string, presetId: string | null): void {
   const current = useApp.getState().ui[projectId] ?? { tabs: [], activeTab: null, scroll: {} }
   const { defaultPreset: _old, ...rest } = current

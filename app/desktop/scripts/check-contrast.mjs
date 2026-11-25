@@ -1,5 +1,5 @@
-// Verifica del contrasto dei temi (WCAG 2): 4,5:1 per il testo, 3:1 per bordi dei controlli, focus e indicatori.
-// Uso: node scripts/check-contrast.mjs   (esce con codice 1 se qualcosa non passa)
+// Theme contrast check (WCAG 2): 4.5:1 for text, 3:1 for control borders, focus and indicators.
+// Usage: node scripts/check-contrast.mjs   (exits with code 1 if anything fails)
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -15,24 +15,24 @@ function ratio(a, b) {
   return (l1 + 0.05) / (l2 + 0.05)
 }
 
-// [primo piano, sfondo, minimo, descrizione]
+// [foreground, background, minimum, description]
 const checks = (t, onWaiting) => [
-  ['text', 'background', 4.5, 'testo su sfondo'],
-  ['text', 'surface', 4.5, 'testo su superficie'],
-  ['text', 'sidebar', 4.5, 'testo nella sidebar'],
-  ['textMuted', 'background', 4.5, 'testo secondario su sfondo'],
-  ['textMuted', 'surface', 4.5, 'testo secondario su superficie'],
-  ['textMuted', 'sidebar', 4.5, 'testo secondario nella sidebar'],
-  ['onSelection', 'selection', 4.5, 'testo della riga selezionata'],
-  ['onAccent', 'accent', 4.5, 'testo sul pulsante principale'],
-  ['accent', 'background', 4.5, 'accento come testo o link'],
-  ['success', 'surface', 4.5, 'righe aggiunte (+) come testo'],
-  ['error', 'surface', 4.5, 'righe tolte (−) ed errori come testo'],
-  ['waiting', 'surface', 4.5, 'etichetta “Approvazione”'],
-  [onWaiting, 'waiting', 4.5, 'testo sul badge “richiede te”'],
-  ['focusRing', 'background', 3, 'anello di focus'],
-  ['controlBorder', 'background', 3, 'bordo dei controlli su sfondo'],
-  ['controlBorder', 'surface', 3, 'bordo dei controlli su superficie'],
+  ['text', 'background', 4.5, 'text on background'],
+  ['text', 'surface', 4.5, 'text on surface'],
+  ['text', 'sidebar', 4.5, 'text in the sidebar'],
+  ['textMuted', 'background', 4.5, 'secondary text on background'],
+  ['textMuted', 'surface', 4.5, 'secondary text on surface'],
+  ['textMuted', 'sidebar', 4.5, 'secondary text in the sidebar'],
+  ['onSelection', 'selection', 4.5, 'text of the selected row'],
+  ['onAccent', 'accent', 4.5, 'text on the primary button'],
+  ['accent', 'background', 4.5, 'accent as text or link'],
+  ['success', 'surface', 4.5, 'added lines (+) as text'],
+  ['error', 'surface', 4.5, 'removed lines (−) and errors as text'],
+  ['waiting', 'surface', 4.5, '“Approval” label'],
+  [onWaiting, 'waiting', 4.5, 'text on the “needs you” badge'],
+  ['focusRing', 'background', 3, 'focus ring'],
+  ['controlBorder', 'background', 3, 'control border on background'],
+  ['controlBorder', 'surface', 3, 'control border on surface'],
   ['unread', 'sidebar', 3, 'punto “da leggere”'],
   ['running', 'sidebar', 3, 'anello “in corso”'],
   ['waiting', 'sidebar', 3, 'barretta “richiede te”']
@@ -62,5 +62,5 @@ for (const [id, theme] of Object.entries(themes)) {
   console.log(`${rows.length ? '✗' : '✓'} ${theme.name}`)
   for (const row of rows) console.log(row)
 }
-console.log(failures ? `\n${failures} combinazioni sotto la soglia` : '\nTutte le combinazioni rispettano le soglie')
+console.log(failures ? `\n${failures} combinations below the threshold` : '\nEvery combination meets its threshold')
 process.exit(failures ? 1 : 0)

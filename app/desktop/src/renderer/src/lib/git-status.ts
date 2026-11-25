@@ -1,28 +1,28 @@
-// Presentazione dello stato git di una cartella: stessa fonte per il chip dell'intestazione e, più avanti, per il pannello merge.
+// Presentation of a folder's git status: same source for the header chip and, later, for the merge panel.
 import type { GitStatus } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 
 export interface GitStatusView {
-  /** Nome da mostrare nel chip: il branch, o "detached" con HEAD staccato. */
+  /** Name to show in the chip: the branch, or "detached" with a detached HEAD. */
   label: string
-  /** Nome completo per il tooltip (il branch, o la spiegazione dello stato staccato). */
+  /** Full name for the tooltip (the branch, or the explanation of the detached state). */
   fullName: string
   detached: boolean
   ahead: number
   behind: number
-  /** Branch senza upstream: i commit non si contano, ma non è pubblicato. */
+  /** Branch without upstream: commits are not counted, but it is not published. */
   unpublished: boolean
   dirty: number
   added: number
   removed: number
   worktree: boolean
-  /** Una riga per ogni cosa da sapere, per il tooltip. */
+  /** One line for each thing to know, for the tooltip. */
   lines: string[]
-  /** Frase completa per i lettori di schermo. */
+  /** Complete sentence for screen readers. */
   aria: string
 }
 
-/** Descrive lo stato; `fallbackBranch` serve prima che arrivi lo stato dall'host (o senza host). */
+/** Describes the state; `fallbackBranch` is used before the state arrives from the host (or without a host). */
 export function describeGit(status: GitStatus): GitStatusView {
   const detached = status.branch === null
   const unpublished = !detached && !status.hasUpstream
@@ -60,9 +60,9 @@ export function describeGit(status: GitStatus): GitStatusView {
   }
 }
 
-/** Etichetta della pillola delle modifiche: lettori di schermo e tooltip. */
+/** Label of the changes pill: screen readers and tooltip. */
 export function changesLabel(view: Pick<GitStatusView, 'dirty' | 'added' | 'removed'>): string {
   const files = plural(view.dirty, '{n} file changed', '{n} files changed')
-  // Senza righe (binari, file vuoti, rinomine, permessi) solo i file.
+  // Without lines (binaries, empty files, renames, permissions) only the files.
   return view.added + view.removed > 0 ? `${files}, ${t('{added} lines added, {removed} removed', { added: view.added, removed: view.removed })}` : files
 }

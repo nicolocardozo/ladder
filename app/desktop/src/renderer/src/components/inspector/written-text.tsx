@@ -1,6 +1,6 @@
-// Testo scritto da un modello su richiesta (LAD-59), comune a messaggio di commit e a titolo e descrizione della PR.
-// Una proposta non sostituisce mai ciò che hai già scritto senza un tuo "Replace"; annullare ferma anche l'host;
-// una risposta arrivata dopo l'annullamento, un cambio di sessione o un reset si ignora.
+// Text written by a model on request, shared by the commit message and the PR title and description.
+// A proposal never replaces what you have already written without your "Replace"; cancelling also stops the host;
+// a response that arrives after cancelling, a session change or a reset is ignored.
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, LoaderCircle, Sparkles } from 'lucide-react'
 import type { GeneratedCommit, GeneratedPr, GeneratedTextCut, SessionSummary } from '@shared/protocol'
@@ -31,13 +31,13 @@ export interface WrittenText {
   meta: TextMeta | null
   generate: () => void
   cancel: () => void
-  /** Ferma la generazione e butta proposta e note (dopo un commit, o riaprendo il dialogo). */
+  /** Stops generation and discards proposal and notes (after a commit, or when reopening the dialog). */
   reset: () => void
   accept: () => void
   dismiss: () => void
 }
 
-/** `value` è il testo attuale dei campi, `onFill` lo imposta. `resetKey` cambia quando si riparte da zero. */
+/** `value` is the current text of the fields, `onFill` sets it. `resetKey` changes when starting from scratch. */
 export function useWrittenText({
   kind,
   projectId,
@@ -64,7 +64,7 @@ export function useWrittenText({
   fillRef.current = onFill
   const sessionId = session?.id ?? null
 
-  // Sessione con una generazione in corso: serve per dire all'host di fermarla.
+  // Session with a generation in progress: needed to tell the host to stop it.
   const pending = useRef<string | null>(null)
   const stopHost = () => {
     if (pending.current) send({ type: 'text.cancel', sessionId: pending.current })
@@ -73,7 +73,7 @@ export function useWrittenText({
   const stopRef = useRef(stopHost)
   stopRef.current = stopHost
 
-  // Altra sessione o altro dialogo: si riparte da zero. Chiudere o cambiare sessione durante la generazione la ferma nell'host.
+  // Another session or another dialog: start from scratch. Closing or switching session during generation stops it in the host.
   useEffect(() => {
     latest.current++
     setProposal(null)
@@ -93,7 +93,7 @@ export function useWrittenText({
         if (id !== latest.current) return
         const next: TextValue = 'subject' in result ? { head: result.subject, body: result.body } : { head: result.title, body: result.body }
         setMeta({ files: result.files, truncated: result.truncated, staged: 'source' in result && result.source === 'staged', issue: 'issue' in result ? result.issue : null })
-        // Con qualcosa già scritto (anche durante l'attesa) la proposta aspetta la tua conferma.
+        // With something already written (even while waiting) the proposal waits for your confirmation.
         const current = valueRef.current
         if (current.head.trim() || current.body.trim()) setProposal(next)
         else fillRef.current(next)
@@ -132,7 +132,7 @@ export function useWrittenText({
   }
 }
 
-/** Etichetta del campo, pulsante "Scrivi…" (o "Scrittura in corso… Annulla"), motivo se spento e proposta da confermare. */
+/** Field label, "Write…" button (or "Writing… Cancel"), reason if disabled and proposal to confirm. */
 export function WrittenTextBar({ text, label, writeLabel, disabled }: { text: WrittenText; label: string; writeLabel: string; disabled?: boolean }) {
   const { availability, loading, proposal } = text
   return (
@@ -173,7 +173,7 @@ export function WrittenTextBar({ text, label, writeLabel, disabled }: { text: Wr
   )
 }
 
-/** Sotto i campi: su quanti file si basa il testo, avviso se il diff è stato tagliato, issue collegata (PR). */
+/** Below the fields: how many files the text is based on, a notice if the diff was truncated, linked issue (PR). */
 export function WrittenTextMeta({ text }: { text: WrittenText }) {
   const { meta } = text
   if (!meta) return null

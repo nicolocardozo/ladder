@@ -1,5 +1,5 @@
-// Avviso discreto quando il terminale del progetto stampa un indirizzo locale: propone di aprirlo nella colonna browser,
-// ma non apre niente da solo. Con la colonna aperta lo stesso avviso sta nella sua barra (browser-view.tsx).
+// Discreet notice when the project terminal prints a local address: offers to open it in the browser column,
+// but opens nothing by itself. With the column open the same notice sits in its bar (browser-view.tsx).
 import { Globe, X } from 'lucide-react'
 import { t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'

@@ -1,4 +1,4 @@
-// Sopra il composer: l'agente non è collegato, quindi la sessione fallirebbe al primo messaggio. Il pulsante porta alla riga giusta.
+// Above the composer: the agent is not connected, so the session would fail at the first message. The button leads to the right row.
 import { CircleDashed, Loader2 } from 'lucide-react'
 import type { AgentId, ConnectionId } from '@shared/protocol'
 import { t } from '@shared/i18n'
@@ -8,7 +8,7 @@ import { connectionFor, hostProfileId, isProfileAgent, normalizeProfileId, usePr
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 
-/** Collegamento da fare prima di usare l'agente, o null se è a posto (o se è un agente ACP, che gestisce da sé il login). */
+/** Connection to make before using the agent, or null if all is fine (or if it is an ACP agent, which handles login itself). */
 export function useSignInNeeded(agent: AgentId, profileId?: string | null): { id: ConnectionId; profileId?: string; signingIn: boolean } | null {
   const id = connectionOfAgent(agent)
   const status = useApp((s) => (id && isProfileAgent(agent) ? connectionFor(s, agent, profileId) : id ? s.connections[id] : undefined))
@@ -21,7 +21,7 @@ export function SignInNotice({ agent, profileId, className }: { agent: AgentId; 
   const needed = useSignInNeeded(agent, profileId)
   const profiles = useProfiles(agent)
   if (!needed) return null
-  // Con più account si dice quale: "Claude (Lavoro)".
+  // With several accounts we say which: "Claude (Lavoro)".
   const profile = profiles.length > 1 ? profiles.find((p) => p.id === (isProfileAgent(agent) ? normalizeProfileId(agent, needed.profileId) : needed.profileId)) : undefined
   const name = profile ? `${CONNECTION_NAME[needed.id]} (${profile.name})` : CONNECTION_NAME[needed.id]
   return (

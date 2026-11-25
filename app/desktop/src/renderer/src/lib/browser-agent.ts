@@ -1,5 +1,5 @@
-// Browser per l'agente (LAD-57 parte 2): identità della tab, testi di azioni e strumenti, interruttore effettivo.
-// La tab dell'agente è effimera: non sta in ProjectUiState.browserTabs e il suo indirizzo non si salva.
+// Browser for the agent: tab identity, action and tool texts, effective switch.
+// The agent's tab is ephemeral: it is not in ProjectUiState.browserTabs and its address is not saved.
 import { t } from '@shared/i18n'
 import type { AgentBrowserAction, AgentBrowserState, AgentBrowserTool, AppPrefs, ProjectUiState } from '@shared/protocol'
 
@@ -9,10 +9,10 @@ export const agentTabId = (sessionId: string): string => `${PREFIX}${sessionId}`
 export const isAgentTabId = (id: string | null | undefined): id is string => Boolean(id?.startsWith(PREFIX))
 export const agentTabSession = (tabId: string): string => tabId.slice(PREFIX.length)
 
-/** La vista dell'agente esiste e si può mostrare come tab. */
+/** The agent's view exists and can be shown as a tab. */
 export const hasAgentTab = (state: AgentBrowserState | undefined): state is AgentBrowserState & { tabId: string } => Boolean(state && state.tabId && !state.closed)
 
-/** Azione in corso, in forma progressiva: "Opening localhost:5173", "Clicking e3 · "Save"". `target` non contiene mai il testo digitato. */
+/** Action in progress, in progressive form: "Opening localhost:5173", "Clicking e3 · "Save"". `target` never contains the typed text. */
 export function describeAgentAction(action: Pick<AgentBrowserAction, 'tool' | 'target'>): string {
   const target = action.target
   switch (action.tool) {
@@ -31,7 +31,7 @@ export function describeAgentAction(action: Pick<AgentBrowserAction, 'tool' | 't
   }
 }
 
-/** Azione conclusa, al passato. */
+/** Completed action, in the past tense. */
 export function describeAgentDone(action: Pick<AgentBrowserAction, 'tool' | 'target'>): string {
   const target = action.target
   switch (action.tool) {
@@ -50,7 +50,7 @@ export function describeAgentDone(action: Pick<AgentBrowserAction, 'tool' | 'tar
   }
 }
 
-/** Frase di stato della tab dell'agente, anche per gli annunci vocali. */
+/** Status sentence of the agent's tab, also for screen reader announcements. */
 export function agentStatusText(state: AgentBrowserState | undefined): string {
   if (!state || state.closed) return t('The agent isn’t using the browser')
   if (state.stopped) return t('Stopped. The agent can’t use the browser until you resume it.')
@@ -64,13 +64,13 @@ export function agentStatusText(state: AgentBrowserState | undefined): string {
 
 const TOOL_RE = /^(?:mcp__ladder-browser__|ladder-browser\.)?(browser_(?:navigate|read_page|screenshot|click|type|console))$/
 
-/** Il nome dello strumento (anche con il prefisso MCP) se è uno dei browser dell'agente. */
+/** The tool name (also with the MCP prefix) if it is one of the agent's browser tools. */
 export function browserToolOf(name: string): AgentBrowserTool | null {
   const match = TOOL_RE.exec(name)
   return match ? (match[1] as AgentBrowserTool) : null
 }
 
-/** Nome breve per le card di approvazione: "Browser · Click". */
+/** Short name for approval cards: "Browser · Click". */
 export function browserToolName(tool: AgentBrowserTool): string {
   switch (tool) {
     case 'browser_navigate':
@@ -88,7 +88,7 @@ export function browserToolName(tool: AgentBrowserTool): string {
   }
 }
 
-/** Solo host e porta: query e frammento possono portare token. */
+/** Host and port only: query and fragment may carry tokens. */
 function hostOf(raw: string | null): string | null {
   if (!raw) return null
   try {
@@ -99,8 +99,8 @@ function hostOf(raw: string | null): string | null {
 }
 
 /**
- * Cosa mostrare di una chiamata agli strumenti browser nella chat: un'etichetta leggibile al posto del titolo grezzo e,
- * del dettaglio, solo ciò che non può contenere testo digitato né token (host per l'apertura, riferimento per il click).
+ * What to show of a browser tool call in the chat: a readable label instead of the raw title and,
+ * of the detail, only what cannot contain typed text or tokens (host for open, reference for click).
  */
 export function browserToolView(tool: AgentBrowserTool, detail: string | null): { title: string; detail: string | null; hideOutput: boolean } {
   const host = hostOf(detail)
@@ -115,14 +115,14 @@ export function browserToolView(tool: AgentBrowserTool, detail: string | null): 
     case 'browser_click':
       return { title: ref ? t('Browser · clicks {target}', { target: ref }) : t('Browser · clicks an element'), detail: ref, hideOutput: false }
     case 'browser_type':
-      // Il testo digitato non si mostra mai, né nel titolo né nel dettaglio né nell'esito.
+      // The typed text is never shown, neither in the title nor in the detail nor in the outcome.
       return { title: ref ? t('Browser · types into {target}', { target: ref }) : t('Browser · types into a field'), detail: null, hideOutput: true }
     case 'browser_console':
       return { title: t('Browser · reads the console'), detail: null, hideOutput: false }
   }
 }
 
-/** Browser dell'agente acceso per un progetto: l'impostazione del progetto scavalca quella globale. Predefinito spento. */
+/** Agent browser enabled for a project: the project setting overrides the global one. Off by default. */
 export function agentBrowserEnabled(prefs: Pick<AppPrefs, 'agentBrowser'> | null | undefined, ui: Pick<ProjectUiState, 'agentBrowser'> | undefined): boolean {
   return ui?.agentBrowser ?? prefs?.agentBrowser ?? false
 }

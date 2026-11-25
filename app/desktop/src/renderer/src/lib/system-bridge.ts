@@ -1,12 +1,12 @@
-// Ponte verso le funzioni di sistema del main usate dalle impostazioni (editor, cartelle, suoni). Nell'app vengono dal preload;
-// nell'anteprima web (senza Electron) `overrideSystemBridge` mette risposte finte, così le sezioni si provano uguale.
+// Bridge to the main process's system functions used by settings (editor, folders, sounds). In the app they come from the preload;
+// in the web preview (no Electron) `overrideSystemBridge` provides fake responses, so the sections can still be tried.
 import type { EditorAvailability, RequestSound } from '@shared/protocol'
 
 export interface SystemBridge {
   editors: () => Promise<EditorAvailability | null>
   pickFolder: () => Promise<string | null>
   pickSavePath: (defaultName: string) => Promise<string | null>
-  /** Prova di un suono delle richieste: true se si è sentito, false se serve il banner di prova. */
+  /** Test of a request sound: true if it was heard, false if the test banner is needed. */
   playSound: (name: RequestSound) => Promise<boolean>
   testNotification: () => Promise<boolean>
 }
@@ -17,8 +17,8 @@ const real: SystemBridge = {
   editors: async () => (await window.ladder?.editors()) ?? null,
   pickFolder: async () => (await window.ladder?.pickFolder()) ?? null,
   pickSavePath: async (name) => (await window.ladder?.pickSavePath(name)) ?? null,
-  // Un suono di sistema si sente anche dalla pagina (file://, nell'app installata); 'default' non ha un file, e se la pagina non può
-  // leggerlo (sviluppo su http) si ripiega sul banner di prova del main, che usa il suono scelto.
+  // A system sound is audible from the page too (file://, in the installed app); 'default' has no file, and if the page can't
+  // read it (development over http) it falls back to main's test banner, which uses the chosen sound.
   playSound: async (name) => {
     if (name === 'default') return false
     try {

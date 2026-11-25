@@ -1,4 +1,4 @@
-// Header fisso: logo senza sfondo a sinistra, nav compatta a destra (pillola bianca sfocata).
+// Fixed header: logo with no background on the left, compact nav on the right (blurred white pill).
 import Link from "next/link"
 import { Logo } from "@/components/brand/logo"
 import { MobileMenu } from "@/components/mobile-menu"
@@ -13,7 +13,7 @@ const LINKS = [
   { href: "/docs", label: "Docs" },
 ]
 
-// Pillola della nav (desktop) e del pulsante del menu (mobile)
+// Nav pill (desktop) and menu button (mobile)
 const pill =
   "pointer-events-auto flex h-[46px] items-center gap-0.5 rounded-[14px] border border-hairline bg-page/75 p-1.5 shadow-[0_1px_2px_rgb(24_20_36/0.04)] backdrop-blur-[14px] backdrop-saturate-150"
 

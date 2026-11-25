@@ -1,5 +1,5 @@
-// Elenco dei file del progetto per le citazioni con @: si carica una volta per progetto e si aggiorna
-// all'apertura del selettore se ha più di 30 secondi. Percorsi e nomi in minuscolo sono precalcolati.
+// Project file list for @ mentions: loaded once per project and refreshed
+// when the picker opens if it is older than 30 seconds. Lowercase paths and names are precomputed.
 import { useSyncExternalStore } from 'react'
 import { request } from '@/lib/host-client'
 
@@ -8,14 +8,14 @@ export interface FileEntry {
   lower: string
   base: string
   baseLower: string
-  /** Cartella con la barra finale, vuota per i file nella radice. */
+  /** Folder with trailing slash, empty for files in the root. */
   dir: string
   depth: number
 }
 
 export interface FileIndex {
   entries: FileEntry[] | null
-  /** File ordinati per profondità e percorso: servono quando dopo @ non c'è ancora testo. */
+  /** Files sorted by depth and path: used when there is no text after @ yet. */
   shallow: FileEntry[]
   loading: boolean
   error: string | null
@@ -37,7 +37,7 @@ function toEntry(path: string): FileEntry {
   return { path, lower: path.toLowerCase(), base, baseLower: base.toLowerCase(), dir: slash >= 0 ? path.slice(0, slash + 1) : '', depth }
 }
 
-/** Indice da un elenco qualunque di percorsi (⌘P sulla cartella della sessione). */
+/** Index from any list of paths (⌘P on the session folder). */
 export function indexFromPaths(paths: string[]): FileIndex {
   return { ...build(paths), loading: false, error: null, at: Date.now() }
 }
@@ -56,7 +56,7 @@ function update(projectId: string, patch: Partial<FileIndex>): void {
   for (const listener of listeners) listener()
 }
 
-/** Carica l'elenco se manca o se è più vecchio di 30 s. Le richieste in corso non si duplicano. */
+/** Loads the list if missing or older than 30 s. In-flight requests are not duplicated. */
 export function refreshProjectFiles(projectId: string): void {
   const current = cache.get(projectId)
   if (current?.entries && Date.now() - current.at < STALE_MS) return
@@ -69,7 +69,7 @@ export function refreshProjectFiles(projectId: string): void {
   inflight.set(projectId, job)
 }
 
-/** Solo per l'anteprima senza host: imposta un elenco che non scade. */
+/** Only for the preview without a host: sets a list that never expires. */
 export function seedProjectFiles(projectId: string, paths: string[]): void {
   update(projectId, { ...build(paths), loading: false, error: null, at: Number.POSITIVE_INFINITY })
 }
@@ -85,7 +85,7 @@ export function useProjectFiles(projectId: string | null): FileIndex {
 
 const BOUNDARY = new Set(['/', '-', '_', '.', ' '])
 
-/** Sottosequenza con premi per lettere consecutive e inizi di parola. -1 se non corrisponde. */
+/** Subsequence match with bonuses for consecutive letters and word starts. -1 if it doesn't match. */
 function fuzzy(target: string, query: string): number {
   let score = 0
   let ti = 0
@@ -103,7 +103,7 @@ function fuzzy(target: string, query: string): number {
   return Math.max(0, score + 200)
 }
 
-/** Fasce: prima il nome del file (esatto, inizio, contenuto, sparso), poi il percorso. */
+/** Tiers: file name first (exact, prefix, contains, scattered), then the path. */
 function score(entry: FileEntry, query: string, pathQuery: boolean): number {
   if (!pathQuery) {
     const base = entry.baseLower
@@ -142,15 +142,15 @@ export function rankFiles(index: FileIndex, rawQuery: string, limit = MAX_RESULT
 }
 
 export interface Mention {
-  /** Indice della @. */
+  /** Index of the @. */
   start: number
-  /** Testo tra la @ e il cursore. */
+  /** Text between the @ and the cursor. */
   query: string
 }
 
 const SPACE = /\s/
 
-/** Citazione in corso: una @ all'inizio o dopo uno spazio, seguita da testo senza spazi fino al cursore. */
+/** Mention in progress: an @ at the start or after a space, followed by text without spaces up to the cursor. */
 export function findMention(text: string, caret: number): Mention | null {
   let i = caret - 1
   while (i >= 0 && !SPACE.test(text[i])) i--
@@ -159,7 +159,7 @@ export function findMention(text: string, caret: number): Mention | null {
   return { start, query: text.slice(start + 1, caret) }
 }
 
-/** Testo da inserire: i percorsi con spazi vanno tra virgolette. */
+/** Text to insert: paths with spaces go in quotes. */
 export function mentionToken(path: string): string {
   return SPACE.test(path) ? `@"${path}"` : `@${path}`
 }

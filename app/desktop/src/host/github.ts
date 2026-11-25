@@ -1,5 +1,5 @@
-// GitHub tramite la CLI gh dell'utente: Ladder non legge né conserva token, gh usa il proprio login.
-// LADDER_GH punta a un gh finto per le prove automatiche.
+// GitHub through the user's gh CLI: Ladder neither reads nor stores tokens, gh uses its own login.
+// LADDER_GH points to a fake gh for automated tests.
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { t } from '@shared/i18n'
@@ -14,10 +14,10 @@ const run = promisify(execFile)
 
 let ghPath: Promise<string | null> | null = null
 
-/** gh scaricato da Ladder (LAD-11): sta nella cartella dati, dopo quello dell'utente. */
+/** gh downloaded by Ladder: lives in the data folder, after the user's. */
 export const downloadedGhPath = () => join(toolDir('gh'), 'gh')
 
-/** Percorso di gh: le app GUI non vedono il PATH della shell, quindi lo chiede alla shell di login; poi quello scaricato da Ladder. */
+/** Path of gh: GUI apps do not see the shell's PATH, so it asks the login shell; then the one downloaded by Ladder. */
 export function findGh(): Promise<string | null> {
   ghPath ??= (async () => {
     if (process.env.LADDER_GH) return process.env.LADDER_GH
@@ -26,14 +26,14 @@ export function findGh(): Promise<string | null> {
       const path = stdout.trim().split('\n').pop() ?? ''
       if (path.startsWith('/')) return path
     } catch {
-      // Non è nel PATH dell'utente: si prova quello scaricato.
+      // Not in the user's PATH: try the downloaded one.
     }
     return existsSync(downloadedGhPath()) ? downloadedGhPath() : null
   })()
   return ghPath
 }
 
-/** Dopo un download, un login o un logout: gh va cercato di nuovo e lo stato di accesso riletto. */
+/** After a download, a login or a logout: gh must be looked up again and the login state re-read. */
 export function resetGh(): void {
   ghPath = null
   authCache.clear()
@@ -43,7 +43,7 @@ export class GhError extends Error {
   constructor(
     message: string,
     readonly stderr: string,
-    /** gh è stato fermato per il tempo scaduto: l'operazione potrebbe comunque essere andata a buon fine dall'altra parte. */
+    /** gh was stopped on timeout: the operation may still have succeeded on the other side. */
     readonly timedOut = false
   ) {
     super(message)
@@ -58,7 +58,7 @@ export async function gh(cwd: string, args: string[], timeout = 20000): Promise<
       cwd,
       timeout,
       maxBuffer: 16 * 1024 * 1024,
-      // Niente prompt interattivi né colori: l'output deve restare JSON.
+      // No interactive prompts or colors: the output must stay JSON.
       env: { ...cleanEnv(), GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1' }
     })
     return stdout
@@ -68,7 +68,7 @@ export async function gh(cwd: string, args: string[], timeout = 20000): Promise<
   }
 }
 
-/** Il repository ha un remote su GitHub? Senza, gh non ha niente da leggere. */
+/** Does the repository have a remote on GitHub? Without one, gh has nothing to read. */
 export async function hasGithubRemote(cwd: string): Promise<boolean> {
   try {
     return /github\.com[:/]/.test(await git(cwd, ['remote', '-v']))
@@ -82,8 +82,8 @@ const authCache = new Map<string, { at: number; ok: boolean }>()
 export type GhState = 'ok' | 'missing' | 'unauthenticated' | 'no-remote' | 'error'
 
 /**
- * Esito di `gh auth status`. Senza rete gh scrive "Failed to log in … The token in keyring is invalid" come per un token
- * rifiutato davvero: in quel caso si chiede a GitHub (gh api rate_limit) e solo un 401 vale come scollegato.
+ * Outcome of `gh auth status`. Without a network gh writes "Failed to log in … The token in keyring is invalid" as for a token
+ * that was really rejected: in that case GitHub is asked (gh api rate_limit) and only a 401 counts as logged out.
  */
 export async function ghAuthCheck(path: string, env: Record<string, string | undefined>, cwd?: string): Promise<'ok' | 'unauthenticated' | 'error'> {
   const read = async (args: string[]): Promise<{ ok: boolean; text: string }> => {
@@ -111,25 +111,25 @@ export async function ghState(cwd: string): Promise<GhState> {
   const cached = authCache.get(path)
   if (cached && Date.now() - cached.at < 5 * 60_000) return cached.ok ? 'ok' : 'unauthenticated'
   const result = await ghAuthCheck(path, { ...cleanEnv(), GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1' }, cwd)
-  // Un errore di rete non si ricorda: alla prossima richiesta si riprova.
+  // A network error is not remembered: retry on the next request.
   if (result !== 'error') authCache.set(path, { at: Date.now(), ok: result === 'ok' })
   return result
 }
 
-/** Branch predefinito: origin/HEAD se c'è, altrimenti quello di GitHub (solo con `network`), altrimenti main o master. */
+/** Default branch: origin/HEAD if present, otherwise GitHub's (only with `network`), otherwise main or master. */
 export async function defaultBranch(cwd: string, network = true): Promise<string> {
   try {
     const ref = await git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
     if (ref) return ref.replace(/^origin\//, '')
   } catch {
-    // origin/HEAD non impostato: si prova con gh.
+    // origin/HEAD not set: try gh.
   }
   if (network && (await ghState(cwd)) === 'ok') {
     try {
       const data = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'defaultBranchRef'], 10000)) as { defaultBranchRef?: { name?: string } }
       if (data.defaultBranchRef?.name) return data.defaultBranchRef.name
     } catch {
-      // Si ripiega sui nomi più comuni.
+      // Fall back to the most common names.
     }
   }
   for (const name of ['main', 'master']) {
@@ -137,7 +137,7 @@ export async function defaultBranch(cwd: string, network = true): Promise<string
       await git(cwd, ['rev-parse', '--verify', '-q', `refs/heads/${name}`])
       return name
     } catch {
-      // Prossimo nome.
+      // Next name.
     }
   }
   return 'main'
@@ -197,7 +197,7 @@ export function rollup(checks: MergeCheck[]): PrStatus['checks'] {
 
 export interface PrDetails {
   status: PrStatus
-  /** `mergeStateStatus` di GitHub (LAD-69), e commit di testa della PR. */
+  /** GitHub's `mergeStateStatus`, and the PR's head commit. */
   mergeState: string | null
   headOid: string | null
   checks: MergeCheck[]
@@ -206,7 +206,7 @@ export interface PrDetails {
 
 const PR_FIELDS = 'number,title,url,state,isDraft,mergeable,mergeStateStatus,headRefOid,reviewDecision,baseRefName,updatedAt,mergedAt,statusCheckRollup,comments'
 
-/** Stato e check di una PR dal JSON di `gh pr view` (LAD-69: lo usa anche il controllo prima del merge). */
+/** State and checks of a PR from the JSON of `gh pr view` (also used by the pre-merge check). */
 export function prFromRaw(raw: RawPr): { status: PrStatus; checks: MergeCheck[] } {
   const checks: MergeCheck[] = (raw.statusCheckRollup ?? []).map((c) => ({
     name: c.name ?? c.context ?? t('check'),
@@ -225,13 +225,13 @@ export function prFromRaw(raw: RawPr): { status: PrStatus; checks: MergeCheck[] 
     review,
     base: raw.baseRefName ?? 'main',
     updatedAt: raw.updatedAt ? Date.parse(raw.updatedAt) : Date.now(),
-    // GitHub manda null (o la data 0001-01-01) se non è unita.
+    // GitHub sends null (or the date 0001-01-01) if it is not merged.
     mergedAt: state === 'merged' && raw.mergedAt ? Date.parse(raw.mergedAt) || null : null
   }
   return { status, checks }
 }
 
-/** PR aperta (o l'ultima) del branch. null se il branch non ha PR. */
+/** Open PR (or the latest) of the branch. null if the branch has no PR. */
 export async function prForBranch(cwd: string, branch: string): Promise<PrDetails | null> {
   let raw: RawPr
   try {
@@ -249,7 +249,7 @@ export async function prForBranch(cwd: string, branch: string): Promise<PrDetail
     url: c.url ?? null,
     at: c.createdAt ? Date.parse(c.createdAt) : 0
   }))
-  // Commenti sulle righe del diff: un'altra API, letta con gh api (i segnaposto {owner}/{repo} li risolve gh).
+  // Comments on diff lines: a different API, read with gh api (gh resolves the {owner}/{repo} placeholders).
   try {
     const inline = JSON.parse(await gh(cwd, ['api', `repos/{owner}/{repo}/pulls/${raw.number}/comments?per_page=100`])) as {
       user?: { login?: string }
@@ -271,7 +271,7 @@ export async function prForBranch(cwd: string, branch: string): Promise<PrDetail
       })
     }
   } catch {
-    // Senza i commenti sulle righe il pannello mostra comunque PR e CI.
+    // Without line comments the panel still shows the PR and CI.
   }
   comments.sort((a, b) => a.at - b.at)
   return { status, mergeState: raw.mergeStateStatus ?? null, headOid: raw.headRefOid ?? null, checks, comments }

@@ -6,7 +6,7 @@ import { SubagentsViz } from "./subagents"
 import { WaitingViz } from "./waiting"
 import { WorktreesViz } from "./worktrees"
 
-// Scheda: area visiva con fondo a puntini, poi titolo e testo (server-rendered per la SEO)
+// Card: visual area with a dotted background, then title and text (server-rendered for SEO)
 function Card({ viz, title, wide, children }: { viz: ReactNode; title: string; wide?: boolean; children: ReactNode }) {
   return (
     <article

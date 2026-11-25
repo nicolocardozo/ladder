@@ -1,8 +1,8 @@
-// Evidenziazione di file interi per viewer e diff: Shiki con le variabili del tema, una riga alla volta.
+// Highlighting of whole files for viewer and diff: Shiki with theme variables, one line at a time.
 import { memo, useEffect, useState } from 'react'
 import { highlight, resolveLang, type TokenLines } from '@/components/chat/highlighter'
 
-/** Oltre questa dimensione il testo resta semplice: l'evidenziazione bloccherebbe la UI. */
+/** Above this size the text stays plain: highlighting would block the UI. */
 const MAX_HIGHLIGHT = 400_000
 
 export function useFileTokens(text: string | null, path: string): TokenLines | null {
@@ -27,7 +27,7 @@ export function useFileTokens(text: string | null, path: string): TokenLines | n
 const ITALIC = 1
 const BOLD = 2
 
-/** Una riga di codice: i token se ci sono, altrimenti il testo. */
+/** A line of code: the tokens if there are any, otherwise the text. */
 export const CodeText = memo(function CodeText({ text, tokens }: { text: string; tokens: TokenLines[number] | undefined }) {
   if (!tokens) return <>{text || ' '}</>
   if (tokens.length === 0) return <> </>

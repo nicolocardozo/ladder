@@ -1,5 +1,5 @@
-// Testo scritto da un modello (LAD-59): messaggio di commit, titolo e descrizione della PR.
-// Attivo se lo vogliono sia l'impostazione globale sia il progetto; gli agenti ACP non hanno un modello piccolo.
+// Text written by a model: commit message, PR title and description.
+// Active if both the global setting and the project want it; ACP agents have no small model.
 import type { SessionSummary } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { useApp } from '@/store/app-store'

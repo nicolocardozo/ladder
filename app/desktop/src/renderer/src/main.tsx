@@ -13,12 +13,12 @@ import { useApp } from './store/app-store'
 import { useSettings } from './hooks/use-theme'
 import { useChatFont } from './hooks/use-chat-font'
 
-// Accesso per il debug e le prove end-to-end via DevTools: stesso potere della pagina, nessun accesso a Node.
+// Access for debugging and end-to-end tests via DevTools: same power as the page, no Node access.
 ;(window as unknown as { __ladder: unknown }).__ladder = { request, send, store: useApp, settings: useSettings }
 
 setLocale(window.ladder?.locale ?? 'en')
 
-/** Cambio di lingua: la lingua corrente si imposta prima di disegnare e l'app si ridisegna da capo. */
+/** Language change: the current language is set before drawing and the app is redrawn from scratch. */
 function LocaleRoot() {
   const locale: Locale = useApp((s) => s.prefs?.locale) ?? window.ladder?.locale ?? 'en'
   setLocale(locale)

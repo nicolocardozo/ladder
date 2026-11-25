@@ -24,7 +24,7 @@ const POINTS = [
   },
 ] as const
 
-// Telefono disegnato in HTML/CSS con una richiesta in attesa, dati di esempio generici
+// Phone drawn in HTML/CSS with a pending request, generic sample data
 function PhoneViz() {
   return (
     <div aria-hidden className="relative h-[460px] overflow-hidden rounded-[18px] border border-hairline bg-frame sm:h-[520px]">

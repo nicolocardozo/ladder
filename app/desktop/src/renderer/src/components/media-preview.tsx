@@ -1,6 +1,6 @@
-// Anteprima di immagini, SVG, PDF, audio e video dentro Ladder (LAD-70), e confronto prima/dopo per il pannello Modifiche.
-// I byte non passano dalla MessagePort: gli elementi leggono da `ladder-file://` (url di FileMedia). Gli SVG si disegnano solo con <img>,
-// il PDF sta in un <iframe> senza sandbox (il visore di Chromium non parte con sandbox).
+// Preview of images, SVG, PDF, audio and video inside Ladder, and before/after comparison for the Changes panel.
+// The bytes don't go through the MessagePort: the elements read from `ladder-file://` (FileMedia url). SVGs are drawn only with <img>,
+// the PDF sits in an <iframe> without sandbox (Chromium's viewer doesn't start with sandbox).
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { File, FileAudio, FolderSearch, TriangleAlert } from 'lucide-react'
 import type { FileChange, FileMedia } from '@shared/protocol'
@@ -9,7 +9,7 @@ import { t } from '@shared/i18n'
 import { isElectron, request } from '@/lib/host-client'
 import { cn } from '@/lib/utils'
 
-// ── Formati ──────────────────────────────────────────────────────────────────
+// ── Formats ──────────────────────────────────────────────────────────────────
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -27,10 +27,10 @@ const dimensionsLabel = (w: number, h: number) => t('{width} × {height} px', { 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 const extension = (path: string) => (path.includes('.') ? path.slice(path.lastIndexOf('.') + 1).toUpperCase() : '')
 
-/** Cambia quando il file cambia su disco: rimonta l'elemento e il protocollo (che risponde no-store) rilegge i byte. */
+/** Changes when the file changes on disk: remounts the element and the protocol (which answers no-store) re-reads the bytes. */
 const stampOf = (media: FileMedia) => `${media.mtimeMs ?? 'rev'}:${media.size}`
 
-/** Scacchi per la trasparenza: due toni presi dal tema, abbastanza tenui da non fare rumore. */
+/** Checkerboard for transparency: two tones taken from the theme, subtle enough not to be noisy. */
 const checkerboard: CSSProperties = {
   backgroundColor: 'var(--color-background)',
   backgroundImage:
@@ -41,7 +41,7 @@ const checkerboard: CSSProperties = {
 const quietButton =
   'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-input px-2 text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50'
 
-// ── Pezzi comuni ─────────────────────────────────────────────────────────────
+// ── Common pieces ────────────────────────────────────────────────────────────
 
 function Notice({ icon, children, action }: { icon?: ReactNode; children: ReactNode; action?: ReactNode }) {
   return (
@@ -88,7 +88,7 @@ export function RevealButton({ root, path }: { root: string; path: string }) {
   )
 }
 
-/** Anteprima / Codice di un SVG. */
+/** Preview / Code of an SVG. */
 export function PreviewToggle({ value, onChange }: { value: 'preview' | 'code'; onChange: (next: 'preview' | 'code') => void }) {
   const item = (id: 'preview' | 'code', label: string) => (
     <button
@@ -108,13 +108,13 @@ export function PreviewToggle({ value, onChange }: { value: 'preview' | 'code'; 
   )
 }
 
-// ── Elementi ─────────────────────────────────────────────────────────────────
+// ── Elements ─────────────────────────────────────────────────────────────────
 
 function ImageBody({ media, name, compact, onDims }: { media: FileMedia; name: string; compact?: boolean; onDims?: (w: number, h: number) => void }) {
   const [actual, setActual] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [failed, setFailed] = useState(false)
-  // Solo se l'immagine è più larga dello spazio ha senso il clic per il 100%.
+  // Click-to-100% only makes sense if the image is wider than the space.
   const [shrunk, setShrunk] = useState(false)
   const stamp = `${stampOf(media)}:${attempt}`
   useEffect(() => {
@@ -170,7 +170,7 @@ function PdfBody({ media, name, compact }: { media: FileMedia; name: string; com
   return (
     <div className={cn('relative w-full', compact ? 'h-96' : 'h-full')}>
       {!loaded && <p className="absolute inset-0 z-[1] grid place-items-center text-xs text-muted-foreground">{t('Loading PDF…')}</p>}
-      {/* Senza attributo sandbox: con sandbox il visore PDF di Chromium non si apre. L'URL è servito solo per le root note. */}
+      {/* Without the sandbox attribute: with sandbox Chromium's PDF viewer doesn't open. The URL is served only for known roots. */}
       <iframe key={stamp} src={media.url ?? undefined} title={t('PDF preview of {name}', { name })} onLoad={() => setLoaded(true)} onError={() => setFailed(true)} className="size-full border-0 bg-background" />
     </div>
   )
@@ -182,7 +182,7 @@ function PlayerBody({ media, name, compact, onDims }: { media: FileMedia; name: 
   const stamp = `${stampOf(media)}:${attempt}`
   useEffect(() => setFailed(false), [stamp])
   if (failed) return <Failed onRetry={() => setAttempt((n) => n + 1)} />
-  // preload="metadata", niente autoplay: un video da centinaia di MB non si scarica per intero, il protocollo serve i Range.
+  // preload="metadata", no autoplay: a video of hundreds of MB is not downloaded in full, the protocol serves Ranges.
   if (media.kind === 'audio')
     return (
       <div className="m-auto flex w-full max-w-md flex-col items-center gap-2 px-4 py-4">
@@ -218,7 +218,7 @@ function OtherBody({ media, path, root, revealable }: { media: FileMedia | null;
   )
 }
 
-/** Il corpo giusto per il tipo, senza cornice. */
+/** The right body for the type, without a frame. */
 function MediaBody({ media, root, path, compact, revealable = true, onDims }: { media: FileMedia; root: string; path: string; compact?: boolean; revealable?: boolean; onDims?: (w: number, h: number) => void }) {
   const name = baseName(path)
   if (!isElectron) return <Notice>{t('Preview is available in the Ladder app.')}</Notice>
@@ -234,9 +234,9 @@ function MediaBody({ media, root, path, compact, revealable = true, onDims }: { 
   }
 }
 
-// ── Viewer a tutta altezza (pannello File e tab) ─────────────────────────────
+// ── Full-height viewer (Files panel and tabs) ────────────────────────────────
 
-/** Anteprima di un file non di testo (o di uno SVG) per il pannello File e le tab. */
+/** Preview of a non-text file (or an SVG) for the Files panel and tabs. */
 export function MediaView({ root, path, media }: { root: string; path: string; media: FileMedia }) {
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null)
   const stamp = stampOf(media)
@@ -257,12 +257,12 @@ export function MediaView({ root, path, media }: { root: string; path: string; m
   )
 }
 
-/** Fallback quando l'host non descrive il file (versione vecchia): dice solo cosa non si può fare. */
+/** Fallback when the host doesn't describe the file (old version): it only says what can't be done. */
 export function BinaryNote({ size, root, path }: { size: number; root: string; path: string }) {
   return <OtherBody media={{ kind: 'other', mime: 'application/octet-stream', size, width: null, height: null, mtimeMs: null, url: null }} path={path} root={root} revealable />
 }
 
-// ── Descrizione di un file a una revisione ───────────────────────────────────
+// ── Description of a file at a revision ──────────────────────────────────────
 
 const mediaCache = new Map<string, Promise<FileMedia>>()
 
@@ -270,7 +270,7 @@ function loadMedia(root: string, path: string, rev: string): Promise<FileMedia> 
   const key = `${root}|${rev}|${path}`
   let cached = mediaCache.get(key)
   if (!cached) {
-    // Una revisione di git non cambia: si ricorda la risposta, ma un errore si può ritentare.
+    // A git revision doesn't change: the answer is remembered, but an error can be retried.
     cached = request<FileMedia>({ type: 'fs.media', root, path, rev })
     cached.catch(() => mediaCache.delete(key))
     mediaCache.set(key, cached)
@@ -298,7 +298,7 @@ function useSide(root: string, path: string | null, rev: string | null, attempt:
   return side
 }
 
-// ── Prima e dopo ─────────────────────────────────────────────────────────────
+// ── Before and after ─────────────────────────────────────────────────────────
 
 interface MediaCompareProps {
   root: string
@@ -354,7 +354,7 @@ function Segmented<T extends string>({ label, value, onChange, items }: { label:
   )
 }
 
-/** Prima e dopo di un file cambiato: immagini affiancate o sovrapposte con cursore; PDF, audio e video con dimensioni e anteprima del dopo. */
+/** Before and after of a changed file: images side by side or overlaid with a slider; PDF, audio and video with sizes and a preview of the after. */
 export function MediaCompare({ root, file, from, to }: MediaCompareProps) {
   const [attemptBefore, setAttemptBefore] = useState(0)
   const [attemptAfter, setAttemptAfter] = useState(0)
@@ -372,7 +372,7 @@ export function MediaCompare({ root, file, from, to }: MediaCompareProps) {
   const beforeLabel = file.status === 'D' ? t('Deleted') : t('Before')
   const afterLabel = file.status === 'A' ? t('Added') : t('After')
 
-  // Immagini e SVG: affiancate, oppure una sull'altra con il cursore.
+  // Images and SVG: side by side, or one over the other with the slider.
   if (kind === 'image' || kind === 'svg') {
     const overlay = canOverlay && view === 'overlay'
     return (
@@ -431,7 +431,7 @@ export function MediaCompare({ root, file, from, to }: MediaCompareProps) {
     )
   }
 
-  // Altri tipi: "modificato" con le dimensioni prima e dopo e l'anteprima del dopo (o del prima se il file è stato eliminato).
+  // Other types: "modified" with the sizes before and after and the preview of the after (or the before if the file was deleted).
   const shown = file.status === 'D' ? before : after
   const sizeOf = (s: Side) => (s.state === 'ready' ? formatBytes(s.media.size) : s.state === 'loading' ? '…' : t('n/a'))
   const pending = before.state === 'loading' || after.state === 'loading'

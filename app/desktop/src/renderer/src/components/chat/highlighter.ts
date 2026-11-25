@@ -1,5 +1,5 @@
-// Evidenziazione con Shiki, caricata solo al primo blocco di codice.
-// Motore JavaScript (la CSP dell'app vieta WebAssembly) e un tema a variabili CSS che segue chiaro e scuro.
+// Highlighting with Shiki, loaded only at the first code block.
+// JavaScript engine (the app's CSP forbids WebAssembly) and a CSS-variable theme that follows light and dark.
 import type { HighlighterCore, ThemedToken } from 'shiki/core'
 
 export type Lang =
@@ -116,12 +116,12 @@ const ALIASES: Record<string, Lang> = {
   gql: 'graphql'
 }
 
-/** Vero se il valore è il nome di un linguaggio (ts, bash…), non un percorso. */
+/** True if the value is a language name (ts, bash…), not a path. */
 export function isLangName(value: string): boolean {
   return Object.hasOwn(ALIASES, value.toLowerCase())
 }
 
-/** Linguaggio da un'etichetta del blocco o dall'estensione di un percorso. */
+/** Language from a block label or from a path's extension. */
 export function resolveLang(value: string | null | undefined): Lang | null {
   if (!value) return null
   const key = value.toLowerCase()
@@ -173,7 +173,7 @@ export function getCachedTokens(code: string, lang: Lang): TokenLines | null {
   const key = cacheKey(code, lang)
   const hit = cache.get(key)
   if (!hit) return null
-  // Aggiorna l'ordine LRU.
+  // Update the LRU order.
   cache.delete(key)
   cache.set(key, hit)
   return hit

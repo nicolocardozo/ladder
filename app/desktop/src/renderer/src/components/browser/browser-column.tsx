@@ -1,6 +1,6 @@
-// Colonna browser del progetto: una sola, a destra delle colonne di chat e a sinistra del resto del pannello di destra.
-// L'intestazione è la striscia delle pagine (tab salvate e browser degli agenti); sotto, la pagina attiva (BrowserBody).
-// Un solo BrowserBody alla volta: cambiando pagina o chiudendo la colonna la vista nativa precedente si nasconde da sola.
+// Project browser column: only one, to the right of the chat columns and to the left of the rest of the right panel.
+// The header is the strip of pages (saved tabs and agent browsers); below, the active page (BrowserBody).
+// Only one BrowserBody at a time: when switching page or closing the column the previous native view hides by itself.
 import { useEffect, useRef } from 'react'
 import { Bot, CircleAlert, Globe, OctagonX, Plus, X } from 'lucide-react'
 import { t } from '@shared/i18n'
@@ -23,8 +23,8 @@ const spinner = 'block size-[11px] shrink-0 rounded-full border-[1.6px] border-b
 
 export function BrowserColumn({ projectId }: { projectId: string }) {
   const open = useApp((s) => isBrowserColumnOpen(s, projectId))
-  // Aperta ma senza più pagine (sessione archiviata col suo agente, progetto cambiato): si chiude davvero,
-  // così una pagina che arriva dopo non la riapre da sola.
+  // Open but with no pages left (session archived with its agent, project changed): it really closes,
+  // so a page that arrives later does not reopen it by itself.
   const stale = useApp((s) => Boolean(s.ui[projectId]?.browserColumn?.open) && browserColumnTabs(s, projectId).length === 0)
   useEffect(() => {
     if (stale) useApp.getState().closeBrowserColumn(projectId)
@@ -44,17 +44,17 @@ function Column({ projectId }: { projectId: string }) {
   const tabs = browserColumnTabs(view, projectId)
   const active = browserColumnActive(view, projectId)
   const saved = ui[projectId]?.browserTabs ?? []
-  // Browser degli agenti fermati (stop esplicito o pagina chiusa): da qui si riattivano.
+  // Browsers of stopped agents (explicit stop or closed page): from here they are reactivated.
   const stopped = Object.values(agentBrowser).filter((agent) => agent.projectId === projectId && agent.enabled && !agent.closed && agent.stopped && Boolean(sessions[agent.sessionId]) && !sessions[agent.sessionId].archived)
 
   const panel = useRef<HTMLElement>(null)
   const strip = useRef<HTMLDivElement>(null)
-  // La pagina attiva resta in vista nella striscia quando le tab non ci stanno.
+  // The active page stays in view in the strip when the tabs do not fit.
   useEffect(() => {
     strip.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [active, tabs.length])
 
-  // Come l'ispettore: durante il trascinamento si ritocca il DOM, la misura si salva a fine gesto. Il massimo lascia al contenuto lo spazio minimo, tolto ciò che sta a destra.
+  // Like the inspector: during dragging the DOM is touched up, the measurement is saved at the end of the gesture. The maximum leaves the content its minimum space, minus what is on the right.
   const maxWidth = () => {
     const parent = panel.current?.parentElement
     if (!parent) return BROWSER_COLUMN.min
@@ -71,7 +71,7 @@ function Column({ projectId }: { projectId: string }) {
     setBrowserColumnWidth(projectId, next)
   }
   const reset = () => {
-    // Il predefinito è una regola CSS: si toglie lo stile in linea e si dimentica la misura salvata.
+    // The default is a CSS rule: the inline style is removed and the saved measurement is forgotten.
     if (panel.current) panel.current.style.width = ''
     setBrowserColumnWidth(projectId, undefined)
   }
@@ -112,7 +112,7 @@ function Column({ projectId }: { projectId: string }) {
                   <button type="button" onClick={() => showBrowserColumn(projectId, id)} className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:underline" title={`${session.title} · ${status}`}>
                     <Bot aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
                     <span className={cn('truncate', selected && 'font-medium')}>{label}</span>
-                    {/* Lo stato ha una forma propria oltre al colore: anello = lavora, avviso = ti aspetta, stop = fermato. */}
+                    {/* State has its own shape beyond color: ring = working, warning = waiting for you, stop = stopped. */}
                     {agent.stopped ? (
                       <OctagonX role="img" aria-label={t('Stopped')} className="size-3 shrink-0" strokeWidth={2} />
                     ) : agent.action?.waitingForYou ? (
@@ -138,7 +138,7 @@ function Column({ projectId }: { projectId: string }) {
             return (
               <div key={id} role="tab" aria-selected={selected} className={cn(tabClass, selected ? 'bg-accent text-foreground' : 'hover:bg-accent/60')}>
                 <button type="button" onClick={() => showBrowserColumn(projectId, id)} className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:underline" title={live?.url || tab?.url || label}>
-                  {/* Mentre la pagina carica, lo stesso anello delle sessioni in corso al posto del globo. */}
+                  {/* While the page loads, the same ring as running sessions in place of the globe. */}
                   <span className="grid w-3.5 shrink-0 place-items-center">{live?.loading ? <span aria-hidden className={spinner} /> : <Globe aria-hidden className="size-3.5" strokeWidth={1.75} />}</span>
                   <span className={cn('truncate', selected && 'font-medium')}>{label}</span>
                 </button>

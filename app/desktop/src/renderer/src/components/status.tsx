@@ -3,7 +3,7 @@ import { plural, t } from '@shared/i18n'
 import { cn } from '@/lib/utils'
 import type { ProjectAttention, SessionState } from '@/lib/session-state'
 
-/** Anello che gira: sessione in corso. Con movimento ridotto diventa tratteggiato e fermo. */
+/** Spinning ring: session in progress. With reduced motion it becomes dashed and still. */
 export function RunningRing({ className }: { className?: string }) {
   return (
     <span
@@ -17,12 +17,12 @@ export function RunningRing({ className }: { className?: string }) {
   )
 }
 
-/** Punto pieno: c'è una risposta da leggere. */
+/** Filled dot: there is a reply to read. */
 export function UnreadDot({ className, 'aria-label': label }: { className?: string; 'aria-label'?: string }) {
   return <span aria-label={label ?? t('Unread')} className={cn('block size-2 rounded-full bg-unread', className)} />
 }
 
-/** Simbolo di stato per una riga di sessione. Ogni stato ha una forma propria, non solo un colore. */
+/** Status symbol for a session row. Each state has its own shape, not just a color. */
 export function SessionGlyph({ state }: { state: SessionState }) {
   switch (state) {
     case 'running':
@@ -44,7 +44,7 @@ export function SessionGlyph({ state }: { state: SessionState }) {
   }
 }
 
-/** Quante richieste ti aspettano: pillola ambra chiara con icona e numero. */
+/** How many requests are waiting for you: light amber pill with icon and number. */
 export function WaitingCount({ count, label }: { count: number; label: string }) {
   return (
     <span aria-label={label} className="inline-flex h-[18px] items-center gap-1 rounded-full bg-attention/15 px-1.5 text-xs font-semibold text-attention tabular-nums">
@@ -54,7 +54,7 @@ export function WaitingCount({ count, label }: { count: number; label: string })
   )
 }
 
-/** Quante risposte sono da leggere: punto iris e numero, senza fondo. */
+/** How many replies are to be read: iris dot and number, no background. */
 export function UnreadCount({ count, label }: { count: number; label: string }) {
   return (
     <span aria-label={label} className="inline-flex h-[18px] items-center gap-1 text-xs font-medium text-muted-foreground tabular-nums">
@@ -64,7 +64,7 @@ export function UnreadCount({ count, label }: { count: number; label: string }) 
   )
 }
 
-/** Stato aggregato accanto al nome di un progetto chiuso. */
+/** Aggregated status next to the name of a closed project. */
 export function ProjectBadges({ attention }: { attention: ProjectAttention }) {
   return (
     <span data-attention className="ml-auto flex items-center gap-1.5">

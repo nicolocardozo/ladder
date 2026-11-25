@@ -1,4 +1,4 @@
-// Generato da @lobehub/icons-static-svg (varianti mono, viewBox 24x24): non modificare a mano.
+// Generated from @lobehub/icons-static-svg (mono variants, viewBox 24x24): do not edit by hand.
 export type IconPath = { d: string; clipRule?: "evenodd" }
 
 export const AGENT_ICON_PATHS: Record<string, IconPath[]> = {

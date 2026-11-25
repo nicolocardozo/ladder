@@ -1,4 +1,4 @@
-// Branch locali del progetto (comando `project.branches`): elenco, branch del checkout principale, file non committati e sessione al lavoro.
+// The project's local branches (`project.branches` command): list, main checkout branch, uncommitted files and working session.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ProjectBranches } from '@shared/protocol'
 import { isElectron, request } from '@/lib/host-client'
@@ -7,13 +7,13 @@ export interface BranchesState {
   data: ProjectBranches | null
   error: string | null
   loading: boolean
-  /** Rilegge adesso (apertura di un menu, dopo un cambio). */
+  /** Rereads now (opening a menu, after a change). */
   reload: () => void
 }
 
 /**
- * Legge i branch del progetto quando `enabled` e a ogni `refreshKey` diverso (per esempio il branch mostrato nella barra); l'ultima
- * risposta vince, una vecchia si ignora. Senza host (anteprima web) non chiede nulla.
+ * Reads the project's branches when `enabled` and on every different `refreshKey` (for example the branch shown in the bar); the latest
+ * response wins, an old one is ignored. Without a host (web preview) it requests nothing.
  */
 export function useProjectBranches(projectId: string | null, enabled: boolean, refreshKey: unknown = null): BranchesState {
   const [data, setData] = useState<ProjectBranches | null>(null)
@@ -38,11 +38,11 @@ export function useProjectBranches(projectId: string | null, enabled: boolean, r
       })
   }, [projectId])
   useEffect(() => {
-    // Un altro progetto: i dati vecchi non valgono.
+    // Another project: the old data isn't valid.
     setData((current) => (current && current.projectId === projectId ? current : null))
     if (enabled) load()
     return () => {
-      // Un altro progetto o lo smontaggio: la risposta in volo si ignora e non deve lasciare `loading` acceso.
+      // Another project or unmount: the in-flight response is ignored and must not leave `loading` on.
       ticket.current++
       setLoading(false)
     }

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 
-/** Sotto questa larghezza una colonna passa alla vista compatta: card degli strumenti chiuse, composer essenziale. */
+/** Below this width a column switches to the compact view: closed tool cards, essential composer. */
 export const COMPACT_WIDTH = 420
-/** Larghezza minima di una colonna affiancata: se non ci stanno tutte, si mostrano meno colonne. */
+/** Minimum width of a side-by-side column: if they don't all fit, fewer columns are shown. */
 export const MIN_COLUMN_WIDTH = 320
 
-/** Larghezza di un elemento, aggiornata quando cambia. 0 finché non è misurato. Si usa con `ref={setElement}`. */
+/** Width of an element, updated when it changes. 0 until measured. Use with `ref={setElement}`. */
 export function useElementWidth(): [(element: HTMLElement | null) => void, number] {
   const [element, setElement] = useState<HTMLElement | null>(null)
   const [width, setWidth] = useState(0)

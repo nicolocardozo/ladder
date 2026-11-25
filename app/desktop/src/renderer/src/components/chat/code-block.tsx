@@ -1,4 +1,4 @@
-// Blocco di codice: intestazione con percorso o linguaggio, Copia, scorrimento orizzontale, Shiki quando è pronto.
+// Code block: header with path or language, Copy, horizontal scrolling, Shiki when ready.
 import { Check, Copy } from 'lucide-react'
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
 import { t } from '@shared/i18n'
@@ -8,11 +8,11 @@ import { getCachedTokens, highlight, resolveLang, type TokenLines } from './high
 
 interface CodeBlockProps {
   code: string
-  /** Etichetta del blocco: ```ts */
+  /** Block label: ```ts */
   lang: string | null
-  /** Percorso dal resto dell'info string: ```ts src/x.ts */
+  /** Path from the rest of the info string: ```ts src/x.ts */
   path: string | null
-  /** Il blocco sta ancora arrivando: niente evidenziazione finché non è chiuso. */
+  /** The block is still streaming in: no highlighting until it is closed. */
   live?: boolean
 }
 
@@ -30,7 +30,7 @@ function useTokens(code: string, langLabel: string | null, path: string | null, 
         if (!cancelled) setState({ code, lang, tokens })
       },
       () => {
-        // Senza evidenziazione il testo resta leggibile: nessun errore da mostrare.
+        // Without highlighting the text stays readable: no error to show.
       }
     )
     return () => {
@@ -44,7 +44,7 @@ const FONT_STYLE_ITALIC = 1
 const FONT_STYLE_BOLD = 2
 const FONT_STYLE_UNDERLINE = 4
 
-/** Stessa struttura del testo semplice (righe separate da \n): l'altezza non cambia quando arrivano i colori. */
+/** Same structure as the plain text (lines separated by \n): the height does not change when the colors arrive. */
 function Highlighted({ tokens }: { tokens: TokenLines }) {
   return (
     <>
@@ -100,7 +100,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, path, live }: Cod
   }
 
   const onCopy = () => {
-    // La chiamata resta nel gestore del clic: il permesso degli appunti richiede un gesto dell'utente.
+    // The call stays in the click handler: the clipboard permission requires a user gesture.
     const fallback = () => {
       if (!selectText()) return
       let ok = false

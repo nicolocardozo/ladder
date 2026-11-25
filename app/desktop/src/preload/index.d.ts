@@ -2,7 +2,7 @@ import type { LadderApi } from './index'
 
 declare global {
   interface Window {
-    /** Assente quando il renderer gira nel browser con `pnpm dev:web`. */
+    /** Absent when the renderer runs in the browser with `pnpm dev:web`. */
     ladder?: LadderApi
   }
 }

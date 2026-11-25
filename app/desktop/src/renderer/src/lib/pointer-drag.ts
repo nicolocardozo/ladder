@@ -1,20 +1,20 @@
-// Trascinamento con i pointer events, senza HTML5 drag and drop: più controllo su soglia, animazione e annullamento.
-// `startPointerDrag` è il nucleo (soglia, Esc, clic che resta clic); `startSortDrag` lo usa per riordinare una fila di
-// elementi (le tab). Il trascinamento delle sessioni nei gruppi e, in futuro, quello delle tab sul bordo della vista
-// (affiancamento) partono dallo stesso nucleo.
+// Dragging with pointer events, without HTML5 drag and drop: more control over threshold, animation and cancellation.
+// `startPointerDrag` is the core (threshold, Esc, a click that stays a click); `startSortDrag` uses it to reorder a row of
+// elements (the tabs). Dragging sessions into groups and, in the future, tabs onto the view edge
+// (side-by-side) start from the same core.
 
-/** Pixel di movimento prima che un clic diventi trascinamento. */
+/** Pixels of movement before a click becomes a drag. */
 export const DRAG_THRESHOLD = 4
 const SETTLE_MS = 150
 
 export interface PointerDragOptions {
   threshold?: number
-  /** La soglia è stata superata: da qui in poi è un trascinamento e il clic seguente viene assorbito. */
+  /** The threshold has been exceeded: from here on it is a drag and the following click is swallowed. */
   onStart?: (event: PointerEvent) => void
   onMove?: (event: PointerEvent, delta: { x: number; y: number }) => void
-  /** Rilasciato dopo l'inizio del trascinamento. */
+  /** Released after the drag started. */
   onEnd?: (event: PointerEvent) => void
-  /** Esc, perdita del focus della finestra o pointercancel dopo l'inizio. */
+  /** Esc, window focus loss or pointercancel after the start. */
   onCancel?: () => void
 }
 
@@ -24,7 +24,7 @@ interface DownPoint {
   clientY: number
 }
 
-/** Assorbe il clic che il browser genera dopo il rilascio, così trascinare una tab o una riga non la apre. */
+/** Swallows the click the browser generates after release, so dragging a tab or row does not open it. */
 function swallowNextClick(released: boolean): void {
   const swallow = (event: Event) => {
     event.stopPropagation()
@@ -32,12 +32,12 @@ function swallowNextClick(released: boolean): void {
   }
   const remove = () => setTimeout(() => window.removeEventListener('click', swallow, true), 50)
   window.addEventListener('click', swallow, true)
-  // Rilascio già avvenuto: il clic arriva subito. Annullato con Esc: arriva quando si rilascia il tasto.
+  // Release already happened: the click arrives immediately. Cancelled with Esc: it arrives when the key is released.
   if (released) remove()
   else window.addEventListener('pointerup', remove, { once: true, capture: true })
 }
 
-/** Avvia il tracciamento da un pointerdown. Restituisce una funzione che lo interrompe senza chiamare `onCancel`. */
+/** Starts tracking from a pointerdown. Returns a function that stops it without calling `onCancel`. */
 export function startPointerDrag(down: DownPoint, options: PointerDragOptions): () => void {
   if (down.button !== 0) return () => undefined
   const threshold = options.threshold ?? DRAG_THRESHOLD
@@ -63,7 +63,7 @@ export function startPointerDrag(down: DownPoint, options: PointerDragOptions): 
       if (Math.hypot(delta.x, delta.y) < threshold) return
       started = true
       document.documentElement.style.cursor = 'grabbing'
-      // Il browser integrato è una vista nativa sopra la pagina: durante un trascinamento si nasconde (lib/native-overlay.ts).
+      // The built-in browser is a native view above the page: during a drag it is hidden (lib/native-overlay.ts).
       document.documentElement.dataset.dragging = 'true'
       options.onStart?.(event)
     }
@@ -83,7 +83,7 @@ export function startPointerDrag(down: DownPoint, options: PointerDragOptions): 
     const wasDrag = started
     cleanup()
     if (!wasDrag) return
-    // Dopo Esc il tasto è ancora premuto: il clic arriverà al rilascio. Con pointercancel o blur non arriva.
+    // After Esc the button is still pressed: the click will arrive on release. With pointercancel or blur it does not.
     if (escape === true) swallowNextClick(false)
     options.onCancel?.()
   }
@@ -92,7 +92,7 @@ export function startPointerDrag(down: DownPoint, options: PointerDragOptions): 
   }
   function onKey(event: KeyboardEvent) {
     if (event.key !== 'Escape' || done) return
-    // Esc annulla il trascinamento e non chiude altro (menu, palette) mentre si trascina.
+    // Esc cancels the drag and closes nothing else (menu, palette) while dragging.
     if (started) {
       event.preventDefault()
       event.stopPropagation()
@@ -110,30 +110,30 @@ export function startPointerDrag(down: DownPoint, options: PointerDragOptions): 
   }
 }
 
-// ── Riordino di una fila ────────────────────────────────────────────────────
+// ── Reordering a row ────────────────────────────────────────────────────
 
 export interface SortDragOptions {
-  /** Il pointerdown che ha avviato il gesto. */
+  /** The pointerdown that started the gesture. */
   event: DownPoint
-  /** Gli elementi della fila, nell'ordine attuale. */
+  /** The row's elements, in the current order. */
   nodes: HTMLElement[]
-  /** Posizione dell'elemento trascinato in `nodes`. */
+  /** Position of the dragged element in `nodes`. */
   index: number
-  /** Rilascio con una nuova posizione: la lista va riordinata (gli stili temporanei sono già tolti). */
+  /** Release with a new position: the list must be reordered (temporary styles are already removed). */
   onCommit: (from: number, to: number) => void
-  /** Ogni movimento, con la posizione che l'elemento prenderebbe. Per l'affiancamento: rilevare il bordo della vista. */
+  /** Every move, with the position the element would take. For side-by-side: detect the view edge. */
   onMove?: (event: PointerEvent, state: { from: number; to: number }) => void
-  /** Prima di riordinare: restituisce true se il rilascio è stato preso in carico (per esempio un drop sul bordo). */
+  /** Before reordering: returns true if the release was handled (for example a drop on the edge). */
   onRelease?: (event: PointerEvent, state: { from: number; to: number }) => boolean
-  /** Il gesto è finito senza rilascio (Esc, finestra persa): ripulisce quello che `onMove` ha mostrato. */
+  /** The gesture ended without release (Esc, window lost): cleans up what `onMove` showed. */
   onCancel?: () => void
 }
 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /**
- * Riordina `nodes` orizzontalmente. L'elemento trascinato segue il puntatore dentro i limiti della fila, gli altri
- * scorrono per fargli posto. Si anima solo `transform`; trascinare fuori dalla fila non fa altro che fermarlo al bordo.
+ * Reorders `nodes` horizontally. The dragged element follows the pointer within the row's limits, the others
+ * slide to make room. Only `transform` is animated; dragging out of the row just stops it at the edge.
  */
 export function startSortDrag({ event, nodes, index: from, onCommit, onMove, onRelease, onCancel }: SortDragOptions): void {
   if (nodes.length < 2 || !nodes[from]) return
@@ -166,12 +166,12 @@ export function startSortDrag({ event, nodes, index: from, onCommit, onMove, onR
       node.style.zIndex = ''
       delete node.dataset.dragging
     }
-    // Il frame dopo si torna alle transizioni normali.
+    // On the next frame we return to the normal transitions.
     requestAnimationFrame(() => {
       for (const node of nodes) node.style.transition = ''
     })
   }
-  /** Porta l'elemento trascinato al suo posto (o a quello di partenza) e poi ripulisce. */
+  /** Puts the dragged element in its place (or at the starting one) and then cleans up. */
   const settle = (target: number, then: () => void) => {
     const slot = target === from ? 0 : target > from ? rects[target].right - rects[from].right : rects[target].left - rects[from].left
     offset = slot

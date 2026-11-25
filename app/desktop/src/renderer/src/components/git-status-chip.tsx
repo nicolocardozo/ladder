@@ -10,8 +10,8 @@ import { plural, t } from '@shared/i18n'
 import type { GitStatus } from '@shared/protocol'
 
 /**
- * Iscrive la sessione agli aggiornamenti git finché l'intestazione la mostra; toglie l'iscrizione quando la lascia.
- * Restituisce lo stato della sua cartella (null prima della risposta, senza host o fuori da un repository).
+ * Subscribes the session to git updates while the header shows it; unsubscribes when it leaves.
+ * Returns the state of its folder (null before the response, without a host or outside a repository).
  */
 export function useGitStatus(sessionId: string | null): GitStatus | null {
   const watchGit = useApp((s) => s.watchGit)
@@ -28,9 +28,9 @@ const zone =
   'no-drag inline-flex h-full min-w-0 cursor-pointer items-center gap-1.5 px-1.5 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
 
 /**
- * Blocco git della barra: un gruppo con bordo e due zone cliccabili separate da un filetto.
- * Il branch (con ↑ ↓, worktree, nuvola barrata) apre Merge, oppure, nel checkout principale (`switcherProjectId`), il menu per cambiare branch (Merge è nel menu); i numeri `+N −M` aprono Changes e non compaiono senza modifiche.
- * Il nome del branch si tronca, i numeri no. Senza `status` mostra solo il nome (prima della risposta dell'host, o senza host).
+ * Git block of the bar: a bordered group with two clickable zones separated by a thin rule.
+ * The branch (with ↑ ↓, worktree, crossed-out cloud) opens Merge, or, in the main checkout (`switcherProjectId`), the menu to switch branch (Merge is in the menu); the `+N −M` numbers open Changes and don't appear without changes.
+ * The branch name is truncated, the numbers are not. Without `status` it shows only the name (before the host responds, or without a host).
  */
 export function GitBlock({
   status,
@@ -49,7 +49,7 @@ export function GitBlock({
   mergeActive: boolean
   changesActive: boolean
   flash: boolean
-  /** Con un progetto, il branch è un menu per cambiare il branch del checkout principale; senza (sessione in worktree) apre Merge. */
+  /** With a project, the branch is a menu to switch the main checkout's branch; without one (worktree session) it opens Merge. */
   switcherProjectId?: string | null
   onOpenMerge: () => void
   onOpenChanges: () => void
@@ -60,7 +60,7 @@ export function GitBlock({
   if (!name) return null
   const aria = view ? view.aria : t('Branch {branch}', { branch: name })
   const showNumbers = view !== null && view.dirty > 0
-  // Solo modifiche senza righe (binari, file vuoti, rinomine, permessi): la zona resta e mostra i file.
+  // Only changes without lines (binaries, empty files, renames, permissions): the zone stays and shows the files.
   const hasLines = view !== null && view.added + view.removed > 0
   const changes = showNumbers ? changesLabel(view) : ''
   const branchLabel = (
@@ -133,7 +133,7 @@ export function GitBlock({
   )
 }
 
-/** Segni dentro il chip: solo forme e numeri, il colore non porta informazione da solo. */
+/** Marks inside the chip: only shapes and numbers, color alone carries no information. */
 function GitMarks({ view, dot }: { view: GitStatusView; dot: boolean }) {
   const marks = view.worktree || view.ahead > 0 || view.behind > 0 || view.unpublished || dot
   if (!marks) return null
@@ -158,7 +158,7 @@ function GitMarks({ view, dot }: { view: GitStatusView; dot: boolean }) {
   )
 }
 
-/** True per un momento quando i file modificati passano da 0 a più di 0 (dopo il primo stato letto). */
+/** True for a moment when the modified files go from 0 to more than 0 (after the first state read). */
 export function useFirstChangeFlash(status: GitStatus | null): boolean {
   const prev = useRef<number | null>(null)
   const [flash, setFlash] = useState(false)

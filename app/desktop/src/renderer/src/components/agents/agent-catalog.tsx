@@ -1,7 +1,7 @@
-// "Aggiungi un agente" (Impostazioni → Agenti): il catalogo ACP con i curati in cima, poi il resto del registro.
-// Ogni voce dice cosa è (rilevata, scaricabile, non disponibile e perché), lo stato del login e dove leggere la procedura.
-// Un binario si scarica solo dopo una conferma che mostra nome, versione, host, dimensione e checksum; niente si aggiorna da solo.
-// Le voci che Ladder non scarica dicono perché e rimandano alla procedura del vendor. La firma si mostra dopo l'installazione.
+// "Add an agent" (Settings → Agents): the ACP catalog with the curated ones on top, then the rest of the registry.
+// Each entry says what it is (detected, downloadable, unavailable and why), the login state and where to read the procedure.
+// A binary is downloaded only after a confirmation that shows name, version, host, size and checksum; nothing updates by itself.
+// Entries Ladder does not download say why and point to the vendor's procedure. The signature is shown after installation.
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type MouseEvent } from 'react'
 import { Check, ChevronRight, CircleAlert, CircleDashed, CircleHelp, Download, KeyRound, Loader2, RefreshCw } from 'lucide-react'
 import type { AgentBlockCode, AgentCatalogEntry, AgentInstall, AgentLogin } from '@shared/protocol'
@@ -14,17 +14,17 @@ import { blockOf, checksumLabel, formatBinaryBytes, isDefinitiveFailure, isFinal
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 
-/** La conferma si offre SOLO con un checksum noto e nessun blocco: senza, `agents.install` non esiste. */
+/** Confirmation is offered ONLY with a known checksum and no block: without it, `agents.install` does not exist. */
 function confirmable(entry: AgentCatalogEntry): boolean {
   return entry.download !== null && entry.download.sha256 !== null && entry.download.blocked === null && blockOf(entry) === null
 }
 
-/** Si scarica con una conferma solo un binario con checksum noto e non bloccato: altrimenti la voce resta visibile col motivo. */
+/** Only a binary with a known checksum and not blocked is downloaded after a confirmation: otherwise the entry stays visible with the reason. */
 function isDownload(entry: AgentCatalogEntry): boolean {
   return entry.state === 'downloadable' && entry.distribution === 'binary' && confirmable(entry)
 }
 
-/** Gli agenti scaricati contano in KiB/MiB/GiB, come la conferma e i limiti; i collegamenti restano in MB decimali. */
+/** Downloaded agents are counted in KiB/MiB/GiB, like the confirmation and the limits; links stay in decimal MB. */
 const binaryBytes = (bytes: number): string => formatBinaryBytes(bytes, localeTag())
 
 function stageLabel(entry: AgentCatalogEntry, install: AgentInstall): string {
@@ -42,7 +42,7 @@ function stageLabel(entry: AgentCatalogEntry, install: AgentInstall): string {
   }
 }
 
-/** Stato in una parola, con forma oltre al colore (come "Connected" dei collegamenti). */
+/** State in one word, with a shape beyond color (like "Connected" for links). */
 function StateLabel({ entry }: { entry: AgentCatalogEntry }) {
   if (entry.added)
     return (
@@ -73,7 +73,7 @@ function StateLabel({ entry }: { entry: AgentCatalogEntry }) {
   )
 }
 
-/** Login secondo ciò che il protocollo ha detto: "unknown" non è "non collegato". */
+/** Login according to what the protocol said: "unknown" is not "not connected". */
 function LoginLine({ entry }: { entry: AgentCatalogEntry }) {
   const { state, methods } = entry.login
   if (state === 'ready')
@@ -100,7 +100,7 @@ function LoginLine({ entry }: { entry: AgentCatalogEntry }) {
   )
 }
 
-/** Dove sta l'agente o come parte, in 12 px tenue. */
+/** Where the agent is or how it starts, in muted 12 px. */
 function whereLine(entry: AgentCatalogEntry): string | null {
   if (entry.detected) return [entry.detected.path, entry.detected.version ? `v${entry.detected.version}` : null].filter(Boolean).join(' · ')
   if (entry.installed) return t('Downloaded by Ladder · v{version}', { version: entry.installed.version })
@@ -110,7 +110,7 @@ function whereLine(entry: AgentCatalogEntry): string | null {
 }
 
 type Confirm = 'download' | 'update' | null
-/** Dopo un rifiuto dell'host per versione o checksum cambiati: la riga riapre la conferma con i dati nuovi. Una per agente, così due rifiuti vicini non si cancellano. */
+/** After a host rejection because version or checksum changed: the row reopens the confirmation with the new data. One per agent, so two nearby rejections do not cancel each other. */
 export type Reviews = Record<string, 'download' | 'update'>
 
 interface RowProps {
@@ -118,12 +118,12 @@ interface RowProps {
   actions: AgentCatalogActions
   projectId?: string
   reviews: Reviews
-  /** La riga ha preso in carico la conferma pendente (o è stata scartata): si toglie dalla mappa alla prima lettura. */
+  /** The row has taken over the pending confirmation (or it was discarded): it is removed from the map on first read. */
   onReviewed: (id: string) => void
-  /** Rilegge il catalogo (per "Try again" quando il checksum non è leggibile ora). */
+  /** Re-reads the catalog (for "Try again" when the checksum is not readable now). */
   onRefresh: () => void
   loading: boolean
-  /** Agenti la cui rilettura dopo un rifiuto è in corso: il testo grezzo dell'errore aspetta l'esito invece di lampeggiare. */
+  /** Agents whose re-read after a rejection is in progress: the raw error text waits for the outcome instead of flashing. */
   checking: ReadonlySet<string>
   onInstall: (entry: AgentCatalogEntry) => void
   onAdded: (id: string) => void
@@ -133,18 +133,18 @@ interface RowProps {
 function CatalogRow({ entry, actions, projectId, reviews, onReviewed, onRefresh, loading, checking, onInstall, onAdded, onLogin }: RowProps) {
   const [confirm, setConfirm] = useState<Confirm>(null)
   const [reopened, setReopened] = useState(false)
-  /** Ciò che la conferma mostrava all'apertura: se la rilettura lo cambia a conferma aperta, l'utente lo vede detto. */
+  /** What the confirmation showed when it opened: if the re-read changes it while the confirmation is open, the user sees it stated. */
   const [openedWith, setOpenedWith] = useState<{ version: string; sha256: string | null; host: string } | null>(null)
-  /** Una conferma riaperta da sola in una riga dove il focus non c'era: si annuncia, il focus resta dov'è. */
+  /** A confirmation reopened on its own in a row that did not have focus: it is announced, focus stays where it is. */
   const [announce, setAnnounce] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const cancelConfirm = useRef<HTMLButtonElement>(null)
-  /** Bottone che ha aperto la conferma: il focus ci torna alla chiusura. */
+  /** Button that opened the confirmation: focus returns to it on close. */
   const opener = useRef<HTMLElement | null>(null)
   const focusInside = useRef(false)
-  /** La conferma che si apre porta il focus su Cancel solo se l'utente è già nella riga (o ha cliccato l'opener): mai se la riga è appena comparsa. */
+  /** The confirmation that opens puts focus on Cancel only if the user is already in the row (or clicked the opener): never if the row just appeared. */
   const moveFocus = useRef(false)
   const restoreFocus = useRef(false)
   const mounted = useRef(true)
@@ -161,24 +161,24 @@ function CatalogRow({ entry, actions, projectId, reviews, onReviewed, onRefresh,
   const failed = install?.state === 'error'
   const cancelled = install?.state === 'cancelled'
   const done = install?.state === 'done'
-  // Senza dati di download non c'è riquadro di conferma: niente Update.
+  // Without download data there is no confirmation panel: no Update.
   const canConfirm = confirmable(entry)
   const update = entry.installed?.updateAvailable === true && canConfirm
   const download = isDownload(entry)
   const showLogin = entry.state !== 'unavailable' && (entry.login.state !== 'unknown' || entry.curated || entry.added)
-  // Un blocco di sicurezza dell'installazione (firma, team, quarantena, conflitto…) non si risolve riprovando; si ripete `checksum-changed` (con i dati riletti)
-  // e un errore che il catalogo ha superato (codice non definitivo e voce senza blocchi): un 404 momentaneo non lascia la riga senza bottone.
+  // A security block on installation (signature, team, quarantine, conflict…) is not solved by retrying; `checksum-changed` is repeated (with the re-read data)
+  // and so is an error the catalog has moved past (non-final code and entry without blocks): a momentary 404 does not leave the row without a button.
   const failCode: AgentBlockCode | null = failed ? (install?.errorCode ?? null) : null
   const finalFail = isFinalFailure(failCode)
   const retryable = failCode === null || failCode === 'checksum-changed' || (install !== null && supersededError(install, entry))
-  // Una CLI già trovata sul Mac si usa lo stesso: il blocco riguarda solo il download. Se la rilettura dà un blocco, vale quello, non l'errore vecchio.
+  // A CLI already found on the Mac is used anyway: the block only concerns the download. If the re-read gives a block, that one applies, not the old error.
   const showBlock = blocked !== null && entry.state !== 'detected' && !finalFail
-  // Aggiornamento disponibile ma checksum non leggibile ora: senza checksum non c'è conferma, quindi una nota con "Try again".
+  // Update available but checksum not readable now: without a checksum there is no confirmation, so a note with "Try again".
   const updateNote = entry.installed?.updateAvailable === true && !canConfirm && blocked === 'checksum-unavailable' && !running && !failed && !done
   const signature = !failed ? (install?.signature ?? entry.installed?.signature ?? null) : null
   const needsLogin = entry.added && entry.login.state === 'required'
 
-  // Se la rilettura toglie il checksum o mette un blocco, la conferma non può restare aperta.
+  // If the re-read removes the checksum or adds a block, the confirmation cannot stay open.
   useEffect(() => {
     if (confirm && !canConfirm) {
       restoreFocus.current = true
@@ -195,7 +195,7 @@ function CatalogRow({ entry, actions, projectId, reviews, onReviewed, onRefresh,
       moveFocus.current = false
       return
     }
-    // Il bottone d'apertura è disabilitato finché la conferma è aperta: il focus ci torna solo dopo il render, quando è di nuovo attivo.
+    // The opener button is disabled while the confirmation is open: focus returns to it only after the render, when it is active again.
     if (!restoreFocus.current) return
     restoreFocus.current = false
     const back = opener.current
@@ -204,7 +204,7 @@ function CatalogRow({ entry, actions, projectId, reviews, onReviewed, onRefresh,
     target?.focus()
   }, [confirm])
 
-  // Il bottone su cui stava il focus cambia (Scarica → Annulla → niente): il focus passa all'azione che subentra, o alla riga.
+  // The button that had focus changes (Download → Cancel → nothing): focus moves to the action that takes over, or to the row.
   const action = running
     ? 'cancel'
     : failed
@@ -235,11 +235,11 @@ function CatalogRow({ entry, actions, projectId, reviews, onReviewed, onRefresh,
   }, [action, busy, entry.login.state])
 
   const pendingReview = reviews[entry.id]
-  // L'host ha rifiutato perché versione o checksum sono cambiati: la conferma si riapre con i dati nuovi.
+  // The host rejected because version or checksum changed: the confirmation reopens with the new data.
   useEffect(() => {
     if (!pendingReview) return
     opener.current = null
-    // Una riga appena montata (ricerca, gruppo che si apre) non ha il focus: la conferma si annuncia e il campo di ricerca continua a ricevere ciò che si scrive.
+    // A freshly mounted row (search, group that opens) does not have focus: the confirmation is announced and the search field keeps receiving what is typed.
     const inside = focusInside.current || (root.current?.contains(document.activeElement) ?? false)
     moveFocus.current = inside
     setAnnounce(!inside)
@@ -451,16 +451,16 @@ export function AgentCatalog({ actions }: { actions: AgentCatalogActions }) {
   const { curated, rest } = useMemo(() => {
     const shown = (entries ?? []).filter((entry) => matches(entry, tokens))
     return { curated: shown.filter((e) => e.curated), rest: shown.filter((e) => !e.curated) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tokens deriva da query
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tokens derives from query
   }, [entries, query])
 
-  /** Ciò che l'utente ha confermato per ogni agente, da confrontare con la rilettura dopo un rifiuto. */
+  /** What the user confirmed for each agent, to compare with the re-read after a rejection. */
   const confirmedRef = useRef(new Map<string, { version: string; sha256: string | null; host: string | null; kind: 'download' | 'update' }>())
 
   /**
-   * Il catalogo può essere obsoleto (versione, checksum o host cambiati dopo la conferma): si rilegge e, se la voce è ancora
-   * confermabile con dati diversi (o l'host dice `checksum-changed`), la conferma si riapre con i dati nuovi. Mai con quelli vecchi.
-   * Se non è più confermabile, la riga mostra la nota di blocco giusta.
+    * The catalog may be stale (version, checksum or host changed after the confirmation): it is re-read and, if the entry is still
+    * confirmable with different data (or the host says `checksum-changed`), the confirmation reopens with the new data. Never with the old ones.
+    * If it is no longer confirmable, the row shows the right block note.
    */
   const reviewAfterRefusal = useCallback(
     (id: string, code: AgentBlockCode | null) => {
@@ -479,12 +479,12 @@ export function AgentCatalog({ actions }: { actions: AgentCatalogActions }) {
     [reload]
   )
 
-  // La rilettura che segue un rifiuto è finita (bene o male): l'errore grezzo può tornare a vedersi, se la riga lo mostra ancora.
+  // The re-read that follows a rejection is over (well or badly): the raw error can be shown again, if the row still shows it.
   useEffect(() => {
     if (!loading) setChecking((set) => (set.size === 0 ? set : new Set()))
   }, [loading])
 
-  // Un errore dell'host per un'installazione che abbiamo confermato (o per checksum/host cambiati) rilegge il catalogo e applica la stessa logica del rifiuto.
+  // A host error for an installation we confirmed (or for changed checksum/host) re-reads the catalog and applies the same logic as the rejection.
   useEffect(
     () =>
       actions.onInstall((install) => {
@@ -495,7 +495,7 @@ export function AgentCatalog({ actions }: { actions: AgentCatalogActions }) {
     [actions, reviewAfterRefusal]
   )
 
-  /** Dopo la conferma: parte in locale, poi gli eventi `agent.install` portano i passi. Un rifiuto dell'host (registro cambiato, niente checksum) resta come errore anche dopo la rilettura. */
+  /** After the confirmation: starts locally, then `agent.install` events carry the steps. A host rejection (registry changed, no checksum) stays as an error even after the re-read. */
   function startInstall(entry: AgentCatalogEntry): void {
     const base = { id: entry.id, version: entry.registryVersion, stage: null, progress: null, bytes: null, total: null, errorCode: null, signature: null }
     const seq = setInstall({ ...base, state: 'running', error: null })
@@ -505,10 +505,10 @@ export function AgentCatalog({ actions }: { actions: AgentCatalogActions }) {
       .install(entry)
       .then((started) => started && setInstallIfCurrent(started, seq))
       .catch((e: Error) => {
-        // Il contratto porta nel rifiuto solo il messaggio: il codice arriva con l'evento `agent.install`, che parte PRIMA del rifiuto e lo ha già registrato
-        // (questa risposta, meno recente, non lo sovrascrive). Se l'evento non c'è stato resta l'errore senza codice.
+        // The contract carries only the message in the rejection: the code arrives with the `agent.install` event, which fires BEFORE the rejection and has already recorded it
+        // (this response, older, does not overwrite it). If the event did not occur the error stays without a code.
         setInstallIfCurrent({ ...base, state: 'error', error: e.message, errorCode: null }, seq)
-        // Se versione, checksum o host sono cambiati la conferma si riapre con i dati nuovi: l'utente non conferma mai ciò che non ha visto.
+        // If version, checksum or host changed the confirmation reopens with the new data: the user never confirms what they have not seen.
         reviewAfterRefusal(entry.id, null)
       })
   }
@@ -522,8 +522,8 @@ export function AgentCatalog({ actions }: { actions: AgentCatalogActions }) {
       }),
     []
   )
-  // Una conferma pendente per una riga del gruppo chiuso apre il gruppo: la riga si monta e la prende in carico subito, mai in ritardo.
-  // Se la ricerca la nasconde resta in attesa finché la riga non compare (i dati si leggono da `entry` all'apertura, quindi sono freschi).
+  // A pending confirmation for a row of the closed group opens the group: the row mounts and takes it over right away, never late.
+  // If the search hides it, it waits until the row appears (the data is read from `entry` at open, so it is fresh).
   useEffect(() => {
     if (!more && rest.some((entry) => entry.id in reviews)) setMore(true)
   }, [reviews, rest, more])

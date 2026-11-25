@@ -12,7 +12,7 @@ const HIGHLIGHT = "Ladder puts every agent in one window and tells you the momen
 
 const words = (text: string) => text.split(" ")
 
-// Il testo è nell'HTML del server; il client colora solo le parole allo scroll.
+// The text is in the server HTML; the client only colors the words on scroll.
 export function StatementText() {
   const ref = useRef<HTMLHeadingElement>(null)
 
@@ -27,11 +27,11 @@ export function StatementText() {
         scrollTrigger: { trigger: el, start: "top 85%", end: "bottom 60%", scrub: 0.3, invalidateOnRefresh: true },
       })
       spans.forEach((s, i) => {
-        // anima solo --lit (0→1): il CSS ne ricava l'opacità della parola, così segue il tema
+        // animates only --lit (0→1): the CSS derives the word's opacity from it, so it follows the theme
         tl.fromTo(s, { "--lit": 0 }, { "--lit": 1, duration: 1 }, i * 0.6)
       })
     })
-    // l'hero sticky e le parti caricate dopo cambiano l'altezza della pagina: ricalcola le posizioni
+    // the sticky hero and the parts loaded afterwards change the page height: recompute the positions
     const refresh = () => ScrollTrigger.refresh()
     const ro = new ResizeObserver(refresh)
     ro.observe(document.body)

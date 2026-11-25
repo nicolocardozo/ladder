@@ -1,7 +1,7 @@
-// Scheda Branches: la mappa dei branch in verticale. A sinistra la linea del ramo principale (accento del tema) con in fondo il suo pallino;
-// da lì parte un raccordo per ogni branch, che finisce in un pallino pieno col colore dello stato e un anello del colore dello sfondo.
-// I branch uniti sono un cerchio vuoto con la spunta. Le righe stanno in gruppi (Working, Ready to merge, Merged, altri); la riga della
-// sessione aperta porta sotto di sé le azioni di unione (`detail`). Il colore non è mai l'unico segnale: ci sono la forma e la parola dello stato.
+// Branches tab: the vertical branch map. On the left the main branch line (theme accent) with its dot at the bottom;
+// from there a connector leaves for each branch, ending in a filled dot with the state color and a ring in the background color.
+// Merged branches are an empty circle with a check. Rows are in groups (Working, Ready to merge, Merged, others); the row of the
+// open session carries the merge actions below it (`detail`). Color is never the only signal: there are also the shape and the state word.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type MutableRefObject, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowDown, ArrowUp, FolderOpen } from 'lucide-react'
@@ -15,7 +15,7 @@ import { useApp } from '@/store/app-store'
 import { plural, t } from '@shared/i18n'
 import { FAR_BEHIND, groupRows, hasNoSession, kindOf, kindWord, MERGED_SHOWN, problemText, visibleEntries, type GroupId, type MapKind, type Row } from './branch-map-layout'
 
-/** Osserva la mappa del progetto solo finché `enabled`: iscrizione all'host con pulizia, nessuna richiesta a ogni render. */
+/** Watches the project map only while `enabled`: host subscription with cleanup, no request on every render. */
 export function useBranchMap(projectId: string | null, enabled: boolean) {
   const watch = useApp((s) => s.watchBranchMap)
   const unwatch = useApp((s) => s.unwatchBranchMap)
@@ -27,10 +27,10 @@ export function useBranchMap(projectId: string | null, enabled: boolean) {
   return useApp((s) => (projectId ? s.branchMaps[projectId] : undefined))
 }
 
-/** L'host può mandare `error` dentro la mappa (letture git fallite): con le righe vuote è un errore, non "nessun worktree". */
+/** The host may send `error` inside the map (failed git reads): with empty rows it is an error, not "no worktrees". */
 type MapWithError = BranchMapData & { error?: string | null }
 
-// Geometria in pixel del disegno a sinistra: la linea di main sta a RAIL, i pallini dei branch a DOT, le righe sono alte ROW.
+// Pixel geometry of the drawing on the left: the main line sits at RAIL, branch dots at DOT, rows are ROW tall.
 const RAIL = 9
 const RAIL_WIDTH = 2
 const DOT = 22
@@ -38,10 +38,10 @@ const DOT_R = 4.5
 const ROW = 36
 const GUTTER = 28
 
-/** Colore delle linee (main e raccordi): pieno, il grigio del testo secondario mescolato con lo sfondo. Niente trasparenze, che si sommano dove i tratti si toccano. */
+/** Line color (main and connectors): solid, the secondary text gray mixed with the background. No transparency, which would add up where strokes touch. */
 const LINE = 'color-mix(in oklab, var(--muted-foreground) 45%, var(--background))'
 
-/** Colori di stato, solo dai token del tema: in corso, ti aspetta, errore, pronto all'unione, unito (accento), fermo. */
+/** State colors, only from theme tokens: running, waiting for you, error, ready to merge, merged (accent), stopped. */
 function tone(kind: MapKind, group: GroupId): string {
   if (kind === 'working') return 'text-running'
   if (kind === 'waiting') return 'text-attention'
@@ -52,13 +52,13 @@ function tone(kind: MapKind, group: GroupId): string {
 
 const wordTone = (kind: MapKind, group: GroupId) => cn(tone(kind, group), kind === 'waiting' && 'font-medium')
 
-/** Parola dello stato mostrata nella riga: "ready to merge" per i fermi con commit avanti, altrimenti quella di sempre. */
+/** State word shown in the row: "ready to merge" for stopped branches with commits ahead, otherwise the usual one. */
 const stateWord = (kind: MapKind, group: GroupId) => (kind === 'idle' && group === 'ready' ? t('ready to merge') : kindWord(kind))
 
 /**
- * Raccordo dalla linea di main al pallino del branch, e il pallino: pieno con anello di sfondo; cerchio vuoto con spunta se unito.
- * Linea di main e raccordi hanno lo stesso colore pieno (LINE) e lo stesso spessore: il raccordo nasce dal centro della linea e curva
- * verso il pallino, così la giunta non si vede. Il colore dello stato sta solo sul pallino.
+ * Connector from the main line to the branch dot, and the dot: filled with a background ring; empty circle with check if merged.
+ * The main line and the connectors have the same solid color (LINE) and the same thickness: the connector starts from the center of the line and curves
+ * toward the dot, so the joint is not visible. The state color is only on the dot.
  */
 function RowMark({ kind, group }: { kind: MapKind; group: GroupId }) {
   const cy = ROW / 2
@@ -78,14 +78,14 @@ function RowMark({ kind, group }: { kind: MapKind; group: GroupId }) {
   )
 }
 
-/** Clic apre la sessione, ⌘clic (Ctrl fuori da macOS) la affianca, come le tab (LAD-74). Le archiviate non si aprono. */
+/** Click opens the session, ⌘click (Ctrl outside macOS) opens it side by side, like tabs. Archived ones can't be opened. */
 function useOpenEntry(projectId: string) {
   const sessions = useApp((s) => s.sessions)
   const select = useApp((s) => s.select)
   const openSplit = useApp((s) => s.openSplit)
   return {
     canOpen: (entry: BranchMapEntry) => Boolean(sessions[entry.sessionId] && !sessions[entry.sessionId].archived),
-    /** ⌘Invio (Ctrl+Invio) = ⌘clic: il browser non lo trasforma in un clic da solo. */
+    /** ⌘Enter (Ctrl+Enter) = ⌘click: the browser doesn't turn it into a click on its own. */
     onKey: (entry: BranchMapEntry, event: KeyboardEvent) => {
       if (event.key !== 'Enter' || !(isMac ? event.metaKey : event.ctrlKey)) return
       event.preventDefault()
@@ -101,14 +101,14 @@ function useOpenEntry(projectId: string) {
 
 const commits = (e: BranchMapEntry) => ({ ahead: e.ahead ?? 0, behind: e.behind ?? 0 })
 
-/** Frase per gli screen reader: titolo o branch, stato, distanza da main. */
+/** Sentence for screen readers: title or branch, state, distance from main. */
 function entryLabel(e: BranchMapEntry, word: string, base: string): string {
   const { ahead, behind } = commits(e)
   const branch = e.branch ?? t('Detached HEAD')
   const parts = [e.mainCheckout || hasNoSession(e) ? branch : e.title]
   if (e.mainCheckout) {
     parts.push(t('main checkout'))
-    // Il checkout principale con una sessione vera: si dice anche il titolo, se non è il nome del branch.
+    // The main checkout with a real session: the title is also read, if it is not the branch name.
     if (!hasNoSession(e) && e.title !== e.branch) parts.push(e.title)
   } else parts.push(branch)
   parts.push(word)
@@ -121,12 +121,12 @@ function entryLabel(e: BranchMapEntry, word: string, base: string): string {
   return parts.join(', ')
 }
 
-/** Contenuto del tooltip, anche da tastiera: titolo, agente, righe cambiate, ultimo commit, file non committati. */
+/** Tooltip content, also from the keyboard: title, agent, changed lines, last commit, uncommitted files. */
 function EntryTip({ entry, word }: { entry: BranchMapEntry; word: string }) {
   const agent = useApp((s) => s.agents.find((a) => a.agent === entry.agent)?.name ?? entry.agent)
   const openable = useApp((s) => Boolean(s.sessions[entry.sessionId] && !s.sessions[entry.sessionId].archived))
   const mod = isMac ? '⌘' : 'Ctrl'
-  // Il checkout principale senza sessioni non ha né titolo né agente: si dice dov'è e basta.
+  // The main checkout without sessions has neither title nor agent: it just says where it is.
   const bare = hasNoSession(entry)
   return (
     <div className="flex min-w-0 max-w-64 flex-col gap-0.5">
@@ -156,13 +156,13 @@ function EntryTip({ entry, word }: { entry: BranchMapEntry; word: string }) {
 
 const dot = <span aria-hidden>·</span>
 
-/** Seconda riga della riga: branch · stato · ↑avanti ↓indietro · +righe −righe. "Indietro" si evidenzia quando è molto indietro. */
+/** Second line of the row: branch · state · ↑ahead ↓behind · +lines −lines. "Behind" is highlighted when it is far behind. */
 function Detail({ row, base }: { row: Row; base: string }) {
   const { entry, kind, group } = row
   const { ahead, behind } = commits(entry)
   const problem = problemText(entry)
   const far = behind >= FAR_BEHIND
-  // Nel gruppo "Ready to merge" l'intestazione dice già lo stato: la riga non lo ripete (resta nell'etichetta per gli screen reader).
+  // In the "Ready to merge" group the header already states the state: the row doesn't repeat it (it stays in the label for screen readers).
   const quiet = kind === 'idle' && group === 'ready'
   const lead = !entry.mainCheckout || !quiet
   const showLines = entry.added !== null && entry.removed !== null && (entry.added > 0 || entry.removed > 0)
@@ -206,9 +206,9 @@ interface BranchRowProps {
   canOpen: boolean
   onOpen: (e: MouseEvent) => void
   onKey: (e: KeyboardEvent) => void
-  /** Dove stanno le azioni di unione: solo la riga della sessione aperta ha lo slot (il contenuto vi viene proiettato, non si rimonta). */
+  /** Where the merge actions go: only the open session's row has the slot (the content is projected into it, not remounted). */
   slotRef?: (el: HTMLDivElement | null) => void
-  /** Ultima sessione già portata in vista: non si riporta se è la stessa. */
+  /** Last session already scrolled into view: it isn't scrolled again if it is the same. */
   scrolled: MutableRefObject<string | null>
 }
 
@@ -216,7 +216,7 @@ function BranchRow({ row, base, current, canOpen, onOpen, onKey, slotRef, scroll
   const { entry, kind, group } = row
   const word = stateWord(kind, group)
   const ref = useRef<HTMLLIElement>(null)
-  // La sessione aperta si porta in vista quando la scheda si apre o la sessione cambia: con molti branch non resta fuori schermo.
+  // The open session scrolls into view when the tab opens or the session changes: with many branches it doesn't stay off screen.
   useEffect(() => {
     if (!current || scrolled.current === entry.sessionId) return
     scrolled.current = entry.sessionId
@@ -272,9 +272,9 @@ function groupTitle(id: GroupId): string {
 
 interface BranchMapProps {
   projectId: string
-  /** Sessione aperta: la sua riga è evidenziata e porta `detail` sotto di sé. */
+  /** Open session: its row is highlighted and carries `detail` below it. */
   currentSessionId: string | null
-  /** Azioni di unione: stanno sotto la riga della sessione aperta; se la sua riga non c'è (per esempio sul ramo principale) vengono prima della lista. */
+  /** Merge actions: they sit below the open session's row; if its row isn't there (for example on the main branch) they come before the list. */
   detail?: ReactNode
 }
 
@@ -287,7 +287,7 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
   const retry = useApp((s) => s.retryBranchMap)
 
   const base = map?.base ?? 'main'
-  // La sessione aperta nel checkout principale evidenzia la riga del checkout principale (che porta l'id della più recente, non sempre questa).
+  // The open session in the main checkout highlights the main checkout row (which carries the id of the most recent one, not always this one).
   const currentInMain = useApp((s) => (currentSessionId && s.sessions[currentSessionId] ? !s.sessions[currentSessionId].worktree : false))
   const currentKey = useMemo(() => {
     if (!currentSessionId || !currentInMain) return currentSessionId
@@ -301,8 +301,8 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
   const total = groups.reduce((n, g) => n + g.rows.length, 0)
   const sha = map?.baseSha ? map.baseSha.slice(0, 7) : null
 
-  // Le azioni di unione hanno UNA istanza, sempre sotto lo stesso genitore: si proiettano con un portale in un nodo che si sposta nello slot
-  // della riga aperta (o in cima, se la riga non c'è). Cambi di gruppo, arrivo della mappa e rimontaggi delle righe non toccano il suo stato.
+  // The merge actions have ONE instance, always under the same parent: they are projected with a portal into a node that moves into the slot
+  // of the open row (or to the top, if the row isn't there). Group changes, the map arriving and row remounts don't touch its state.
   const host = useMemo(() => document.createElement('div'), [])
   const topSlot = useRef<HTMLDivElement>(null)
   const [rowSlot, setRowSlot] = useState<HTMLDivElement | null>(null)
@@ -312,7 +312,7 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
     if (target && host.parentNode !== target) target.appendChild(host)
   })
 
-  // Richiesta fallita senza mappa, o mappa vuota con l'errore dell'host: si mostra l'errore, mai lo stato vuoto o "Reading branches…".
+  // Failed request without a map, or empty map with the host's error: the error is shown, never the empty state or "Reading branches…".
   const failed = isElectron && (map ? Boolean((map as MapWithError).error) && map.entries.length === 0 : Boolean(fetchError))
   const empty = total === 0
 
@@ -336,10 +336,10 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
       {!failed && (map || !isElectron) && empty && <p className="px-3 py-2 text-xs text-muted-foreground">{t('No worktrees. Sessions in a worktree appear here.')}</p>}
       {!failed && map && !empty && (
         <div className="relative">
-          {/* La linea del ramo principale: dall'alto fino al suo pallino, che sta in fondo alla riga di `base`. */}
+          {/* The main branch line: from the top down to its dot, which sits at the bottom of the `base` row. */}
           <span aria-hidden className="absolute" style={{ left: RAIL - RAIL_WIDTH / 2, width: RAIL_WIDTH, top: 0, bottom: ROW / 2, background: LINE }} />
           {groups.map((group) => {
-            // Gli uniti si piegano a uno solo, ma la sessione aperta resta sempre in vista.
+            // Merged ones fold into a single one, but the open session always stays in view.
             const folded = group.id === 'merged' && !showAllMerged
             const shown = folded ? group.rows.filter((r, i) => i < MERGED_SHOWN || r.entry.sessionId === currentKey) : group.rows
             const hidden = group.rows.length - shown.length
@@ -372,7 +372,7 @@ export function BranchMap({ projectId, currentSessionId, detail }: BranchMapProp
             )
           })}
           {map.hidden > 0 && <p className="pt-2 pr-3 text-xs text-muted-foreground" style={{ paddingLeft: GUTTER + 8 }}>{plural(map.hidden, '{n} older session not shown', '{n} older sessions not shown')}</p>}
-          {/* Fondo della linea: il ramo principale, col suo sha corto se si sa. */}
+          {/* Line bottom: the main branch, with its short sha if known. */}
           <div className="relative mt-1 flex items-center gap-1.5 pr-3 text-xs" style={{ height: ROW, paddingLeft: GUTTER + 8 }}>
             <svg aria-hidden width={GUTTER} height={ROW} viewBox={`0 0 ${GUTTER} ${ROW}`} className="pointer-events-none absolute top-0 left-0 text-primary">
               <circle cx={RAIL} cy={ROW / 2} r={5} fill="currentColor" className="stroke-background" strokeWidth={3} style={{ paintOrder: "stroke" }} />

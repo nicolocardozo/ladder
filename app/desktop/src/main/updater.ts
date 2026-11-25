@@ -1,6 +1,6 @@
-// Aggiornamenti automatici: electron-updater legge latest-mac.yml dalle release di nicolocardozo/ladder-releases
-// (configurato in electron-builder.release.yml), scarica lo zip della propria architettura in background
-// e lo installa alla chiusura. Il renderer mostra "Riavvia per aggiornare" quando è pronto.
+// Automatic updates: electron-updater reads latest-mac.yml from the nicolocardozo/ladder-releases releases
+// (configured in electron-builder.release.yml), downloads the zip for its own architecture in the background
+// and installs it on quit. The renderer shows "Restart to update" when it is ready.
 import { app, autoUpdater as nativeUpdater, ipcMain, type BrowserWindow } from 'electron'
 import electronUpdater from 'electron-updater'
 import type { UpdateState } from '@shared/updates'
@@ -23,12 +23,12 @@ export function registerUpdater(windows: () => Iterable<BrowserWindow>, onQuitFo
   ipcMain.handle('ladder:update-install', () => {
     if (state.status !== 'ready' || installing) return
     installing = true
-    // Ladder si riapre da solo con la nuova versione (autoRunAppAfterInstall, attivo di default).
+    // Ladder reopens by itself with the new version (autoRunAppAfterInstall, on by default).
     electronUpdater.autoUpdater.quitAndInstall()
   })
 
-  // Solo l'app installata e firmata ha app-update.yml; in sviluppo resta "unsupported".
-  // autoUpdater si crea quando lo si legge: solo da qui in poi.
+  // Only the installed, signed app has app-update.yml; in development it stays "unsupported".
+  // autoUpdater is created when it is read: only from here on.
   if (!app.isPackaged || process.env.LADDER_USER_DATA) return
   const { autoUpdater } = electronUpdater
 
@@ -46,12 +46,12 @@ export function registerUpdater(windows: () => Iterable<BrowserWindow>, onQuitFo
     if (state.status === 'downloading') set({ ...state, percent: Math.round(progress.percent) })
   })
   autoUpdater.on('update-downloaded', (info) => set({ status: 'ready', version, next: info.version }))
-  // L'uscita per installare parte davvero solo qui (Squirrel ha l'aggiornamento e chiude le finestre):
-  // prima non si tocca il ciclo di vita del main.
+  // Quitting to install really starts only here (Squirrel has the update and closes the windows):
+  // before that, main's lifecycle is not touched.
   nativeUpdater.on('before-quit-for-update', onQuitForUpdate)
   autoUpdater.on('error', (error) => {
-    // Con un aggiornamento pronto non si controlla più: un errore qui viene da Squirrel che non riesce a prepararlo
-    // (app aperta dal DMG o da una cartella in sola lettura). Si torna a "errore" e il pulsante Riavvia sparisce.
+    // With an update ready we no longer check: an error here comes from Squirrel failing to prepare it
+    // (app opened from the DMG or from a read-only folder). It goes back to "error" and the Restart button disappears.
     installing = false
     set({ status: 'error', version, message: error.message.split('\n')[0] ?? String(error) })
   })
@@ -61,7 +61,7 @@ export function registerUpdater(windows: () => Iterable<BrowserWindow>, onQuitFo
     try {
       await autoUpdater.checkForUpdates()
     } catch {
-      // L'errore arriva anche dall'evento 'error', che aggiorna lo stato.
+      // The error also arrives from the 'error' event, which updates the state.
     }
     return state
   }

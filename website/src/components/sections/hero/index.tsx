@@ -1,5 +1,5 @@
-// Hero a riquadro: testi server-rendered (unico h1 della pagina), puntini e finestra animata
-// sono client component caricati dopo. Lo scroll guida claim e finestra via variabili CSS.
+// Boxed hero: server-rendered texts (the page's only h1), dots and animated window
+// are client components loaded afterwards. Scrolling drives claim and window via CSS variables.
 import { Fragment } from "react"
 import { ArrowRight } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
@@ -13,7 +13,7 @@ import { DownloadLink } from "@/components/download-link"
 const LINE1 = "Every agent, every repo,"
 const LINE2 = "one calm window."
 
-// Ogni parola in un suo span, così può muoversi da sola verso la posizione finale
+// Each word in its own span, so it can move by itself to the final position
 const words = (text: string) =>
   text.split(" ").map((w, i, arr) => (
     <Fragment key={w + i}>
@@ -39,8 +39,8 @@ export function Hero() {
             <span>{words(LINE1)}</span> <span className="hero-iris">{words(LINE2)}</span>
           </h1>
         </div>
-        {/* Impaginazione finale del claim (una riga, centrata), invisibile: HeroScroll ci misura le parole
-            e sposta ognuna dell'h1 verso il proprio posto. */}
+        {/* Final layout of the claim (one line, centered), invisible: HeroScroll measures the words in it
+            and moves each of them from the h1 toward its own place. */}
         <p className="hero-claim1" aria-hidden>
           {words(LINE1)} <span className="hero-iris">{words(LINE2)}</span>
         </p>
@@ -63,7 +63,7 @@ export function Hero() {
           </DownloadLink>
         </div>
 
-        {/* hero-win-in: su mobile la finestra è disegnata a larghezza desktop e rimpicciolita (--k) */}
+        {/* hero-win-in: on mobile the window is drawn at desktop width and scaled down (--k) */}
         <div className="hero-win">
           <div className="hero-win-in">
             <HeroWindow />

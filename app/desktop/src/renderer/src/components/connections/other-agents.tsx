@@ -1,6 +1,6 @@
-// Impostazioni → Abbonamenti → "Other agents" (LAD-79): le CLI installate (Gemini, Copilot, Cursor e simili) con il loro stato di accesso.
-// Ladder non vede mai le credenziali: l'accesso e l'uscita girano nel terminale di Ladder con la CLI dell'agente, e l'host rilegge lo stato
-// quando il processo esce (evento `agent.connection`, che aggiorna la riga senza riaprire le Impostazioni).
+// Settings → Subscriptions → "Other agents": the installed CLIs (Gemini, Copilot, Cursor and the like) with their sign-in state.
+// Ladder never sees the credentials: sign-in and sign-out run in Ladder's terminal with the agent's CLI, and the host re-reads the state
+// when the process exits (`agent.connection` event, which updates the row without reopening Settings).
 import { useEffect, useRef, useState } from 'react'
 import { Check, CircleDashed, CircleHelp, Loader2, RotateCw, SquareTerminal } from 'lucide-react'
 import type { OtherAgentConnection } from '@shared/protocol'
@@ -18,11 +18,11 @@ function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : t('Something went wrong. Try again.')
 }
 
-/** Lista di Altri agenti. Solo le CLI installate: le altre si aggiungono da Agents. */
+/** List of Other agents. Only installed CLIs: the others are added from Agents. */
 export function OtherAgents() {
   const rows = useApp((s) => s.otherAgents)
   const [failed, setFailed] = useState(false)
-  // L'elenco lo legge una volta lib/other-agents; qui si riprova solo se la lettura è fallita. Le righe si aggiornano con gli eventi e «Check again».
+  // lib/other-agents reads the list once; here we only retry if the read failed. Rows update with events and «Check again».
   useEffect(() => {
     setFailed(false)
     loadOtherAgents().catch(() => setFailed(true))
@@ -76,16 +76,16 @@ function OtherAgentRow({ agent }: { agent: OtherAgentConnection }) {
   }, [])
 
   const inTerminal = agent.terminalId !== null
-  // Il terminale può essere già chiuso nella UI mentre l'host non l'ha ancora detto: senza terminale non c'è niente da mostrare.
+  // The terminal may already be closed in the UI while the host hasn't said so yet: without a terminal there is nothing to show.
   const terminalOpen = useApp((s) => agent.terminalId !== null && s.terminals[agent.terminalId] !== undefined)
-  // Senza comando di accesso né CLI da aprire (programma solo ACP): niente pulsante, l'accesso si fa dall'app o dalla CLI dell'agente.
+  // Without a sign-in command or a CLI to open (ACP-only program): no button, sign-in happens from the app or the agent's CLI.
   const noSignIn = agent.loginCommand === null && agent.openCommand === null
-  // Una prova in corso con stato ancora ignoto: solo "Checking…". Con uno stato già noto, resta e si aggiunge la prova.
+  // A check in progress with a still unknown state: only "Checking…". With an already known state, it stays and the check is added.
   const checkingOnly = agent.probing && agent.auth === 'unknown'
   const signIn = agent.loginCommand !== null ? t('Sign in') : t('Open terminal')
 
-  // Il pulsante testuale «Check again» sparisce mentre lo stato è ignoto e la prova gira: se il focus era lì, torna al pulsante
-  // che resta (l'icona) appena la prova è finita e un pulsante c'è di nuovo.
+  // The text button «Check again» disappears while the state is unknown and the check runs: if focus was there, it returns to the button
+  // that remains (the icon) once the check is done and a button is back.
   const wantRefocus = useRef(false)
   useEffect(() => {
     if (!wantRefocus.current || busy !== null || agent.probing) return
@@ -206,7 +206,7 @@ function OtherAgentRow({ agent }: { agent: OtherAgentConnection }) {
                 aria-disabled={busy !== null || agent.probing}
                 aria-label={t('Check {name} again', { name: agent.name })}
                 onClick={() => {
-                  // aria-disabled e non disabled: il pulsante tiene il focus durante il controllo.
+                  // aria-disabled and not disabled: the button keeps focus during the check.
                   if (busy === null && !agent.probing) run('refresh', () => refreshOtherAgent(agent.id))
                 }}
               >

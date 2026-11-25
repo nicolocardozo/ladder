@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore, type RefObject } from "react
 
 const QUERY = "(prefers-reduced-motion: reduce)"
 
-// Vero se l'utente chiede meno movimento; sul server resta falso (lo stato statico è già completo)
+// True if the user asks for less motion; on the server it stays false (the static state is already complete)
 export function useReducedMotion() {
   return useSyncExternalStore(
     (cb) => {
@@ -17,7 +17,7 @@ export function useReducedMotion() {
   )
 }
 
-// Vero solo mentre l'elemento è visibile e il movimento non è ridotto: le animazioni partono e si fermano da qui
+// True only while the element is visible and motion is not reduced: animations start and stop from here
 export function useActive(ref: RefObject<Element | null>) {
   const reduced = useReducedMotion()
   const [visible, setVisible] = useState(false)

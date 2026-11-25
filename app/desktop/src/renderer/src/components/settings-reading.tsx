@@ -1,5 +1,5 @@
-// Impostazioni → Aspetto, leggibilità: dimensione del testo della chat, editor e font del codice, densità della sidebar.
-// Si applicano subito a tutta l'app (hooks/use-chat-font.ts riflette le preferenze su <html>).
+// Settings → Appearance, readability: chat text size, editor and code font, sidebar density.
+// They apply immediately across the whole app (hooks/use-chat-font.ts mirrors the preferences onto <html>).
 import { t } from '@shared/i18n'
 import type { AppPrefs, CodeFont, TextSize } from '@shared/protocol'
 import { ChoiceGroup, SettingsBlock, type Choice } from '@/components/settings-parts'

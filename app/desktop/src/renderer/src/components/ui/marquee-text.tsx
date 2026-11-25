@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
-/** Testo su una riga con i puntini. Quando `active` e il testo non ci sta, scorre fino alla fine e torna indietro. */
+/** Single-line text with an ellipsis. When `active` and the text does not fit, it scrolls to the end and back. */
 export function MarqueeText({ children, active, className }: { children: ReactNode; active: boolean; className?: string }) {
   const outer = useRef<HTMLSpanElement>(null)
   const [shift, setShift] = useState(0)

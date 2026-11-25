@@ -1,6 +1,6 @@
-// Dettaglio di un sotto-agente: prompt, report, modello, effort, token, strumenti e durata.
-// Si apre dal popover del composer e dalla riga in chat; ↑ e ↓ passano all'agente precedente o successivo
-// nell'ordine del popover, Esc chiude. Mentre l'agente lavora il dettaglio si ricarica da solo.
+// Detail of a subagent: prompt, report, model, effort, tokens, tools and duration.
+// It opens from the composer popover and from the chat row; ↑ and ↓ move to the previous or next agent
+// in the popover order, Esc closes. While the agent works the detail reloads by itself.
 import { Ban, Check, ChevronDown, ChevronUp, CircleX, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { localeTag, plural, t } from '@shared/i18n'
@@ -17,24 +17,24 @@ import { agentElapsed, agentSignature, buildForest, findAgentForTool, loadSubage
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 
-/** Ricarica al più una volta in questo intervallo mentre l'agente cambia. */
+/** Reloads at most once in this interval while the agent changes. */
 const RELOAD_MS = 900
 
-/** Montato una volta per vista di sessione: si apre solo se l'agente da mostrare è di questa sessione. */
+/** Mounted once per session view: it opens only if the agent to show belongs to this session. */
 export function SubagentDialog({ sessionId }: { sessionId: string }) {
   const target = useSubagentDialog((s) => s.target)
   const close = useSubagentDialog((s) => s.close)
   const mine = target && target.sessionId === sessionId ? target : null
-  // L'elenco serve alle righe di chat e al popover anche a dialogo chiuso: si chiede appena la sessione ha sotto-agenti.
+  // The list serves the chat rows and the popover even when the dialog is closed: it is requested as soon as the session has subagents.
   const total = useApp((s) => s.sessions[sessionId]?.subagentCounts?.total ?? 0)
   useSubagentList(sessionId, total > 0)
-  // Se la vista della sessione sparisce (tab chiusa, cambio di sessione) il dialogo non resta aperto.
+  // If the session view goes away (tab closed, session switched) the dialog does not stay open.
   useEffect(
     () => () => {
       if (useSubagentDialog.getState().target?.sessionId === sessionId) useSubagentDialog.getState().close()
     },
     [sessionId]
-  )  // Il Dialog resta montato e si apre con `open`, come quello delle Impostazioni: così il focus trap di base-ui è attivo dal primo istante.
+  )  // The Dialog stays mounted and opens with `open`, like the Settings one: so the base-ui focus trap is active from the first instant.
   return (
     <Dialog open={mine !== null} onOpenChange={(open) => !open && close()}>
       {mine && <DetailBody sessionId={sessionId} id={mine.id} hint={mine.hint} returnFocus={mine.returnFocus} />}
@@ -59,7 +59,7 @@ function useSubagentDetail(sessionId: string, id: string, signature: string) {
       },
       (error: unknown) => {
         if (seq.current !== n) return
-        // Un ricaricamento fallito non cancella ciò che si vede già.
+        // A failed reload does not erase what is already shown.
         setState((prev) => ({ id, detail: prev?.id === id ? prev.detail : null, error: error instanceof Error ? error.message : String(error) }))
       }
     )
@@ -78,11 +78,11 @@ function useSubagentDetail(sessionId: string, id: string, signature: string) {
       window.clearTimeout(timer.current)
       timer.current = undefined
     }
-    // Il segnale cambia insieme all'id: qui conta solo l'id.
+    // The signal changes together with the id: only the id matters here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load])
 
-  // Il SubagentInfo cambia a ogni passo dell'agente: si ricarica al più una volta ogni RELOAD_MS, senza fermarsi finché continua a cambiare.
+  // The SubagentInfo changes on every agent step: reload at most once every RELOAD_MS, without stopping while it keeps changing.
   useEffect(() => {
     if (lastSignature.current === signature) return
     lastSignature.current = signature
@@ -106,7 +106,7 @@ function DetailBody({ sessionId, id, hint, returnFocus }: { sessionId: string; i
   const index = info ? order.findIndex((a) => a.id === info.id) : -1
 
   const { detail, error, loading, retry } = useSubagentDetail(sessionId, info?.id ?? id, agentSignature(info))
-  // Dati veri dall'host; per i turni vecchi, senza SubagentInfo, restano quelli della riga di chat.
+  // Real data from the host; for old turns, without SubagentInfo, the chat row's data remains.
   const real: SubagentInfo | null = info ?? detail?.info ?? null
   const fromRow: SubagentInfo | null = hint
     ? { id, parentId: null, title: hint.title, kind: null, model: hint.agent?.model ?? null, effort: hint.agent?.effort ?? null, status: hint.status, startedAt: hint.startedAt, endedAt: hint.endedAt, activity: null, tokens: null, toolUses: null, background: false }
@@ -124,13 +124,13 @@ function DetailBody({ sessionId, id, hint, returnFocus }: { sessionId: string; i
   )
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if ((event.key !== 'ArrowDown' && event.key !== 'ArrowUp') || event.metaKey || event.ctrlKey || event.shiftKey) return
-    // Su un'area scorrevole (corpo, prompt, strumenti) le frecce scorrono; ⌥↑ e ⌥↓ cambiano agente da qualunque punto.
+    // On a scrollable area (body, prompt, tools) the arrows scroll; ⌥↑ and ⌥↓ change agent from anywhere.
     if (!event.altKey && (event.target as HTMLElement).closest('[data-scroll]')) return
     event.preventDefault()
     go(event.key === 'ArrowDown' ? 1 : -1)
   }
 
-  // Il corpo riparte dall'alto quando si passa a un altro agente.
+  // The body restarts from the top when switching to another agent.
   const bodyRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 })

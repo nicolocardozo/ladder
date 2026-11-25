@@ -1,15 +1,15 @@
-// Registro delle scorciatoie: un comando ha un id stabile, una scorciatoia predefinita (stringa in sintassi VS Code,
-// per esempio "cmd+shift+p") e i contesti in cui vale. Qui non ci sono azioni: stanno nel renderer (lib/shortcuts.ts),
-// così il processo main può importare lo stesso registro per gli acceleratori del menu.
-// Pensato per la personalizzazione (keybindings.json come in VS Code: [{ "key": "cmd+shift+p", "command": "…" }]):
-// le scorciatoie dell'utente sovrascrivono quelle predefinite tramite setKeybindingOverrides.
+// Shortcut registry: a command has a stable id, a default shortcut (string in VS Code syntax,
+// for example "cmd+shift+p") and the contexts where it applies. There are no actions here: they live in the renderer (lib/shortcuts.ts),
+// so the main process can import the same registry for the menu accelerators.
+// Designed for customization (keybindings.json as in VS Code: [{ "key": "cmd+shift+p", "command": "…" }]):
+// user shortcuts override the defaults through setKeybindingOverrides.
 
-/** Dove vale un comando: finestra intera, composer, editor di codice, terminale o menu dell'app (acceleratore nativo). */
+/** Where a command applies: whole window, composer, code editor, terminal or app menu (native accelerator). */
 export type ShortcutContext = 'global' | 'composer' | 'editor' | 'terminal' | 'menu'
 
 export type Modifier = 'ctrl' | 'alt' | 'shift' | 'meta'
 
-/** Il minimo che serve di un KeyboardEvent (anche quello di React): il main non ha il DOM. */
+/** The minimum needed from a KeyboardEvent (including React's): main has no DOM. */
 export interface KeyLike {
   key: string
   code: string
@@ -19,7 +19,7 @@ export interface KeyLike {
   metaKey: boolean
 }
 
-/** Una scorciatoia letta: modificatori e tasto in forma canonica (minuscolo, "left" e non "ArrowLeft"). */
+/** A parsed shortcut: modifiers and key in canonical form (lowercase, "left" and not "ArrowLeft"). */
 export interface Chord {
   ctrl: boolean
   alt: boolean
@@ -65,12 +65,12 @@ export type CommandId =
   | 'window.close'
 
 interface CommandSpec {
-  /** Scorciatoia predefinita, sintassi VS Code; vuota se il comando non ne ha di sue (le danno i preset o l'utente). */
+  /** Default shortcut, VS Code syntax; empty if the command has none of its own (presets or the user provide them). */
   key: string
   contexts: readonly ShortcutContext[]
   /**
-   * Modificatori che la scorciatoia predefinita ignora (per esempio ⌥ su ⌘W). Esiste per non cambiare il comportamento
-   * di prima; le scorciatoie scelte dall'utente si confrontano sempre in modo esatto.
+   * Modifiers that the default shortcut ignores (for example ⌥ on ⌘W). It exists to keep the previous behavior
+   * unchanged; shortcuts chosen by the user are always compared exactly.
    */
   loose?: readonly Modifier[]
 }
@@ -79,25 +79,25 @@ const spec = (key: string, contexts: readonly ShortcutContext[] = ['global'], lo
 
 const projectCommands = Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`project.select${n}`, spec(`cmd+${n}`)])) as Record<ProjectSelectId, CommandSpec>
 
-/** Ordine = priorità a parità di corrispondenza. */
+/** Order = priority when matches are equal. */
 export const COMMANDS: Record<CommandId, CommandSpec> = {
   'palette.toggle': spec('cmd+k'),
   'quickOpen.toggle': spec('cmd+p'),
   'sidebar.toggle': spec('cmd+b'),
-  // Su tastiere dove [ e ] richiedono ⌥ (per esempio quella italiana) event.key resta la parentesi: ⌥ non conta.
+  // On keyboards where [ and ] require ⌥ (for example the Italian one) event.key stays the bracket: ⌥ doesn't count.
   'nav.back': spec('cmd+[', ['global'], ['alt']),
   'nav.forward': spec('cmd+]', ['global'], ['alt']),
   'chat.new': spec('cmd+n', ['global'], ['alt']),
   'chat.newFrom': spec('cmd+shift+n'),
   'chat.split': spec('cmd+\\'),
   ...projectCommands,
-  // Con ⌥ event.key cambia carattere: i tasti con ⌥ si confrontano sul tasto fisico (event.code).
+  // With ⌥ event.key changes character: keys with ⌥ are compared on the physical key (event.code).
   'column.focusLeft': spec('cmd+alt+left'),
   'column.focusRight': spec('cmd+alt+right'),
   'tab.moveLeft': spec('cmd+alt+shift+left'),
   'tab.moveRight': spec('cmd+alt+shift+right'),
   'tab.close': spec('cmd+w', ['global'], ['alt']),
-  // Nuovi (LAD-20): senza scorciatoia propria, la danno i preset "vscode" e "cursor" (PRESET_BINDINGS).
+  // New: no shortcut of their own, the "vscode" and "cursor" presets provide them (PRESET_BINDINGS).
   'tab.next': spec('', ['global']),
   'tab.previous': spec('', ['global']),
   'tab.reopenClosed': spec('', ['global']),
@@ -106,28 +106,28 @@ export const COMMANDS: Record<CommandId, CommandSpec> = {
   'inspector.files': spec('cmd+alt+2'),
   'inspector.history': spec('cmd+alt+3'),
   'inspector.merge': spec('cmd+alt+4'),
-  // Apre e chiude il pannello di destra sull'ultima scheda usata (⌘⌥B come la barra laterale secondaria di VS Code).
+  // Opens and closes the right panel on the last used tab (⌘⌥B like VS Code's secondary sidebar).
   'inspector.toggle': spec('cmd+alt+b'),
-  // ⌃` non richiede ⌘ e vale anche con ⇧ o ⌥; il terminale la lascia passare all'app.
+  // ⌃` doesn't require ⌘ and also applies with ⇧ or ⌥; the terminal lets it through to the app.
   'terminal.toggle': spec('ctrl+`', ['global', 'terminal'], ['shift', 'alt']),
-  // Solo nel terminale: lì ⌘K pulisce (come in Terminal.app e VS Code) e vince su palette.toggle; con il fuoco altrove ⌘K apre la palette.
+  // Terminal only: there ⌘K clears (as in Terminal.app and VS Code) and wins over palette.toggle; with focus elsewhere ⌘K opens the palette.
   'terminal.clear': spec('cmd+k', ['terminal']),
-  // ⌘S salva anche se il cursore non è nel testo, per esempio dopo un clic su un avviso.
+  // ⌘S saves even if the cursor is not in the text, for example after clicking a notice.
   'file.save': spec('cmd+s', ['global', 'editor'], ['alt']),
   'session.nextWaiting': spec('cmd+shift+a', ['global'], ['alt']),
   'session.interrupt': spec('cmd+.', ['global'], ['shift', 'alt']),
-  // ⇧Tab cicla i livelli di permesso, come nel CLI di Claude Code.
+  // ⇧Tab cycles the permission levels, as in the Claude Code CLI.
   'composer.cyclePermission': spec('shift+tab', ['composer'], ['ctrl', 'alt', 'meta']),
   'composer.stop': spec('escape', ['composer'], ['ctrl', 'alt', 'shift', 'meta']),
-  // Menu dell'app: li gestisce Electron con l'acceleratore, non il renderer.
+  // App menu: handled by Electron through the accelerator, not by the renderer.
   'app.openSettings': spec('cmd+,', ['menu']),
   'window.close': spec('cmd+shift+w', ['menu'])
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Preset
+// Presets
 
-/** Insieme di partenza delle scorciatoie. "ladder" = i predefiniti del registro; gli altri li completano con quelle di VS Code e Cursor. */
+/** Starting set of shortcuts. "ladder" = the registry defaults; the others complete them with those of VS Code and Cursor. */
 export type ShortcutPreset = 'ladder' | 'vscode' | 'cursor'
 
 export const SHORTCUT_PRESETS: readonly ShortcutPreset[] = ['ladder', 'vscode', 'cursor']
@@ -135,10 +135,10 @@ export const DEFAULT_SHORTCUT_PRESET: ShortcutPreset = 'ladder'
 
 export const isShortcutPreset = (value: unknown): value is ShortcutPreset => typeof value === 'string' && (SHORTCUT_PRESETS as readonly string[]).includes(value)
 
-/** Voci di tutti i preset, "ladder" compreso: nel terminale ⌘K pulisce, quindi la palette ha bisogno di ⌘⇧P. */
+/** Entries of all presets, "ladder" included: in the terminal ⌘K clears, so the palette needs ⌘⇧P. */
 const BASE: Keybinding[] = [{ key: 'cmd+shift+p', command: 'palette.toggle' }]
 
-/** Cosa aggiunge ogni preset ai predefiniti (più voci per lo stesso comando = più scorciatoie attive: ⌘K resta e ⌘⇧P si aggiunge). */
+/** What each preset adds to the defaults (several entries for the same command = several active shortcuts: ⌘K stays and ⌘⇧P is added). */
 const VSCODE_LIKE: Keybinding[] = [
   ...BASE,
   { key: 'ctrl+tab', command: 'tab.next' },
@@ -150,15 +150,15 @@ const VSCODE_LIKE: Keybinding[] = [
 export const PRESET_BINDINGS: Record<ShortcutPreset, readonly Keybinding[]> = {
   ladder: BASE,
   vscode: VSCODE_LIKE,
-  // Oggi identico a vscode: i nomi restano distinti per poter divergere.
+  // Currently identical to vscode: the names stay distinct so they can diverge.
   cursor: VSCODE_LIKE
 }
 
-/** Tasti con ⌘ che il terminale tiene per sé (copia, incolla, seleziona tutto); gli altri ⌘ restano all'app. */
+/** ⌘ keys that the terminal keeps for itself (copy, paste, select all); the other ⌘ keys stay with the app. */
 export const TERMINAL_NATIVE_KEYS: readonly string[] = ['c', 'v', 'a']
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Sintassi
+// Syntax
 
 const MODIFIER_ALIASES: Record<string, Modifier> = {
   cmd: 'meta',
@@ -174,7 +174,7 @@ const MODIFIER_ALIASES: Record<string, Modifier> = {
   shift: 'shift'
 }
 
-/** Nomi alternativi dei tasti (VS Code scrive "backquote", "oem_5" e simili) verso la forma canonica. */
+/** Alternative key names (VS Code writes "backquote", "oem_5" and the like) mapped to the canonical form. */
 const KEY_ALIASES: Record<string, string> = {
   arrowleft: 'left',
   arrowright: 'right',
@@ -197,7 +197,7 @@ const KEY_ALIASES: Record<string, string> = {
   plus: '+'
 }
 
-/** Tasti con nome: valore di event.key (minuscolo) e di event.code. */
+/** Named keys: value of event.key (lowercase) and of event.code. */
 const NAMED: Record<string, { key: string; code: string }> = {
   left: { key: 'arrowleft', code: 'ArrowLeft' },
   right: { key: 'arrowright', code: 'ArrowRight' },
@@ -229,10 +229,10 @@ const PUNCTUATION_CODES: Record<string, string> = {
   '=': 'Equal'
 }
 
-/** Tasti che si riconoscono anche dalla posizione fisica: stanno in posti diversi nelle tastiere. */
+/** Keys also recognized by physical position: they sit in different places on different keyboards. */
 const PHYSICAL = new Set(['`', '\\'])
 
-/** Tasto fisico (event.code) di un tasto canonico, se si sa qual è. */
+/** Physical key (event.code) of a canonical key, if it is known. */
 function codeOf(key: string): string | undefined {
   if (NAMED[key]) return NAMED[key].code
   if (/^[a-z]$/.test(key)) return `Key${key.toUpperCase()}`
@@ -241,11 +241,11 @@ function codeOf(key: string): string | undefined {
   return PUNCTUATION_CODES[key]
 }
 
-/** Legge "cmd+shift+p". null se non è una scorciatoia valida (le sequenze a più accordi, "cmd+k cmd+s", non sono supportate). */
+/** Parses "cmd+shift+p". null if it is not a valid shortcut (multi-chord sequences, "cmd+k cmd+s", are not supported). */
 export function parseShortcut(shortcut: string): Chord | null {
   const text = shortcut.trim().toLowerCase()
   if (!text || /\s/.test(text)) return null
-  // Il tasto può essere "+" stesso ("cmd++").
+  // The key can be "+" itself ("cmd++").
   const plusKey = text.endsWith('+') && text.length > 1
   const parts = (plusKey ? text.slice(0, -1) : text).split('+')
   if (plusKey) parts.pop()
@@ -256,7 +256,7 @@ export function parseShortcut(shortcut: string): Chord | null {
       chord[modifier] = true
       continue
     }
-    // L'ultimo elemento non modificatore è il tasto, uno solo.
+    // The last non-modifier element is the key, only one.
     if (plusKey || index !== parts.length - 1 || chord.key) return null
     chord.key = KEY_ALIASES[part] ?? part
   }
@@ -266,30 +266,30 @@ export function parseShortcut(shortcut: string): Chord | null {
 }
 
 /**
- * Senza ⌃, ⌘ o ⌥ una scorciatoia intercetterebbe la scrittura: ammessi solo i tasti funzione. È l'unica regola, per la
- * schermata delle impostazioni e per la lettura di keybindings.json (i predefiniti, come ⇧Tab o Esc nel composer, non passano da qui).
+ * Without ⌃, ⌘ or ⌥ a shortcut would intercept typing: only function keys are allowed. It is the single rule, for the
+ * settings screen and for reading keybindings.json (defaults, like ⇧Tab or Esc in the composer, don't go through here).
  */
 export const hasAnchor = (chord: Chord): boolean => chord.ctrl || chord.meta || chord.alt || /^f\d+$/.test(chord.key)
 
-/** La stessa scorciatoia in forma canonica ("cmd+shift+p"): serve a confrontare e a salvare. */
+/** The same shortcut in canonical form ("cmd+shift+p"): used to compare and to save. */
 export function serializeShortcut(chord: Chord): string {
   return [chord.ctrl && 'ctrl', chord.alt && 'alt', chord.shift && 'shift', chord.meta && 'cmd', chord.key].filter(Boolean).join('+')
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Confronto con un evento
+// Matching against an event
 
 /**
- * Vero se l'evento è questa scorciatoia. I modificatori si confrontano in modo esatto, tranne quelli in `loose`.
- * Con ⌥ conta il tasto fisico (event.code, perché ⌥ cambia event.key); altrimenti il carattere, e per ` e \ anche la
- * posizione fisica.
+ * True if the event is this shortcut. Modifiers are compared exactly, except those in `loose`.
+ * With ⌥ the physical key counts (event.code, because ⌥ changes event.key); otherwise the character, and for ` and \ also the
+ * physical position.
  */
 export function matchesChord(event: KeyLike, chord: Chord, loose: readonly Modifier[] = []): boolean {
   const same = (modifier: Modifier, actual: boolean) => loose.includes(modifier) || actual === chord[modifier]
   if (!same('ctrl', event.ctrlKey) || !same('alt', event.altKey) || !same('shift', event.shiftKey) || !same('meta', event.metaKey)) return false
   const code = codeOf(chord.key)
   if (chord.alt) return code !== undefined && event.code === code
-  // ⌃` conta solo per il tasto fisico, come prima: il carattere ` su altre tastiere richiede ⌥ o altri tasti.
+  // ⌃` counts only for the physical key, as before: the ` character on other keyboards requires ⌥ or other keys.
   if (chord.key === '`') return event.code === code
   const key = NAMED[chord.key]?.key ?? chord.key
   if (event.key.toLowerCase() === key) return true
@@ -297,9 +297,9 @@ export function matchesChord(event: KeyLike, chord: Chord, loose: readonly Modif
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Scorciatoie in uso (predefinite + personalizzate)
+// Shortcuts in use (defaults + custom)
 
-/** Una voce di keybindings.json, come in VS Code. Un `command` che inizia con "-" toglie la scorciatoia predefinita. */
+/** An entry of keybindings.json, as in VS Code. A `command` starting with "-" removes the default shortcut. */
 export interface Keybinding {
   key: string
   command: string
@@ -318,8 +318,8 @@ let preset: ShortcutPreset = DEFAULT_SHORTCUT_PRESET
 let cache: Map<CommandId, Binding[]> | null = null
 
 /**
- * Imposta le scorciatoie personalizzate (keybindings.json). Per un comando vince l'ultima voce valida e sostituisce
- * predefinita e preset; `-comando` le toglie tutte.
+ * Sets the custom shortcuts (keybindings.json). For a command the last valid entry wins and replaces
+ * default and preset; `-command` removes them all.
  */
 export function setKeybindingOverrides(list: Keybinding[]): void {
   overrides = list
@@ -331,7 +331,7 @@ export function setShortcutPreset(next: ShortcutPreset): void {
   cache = null
 }
 
-/** Applica insieme preset e personalizzazioni: la usano renderer e main con lo stesso stato salvato dall'host. */
+/** Applies presets and customizations together: used by renderer and main with the same state saved by the host. */
 export function applyShortcutConfig(config: { preset: ShortcutPreset; overrides: Keybinding[] }): void {
   preset = config.preset
   overrides = config.overrides
@@ -340,7 +340,7 @@ export function applyShortcutConfig(config: { preset: ShortcutPreset; overrides:
 
 export const isCommandId = (value: unknown): value is CommandId => typeof value === 'string' && Object.hasOwn(COMMANDS, value)
 
-/** Vero se l'utente ha assegnato `key` a un comando diverso da `id` (vale la sua ultima voce valida per comando). */
+/** True if the user has assigned `key` to a command other than `id` (its last valid entry per command applies). */
 function takenByUser(key: string, id: CommandId): boolean {
   const last = new Map<string, string>()
   for (const entry of overrides) {
@@ -360,7 +360,7 @@ function resolve(id: CommandId): Binding[] {
     if (entry.command === `-${id}`) removed = true
     else if (entry.command === id) {
       const chord = parseShortcut(entry.key)
-      // Una voce non valida si ignora, come fa VS Code.
+      // An invalid entry is ignored, as VS Code does.
       if (chord) {
         user = chord
         removed = false
@@ -372,20 +372,20 @@ function resolve(id: CommandId): Binding[] {
   const list: Binding[] = []
   const base = parseShortcut(COMMANDS[id].key)
   if (base) list.push({ id, chord: base, loose, contexts, source: 'default' })
-  // Le voci del preset si aggiungono ai predefiniti (alias), senza doppioni.
+  // Preset entries are added to the defaults (aliases), without duplicates.
   for (const entry of PRESET_BINDINGS[preset]) {
     const chord = entry.command === id ? parseShortcut(entry.key) : null
     if (!chord) continue
     const key = serializeShortcut(chord)
     if (list.some((b) => serializeShortcut(b.chord) === key)) continue
-    // Una combinazione che l'utente ha dato a un altro comando resta sua: l'alias non gliela toglie.
+    // A combination the user gave to another command stays theirs: the alias doesn't take it away.
     if (takenByUser(key, id)) continue
     list.push({ id, chord, loose: [], contexts, source: 'preset' })
   }
   return list
 }
 
-/** Tutte le scorciatoie in uso per un comando (la prima è quella principale); vuoto se non ne ha. */
+/** All shortcuts in use for a command (the first is the main one); empty if it has none. */
 export function bindingsOf(id: CommandId): Binding[] {
   cache ??= new Map()
   let list = cache.get(id)
@@ -393,38 +393,38 @@ export function bindingsOf(id: CommandId): Binding[] {
   return list
 }
 
-/** La scorciatoia principale in uso per un comando, o null se non ne ha. */
+/** The main shortcut in use for a command, or null if it has none. */
 export function bindingOf(id: CommandId): Binding | null {
   return bindingsOf(id)[0] ?? null
 }
 
 const IDS = Object.keys(COMMANDS) as CommandId[]
 
-/** Le scorciatoie in uso valide in un contesto, nell'ordine del registro. */
+/** The shortcuts in use that are valid in a context, in registry order. */
 export function bindingsIn(context: ShortcutContext): Binding[] {
   return IDS.flatMap(bindingsOf).filter((binding) => binding.contexts.includes(context))
 }
 
-/** Il comando che l'evento attiva in un contesto. Prima le scorciatoie esatte, poi quelle che ignorano dei modificatori. */
+/** The command the event triggers in a context. Exact shortcuts first, then those that ignore some modifiers. */
 export function findBinding(event: KeyLike, context: ShortcutContext): Binding | null {
   const list = bindingsIn(context)
   return list.find((b) => b.loose.length === 0 && matchesChord(event, b.chord)) ?? list.find((b) => b.loose.length > 0 && matchesChord(event, b.chord, b.loose)) ?? null
 }
 
-/** Vero se l'evento attiva proprio questo comando. */
+/** True if the event triggers exactly this command. */
 export function matchesCommand(event: KeyLike, id: CommandId): boolean {
   return bindingsOf(id).some((binding) => matchesChord(event, binding.chord, binding.loose))
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Formati di uscita
+// Output formats
 
 const DISPLAY_KEYS: Record<string, string> = { left: '←', right: '→', up: '↑', down: '↓', enter: '↵', escape: 'esc', tab: '⇥', backspace: '⌫', delete: 'Del', space: 'Space' }
 
-/** "cmd+shift+p" diventa ⌘⇧P, come si legge nell'interfaccia (ordine ⌃ ⌘ ⌥ ⇧). Vuota se la scorciatoia non è valida. */
+/** "cmd+shift+p" becomes ⌘⇧P, as read in the interface (order ⌃ ⌘ ⌥ ⇧). Empty if the shortcut is not valid. */
 /**
- * Caratteri della tastiera in uso per tasto fisico (event.code → carattere), dal renderer (navigator.keyboard.getLayoutMap).
- * Servono alle etichette dei tasti che si riconoscono per posizione: su una tastiera italiana il tasto di ⌃` stampa "\".
+ * Keyboard characters in use per physical key (event.code → character), from the renderer (navigator.keyboard.getLayoutMap).
+ * They serve the labels of keys recognized by position: on an Italian keyboard the ⌃` key prints "\".
  */
 let layoutKeys: ReadonlyMap<string, string> | null = null
 
@@ -432,7 +432,7 @@ export function setKeyboardLayout(map: ReadonlyMap<string, string> | null): void
   layoutKeys = map
 }
 
-/** Il carattere che il tasto fisico dell'accordo stampa con la tastiera in uso, se l'accordo si riconosce per posizione (` e le combinazioni con ⌥). */
+/** The character the chord's physical key prints with the keyboard in use, if the chord is recognized by position (` and combinations with ⌥). */
 function layoutKey(chord: Chord): string | undefined {
   if (!layoutKeys || NAMED[chord.key] || !(chord.alt || chord.key === '`')) return undefined
   const code = codeOf(chord.key)
@@ -447,7 +447,7 @@ export function formatShortcut(shortcut: string | Chord): string {
   return `${chord.ctrl ? '⌃' : ''}${chord.meta ? '⌘' : ''}${chord.alt ? '⌥' : ''}${chord.shift ? '⇧' : ''}${key}`
 }
 
-/** Come la mostra l'interfaccia la scorciatoia di un comando; stringa vuota se non ne ha. */
+/** How the interface shows a command's shortcut; empty string if it has none. */
 export function shortcutLabel(id: CommandId): string {
   const binding = bindingOf(id)
   return binding ? formatShortcut(binding.chord) : ''
@@ -455,15 +455,15 @@ export function shortcutLabel(id: CommandId): string {
 
 const ACCELERATOR_KEYS: Record<string, string> = { left: 'Left', right: 'Right', up: 'Up', down: 'Down', enter: 'Enter', escape: 'Escape', tab: 'Tab', backspace: 'Backspace', delete: 'Delete', space: 'Space', home: 'Home', end: 'End', pageup: 'PageUp', pagedown: 'PageDown' }
 
-/** Tutte le scorciatoie di un comando come le mostra l'interfaccia (alias compresi). */
+/** All of a command's shortcuts as the interface shows them (aliases included). */
 export function shortcutLabels(id: CommandId): string[] {
   return bindingsOf(id).map((binding) => formatShortcut(binding.chord))
 }
 
-/** Tasti di punteggiatura ASCII che Electron accetta come acceleratore (il "+" ha un nome a parte: "Plus"). */
+/** ASCII punctuation keys that Electron accepts as an accelerator ("+" has a separate name: "Plus"). */
 const ACCELERATOR_PUNCTUATION = new Set("`~!@#$%^&*()_-=[]{}\\|;:'\",<.>/?")
 
-/** Il tasto come lo scrive un acceleratore di Electron; undefined se non si può esprimere (per esempio "ò": Electron accetta solo ASCII). */
+/** The key as an Electron accelerator writes it; undefined if it can't be expressed (for example "ò": Electron accepts only ASCII). */
 function acceleratorKey(key: string): string | undefined {
   if (ACCELERATOR_KEYS[key]) return ACCELERATOR_KEYS[key]
   if (key === '+') return 'Plus'
@@ -473,8 +473,8 @@ function acceleratorKey(key: string): string | undefined {
 }
 
 /**
- * Acceleratore di Electron per il menu ("cmd+shift+w" diventa "CmdOrCtrl+Shift+W"). undefined se il comando non ha
- * scorciatoia o se il tasto non è esprimibile: la voce di menu resta senza acceleratore e la scorciatoia la gestisce il renderer.
+ * Electron accelerator for the menu ("cmd+shift+w" becomes "CmdOrCtrl+Shift+W"). undefined if the command has no
+ * shortcut or the key can't be expressed: the menu item stays without an accelerator and the renderer handles the shortcut.
  */
 export function acceleratorOf(id: CommandId): string | undefined {
   const chord = bindingOf(id)?.chord
@@ -486,7 +486,7 @@ export function acceleratorOf(id: CommandId): string | undefined {
 
 const CODEMIRROR_KEYS: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown', enter: 'Enter', escape: 'Escape', tab: 'Tab', backspace: 'Backspace', delete: 'Delete', space: 'Space', home: 'Home', end: 'End', pageup: 'PageUp', pagedown: 'PageDown' }
 
-/** Tasto per la keymap di CodeMirror ("cmd+s" diventa "Mod-s"). undefined se il comando non ha scorciatoia. */
+/** Key for the CodeMirror keymap ("cmd+s" becomes "Mod-s"). undefined if the command has no shortcut. */
 export function codeMirrorKeyOf(id: CommandId): string | undefined {
   const chord = bindingOf(id)?.chord
   if (!chord) return undefined

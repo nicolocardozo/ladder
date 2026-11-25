@@ -1,5 +1,5 @@
-// LAD-79: "Altri agenti" nelle Subscription. Per ogni agente ACP curato o aggiunto (non Claude, Codex, GitHub): installato, versione,
-// stato di accesso da una prova ACP (initialize + session/new) e accesso/uscita tramite la CLI dell'agente, in un terminale di Ladder.
+// "Other agents" in Subscriptions. For each curated or added ACP agent (not Claude, Codex, GitHub): installed, version,
+// sign-in state from an ACP probe (initialize + session/new) and sign-in/sign-out through the agent's CLI, in a Ladder terminal.
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename } from 'node:path'
@@ -12,34 +12,34 @@ import { cliVersion, CURATED } from './catalog'
 import { loadRegistry, pathSpec, type RegistryEntry } from './registry'
 
 /**
- * Comandi di accesso e uscita noti, argomenti dopo l'eseguibile del catalogo (CURATED.exe). Solo quelli verificati sulla
- * documentazione del vendor; dove manca un comando certo il campo resta vuoto e la UI apre la CLI da sola:
- * - gemini: nessun sottocomando; l'accesso con Google parte lanciando `gemini` (lo dice l'issue LAD-79). Uscita: nessun comando noto.
- * - github-copilot-cli: `copilot login` (docs.github.com, "Authenticate Copilot CLI"); l'uscita è solo `/logout` dentro la CLI.
- * - cursor: `cursor-agent login` / `cursor-agent logout` (cursor.com/docs/cli, authentication; `agent` è lo stesso programma).
+ * Known sign-in and sign-out commands, arguments after the catalog executable (CURATED.exe). Only those verified against the
+ * vendor's documentation; where no certain command exists the field stays empty and the UI opens the CLI on its own:
+ * - gemini: no subcommand; Google sign-in starts by launching `gemini`. Sign-out: no known command.
+ * - github-copilot-cli: `copilot login` (docs.github.com, "Authenticate Copilot CLI"); sign-out is only `/logout` inside the CLI.
+ * - cursor: `cursor-agent login` / `cursor-agent logout` (cursor.com/docs/cli, authentication; `agent` is the same program).
  * - grok-build: `grok login` (docs.x.ai/build/overview).
- * - opencode, kiro, qwen-code, cline, goose, junie, factory-droid, amp-acp: non verificati (le pagine non erano leggibili, nessuna
- *   di queste CLI è installata qui per `--help`): vuoto di proposito. OpenCode e Kiro hanno probabilmente `auth login` / `login`: da confermare.
+ * - opencode, kiro, qwen-code, cline, goose, junie, factory-droid, amp-acp: not verified (the pages were not readable, none
+ *   of these CLIs is installed here for `--help`): empty on purpose. OpenCode and Kiro probably have `auth login` / `login`: to be confirmed.
  */
 const COMMANDS: Record<string, { login?: string[]; logout?: string[]; logoutHelp?: () => string }> = {
   gemini: { login: [], logoutHelp: () => t('Gemini CLI has no sign-out command. Open it and use /auth to choose another way to sign in.') },
   'github-copilot-cli': { login: ['login'], logoutHelp: () => t('Open Copilot CLI and type /logout at its prompt. This removes the token stored on this Mac.') },
   cursor: { login: ['login'], logout: ['logout'] },
-  // LAD-85: `grok login` (docs.x.ai/build/overview; `--device-auth` solo senza browser). Nessun comando di uscita documentato.
+  // `grok login` (docs.x.ai/build/overview; `--device-auth` only without a browser). No documented sign-out command.
   'grok-build': { login: ['login'] }
 }
 
-/** Adattatori ACP nativi di Claude e Codex (es. claude-acp, codex-acp): hanno la loro riga, non sono "altri agenti". */
+/** Native ACP adapters of Claude and Codex (e.g. claude-acp, codex-acp): they have their own row, they are not "other agents". */
 const NATIVE = /^(claude|codex)(-|$)/
-/** Programmi che esistono solo per parlare ACP (es. amp-acp): senza argomenti restano fermi su stdin, non c'è una CLI da aprire. */
+/** Programs that exist only to speak ACP (e.g. amp-acp): without arguments they sit idle on stdin, there is no CLI to open. */
 const ACP_ONLY = /(^|-)acp($|-)/
 
-/** Una prova al massimo ogni 10 minuti per agente, senza che l'utente la chieda. */
+/** At most one probe every 10 minutes per agent, without the user asking for it. */
 const STALE_MS = 10 * 60_000
-/** Prove contemporanee: ognuna avvia il programma di un agente. */
+/** Concurrent probes: each one starts an agent's program. */
 const MAX_PROBES = 2
 
-/** Fatti sull'agente che non cambiano tra una prova e l'altra; si rileggono a ogni `list` e `refresh`. */
+/** Facts about the agent that don't change between probes; reread on every `list` and `refresh`. */
 interface Base {
   id: string
   name: string
@@ -49,19 +49,19 @@ interface Base {
   installed: boolean
   path: string | null
   version: string | null
-  /** Voce con cui avviare l'agente per la prova (la sua, o per un curato rilevato quella costruita dal registro); null se non si può provare. */
+  /** Entry to start the agent with for the probe (its own, or for a detected curated one the one built from the registry); null if it can't be probed. */
   probe: AcpAgentSpec | null
   exe: string | null
 }
 
 export interface OtherAgentsDeps {
   specs: () => Map<string, AcpAgentSpec>
-  /** Ultimo stato di accesso salvato per l'agente (da una sessione, da `agents.authenticate` o da una prova). */
+  /** Last sign-in state saved for the agent (from a session, from `agents.authenticate` or from a probe). */
   login: (id: string) => AgentLogin
   saveLogin: (id: string, login: AgentLogin) => void
   emit: (agent: OtherAgentConnection) => void
   terminals: TerminalManager
-  /** Progetto in cui aprire il terminale: quello dato o il primo; errore se non ce ne sono. */
+  /** Project to open the terminal in: the given one or the first; error if there are none. */
   project: (projectId?: string) => Project
 }
 
@@ -71,16 +71,16 @@ const authOf = (state: AgentLogin['state']): OtherAgentAuth => (state === 'ready
 
 export class OtherAgents {
   private base = new Map<string, Base>()
-  /** Esito dell'ultima prova di questo avvio (anche fallita: unknown). */
+  /** Outcome of the last probe in this run (even a failed one: unknown). */
   private probed = new Map<string, { auth: OtherAgentAuth; checkedAt: number }>()
   private probing = new Map<string, Promise<void>>()
   private waiting: (() => void)[] = []
   private active = 0
-  /** Terminale di accesso o uscita per agente, finché il processo gira. */
+  /** Sign-in or sign-out terminal per agent, while the process runs. */
   private terminalOf = new Map<string, { id: string; kind: 'login' | 'logout' }>()
-  /** Lancio in corso per agente (registrato in modo sincrono): due richieste insieme non aprono due terminali. */
+  /** Launch in progress per agent (registered synchronously): two simultaneous requests don't open two terminals. */
   private launching = new Map<string, { kind: 'login' | 'logout'; run: Promise<TerminalInfo> }>()
-  /** Scansione in corso: chi la chiede mentre gira ne riusa l'esito. */
+  /** Scan in progress: whoever asks for one while it runs reuses its outcome. */
   private scanning: Promise<void> | null = null
   private scanSeq = 0
   private appliedSeq = 0
@@ -89,9 +89,9 @@ export class OtherAgents {
   constructor(private readonly deps: OtherAgentsDeps) {}
 
   /**
-   * Elenco; avvia in background le prove mancanti o vecchie (esiti come eventi `agent.connection`), ma solo per gli agenti già
-   * aggiunti: un programma rilevato nel PATH e mai aggiunto non si avvia da solo (potrebbe lanciare i server MCP o gli
-   * aggiornamenti dell'utente). Per quelli la prova parte con «Check again» o dopo un accesso lanciato da Ladder.
+   * List; starts in the background the missing or stale probes (outcomes as `agent.connection` events), but only for agents already
+   * added: a program detected in the PATH and never added doesn't start on its own (it could launch the user's MCP servers or
+   * updates). For those the probe starts with "Check again" or after a sign-in launched by Ladder.
    */
   async list(): Promise<OtherAgentConnection[]> {
     await this.scan()
@@ -102,7 +102,7 @@ export class OtherAgents {
     return [...this.base.values()].map((base) => this.view(base))
   }
 
-  /** Rilegge il programma e ripete la prova; risponde la riga aggiornata. */
+  /** Rereads the program and repeats the probe; replies with the updated row. */
   async refresh(id: string): Promise<OtherAgentConnection> {
     await this.scan(true)
     const base = this.base.get(id)
@@ -112,8 +112,8 @@ export class OtherAgents {
   }
 
   /**
-   * Accesso (`login`) o uscita (`logout`) con la CLI dell'agente, in un terminale `run` del progetto. A fine processo si ripete la prova.
-   * Un lancio alla volta per agente: la stessa richiesta due volte riusa il lancio in corso, l'altra (logout durante un login) è rifiutata.
+   * Sign-in (`login`) or sign-out (`logout`) with the agent's CLI, in a `run` terminal of the project. When the process ends the probe is repeated.
+   * One launch at a time per agent: the same request twice reuses the launch in progress, the other (logout during a login) is refused.
    */
   launch(id: string, kind: 'login' | 'logout', projectId?: string): Promise<TerminalInfo> {
     const pending = this.launching.get(id)
@@ -130,7 +130,7 @@ export class OtherAgents {
   }
 
   private async open(id: string, kind: 'login' | 'logout', projectId?: string): Promise<TerminalInfo> {
-    // Un solo terminale per agente alla volta: se quello di prima gira ancora lo si riusa (stesso tipo) o si rifiuta.
+    // One terminal per agent at a time: if the previous one is still running it is reused (same kind) or the request is refused.
     const running = this.terminalOf.get(id)
     const live = running ? this.deps.terminals.get(running.id) : null
     if (running && live?.state === 'running') {
@@ -144,24 +144,24 @@ export class OtherAgents {
     const known = COMMANDS[id]
     const args = kind === 'login' ? (known?.login ?? []) : known?.logout
     if (!args) throw new Error(t('{agent} has no sign-out command.', { agent: base.name }))
-    // Senza un comando noto e per un programma solo ACP, lanciarlo da solo lo lascerebbe fermo su stdin.
+    // Without a known command and for an ACP-only program, launching it alone would leave it idle on stdin.
     if (kind === 'login' && !known?.login && ACP_ONLY.test(base.exe ?? '')) throw new Error(t('{agent} has no command to sign in from. Sign in from the agent’s own app or CLI.', { agent: base.name }))
     if (live) await this.deps.terminals.close(live.id)
     const project = this.deps.project(projectId)
     const command = [shellQuote(base.path), ...args.map(shellQuote)].join(' ')
     const title = kind === 'login' ? t('Sign in to {agent}', { agent: base.name }) : t('Sign out of {agent}', { agent: base.name })
-    // Stesso criterio della prova: voce dell'agente applicata e chiavi API tolte (valgono il login e l'abbonamento). Il terminale è una
-    // shell di login interattiva: un .zshrc dell'utente può riesportarle, e allora valgono quelle (come per ogni suo terminale).
+    // Same criterion as the probe: agent entry applied and API keys removed (the login and subscription count). The terminal is an
+    // interactive login shell: a user's .zshrc may re-export them, and then those apply (as for any of their terminals).
     const env = Object.fromEntries(Object.entries(base.probe?.env ?? {}).filter(([key]) => !/^(ANTHROPIC_|CLAUDE|DYLD_|LD_)/.test(key) && key !== 'NODE_OPTIONS'))
     const info = this.deps.terminals.spawn({ projectId: project.id, sessionId: null, kind: 'run', title, cwd: project.path, command, env, unsetEnv: STRIP_ENV, port: null })
     this.terminalOf.set(id, { id: info.id, kind })
     this.deps.emit(this.view(base))
     void this.deps.terminals.onceExit(info.id).then(async () => {
       if (this.terminalOf.get(id)?.id === info.id) this.terminalOf.delete(id)
-      // Il terminale non c'è più: la riga lo dice subito, prima della prova.
+      // The terminal is gone: the row says so right away, before the probe.
       const current = this.base.get(id) ?? base
       this.deps.emit(this.view(current))
-      // Anche se il processo è uscito con errore o il terminale è stato chiuso: lo stato si rilegge sempre (dopo una prova già in corso, che è di prima).
+      // Even if the process exited with an error or the terminal was closed: the state is always reread (after a probe already in progress, which is older).
       if (current.probe) {
         await this.probing.get(id)
         await this.probe(id)
@@ -170,7 +170,7 @@ export class OtherAgents {
     return info
   }
 
-  /** Prova di un agente: una alla volta per id, al massimo MAX_PROBES insieme. Mai un'eccezione: l'esito ignoto è `unknown`. */
+  /** Probe of an agent: one at a time per id, at most MAX_PROBES together. Never an exception: an unknown outcome is `unknown`. */
   private probe(id: string): Promise<void> {
     const running = this.probing.get(id)
     if (running) return running
@@ -180,7 +180,7 @@ export class OtherAgents {
       if (this.active >= MAX_PROBES) await new Promise<void>((resolve) => this.waiting.push(resolve))
       else this.active++
       try {
-        // Il percorso lo ha già trovato la scansione: niente altra shell di login per ritrovarlo.
+        // The scan already found the path: no other login shell to find it again.
         const login = await acpProbe(base.path ? { ...base.probe, command: base.path } : base.probe, homedir())
         this.probed.set(id, { auth: authOf(login.state), checkedAt: login.checkedAt ?? Date.now() })
         this.deps.saveLogin(id, login)
@@ -196,13 +196,13 @@ export class OtherAgents {
       }
     })()
     this.probing.set(id, run)
-    // La riga passa subito a «in controllo»: la prova può durare 25 secondi.
+    // The row switches right away to "checking": the probe can take 25 seconds.
     const started = this.base.get(id)
     if (started) this.deps.emit(this.view(started))
     return run
   }
 
-  /** Riga completa: fatti dell'agente + stato dell'ultima prova o, se più recente, dell'ultimo login salvato (una sessione di chat, `agents.authenticate`). */
+  /** Full row: the agent's facts + state of the last probe or, if more recent, of the last saved login (a chat session, `agents.authenticate`). */
   private view(base: Base): OtherAgentConnection {
     const stored = this.deps.login(base.id)
     const probed = this.probed.get(base.id)
@@ -233,10 +233,10 @@ export class OtherAgents {
     }
   }
 
-  /** Cerca i programmi (PATH della shell di login) e ricostruisce i fatti di ogni agente curato o aggiunto. */
+  /** Looks up the programs (login shell PATH) and rebuilds the facts of each curated or added agent. */
   private scan(force = false): Promise<void> {
     if (this.scanning && !force) return this.scanning
-    // Una scansione più vecchia di una già applicata non sovrascrive: vince sempre l'ultima partita.
+    // A scan older than one already applied doesn't overwrite: the latest one started always wins.
     const seq = ++this.scanSeq
     const run = this.scanNow().then((next) => {
       if (seq > this.appliedSeq) {
@@ -254,7 +254,7 @@ export class OtherAgents {
   private async scanNow(): Promise<Map<string, Base>> {
     const specs = this.deps.specs()
     let entries: RegistryEntry[] = []
-    // Registro non raggiungibile: restano i nomi delle voci aggiunte e l'id; non si riprova prima di un minuto (la richiesta può durare 15 secondi).
+    // Registry unreachable: the names of the added entries and the id remain; don't retry within a minute (the request can take 15 seconds).
     if (Date.now() - this.registryFailedAt > 60_000) {
       try {
         entries = await loadRegistry()
@@ -262,7 +262,7 @@ export class OtherAgents {
         this.registryFailedAt = Date.now()
       }
     }
-    // Curati e voci scritte a mano o aggiunte con un nome nel PATH: un solo giro di shell di login per tutti.
+    // Curated entries and ones written by hand or added with a name in the PATH: a single login shell round for all.
     const bare = [...specs.values()].filter((s) => !s.command.includes('/') && s.command !== 'npx' && s.command !== 'uvx').map((s) => s.command)
     const found = await whichManyInShell([...CURATED.map((c) => c.exe), ...bare])
     const detected = new Map<string, string>()
@@ -270,7 +270,7 @@ export class OtherAgents {
       const path = found.get(c.exe)
       if (path) detected.set(c.id, path)
     }
-    // Gli adattatori ACP di Claude e Codex hanno la loro riga: non sono "altri agenti".
+    // The ACP adapters of Claude and Codex have their own row: they are not "other agents".
     const ids = [...new Set([...CURATED.map((c) => c.id), ...specs.keys()])].filter((id) => !NATIVE.test(id))
     const next = new Map<string, Base>()
     for (const id of ids) {
@@ -281,7 +281,7 @@ export class OtherAgents {
       let path: string | null = null
       if (spec && !launcher) path = spec.command.includes('/') ? (existsSync(spec.command) ? spec.command : null) : (found.get(spec.command) ?? null)
       else path = detected.get(id) ?? null
-      // Aggiunto con npx/uvx e nessuna CLI locale: non si prova (scaricherebbe il pacchetto).
+      // Added with npx/uvx and no local CLI: not probed (it would download the package).
       const runner: Base['runner'] = launcher && !path ? launcher : 'program'
       let probe: AcpAgentSpec | null = null
       if (path && spec && !launcher) probe = spec
@@ -300,7 +300,7 @@ export class OtherAgents {
         exe: curated?.exe ?? (path ? basename(path) : null)
       })
     }
-    // La versione costa un avvio del programma: cliVersion la tiene in cache per percorso e data di modifica.
+    // The version costs a program launch: cliVersion caches it by path and modification time.
     await Promise.all([...next.values()].map(async (base) => {
       if (base.path) base.version = await cliVersion(base.path)
     }))

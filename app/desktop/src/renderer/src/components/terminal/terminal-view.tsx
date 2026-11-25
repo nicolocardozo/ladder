@@ -1,4 +1,4 @@
-// Un terminale dell'host dentro un contenitore. Selezionando del testo compare "Aggiungi alla chat".
+// A host terminal inside a container. Selecting text shows "Add to chat".
 import { useEffect, useRef, useState } from 'react'
 import { MessageSquarePlus } from 'lucide-react'
 import { clearTerminalSelection, focusTerminal, mountTerminal, onTerminalSelection } from '@/lib/terminal-registry'
@@ -8,7 +8,7 @@ import { t } from '@shared/i18n'
 
 interface TerminalViewProps {
   id: string
-  /** Bozza del composer in cui inserire la selezione. */
+  /** Composer draft to insert the selection into. */
   composerKey: string | null
   autoFocus?: boolean
   className?: string
@@ -38,7 +38,7 @@ export function TerminalView({ id, composerKey, autoFocus, className }: Terminal
 
   return (
     <div className={cn('relative flex min-h-0 min-w-0 flex-col', className)}>
-      {/* Il margine è del contenitore esterno: quello di xterm deve riempire tutto lo spazio rimasto. */}
+      {/* The margin belongs to the outer container: xterm's must fill all the remaining space. */}
       <div className="relative min-h-0 flex-1">
         <div ref={container} className="ladder-terminal absolute inset-0 overflow-hidden" />
       </div>

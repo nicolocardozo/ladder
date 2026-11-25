@@ -1,6 +1,6 @@
-// Browser integrato (LAD-57), nella colonna a destra delle chat. La pagina è una vista nativa del main sopra un segnaposto DOM: qui si comunicano
-// rettangolo e visibilità, e si disegna tutto il resto (barra, errori, stati vuoti). Con un popup, la palette o un
-// trascinamento sopra l'area la vista si nasconde, perché la vista nativa starebbe sopra l'HTML.
+// Built-in browser, in the column to the right of the chats. The page is a native view of main over a DOM placeholder: here the
+// rectangle and visibility are communicated, and everything else is drawn (bar, errors, empty states). With a popup, the palette or a
+// drag over the area the view hides, because the native view would sit on top of the HTML.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, ArrowRight, Bot, Camera, CircleAlert, CircleCheck, ExternalLink, Globe, MoreHorizontal, OctagonX, Play, RotateCw, Square, TextQuote, X } from 'lucide-react'
 import type { AgentBrowserState, BrowserAction, BrowserState } from '@shared/protocol'
@@ -22,7 +22,7 @@ const barButton =
 
 type Feedback = { kind: 'shot' | 'quote'; text: string; ok: boolean }
 
-/** Botone con la sola icona: etichetta accessibile, suggerimento sopra (sotto la barra c'è la pagina nativa) e, a richiesta, l'esito di un'azione. */
+/** Icon-only button: accessible label, tooltip above (below the bar is the native page) and, on request, the outcome of an action. */
 function BarButton({ label, onClick, disabled, feedback, children }: { label: string; onClick: () => void; disabled?: boolean; feedback?: Feedback | null; children: ReactNode }) {
   const [hover, setHover] = useState(false)
   return (
@@ -44,10 +44,10 @@ function BarButton({ label, onClick, disabled, feedback, children }: { label: st
   )
 }
 
-/** Barra, avvisi e pagina nativa di una pagina del browser: va dentro un contenitore flex in colonna (la colonna browser). */
+/** Bar, notices and native page of a browser page: goes inside a column flex container (the browser column). */
 export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: string }) {
   const api = window.ladder?.browser
-  // Modalità agente: la tab è dell'agente di una sessione. Effimera (niente URL salvato), indirizzo in sola lettura, stop sempre a portata.
+  // Agent mode: the tab belongs to a session's agent. Ephemeral (no saved URL), read-only address, stop always within reach.
   const agentSession = isAgentTabId(tabId) ? agentTabSession(tabId) : null
   const agent = useApp((s) => (agentSession ? s.agentBrowser[agentSession] : undefined))
   const saved = useApp((s) => (agentSession ? undefined : s.ui[projectId]?.browserTabs?.find((tab) => tab.id === tabId)))
@@ -69,18 +69,18 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
   const feedbackTimer = useRef<number>(0)
   const savedUrl = useRef(saved?.url ?? '')
 
-  // La vista nativa nasce (o si ritrova) all'apertura della tab; uscendo dalla tab si nasconde ma non si distrugge.
+  // The native view is created (or found again) when the tab opens; leaving the tab hides it but does not destroy it.
   useEffect(() => {
     if (!api) return
     let alive = true
     setReady(false)
     void api.open(tabId, projectId, savedUrl.current || undefined).then((next) => {
       if (!alive) return
-      // Per una tab dell'agente che il main non ha (più) non c'è nulla da mostrare: la UI non può crearla.
+      // For an agent tab that main does not have (anymore) there is nothing to show: the UI cannot create it.
       if (!next) {
         if (agentSession) {
           setMissing(true)
-          // Con lo stato ancora attivo la tab è di un'altra finestra: lo store la nasconde e porta altrove.
+          // With the state still active the tab belongs to another window: the store hides it and moves it elsewhere.
           void useApp.getState().probeAgentBrowser(agentSession, true)
         }
         return
@@ -98,11 +98,11 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
   const url = state?.url ?? saved?.url ?? ''
   const pageError = state?.error ?? null
   const blank = url === '' && !pageError && !localError
-  // Con un errore o senza pagina si vede il segnaposto DOM al posto della vista nativa.
+  // With an error or no page the DOM placeholder is shown in place of the native view.
   const showNative = ready && !missing && !blank && !pageError && !localError && !overlay && !paletteOpen && !quickOpen
 
-  // Rettangolo: segue il segnaposto. Il ResizeObserver prende i cambi di dimensione (sidebar, ispettore, terminale),
-  // la finestra e lo scroll gli spostamenti; un controllo lento copre lo spostamento senza cambio di misura.
+  // Rectangle: follows the placeholder. The ResizeObserver catches size changes (sidebar, inspector, terminal),
+  // window and scroll catch movements; a slow check covers movement without a size change.
   const last = useRef('')
   const pushBounds = useCallback(() => {
     const el = area.current
@@ -130,14 +130,14 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
       window.clearInterval(timer)
     }
   }, [api, ready, pushBounds])
-  // Prima il rettangolo, poi la visibilità: la vista non appare mai nel posto vecchio.
+  // Rectangle first, then visibility: the view never appears in the old place.
   useLayoutEffect(() => {
     if (!api || !ready) return
     if (showNative) pushBounds()
     api.setVisible(tabId, showNative)
   }, [api, ready, showNative, tabId, pushBounds])
 
-  // ⌘L porta il cursore nell'indirizzo, come in ogni browser. ⌘R no: nel menu di Ladder ricarica la finestra dell'app.
+  // ⌘L moves the cursor to the address, like in any browser. ⌘R does not: in Ladder's menu it reloads the app window.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (agentSession) return
@@ -153,7 +153,7 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
 
   useEffect(() => () => window.clearTimeout(feedbackTimer.current), [])
 
-  // Avviso non bloccante (es. un link mailto: bloccato): la pagina resta; sparisce da solo dopo qualche secondo.
+  // Non-blocking notice (e.g. a blocked mailto: link): the page stays; it disappears by itself after a few seconds.
   const notice = state?.notice ?? null
   useEffect(() => {
     if (!notice) return
@@ -161,7 +161,7 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  // ⌘L premuto mentre la pagina nativa ha il focus: il main lo inoltra e il cursore va nell'indirizzo.
+  // ⌘L pressed while the native page has focus: main forwards it and the cursor goes to the address.
   useEffect(
     () =>
       api?.onShortcut?.((event) => {
@@ -182,7 +182,7 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
     if (!api) return
     const result = await api.navigate(tabId, text)
     if (result.ok) {
-      // Subito l'indirizzo nuovo: gli eventi del main arrivano un attimo dopo e non devono far lampeggiare lo stato vuoto.
+      // The new address right away: main's events arrive a moment later and must not make the empty state flash.
       if (state) setBrowserState({ ...state, url: result.url, loading: true, error: null })
       setLocalError(null)
       setEditing(false)
@@ -220,7 +220,7 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
     <>
       <div role="toolbar" aria-label={t('Browser')} className="relative flex h-10 shrink-0 items-center gap-0.5 border-b border-border px-2">
         {agentSession ? (
-          // La pagina la guida l'agente: niente indietro, avanti o ricarica; l'indirizzo è solo da leggere.
+          // The page is driven by the agent: no back, forward or reload; the address is read-only.
           <span className="no-drag ml-0.5 flex h-6 shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 text-xs font-medium text-foreground">
             <Bot aria-hidden className="size-3.5" strokeWidth={1.75} />
             {t('Agent')}
@@ -317,7 +317,7 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {/* Caricamento: una riga sul bordo inferiore, sempre presente, così la barra non cambia altezza. */}
+        {/* Loading: a line on the bottom edge, always present, so the bar does not change height. */}
         <span aria-hidden className={cn('pointer-events-none absolute inset-x-0 -bottom-px h-0.5 overflow-hidden transition-opacity', loading ? 'opacity-100' : 'opacity-0')}>
           <span className="block h-full w-1/3 animate-[browser-load_1.1s_ease-in-out_infinite] rounded-full bg-running motion-reduce:w-full motion-reduce:animate-none motion-reduce:opacity-60" />
         </span>
@@ -359,7 +359,7 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
           </button>
         </div>
       )}
-      {/* Segnaposto: la vista nativa ne copre il rettangolo. Quel che c'è dentro si vede solo quando la vista è nascosta. */}
+      {/* Placeholder: the native view covers its rectangle. What is inside is only visible when the view is hidden. */}
       <div ref={area} data-browser-area className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {pageError ? (
           <ErrorPage error={describeLoadError(pageError)} onRetry={agentSession ? undefined : () => run('reload')} onExternal={() => void api.openExternal(tabId)} canExternal={/^https?:/i.test(pageError.url)} />
@@ -376,9 +376,9 @@ export function BrowserBody({ projectId, tabId }: { projectId: string; tabId: st
 }
 
 /**
- * Barra dell'agente sotto quella della pagina: due righe a altezza fissa (niente scatti quando lo stato cambia).
- * Prima riga: che cosa fa l'agente adesso e lo Stop (o "Resume" dopo lo stop). Seconda: ultima azione con il suo esito e i domini ammessi.
- * Il testo digitato dall'agente non arriva mai qui: `target` non lo contiene.
+  * Agent bar below the page one: two rows of fixed height (no jumps when the state changes).
+  * First row: what the agent is doing now and Stop (or "Resume" after stop). Second: last action with its outcome and the allowed domains.
+  * Text typed by the agent never arrives here: `target` does not contain it.
  */
 function AgentStrip({ sessionId, state }: { sessionId: string; state: AgentBrowserState | undefined }) {
   const [busy, setBusy] = useState(false)
@@ -418,7 +418,7 @@ function AgentStrip({ sessionId, state }: { sessionId: string; state: AgentBrows
             <Bot className="size-3.5 text-muted-foreground" strokeWidth={1.75} />
           )}
         </span>
-        {/* Cambi di stato annunciati: "Sta aprendo localhost:5173…". */}
+        {/* State changes announced: "Opening localhost:5173…". */}
         <span role="status" className={cn('min-w-0 flex-1 truncate text-sm', state?.action && !stopped ? 'font-medium text-foreground' : 'text-muted-foreground')} title={status}>
           {status}
         </span>
@@ -536,7 +536,7 @@ function ErrorPage({ error, onRetry, onExternal, canExternal, onFix }: { error: 
   )
 }
 
-/** Senza Electron (anteprima web) non c'è vista nativa: un segnaposto dice perché. */
+/** Without Electron (web preview) there is no native view: a placeholder says why. */
 function Unavailable() {
   return (
     <Centered>

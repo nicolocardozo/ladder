@@ -1,5 +1,5 @@
-// Primo avvio: "Altri agenti trovati sul tuo Mac". Compatta e saltabile; compare solo se `agents.detect` trova CLI già installate.
-// Non blocca la schermata: la lettura parte in background e, senza risultati o con un errore, la sezione non esiste.
+// First launch: "Other agents found on your Mac". Compact and skippable; appears only if `agents.detect` finds already installed CLIs.
+// It does not block the screen: the read starts in the background and, with no results or with an error, the section does not exist.
 import { useEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { AgentCatalogEntry } from '@shared/protocol'

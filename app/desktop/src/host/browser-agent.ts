@@ -1,26 +1,26 @@
-// Browser per l'agente (LAD-57 parte 2), lato host: tiene il server MCP, lo stato mostrato dalla UI e il canale verso il main,
-// che possiede la vista. Con l'interruttore spento (AppPrefs.agentBrowser / ProjectUiState.agentBrowser) non parte nulla.
+// Browser for the agent, host side: holds the MCP server, the state shown by the UI and the channel to main,
+// which owns the view. With the switch off (AppPrefs.agentBrowser / ProjectUiState.agentBrowser) nothing starts.
 //
-// Canale host ↔ main: HostToMain `browser-agent` (richiesta con rid) → MainToHost `browser-agent-result` (stesso rid).
-// Il main risponde solo con dati semplici e l'host li tratta come testo: la pagina non può far chiamare nulla all'host.
+// Host ↔ main channel: HostToMain `browser-agent` (request with rid) → MainToHost `browser-agent-result` (same rid).
+// Main replies only with plain data and the host treats it as text: the page can't make the host call anything.
 import { randomUUID } from 'node:crypto'
 import { t } from '@shared/i18n'
 import type { AgentBrowserState, BrowserAgentOp, BrowserAgentResult, HostEvent, HostToMain, PermissionLevel, RequestResponse } from '@shared/protocol'
 import type { UserRequest } from './agents/common'
 import { BrowserMcpServer, type BrowserBackend, type BrowserToolsHandle, type ConfirmRequest } from './browser-mcp'
 
-/** Tempo massimo di una risposta del main: oltre, l'operazione è fallita (il main non risponde o la finestra è morta). */
+/** Maximum time for a reply from main: beyond that, the operation failed (main doesn't answer or the window is dead). */
 const MAIN_TIMEOUT_MS = 45_000
 
 export interface BrowserAgentDeps {
   send: (message: HostToMain) => void
   broadcast: (event: HostEvent) => void
-  /** Interruttore effettivo per il progetto: ProjectUiState.agentBrowser, altrimenti quello globale. */
+  /** Effective switch for the project: ProjectUiState.agentBrowser, otherwise the global one. */
   setting: (projectId: string) => boolean
-  /** Progetto della sessione se la sessione esiste ancora e ha un agente vivo, altrimenti null. */
+  /** The session's project if the session still exists and has a live agent, otherwise null. */
   alive: (sessionId: string) => string | null
   level: (sessionId: string) => PermissionLevel
-  /** Apre una card di approvazione nella chat della sessione (la stessa dei permessi degli strumenti). */
+  /** Opens an approval card in the session's chat (the same as for tool permissions). */
   request: (sessionId: string, request: UserRequest, signal: AbortSignal) => Promise<RequestResponse>
 }
 
@@ -29,9 +29,9 @@ export class BrowserAgent implements BrowserBackend {
   private readonly server: BrowserMcpServer
   private readonly pending = new Map<string, { resolve: (result: BrowserAgentResult) => void; timer: ReturnType<typeof setTimeout> }>()
   private readonly states = new Map<string, AgentBrowserState>()
-  /** Sessioni con un token attivo e il loro progetto. */
+  /** Sessions with an active token and their project. */
   private readonly registered = new Map<string, string>()
-  /** Come si è fermata una sessione: solo lo stop dell'interruzione del turno (`interrupt`) torna da sé al turno dopo dell'utente. */
+  /** How a session was stopped: only the turn-interrupt stop (`interrupt`) comes back on its own at the user's next turn. */
   private readonly stopKind = new Map<string, 'user' | 'interrupt' | 'closed'>()
 
   constructor(deps: BrowserAgentDeps) {
@@ -54,13 +54,13 @@ export class BrowserAgent implements BrowserBackend {
     })
   }
 
-  /** Prima di creare il runtime di una sessione: avvia il server se l'interruttore è acceso (null se non serve). */
+  /** Before creating a session's runtime: starts the server if the switch is on (null if not needed). */
   prepare(projectId: string): Promise<void> | null {
     if (!this.deps.setting(projectId) || this.server.started) return null
     return this.server.start().catch((error: Error) => console.error(`[host] server del browser dell'agente: ${error.message}`))
   }
 
-  /** Strumenti da registrare nell'adapter della sessione; null con l'interruttore spento (nessun server né registrazione). */
+  /** Tools to register in the session's adapter; null with the switch off (no server or registration). */
   register(sessionId: string, projectId: string): BrowserToolsHandle | null {
     if (!this.deps.setting(projectId) || !this.server.started) return null
     const handle = this.server.register(sessionId, projectId)
@@ -70,7 +70,7 @@ export class BrowserAgent implements BrowserBackend {
     return handle
   }
 
-  /** Sessione chiusa o interruttore spento: token revocato, vista distrutta e partizione svuotata. */
+  /** Session closed or switch off: token revoked, view destroyed and partition cleared. */
   revoke(sessionId: string): void {
     if (!this.registered.delete(sessionId)) return
     this.server.revoke(sessionId)
@@ -80,18 +80,18 @@ export class BrowserAgent implements BrowserBackend {
     this.states.delete(sessionId)
   }
 
-  /** Cambio di impostazioni: chi non ha più l'interruttore acceso perde gli strumenti subito. */
+  /** Settings change: whoever no longer has the switch on loses the tools immediately. */
   sync(): void {
     for (const [sessionId, projectId] of [...this.registered]) if (!this.deps.setting(projectId)) this.revoke(sessionId)
   }
 
   /**
-   * `user`: stop esplicito (definitivo fino a resume, anche se prima c'era uno stop implicito). `interrupt`: l'utente ha interrotto il turno;
-   * gli strumenti restano fermi fino al turno dopo, ma la UI non mostra "Fermato" (non c'è nulla da riattivare a mano): azzera solo l'azione in corso.
+   * `user`: explicit stop (final until resume, even if there was an implicit stop before). `interrupt`: the user interrupted the turn;
+   * the tools stay stopped until the next turn, but the UI doesn't show "Stopped" (there is nothing to reactivate by hand): it only clears the action in progress.
    */
   stop(sessionId: string, source: 'user' | 'interrupt' = 'user'): AgentBrowserState | null {
     if (!this.registered.has(sessionId)) return this.states.get(sessionId) ?? null
-    // Uno stop esplicito vince sempre; l'implicito non declassa uno stop esplicito né la tab chiusa.
+    // An explicit stop always wins; the implicit one doesn't downgrade an explicit stop or the closed tab.
     this.stopKind.set(sessionId, source === 'user' ? 'user' : ((this.server.isStopped(sessionId) ? this.stopKind.get(sessionId) : undefined) ?? source))
     this.server.stop(sessionId)
     this.send({ op: 'stop', sessionId, freeze: true })
@@ -108,12 +108,12 @@ export class BrowserAgent implements BrowserBackend {
     return this.states.get(sessionId) ?? null
   }
 
-  /** Un turno nuovo dell'utente riabilita gli strumenti solo se li aveva fermati l'interruzione del turno: non uno stop esplicito né la tab chiusa. */
+  /** A new user turn re-enables the tools only if the turn interrupt had stopped them: not an explicit stop or the closed tab. */
   turnStarted(sessionId: string): void {
     if (this.server.isStopped(sessionId) && this.stopKind.get(sessionId) === 'interrupt') this.resume(sessionId)
   }
 
-  /** Livello di permesso cambiato: le autorizzazioni "per la sessione" sulle scritture e Full access non valgono più. */
+  /** Permission level changed: the "for the session" authorizations on writes and Full access no longer apply. */
   permissionChanged(sessionId: string): void {
     if (this.registered.has(sessionId)) this.server.levelChanged(sessionId)
   }
@@ -122,7 +122,7 @@ export class BrowserAgent implements BrowserBackend {
     return sessionId ? [...(this.states.get(sessionId) ? [this.states.get(sessionId)!] : [])] : [...this.states.values()]
   }
 
-  /** Il main segnala che la vista non c'è più (tab chiusa dall'utente): vale come stop. */
+  /** Main reports that the view is gone (tab closed by the user): counts as a stop. */
   onClosed(sessionId: string): void {
     if (!this.registered.has(sessionId)) return
     this.stopKind.set(sessionId, 'closed')
@@ -148,7 +148,7 @@ export class BrowserAgent implements BrowserBackend {
     await this.server.close()
   }
 
-  // ── BrowserBackend: le operazioni vanno al main ──────────────────────────
+  // ── BrowserBackend: operations go to main ──────────────────────────
 
   run(op: BrowserAgentOp): Promise<BrowserAgentResult> {
     return this.send(op).then((result) => {
@@ -169,7 +169,7 @@ export class BrowserAgent implements BrowserBackend {
     })
   }
 
-  // ── Conferme: le stesse card di approvazione degli altri strumenti ─────────
+  // ── Confirmations: the same approval cards as the other tools ─────────
 
   private async confirm(sessionId: string, request: ConfirmRequest, signal: AbortSignal): Promise<'allow' | 'always' | 'deny'> {
     const response = await this.deps.request(
@@ -180,7 +180,7 @@ export class BrowserAgent implements BrowserBackend {
         title: request.title,
         command: null,
         path: null,
-        // Il nome dell'elemento è testo della pagina: in coda e dichiarato tale, mai nel titolo.
+        // The element's name is page text: put last and declared as such, never in the title.
         reason:
           request.kind === 'navigate'
             ? t('This address is outside localhost. The agent browser is isolated from your accounts and cookies.')
@@ -198,7 +198,7 @@ export class BrowserAgent implements BrowserBackend {
     return 'deny'
   }
 
-  // ── Stato per la UI ──────────────────────────────────────────────────────
+  // ── State for the UI ──────────────────────────────────────────────────────
 
   private patch(sessionId: string, change: Partial<AgentBrowserState>): void {
     const state = this.states.get(sessionId)

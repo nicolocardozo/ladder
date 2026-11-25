@@ -1,5 +1,5 @@
-// ⌘⇧N: nuova sessione da una issue o una PR di GitHub, da una issue di Linear o da un branch.
-// La scelta prepara la nuova chat: prompt già scritto (modificabile), worktree e branch giusti.
+// ⌘⇧N: new session from a GitHub issue or PR, a Linear issue, or a branch.
+// The choice prepares the new chat: prompt already written (editable), right worktree and branch.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
 import { CircleDot, GitBranch, GitPullRequest, Search, SquareKanban, type LucideIcon } from 'lucide-react'
@@ -15,7 +15,7 @@ import { Kbd } from '@/components/ui/kbd'
 
 type Source = IssueItem['source']
 
-// Etichette in inglese: si traducono con t() dove si mostrano.
+// Labels in English: they are translated with t() where shown.
 const SOURCES: { id: Source; label: string; icon: LucideIcon }[] = [
   { id: 'github-issue', label: 'GitHub issues', icon: CircleDot },
   { id: 'github-pr', label: 'GitHub PRs', icon: GitPullRequest },
@@ -58,7 +58,7 @@ function NewFromBody({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState('')
   const [lists, setLists] = useState<Partial<Record<Source, IssueList | 'loading'>>>({})
   const current = lists[source]
-  // GitHub appena collegato o scollegato: le sue liste si rileggono. `loadedAt` ricorda con quale versione è stata letta ciascuna fonte.
+  // GitHub just connected or disconnected: its lists are re-read. `loadedAt` remembers which version each source was read with.
   const githubVersion = useApp((s) => s.githubVersion)
   const loadedAt = useRef<Partial<Record<Source, number>>>({})
 
@@ -66,11 +66,11 @@ function NewFromBody({ onClose }: { onClose: () => void }) {
     try {
       localStorage.setItem(LAST_KEY, source)
     } catch {
-      // Solo una comodità.
+      // Just a convenience.
     }
   }, [source])
 
-  // Ogni fonte si legge una volta all'apertura; Linear di nuovo quando scrivi un identificativo (ABC-123).
+  // Each source is read once on open; Linear again when you type an identifier (ABC-123).
   const linearId = source === 'linear' && /^[a-z][a-z0-9]*-\d+$/i.test(query.trim()) ? query.trim() : ''
   useEffect(() => {
     if (!projectId) return
@@ -120,7 +120,7 @@ function NewFromBody({ onClose }: { onClose: () => void }) {
       loop
       label={t('New session from…')}
       onKeyDown={(e) => {
-        // ⌘← e ⌘→, oppure Tab, cambiano fonte.
+        // ⌘← and ⌘→, or Tab, switch source.
         if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.metaKey) {
           e.preventDefault()
           cycle(e.key === 'ArrowRight' ? 1 : -1)

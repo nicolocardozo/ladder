@@ -1,10 +1,10 @@
-// Scorciatoia da tastiera, un tasto per ogni simbolo. Usa il carattere di sistema: è l'unico che disegna bene ⌘ ⇧ ⌥ ⌃.
+// Keyboard shortcut, one key per symbol. Uses the system font: it is the only one that draws ⌘ ⇧ ⌥ ⌃ well.
 import { Children, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 const SINGLE = /[⌘⇧⌥⌃↑↓←→↵⌫⇥]/
 
-/** "⌘⇧N" diventa ⌘, ⇧, N; "⌘⌥1–4" diventa ⌘, ⌥, 1–4; "esc" resta intero. */
+/** "⌘⇧N" becomes ⌘, ⇧, N; "⌘⌥1–4" becomes ⌘, ⌥, 1–4; "esc" stays whole. */
 function keysOf(combo: string): string[] {
   const keys: string[] = []
   let rest = ''
@@ -21,7 +21,7 @@ function keysOf(combo: string): string[] {
   return keys
 }
 
-/** separator: cosa mettere tra un tasto e l'altro (es. "+" per "⇧ + Tab"); senza, i tasti stanno solo accostati. */
+/** separator: what to put between one key and the next (e.g. "+" for "⇧ + Tab"); without it, the keys are just placed next to each other. */
 export function Kbd({ children, className, separator }: { children: ReactNode; className?: string; separator?: ReactNode }) {
   const combo = Children.toArray(children).join('').trim()
   return (

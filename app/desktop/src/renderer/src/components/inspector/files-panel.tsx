@@ -1,5 +1,5 @@
-// Pannello File: albero della cartella della sessione con stato git, filtro, viewer in sola lettura.
-// I file toccati dalla sessione portano il turno che li ha modificati per ultimo.
+// Files panel: tree of the session folder with git state, filter, read-only viewer.
+// Files touched by the session carry the turn that last modified them.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ChevronDown, ChevronRight, ExternalLink, File, Folder, FolderOpen, MessageSquarePlus, Search, X, Pencil } from 'lucide-react'
@@ -28,7 +28,7 @@ interface Row {
 
 const STATUS_LABEL: Record<GitStatusCode, string> = { M: 'Modified', A: 'Added', D: 'Deleted', '?': 'Untracked', U: 'Conflicted' }
 const expandedByRoot = new Map<string, Set<string>>()
-/** File aperto nel viewer per cartella: resta quando cambi scheda e torni. */
+/** File open in the viewer per folder: it stays when you switch tabs and come back. */
 const openByRoot = new Map<string, { path: string; line: number | null; nonce: number } | null>()
 let handledNonce = 0
 
@@ -67,7 +67,7 @@ function flatten(node: TreeNode, expanded: Set<string>, depth = 0, out: Row[] = 
   return out
 }
 
-/** Ultimo turno che ha toccato ogni file, numerato come nella chat. */
+/** Last turn that touched each file, numbered as in the chat. */
 function touchedByTurn(items: ChatItem[]): Map<string, number> {
   const map = new Map<string, number>()
   let index = 0
@@ -108,7 +108,7 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
   const scroller = useRef<HTMLDivElement>(null)
   const filterInput = useRef<HTMLInputElement>(null)
 
-  // "Cerca nel progetto" (scorciatoia o palette): il focus va sul filtro, con il testo già scritto selezionato.
+  // "Search in project" (shortcut or palette): focus goes to the filter, with the text already typed selected.
   const focusRequest = useApp((s) => (s.filesFilterFocus?.projectId === projectId ? s.filesFilterFocus : null))
   useEffect(() => {
     if (!focusRequest || error) return
@@ -138,7 +138,7 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
     }
   }, [root, version])
 
-  // Richiesta dall'esterno (chip nella chat, ⌘P, diff): apre il file e le sue cartelle.
+  // External request (chip in the chat, ⌘P, diff): opens the file and its folders.
   useEffect(() => {
     if (!openRequest || openRequest.tab !== 'files' || !openRequest.path || openRequest.nonce <= handledNonce) return
     handledNonce = openRequest.nonce
@@ -188,7 +188,7 @@ export function FilesPanel({ projectId, root, items, composerKey, request: openR
 
   const virtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => 24, overscan: 12 })
 
-  // Il file aperto da fuori scorre in vista nell'albero.
+  // The file opened from outside scrolls into view in the tree.
   useEffect(() => {
     if (!open) return
     const index = rows.findIndex((r) => r.node.path === open.path)
@@ -306,7 +306,7 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
   const [selection, setSelection] = useState<{ from: number; to: number; text: string } | null>(null)
   const insert = useApp((s) => s.insertIntoComposer)
   const scroller = useRef<HTMLDivElement>(null)
-  // SVG: disegnato come immagine, o il suo codice (se la richiesta chiede una riga si parte dal codice).
+  // SVG: drawn as an image, or its code (if the request asks for a line we start from the code).
   const [svgView, setSvgView] = useState<'preview' | 'code'>(line ? 'code' : 'preview')
   const editorName = EDITOR_NAME[useEditorOf(projectId)]
 
@@ -327,7 +327,7 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
 
   const lines = useMemo(() => {
     const all = (content?.text ?? '').split('\n')
-    // L'a capo finale non è una riga in più.
+    // The trailing newline is not an extra line.
     if (all.length > 1 && all[all.length - 1] === '') all.pop()
     return all
   }, [content?.text])
@@ -339,7 +339,7 @@ function FileViewer({ projectId, root, path, line, lineNonce, version, composerK
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineNonce, content?.text != null])
 
-  // Selezione nel viewer: righe di inizio e fine dagli attributi data-line.
+  // Selection in the viewer: start and end lines from the data-line attributes.
   const onMouseUp = () => {
     const sel = window.getSelection()
     const text = sel?.toString() ?? ''

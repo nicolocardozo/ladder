@@ -1,5 +1,5 @@
-// Host finto per "Altri agenti" (LAD-79): risponde ai comandi agents.others* come farebbe l'host vero e manda `agent.connection`
-// quando lo stato cambia, così la riga passa da "Needs sign-in" a "Connected" senza riaprire le Impostazioni.
+// Fake host for "Other agents": answers agents.others* commands as the real host would and sends `agent.connection`
+// when the state changes, so the row goes from "Needs sign-in" to "Connected" without reopening Settings.
 import type { HostCommand, OtherAgentConnection, TerminalInfo } from '@shared/protocol'
 import { useApp } from '@/store/app-store'
 import { emitPreviewEvent, registerPreviewHandler } from './shortcuts-preview'
@@ -27,7 +27,7 @@ const base = (id: string, name: string, patch: Partial<OtherAgentConnection>): O
   ...patch
 })
 
-/** Elenco di prova: uno collegato (senza comando di uscita), uno che chiede l'accesso con comando, uno senza comando di accesso, uno non provato; più uno non installato, che l'elenco non mostra. */
+/** Test list: one connected (without a sign-out command), one that asks for sign-in with a command, one without a sign-in command, one not probed; plus one not installed, which the list does not show. */
 export function previewOtherAgents(): OtherAgentConnection[] {
   return [
     base('gemini', 'Gemini CLI', { version: '0.12.1', auth: 'connected', checkedAt: Date.now() - 60_000, logoutHelp: 'Delete ~/.gemini/oauth_creds.json to sign out.' }),
@@ -38,7 +38,7 @@ export function previewOtherAgents(): OtherAgentConnection[] {
   ]
 }
 
-/** Come l'host: le righe e i terminali di un accesso in corso. */
+/** Like the host: the rows and terminals of a sign-in in progress. */
 export function installOthersPreview(): void {
   if (installed) return
   installed = true
@@ -64,7 +64,7 @@ export function installOthersPreview(): void {
     createdAt: Date.now(),
     port: null
   })
-  /** Il processo del terminale esce: l'host ripete la prova e la riga prende l'esito. */
+  /** The terminal process exits: the host repeats the probe and the row takes the result. */
   const finish = (id: string, terminal: TerminalInfo, auth: OtherAgentConnection['auth']) => {
     later(2500, () => {
       emitPreviewEvent({ type: 'terminal.upsert', terminal: { ...terminal, state: 'exited', exitCode: 0 } })
@@ -81,7 +81,7 @@ export function installOthersPreview(): void {
         const row = rows.find((r) => r.id === command.id)
         if (!row) return { ok: false, error: 'Unknown agent.' }
         publish(row.id, { probing: true })
-        // Una CLI mai provata risponde che chiede l'accesso.
+        // A CLI never probed answers that it requires sign-in.
         later(800, () => publish(row.id, { probing: false, auth: row.auth === 'unknown' ? 'needs-login' : row.auth, checkedAt: Date.now() }))
         return { ok: true, data: { ...row, probing: true } }
       }
@@ -99,7 +99,7 @@ export function installOthersPreview(): void {
         return { ok: true, data: terminal }
       }
       case 'agents.usage': {
-        // Lo stato dello store com'è: la riga dei limiti si legge senza errori.
+        // The store state as it is: the limits row reads without errors.
         const status = useApp.getState().agents.find((a) => a.agent === command.agent) ?? null
         return { ok: true, data: status ? { ...status, usageAt: Date.now() } : null }
       }

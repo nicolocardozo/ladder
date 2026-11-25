@@ -1,4 +1,4 @@
-// Messaggi in coda sopra il composer: un clic li rende modificabili, × li toglie.
+// Queued messages above the composer: a click makes them editable, × removes them.
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Clock, Image as ImageIcon, X } from 'lucide-react'
 import type { QueuedMessage } from '@shared/protocol'
@@ -8,15 +8,15 @@ import { isSendKey, sendKeyCombos, useSendKey } from '@/lib/send-key'
 interface QueueListProps {
   queue: QueuedMessage[]
   onQueueChange?: (queue: QueuedMessage[]) => void
-  /** L'agente accetta messaggi dentro il turno: solo allora compare "Send into turn". */
+  /** The agent accepts messages inside the turn: only then "Send into turn" appears. */
   canSteer?: boolean
-  /** Consegna il messaggio adesso: nel turno in corso ('steer') o interrompendolo ('now'). */
+  /** Delivers the message now: into the running turn ('steer') or interrupting it ('now'). */
   onDeliver?: (id: string, how: 'steer' | 'now') => void
-  /** Perché aspetta: "3 agents working". */
+  /** Why it is waiting: "3 agents working". */
   reason?: string | null
-  /** Falso a sessione ferma: i messaggi non partono da soli, serve un nuovo invio. */
+  /** False when the session is stopped: messages don't start on their own, a new send is needed. */
   working?: boolean
-  /** Dopo ↵ o Esc il focus torna al composer. */
+  /** After ↵ or Esc focus returns to the composer. */
   onEditEnd?: () => void
 }
 
@@ -28,7 +28,7 @@ const deliverButton =
 
 export function QueueList({ queue, onQueueChange, canSteer = false, onDeliver, reason, working = true, onEditEnd }: QueueListProps) {
   const [editing, setEditing] = useState<string | null>(null)
-  // Il messaggio può partire mentre lo si modifica: si salva solo se è ancora in coda.
+  // The message may start while it is being edited: it is saved only if it is still queued.
   const latest = useRef(queue)
   latest.current = queue
 

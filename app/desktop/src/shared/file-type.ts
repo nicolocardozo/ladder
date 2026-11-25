@@ -1,5 +1,5 @@
-// Tipo reale dei file per l'anteprima (LAD-70): riconoscimento dai primi byte, dimensioni delle immagini e URL ladder-file.
-// Codice puro (niente node): lo usano il main (che serve i file) e l'host (che descrive i file alla UI).
+// Real file type for previews: detection from the first bytes, image dimensions and ladder-file URLs.
+// Pure code (no node): used by main (which serves the files) and the host (which describes the files to the UI).
 
 export type FileKind = 'image' | 'svg' | 'pdf' | 'audio' | 'video' | 'other'
 
@@ -8,16 +8,16 @@ export interface SniffedType {
   kind: FileKind
 }
 
-/** Schema del protocollo che serve i file dentro Ladder: `ladder-file://<id-root>/<percorso>[?rev=<rev>]`. */
+/** Scheme of the protocol that serves files inside Ladder: `ladder-file://<id-root>/<path>[?rev=<rev>]`. */
 export const FILE_SCHEME = 'ladder-file'
-/** Quanti byte servono per riconoscere un file e leggerne le dimensioni. */
+/** How many bytes are needed to recognize a file and read its dimensions. */
 export const SNIFF_BYTES = 64 * 1024
 
-/** Revisioni servibili: HEAD o uno sha completo (i checkpoint e i commit dell'host lo sono sempre). Mai altro, mai argomenti di git. */
+/** Servable revisions: HEAD or a full sha (the host's checkpoints and commits always are). Nothing else, never git arguments. */
 export const REV_PATTERN = /^(?:HEAD|[0-9a-f]{40}|[0-9a-f]{64})$/
 export const isKnownRev = (value: unknown): value is string => typeof value === 'string' && REV_PATTERN.test(value)
 
-/** URL ladder-file per un file di una root nota; `rev` serve la versione di git invece di quella su disco. */
+/** ladder-file URL for a file in a known root; `rev` serves the git version instead of the one on disk. */
 export function fileUrl(rootId: string, path: string, rev?: string | null): string {
   const encoded = path.split('/').map(encodeURIComponent).join('/')
   return `${FILE_SCHEME}://${rootId}/${encoded}${rev ? `?rev=${rev}` : ''}`
@@ -40,7 +40,7 @@ const extOf = (name: string): string => {
 
 const image = (mime: string): SniffedType => ({ mime, kind: 'image' })
 
-/** Estensioni di file di testo (codice, markup, dati): per questi una firma debole nei primi byte non basta a farli passare per binari. */
+/** Text file extensions (code, markup, data): for these a weak signature in the first bytes is not enough to pass them off as binary. */
 const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'markdown', 'mdx', 'rst', 'adoc', 'org', 'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'json5', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf',
   'env', 'csv', 'tsv', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'php',
@@ -48,18 +48,18 @@ const TEXT_EXTENSIONS = new Set([
 ])
 export const isTextExtension = (name: string): boolean => TEXT_EXTENSIONS.has(extOf(name))
 
-/** NUL nei primi 8000 byte: la stessa regola con cui git e l'host distinguono i file binari dal testo. */
+/** NUL in the first 8000 bytes: the same rule git and the host use to tell binary files from text. */
 const hasNul = (head: Uint8Array): boolean => head.subarray(0, 8000).includes(0)
 
 /**
- * Firma "debole": byte ASCII che anche un file di testo può avere all'inizio (`GIF89a`, `ID3`, `OggS`). Vale solo se l'estensione è
- * quella del formato, oppure l'estensione non è di testo e il contenuto è binario (NUL).
+ * "Weak" signature: ASCII bytes that a text file can also have at the start (`GIF89a`, `ID3`, `OggS`). It counts only if the extension is
+ * that of the format, or the extension is not a text one and the content is binary (NUL).
  */
 const weakSignature = (head: Uint8Array, ext: string, exts: readonly string[]): boolean => exts.includes(ext) || (!TEXT_EXTENSIONS.has(ext) && hasNul(head))
 
 /**
- * Tipo reale dal contenuto. Il nome conta solo dove i byte non bastano (bmp, ico, svg, mp3 senza ID3, m4a/mp4).
- * null = fuori whitelist: va servito come `application/octet-stream` da scaricare.
+ * Real type from the content. The name matters only where the bytes aren't enough (bmp, ico, svg, mp3 without ID3, m4a/mp4).
+ * null = outside the whitelist: it must be served as `application/octet-stream` to download.
  */
 export function sniffType(head: Uint8Array, name: string): SniffedType | null {
   const ext = extOf(name)
@@ -75,21 +75,21 @@ export function sniffType(head: Uint8Array, name: string): SniffedType | null {
     if (brand === 'avif' || brand === 'avis') return image('image/avif')
     if (brand === 'qt  ') return { mime: 'video/quicktime', kind: 'video' }
     if (brand === 'M4A ' || brand === 'M4B ' || (ext === 'm4a' && !/^(hei|mif|msf)/.test(brand))) return { mime: 'audio/mp4', kind: 'audio' }
-    // Altri formati HEIF (heic, mif1…) non sono video.
+    // Other HEIF formats (heic, mif1…) are not video.
     if (/^(hei|hev|mif|msf)/.test(brand)) return null
     return { mime: 'video/mp4', kind: 'video' }
   }
   if (ascii(head, 0, 'OggS') && weakSignature(head, ext, ['ogg', 'oga', 'ogv', 'opus', 'spx'])) return ext === 'ogv' ? { mime: 'video/ogg', kind: 'video' } : { mime: 'audio/ogg', kind: 'audio' }
   if (head.length >= 4 && head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) {
-    // Matroska e WebM condividono l'intestazione: il DocType dice quale.
+    // Matroska and WebM share the header: the DocType says which.
     const doc = latin1(head.subarray(0, 64))
     if (!doc.includes('webm')) return null
     return ext === 'weba' ? { mime: 'audio/webm', kind: 'audio' } : { mime: 'video/webm', kind: 'video' }
   }
   if (ascii(head, 0, 'ID3') && weakSignature(head, ext, ['mp3', 'mpga'])) return { mime: 'audio/mpeg', kind: 'audio' }
   if (head.length >= 2 && head[0] === 0xff && (head[1] & 0xe0) === 0xe0 && ext === 'mp3') return { mime: 'audio/mpeg', kind: 'audio' }
-  // %PDF- all'inizio del file; con estensione .pdf il visore accetta anche l'intestazione entro i primi 1024 byte (byte prima del %PDF-).
-  // Un file di testo che cita "%PDF-1.7" (un .md, un .ts) non è un PDF: con estensione di testo non conta nemmeno all'inizio.
+  // %PDF- at the start of the file; with a .pdf extension the viewer also accepts the header within the first 1024 bytes (bytes before the %PDF-).
+  // A text file that mentions "%PDF-1.7" (a .md, a .ts) is not a PDF: with a text extension it doesn't count even at the start.
   if (ascii(head, 0, '%PDF-') ? !TEXT_EXTENSIONS.has(ext) : ext === 'pdf' && latin1(head.subarray(0, 1024)).includes('%PDF-')) return { mime: 'application/pdf', kind: 'pdf' }
   if (ext === 'svg') {
     const text = new TextDecoder('utf-8').decode(head.subarray(0, 4096))
@@ -104,7 +104,7 @@ function latin1(bytes: Uint8Array): string {
   return out
 }
 
-/** Dimensioni in pixel dall'intestazione (png, jpg, gif, webp, bmp, ico); null se non si leggono nei byte dati (es. avif). */
+/** Pixel dimensions from the header (png, jpg, gif, webp, bmp, ico); null if they can't be read in the given bytes (e.g. avif). */
 export function imageSize(head: Uint8Array, mime: string): { width: number; height: number } | null {
   const size = (width: number, height: number) => (width > 0 && height > 0 ? { width, height } : null)
   switch (mime) {
@@ -131,7 +131,7 @@ export function imageSize(head: Uint8Array, mime: string): { width: number; heig
           i++
           continue
         }
-        // Marcatori senza lunghezza.
+        // Markers without a length.
         if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
           i += 2
           continue

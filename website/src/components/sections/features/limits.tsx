@@ -13,7 +13,7 @@ const GROUPS = [
 ]
 const START = [[58, 31], [22, 47]]
 
-// Barre che salgono mentre gli agenti consumano il piano; ambra sopra l'80%
+// Bars that rise while the agents consume the plan; amber above 80%
 export function LimitsViz() {
   const ref = useRef<HTMLDivElement>(null)
   const active = useActive(ref)

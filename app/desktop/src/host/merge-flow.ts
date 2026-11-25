@@ -1,19 +1,19 @@
-// Avanzamento del pannello merge (LAD-69): Commit → Pubblica/Push → Crea PR → Merge → Archivia. Funzioni pure, senza I/O:
-// l'host le calcola in un punto solo (merge.info) e il chip dell'intestazione e il pannello non possono divergere.
+// Progress of the merge panel: Commit → Publish/Push → Create PR → Merge → Archive. Pure functions, no I/O:
+// the host computes them in a single place (merge.info) so the header chip and the panel cannot diverge.
 import type { MergeBlock, MergeCheck, NextAction, PrStatus } from '@shared/protocol'
 
 export interface MergeBlockFacts {
   pr: PrStatus | null
   checks: MergeCheck[]
-  /** `mergeStateStatus` di GitHub, o null. */
+  /** GitHub's `mergeStateStatus`, or null. */
   mergeState: string | null
-  /** File in conflitto con la base calcolati in locale (merge-tree). */
+  /** Files in conflict with the base, computed locally (merge-tree). */
   conflicts: string[]
 }
 
 /**
- * Perché la PR non si può unire, in ordine di priorità. Vuoto se non c'è una PR aperta.
- * `blocked` (regole del repo che non sappiamo spiegare) c'è solo se nessun altro blocco lo spiega: il motivo lo dà gh.
+ * Why the PR cannot be merged, in priority order. Empty if there is no open PR.
+ * `blocked` (repo rules we cannot explain) is present only if no other block explains it: gh gives the reason.
  */
 export function mergeBlocks(f: MergeBlockFacts): MergeBlock[] {
   const pr = f.pr
@@ -33,21 +33,21 @@ export function mergeBlocks(f: MergeBlockFacts): MergeBlock[] {
 }
 
 export interface NextActionFacts {
-  /** null = HEAD staccato. */
+  /** null = detached HEAD. */
   branch: string | null
   isDefaultBranch: boolean
   isWorktree: boolean
   dirty: number
-  /** Commit del branch rispetto alla base. */
+  /** Branch commits relative to the base. */
   ahead: number
-  /** Commit non inviati all'upstream; null se non c'è upstream. */
+  /** Commits not sent to the upstream; null if there is no upstream. */
   unpushed: number | null
   behindUpstream: number
   hasUpstream: boolean
   hasRemote: boolean
   gh: 'ok' | 'missing' | 'unauthenticated' | 'no-remote' | 'error'
   pr: PrStatus | null
-  /** Se la PR è unita: il branch locale è tutto dentro la PR (HEAD è la testa della PR o un suo antenato). Falso = commit nuovi dopo il merge. */
+  /** If the PR is merged: the local branch is entirely inside the PR (HEAD is the PR's head or one of its ancestors). False = new commits after the merge. */
   prMergedCoversHead: boolean
   blocks: MergeBlock[]
   agentBusy: boolean
@@ -57,18 +57,18 @@ const go = (kind: NextAction['kind'], blocked = false, reason: NextAction['reaso
 const none = (reason: NonNullable<NextAction['reason']>): NextAction => go('none', true, reason)
 
 /**
- * Tabella di verità, in ordine (vince la prima riga che combacia):
- *  1. HEAD staccato                                           → none (detached)
- *  2. PR unita e il branch è tutto dentro                     → archive; disabilitato se (worktree) dirty>0 → dirty, unpushed>0 → unpushed, agente al lavoro → agent_busy
+ * Truth table, in order (the first matching row wins):
+ *  1. detached HEAD                                           → none (detached)
+ *  2. PR merged and the branch is entirely inside             → archive; disabled if (worktree) dirty>0 → dirty, unpushed>0 → unpushed, agent working → agent_busy
  *  3. dirty > 0                                               → commit
- *  4. branch predefinito: unpushed>0 → push (come 6); altrimenti → none (default_branch)
- *  5. senza upstream con commit sulla base (ahead>0): remote → publish (disabilitato se agente al lavoro); nessun remote → none (no_remote)
- *  6. unpushed>0                                              → push; disabilitato se behindUpstream>0 → behind_upstream, agente al lavoro → agent_busy
- *  7. nessun commit sulla base e nessuna PR aperta            → none (no_commits)
- *  8. gh non pronto                                           → none (github_missing | github_unauthenticated | no_github_remote | github_error)
- *  9. nessuna PR aperta (assente, chiusa o unita con commit nuovi) → create_pr (reason pr_closed se l'ultima PR è chiusa o unita)
- * 10. PR aperta o bozza                                       → merge; disabilitato se blocks non è vuoto (reason = il primo) o agente al lavoro (agent_busy)
- * Un branch senza upstream e senza commit sulla base (ahead=0) non ha niente da pubblicare: passa alla riga 7.
+ *  4. default branch: unpushed>0 → push (as 6); otherwise → none (default_branch)
+ *  5. no upstream with commits on the base (ahead>0): remote → publish (disabled if agent working); no remote → none (no_remote)
+ *  6. unpushed>0                                              → push; disabled if behindUpstream>0 → behind_upstream, agent working → agent_busy
+ *  7. no commits on the base and no open PR                   → none (no_commits)
+ *  8. gh not ready                                            → none (github_missing | github_unauthenticated | no_github_remote | github_error)
+ *  9. no open PR (missing, closed or merged with new commits) → create_pr (reason pr_closed if the last PR is closed or merged)
+ * 10. open or draft PR                                        → merge; disabled if blocks is not empty (reason = the first) or agent working (agent_busy)
+ * A branch with no upstream and no commits on the base (ahead=0) has nothing to publish: it falls to row 7.
  */
 export function nextAction(f: NextActionFacts): NextAction {
   if (f.branch === null) return none('detached')

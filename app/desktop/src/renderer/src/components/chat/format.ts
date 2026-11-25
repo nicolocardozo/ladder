@@ -1,4 +1,4 @@
-// Testi brevi della chat: durate, conteggi, percorsi.
+// Short chat strings: durations, counts, paths.
 import { localeTag, plural, t } from '@shared/i18n'
 import type { TurnEndItem } from './turns'
 
@@ -13,7 +13,7 @@ export function formatDuration(ms: number): string {
   return s > 0 ? t('{m}m {s}s', { m, s }) : t('{m}m', { m })
 }
 
-/** Durata breve per le righe degli strumenti: 0,4 s · 12 s · 2 min */
+/** Short duration for tool rows: 0.4 s · 12 s · 2 min */
 export function formatShortDuration(ms: number): string {
   if (ms < 1000) {
     const s = (ms / 1000).toLocaleString(localeTag(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -23,7 +23,7 @@ export function formatShortDuration(ms: number): string {
   return formatDuration(ms)
 }
 
-/** da 3 min · da 40 s · da 1 h */
+/** for 3 min · for 40 s · for 1 h */
 export function formatSince(at: number, now: number): string {
   const s = Math.max(0, Math.round((now - at) / 1000))
   if (s < 60) return t('{n}s ago', { n: Math.max(1, s) })
@@ -31,7 +31,7 @@ export function formatSince(at: number, now: number): string {
   return t('{n}h ago', { n: Math.floor(s / 3600) })
 }
 
-/** "Ha lavorato per 2 min 41 s · 6 comandi · 3 file modificati" */
+/** "Worked for 2 min 41 s · 6 commands · 3 files changed" */
 export function turnSummary(end: TurnEndItem): string {
   const parts = [t('Worked for {duration}', { duration: formatDuration(end.durationMs) })]
   const { commands, edits, reads, searches } = end.counts
@@ -59,7 +59,7 @@ const KNOWN_EXT = new Set(
   ).split(' ')
 )
 
-// Espressioni comuni che sembrano nomi di file: `console.log`, `res.json`, `process.env`.
+// Common expressions that look like file names: `console.log`, `res.json`, `process.env`.
 const NOT_FILE_STEMS = new Set(
   'console process window document res req response request module exports json math object array this self globalthis navigator location'.split(' ')
 )
@@ -70,8 +70,8 @@ export interface FileRef {
 }
 
 /**
- * Riconosce un riferimento a file nel codice inline: ha una barra o un'estensione nota,
- * con riga facoltativa (`src/app.ts:42`, `http.ts:41:7`, `package.json`).
+ * Recognizes a file reference in inline code: it has a slash or a known extension,
+ * with an optional line (`src/app.ts:42`, `http.ts:41:7`, `package.json`).
  */
 export function parseFileRef(text: string): FileRef | null {
   const value = text.trim()
@@ -89,8 +89,8 @@ export function parseFileRef(text: string): FileRef | null {
   if (path.includes('/')) {
     if (ext && !/^[a-z][a-z0-9]{0,9}$/i.test(ext)) return null
     if (!ext && !isDotfile) {
-      // Senza estensione servono almeno due livelli o la barra finale: `feat/login` è un branch,
-      // `/auth/refresh` una rotta, `src/features/payments/` una cartella.
+      // Without an extension we need at least two levels or a trailing slash: `feat/login` is a branch,
+      // `/auth/refresh` a route, `src/features/payments/` a folder.
       const slashes = path.split('/').length - 1
       if (path.startsWith('/') || (slashes < 2 && !path.endsWith('/'))) return null
     }
@@ -103,14 +103,14 @@ export function parseFileRef(text: string): FileRef | null {
   return { path, line }
 }
 
-/** Link relativi del tipo `[app.ts](src/app.ts#L42)` che l'agente usa per citare i file. */
+/** Relative links like `[app.ts](src/app.ts#L42)` that the agent uses to cite files. */
 export function parseFileHref(href: string): FileRef | null {
   if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('#') || href.startsWith('//')) return null
   let value = href
   try {
     value = decodeURI(href)
   } catch {
-    // Lasciamo il valore originale se la codifica non è valida.
+    // Keep the original value if the encoding is invalid.
   }
   const hash = /#L(\d+)(?:-L?\d+)?$/.exec(value)
   if (hash) {

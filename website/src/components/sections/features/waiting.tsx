@@ -18,7 +18,7 @@ const REQ: [string, string][] = [
 type Item = { id: number; p: string; t: string }
 const initial: Item[] = REQ.slice(0, 4).map(([p, t], i) => ({ id: i, p, t }))
 
-// Le richieste si approvano una alla volta ed escono; ne arriva una nuova in fondo
+// Requests are approved one at a time and leave; a new one arrives at the bottom
 export function WaitingViz() {
   const ref = useRef<HTMLDivElement>(null)
   const active = useActive(ref)
@@ -26,7 +26,7 @@ export function WaitingViz() {
   const [stageRaw, setStage] = useState<"idle" | "ok" | "out">("idle")
   const [entering, setEntering] = useState<number | null>(null)
   const next = useRef(4)
-  // Fuori schermo o con movimento ridotto: lista iniziale, senza stati intermedi
+  // Off screen or with reduced motion: initial list, no intermediate states
   const items = active ? itemsRaw : initial
   const stage = active ? stageRaw : "idle"
 

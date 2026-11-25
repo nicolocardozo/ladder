@@ -1,4 +1,4 @@
-// Posizione di un carattere dentro una textarea, misurata con un div specchio che ne copia lo stile.
+// Position of a character inside a textarea, measured with a mirror div that copies its style.
 const COPIED = [
   'direction',
   'boxSizing',
@@ -29,7 +29,7 @@ const COPIED = [
   'overflowWrap'
 ] as const
 
-/** Coordinate del carattere in `position`, relative al bordo esterno della textarea e già al netto dello scroll. */
+/** Coordinates of the character at `position`, relative to the textarea's outer edge and already net of scroll. */
 export function caretCoordinates(el: HTMLTextAreaElement, position: number): { top: number; left: number; height: number } {
   const computed = window.getComputedStyle(el)
   const mirror = document.createElement('div')

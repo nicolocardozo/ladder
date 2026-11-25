@@ -1,5 +1,5 @@
-// Profili degli agenti (LAD-23) dentro Impostazioni → Abbonamenti: riga di un profilo con menu (rinomina, rimuovi), limiti d'uso
-// a scomparsa e "Add account". Il login resta la ConnectionRow di sempre: qui ci sono solo gli attacchi.
+// Agent profiles inside Settings → Subscriptions: a profile row with menu (rename, remove), collapsible usage limits
+// and "Add account". Login stays the usual ConnectionRow: only the hooks are here.
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, Loader2, Plus, RotateCw, TriangleAlert } from 'lucide-react'
 import type { ConnectionStatus, Profile, ProfileAgent } from '@shared/protocol'
@@ -14,26 +14,26 @@ import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 import { ConnectionRow } from './connection-row'
 
-/** I messaggi dell'host sono già tradotti; se manca, un testo generico. */
+/** Host messages are already translated; if missing, a generic text. */
 function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : t('Something went wrong. Try again.')
 }
 
 /**
- * Limiti d'uso del profilo, già aperti: le finestre da 5 ore e settimanale con le barre compatte di sempre (`UsageRow`).
- * Si leggono all'apertura (se il dato è vecchio si rinnovano), come nel pannello del composer.
+ * Usage limits of the profile, already open: the 5-hour and weekly windows with the usual compact bars (`UsageRow`).
+ * They are read on open (refreshed if the data is old), as in the composer panel.
  */
 function ProfileUsage({ agent, profile }: { agent: ProfileAgent; profile: Profile }) {
   const { status, loading, failed, now, native, windows, refresh, opened } = useUsage(agent, profile.id)
   useEffect(() => {
     opened()
-    // Solo all'apertura della riga: `opened` cambia a ogni render.
+    // Only when the row opens: `opened` changes on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  // Le finestre del piano (5 ore, settimanale), non quelle per modello: le altre restano nel pannello del composer.
+  // The plan windows (5 hours, weekly), not the per-model ones: the others stay in the composer panel.
   const plan = windows.filter((w) => !w.model)
   const shown = (plan.length ? plan : windows).slice().sort((a, b) => a.minutes - b.minutes).slice(0, 2)
-  // Come nel pannello del composer: sessioni in corso con questo account e segno d'avviso (forma oltre al colore).
+  // As in the composer panel: running sessions with this account and a warning mark (shape as well as color).
   const running = useApp((s) => runningSessionsOn(Object.values(s.sessions), agent, profile.id))
   const alert = usageAlert(windows)
   const alertText = alert ? usageAlertText(alert, now) : null
@@ -65,7 +65,7 @@ function ProfileUsage({ agent, profile }: { agent: ProfileAgent; profile: Profil
   )
 }
 
-/** Una riga di collegamento per un profilo: nome (con campo di rinomina), limiti d'uso e menu. Il predefinito non si rimuove né si rinomina. */
+/** A connection row for a profile: name (with rename field), usage limits and menu. The default one can't be removed or renamed. */
 export function ProfileRow({ agent, profile, count, status, actions, showTool }: { agent: ProfileAgent; profile: Profile; count: number; status: ConnectionStatus | null; actions: ConnectionActions; showTool?: boolean }) {
   const [mode, setMode] = useState<'idle' | 'rename' | 'remove'>('idle')
   const [value, setValue] = useState(profile.name)
@@ -240,12 +240,12 @@ export function ProfileRow({ agent, profile, count, status, actions, showTool }:
   )
 }
 
-/** Lo spazio del "⋮" nelle righe che non lo hanno: i bottoni restano incolonnati. */
+/** The space of the "⋮" in rows that don't have it: buttons stay aligned in columns. */
 export function TrailingSpace() {
   return <span aria-hidden className="size-7 shrink-0" />
 }
 
-/** "Add account" sotto le righe di un agente: un campo per il nome, inline. Alla creazione il focus va al "Sign in" del nuovo profilo. */
+/** "Add account" below an agent's rows: a name field, inline. On creation focus goes to the new profile's "Sign in". */
 export function AddProfile({ agent, actions, onCreated }: { agent: ProfileAgent; actions: ConnectionActions; onCreated: (profile: Profile) => void }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import { Panel, PanelHead } from "./panel"
 import { useActive } from "./use-active"
 
-// Voci scaricabili come binario (dati di esempio): descrizioni e testi come nel catalogo dell'app
+// Downloadable binary entries (sample data): descriptions and texts as in the app's catalog
 const C = [
   { a: "goose", n: "goose", d: "Block’s extensible local agent, with tools through MCP.", v: "1.12.1", h: "github.com/block", z: "61.0 MiB", from: "The ACP registry", sha: "c03e9a7f12b4d6850e2f1a3b9c7d4e5061f8a2b3c4d5e6f708192a3b4c5d6e7f8" },
   { a: "opencode", n: "OpenCode", d: "Open-source coding agent that works with many model providers.", v: "1.4.0", h: "github.com/sst", z: "12.1 MiB", from: "The GitHub release", sha: "4b7d1e09a3f2c8650de1b97a24f3c06e5d8b1a92f07c34e6b5d2a18c90f4e7b2" },
@@ -15,10 +15,10 @@ const C = [
 ]
 
 type Phase = { cur: number; k: number; label: string; ok: boolean; added: number[] }
-// Stato statico completo: Gemini CLI verificato e aggiunto
+// Complete static state: Gemini CLI verified and added
 const STATIC: Phase = { cur: 0, k: 64, label: "Added", ok: true, added: [0] }
 
-// Righe Install/Added e sha256 verificato carattere per carattere
+// Install/Added rows and sha256 verified character by character
 export function CatalogViz() {
   const ref = useRef<HTMLDivElement>(null)
   const active = useActive(ref)

@@ -1,10 +1,10 @@
-// Divisore sul bordo destro della sidebar (LAD-75). Ha uno stato suo: cambiare larghezza non ridisegna la sidebar.
+// Divider on the right edge of the sidebar. It has its own state: changing width does not redraw the sidebar.
 import { useState } from 'react'
 import { t } from '@shared/i18n'
 import { ResizeHandle } from '@/components/resize-handle'
 import { applySidebarWidth, clamp, MIN_CONTENT_WIDTH, readSidebarWidth, SIDEBAR_WIDTH, writeSize } from '@/lib/panel-size'
 
-/** Larghezza applicata ora (la variabile CSS che usa la sidebar, anche a metà gesto): non dipende dalla scrittura in localStorage. */
+/** Width applied right now (the CSS variable the sidebar uses, even mid-gesture): independent of the localStorage write. */
 const currentWidth = () => {
   const value = parseFloat(document.documentElement.style.getPropertyValue('--sidebar-w'))
   return Number.isFinite(value) ? value : readSidebarWidth()

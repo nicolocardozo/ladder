@@ -1,12 +1,12 @@
-// Contesto stabile della chat: callback e stato aperto/chiuso delle sezioni.
-// Lo stato vive fuori dalle righe perché la virtualizzazione le smonta e rimonta mentre scorri.
+// Stable chat context: callbacks and open/closed state of the sections.
+// The state lives outside the rows because virtualization unmounts and remounts them as you scroll.
 import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RequestResponse } from '@shared/protocol'
 
 export interface ToggleStore {
   has: (key: string) => boolean
   set: (key: string, open: boolean) => void
-  /** Chiude tutte le sezioni le cui chiavi iniziano con uno dei prefissi. */
+  /** Closes all sections whose keys start with one of the prefixes. */
   closeAll: (prefixes: string[]) => void
   subscribe: (key: string, listener: () => void) => () => void
 }
@@ -44,24 +44,24 @@ export function createToggleStore(): ToggleStore {
 }
 
 export interface ChatActions {
-  /** Clic: viewer nell'ispettore alla riga. ⌥clic (`external`): editor esterno. */
+  /** Click: viewer in the inspector at the line. ⌥click (`external`): external editor. */
   openFile: (path: string, line?: number, external?: boolean) => void
-  /** Pannello Modifiche sul diff di un turno, eventualmente su un file. */
+  /** Changes panel on the diff of a turn, optionally on a file. */
   openDiff: (turnId: string, path?: string) => void
   respond: (requestId: string, response: RequestResponse) => void
-  /** Vero quando il focus è nella chat o da nessuna parte: le card possono prenderlo. */
+  /** True when focus is in the chat or nowhere: cards may take it. */
   canTakeFocus: () => boolean
   toggles: ToggleStore
-  /** "In attesa" mostra le card fuori dalla chat: le modifiche lunghe hanno solo "Apri". */
+  /** "Pending" shows the cards outside the chat: long changes only have "Open". */
   surface?: 'chat' | 'inbox'
-  /** Colonna stretta (sotto circa 420 px): margini ridotti e card degli strumenti chiuse. */
+  /** Narrow column (below about 420 px): reduced margins and tool cards closed. */
   compact?: boolean
   openSession?: () => void
-  /** "Continue" sulla riga dei sotto-agenti finiti: manda session.continue. Rifiuta con il messaggio dell'host. */
+  /** "Continue" on the row of finished subagents: sends session.continue. Rejects with the host's message. */
   continueSession?: (itemId: string) => Promise<unknown>
-  /** Mette il testo nel composer senza inviarlo. */
+  /** Puts the text in the composer without sending it. */
   prefill?: (text: string) => void
-  /** Sessione della chat: serve alle righe dei sotto-agenti per trovare i dati e aprire il dettaglio. */
+  /** Chat session: the subagent rows need it to find their data and open the detail. */
   sessionId?: string
 }
 
@@ -79,7 +79,7 @@ export function useChatActions() {
   return useContext(ChatContext)
 }
 
-/** Sezione apribile il cui stato sopravvive allo smontaggio della riga. */
+/** Collapsible section whose state survives the row being unmounted. */
 export function useToggle(key: string) {
   const { toggles } = useContext(ChatContext)
   const subscribe = useCallback((listener: () => void) => toggles.subscribe(key, listener), [toggles, key])
@@ -88,7 +88,7 @@ export function useToggle(key: string) {
   return [open, toggle] as const
 }
 
-/** Ora corrente aggiornata a intervalli: per durate e "da 3 min". */
+/** Current time updated at intervals: for durations and "for 3 min". */
 export function useNow(intervalMs: number, enabled = true) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {

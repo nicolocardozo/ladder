@@ -1,9 +1,9 @@
-// Nome di branch che Ladder accetta di creare e di inviare: comune a host (push, nuovo branch) e UI (campo del nome prima di partire).
+// Branch name that Ladder agrees to create and push: shared by host (push, new branch) and UI (name field before starting).
 
 /**
- * Nome di branch accettato per il push: lettere e cifre Unicode, `. _ / @ + -`, non inizia con `-` o `.`, niente `..`, `@{`, `//`,
- * componenti che iniziano con `.` o finiscono con `.lock`. Più stretto di git (niente spazi, `;`, `~^:?*[\`, controlli, emoji):
- * quello che non passa non si invia da Ladder.
+ * Branch name accepted for push: Unicode letters and digits, `. _ / @ + -`, doesn't start with `-` or `.`, no `..`, `@{`, `//`,
+ * components that start with `.` or end with `.lock`. Stricter than git (no spaces, `;`, `~^:?*[\`, control characters, emoji):
+ * what doesn't pass is not pushed from Ladder.
  */
 export function validBranchName(name: string): boolean {
   if (name.length === 0 || name.length > 255) return false

@@ -1,5 +1,5 @@
-// Canale verso l'host delle sessioni. La porta arriva dal preload con window.postMessage;
-// se l'host si riavvia, ne arriva una nuova e il client si ricollega da solo.
+// Channel to the sessions host. The port arrives from the preload via window.postMessage;
+// if the host restarts, a new one arrives and the client reconnects by itself.
 import type { FromHost, HostCommand, HostEvent } from '@shared/protocol'
 import { t } from '@shared/i18n'
 
@@ -28,7 +28,7 @@ function attach(next: MessagePort): void {
     pending.delete(message.rid)
     if (message.ok) request.resolve(message.data)
     else {
-      // Se l'host unisce un `errorCode` al rifiuto (es. `checksum-conflict` di agents.install) lo si lascia sull'errore; il contratto di oggi porta solo il messaggio.
+      // If the host attaches an `errorCode` to the rejection (e.g. `checksum-conflict` of agents.install) it is left on the error; today's contract carries only the message.
       const errorCode = (message as { errorCode?: string }).errorCode
       request.reject(errorCode ? Object.assign(new Error(message.error), { errorCode }) : new Error(message.error))
     }
@@ -48,14 +48,14 @@ export function onHostEvent(listener: Listener): () => void {
   return () => listeners.delete(listener)
 }
 
-/** Chiamato a ogni (ri)connessione con l'host, anche se la porta è già arrivata. */
+/** Called on every (re)connection with the host, even if the port has already arrived. */
 export function onHostConnect(listener: ConnectListener): () => void {
   connectListeners.add(listener)
   if (port) listener()
   return () => connectListeners.delete(listener)
 }
 
-/** Invia un comando e aspetta la risposta dell'host. */
+/** Sends a command and waits for the host's response. */
 export function request<T = unknown>(command: HostCommand): Promise<T> {
   if (!port) return Promise.reject(new Error(t('Host not connected')))
   const rid = `r${++counter}`
@@ -65,7 +65,7 @@ export function request<T = unknown>(command: HostCommand): Promise<T> {
   })
 }
 
-/** Invia un comando senza aspettare la risposta. */
+/** Sends a command without waiting for the response. */
 export function send(command: HostCommand): void {
   port?.postMessage({ command })
 }

@@ -1,6 +1,6 @@
-// Conferme del pannello "Pronto per il merge" (LAD-69): Push, Merge e Archivia. Ladder li esegue SOLO dopo il pulsante di conferma
-// di questi dialoghi, mai su richiesta dell'agente. Ognuno tiene un solo invio alla volta (`inFlight`), rilascia lo stato in ogni caso
-// e mostra l'errore dell'host senza chiudersi, così non restano stati a metà. Non esiste nessuna opzione di force push.
+// Confirmations of the "Ready to merge" panel: Push, Merge and Archive. Ladder runs them ONLY after the confirm button
+// of these dialogs, never on the agent's request. Each allows a single send at a time (`inFlight`), releases its state in every case
+// and shows the host's error without closing, so nothing is left half done. There is no force push option.
 import { useEffect, useRef, useState } from 'react'
 import { Archive, CloudUpload, GitMerge, TriangleAlert, ArrowUp } from 'lucide-react'
 import type { GitArchiveResult, GitPushPreview, GitPushResult, PrMergeMethod, PrMergeResult, PrStatus, SessionSummary } from '@shared/protocol'
@@ -11,7 +11,7 @@ import { request } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
 import { plural, t } from '@shared/i18n'
 
-/** Errore dell'host: il primo rigo è il motivo, il resto (output di git, di un hook, di gh) va in un blocco a parte che scorre. */
+/** Host error: the first line is the reason, the rest (output from git, a hook, gh) goes in a separate scrolling block. */
 export function HostError({ error }: { error: string }) {
   const [reason, ...rest] = error.split('\n')
   const output = rest.join('\n').trim()
@@ -31,25 +31,25 @@ export function HostError({ error }: { error: string }) {
   )
 }
 
-/** Quanto sta in alto la lista dei commit prima di scorrere. */
+/** How tall the commit list is before it scrolls. */
 const LIST_CLASS = 'max-h-48 overflow-auto rounded-lg border border-border bg-muted/40 p-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
 
-/** Montare solo a dialogo aperto. Chiede l'anteprima (solo git locale), poi invia con `git.push` alla conferma. */
+/** Mount only when the dialog is open. Requests the preview (local git only), then sends with `git.push` on confirmation. */
 export function PushDialog({ session, onClose, onDone }: { session: SessionSummary; onClose: () => void; onDone: () => void }) {
   const [remote, setRemote] = useState<string | undefined>(undefined)
   const [preview, setPreview] = useState<GitPushPreview | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Si rilegge l'anteprima anche dopo un push fallito: HEAD o il remote possono essere cambiati nel frattempo.
+  // The preview is re-read even after a failed push: HEAD or the remote may have changed in the meantime.
   const [reload, setReload] = useState(0)
   const inFlight = useRef(false)
   const latest = useRef(0)
-  // Il focus parte da Annulla: Invio all'apertura non deve confermare.
+  // Focus starts on Cancel: Enter on open must not confirm.
   const cancelRef = useRef<HTMLButtonElement>(null)
 
-  // Anteprima all'apertura e a ogni remote scelto: l'ultima risposta vince. Quella vecchia si butta subito, così il pulsante
-  // non può confermare un push calcolato per un altro remote.
+  // Preview on open and on every chosen remote: the last response wins. The old one is discarded right away, so the button
+  // can't confirm a push computed for another remote.
   useEffect(() => {
     const id = ++latest.current
     setPreview(null)
@@ -60,7 +60,7 @@ export function PushDialog({ session, onClose, onDone }: { session: SessionSumma
   }, [session.id, remote, reload])
 
   const publish = preview?.willPublish === true
-  // L'anteprima deve essere quella del remote che il Select mostra.
+  // The preview must be the one for the remote the Select shows.
   const current = preview !== null && (remote === undefined || preview.remote === remote)
   const canPush = current && !preview.problem && Boolean(preview.remote) && preview.total > 0 && !preview.wouldBeRejected && !busy
   const chooseRemote = preview !== null && preview.upstream === null && preview.remotes.length > 1
@@ -216,18 +216,18 @@ const METHODS: { id: PrMergeMethod; label: string; hint: string }[] = [
 
 const methodKey = (projectId: string) => `ladder.mergeMethod.${projectId}`
 
-/** Ultimo metodo scelto nel progetto, se valido; altrimenti squash. */
+/** Last method chosen in the project, if valid; otherwise squash. */
 function rememberedMethod(projectId: string): PrMergeMethod {
   try {
     const saved = window.localStorage.getItem(methodKey(projectId))
     if (saved === 'merge' || saved === 'squash' || saved === 'rebase') return saved
   } catch {
-    // niente storage: si parte da squash
+    // no storage: start from squash
   }
   return 'squash'
 }
 
-/** Montare solo a dialogo aperto. `pr.merge` parte solo dalla conferma, con il metodo scelto; il branch remoto resta salvo spunta esplicita. */
+/** Mount only when the dialog is open. `pr.merge` starts only from the confirmation, with the chosen method; the remote branch is kept unless explicitly checked. */
 export function MergeDialog({ projectId, session, pr, headOid: seenHeadOid, base, onClose, onDone }: { projectId: string; session: SessionSummary; pr: PrStatus; headOid: string | null | undefined; base: string; onClose: () => void; onDone: () => void }) {
   const [method, setMethod] = useState<PrMergeMethod>(() => rememberedMethod(projectId))
   const [deleteBranch, setDeleteBranch] = useState(false)
@@ -236,7 +236,7 @@ export function MergeDialog({ projectId, session, pr, headOid: seenHeadOid, base
   const [result, setResult] = useState<PrMergeResult | null>(null)
   const inFlight = useRef(false)
   const cancelRef = useRef<HTMLButtonElement>(null)
-  // Il commit della PR visto aprendo il dialogo: se nel frattempo cambia, l'host rifiuta invece di unire un'altra cosa.
+  // The PR commit seen when opening the dialog: if it changes meanwhile, the host rejects instead of merging something else.
   const [headOid] = useState(() => seenHeadOid ?? undefined)
 
   const merge = async () => {
@@ -249,7 +249,7 @@ export function MergeDialog({ projectId, session, pr, headOid: seenHeadOid, base
       try {
         window.localStorage.setItem(methodKey(projectId), method)
       } catch {
-        // il metodo non si ricorda: pazienza
+        // the method isn't remembered: fine
       }
       setResult(data)
       onDone()
@@ -324,7 +324,7 @@ export function MergeDialog({ projectId, session, pr, headOid: seenHeadOid, base
   )
 }
 
-/** Esito dell'archiviazione per l'utente: a cosa è successo al worktree. */
+/** Archive outcome for the user: what happened to the worktree. */
 export function archiveMessage(result: GitArchiveResult): { text: string; warn: boolean } {
   if (result.worktreeRemoved) return { text: t('Session archived and its worktree removed.'), warn: false }
   switch (result.worktreeKept) {
@@ -339,11 +339,11 @@ export function archiveMessage(result: GitArchiveResult): { text: string; warn: 
   }
 }
 
-/** Montare solo a dialogo aperto. La sessione si chiude con `git.archive`; l'app passa da sola a un'altra grazie a `session.upsert`. */
+/** Mount only when the dialog is open. The session closes with `git.archive`; the app switches to another one on its own thanks to `session.upsert`. */
 export function ArchiveDialog({ session, onClose }: { session: SessionSummary; onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Archiviata ma con il worktree rimasto per un problema: il dialogo resta aperto a dirlo.
+  // Archived but with the worktree left behind because of a problem: the dialog stays open to say so.
   const [outcome, setOutcome] = useState<{ text: string; warn: boolean; reason: string | null } | null>(null)
   const inFlight = useRef(false)
   const cancelRef = useRef<HTMLButtonElement>(null)
@@ -355,7 +355,7 @@ export function ArchiveDialog({ session, onClose }: { session: SessionSummary; o
     setError(null)
     try {
       const result = await request<GitArchiveResult>({ type: 'git.archive', sessionId: session.id })
-      // Il pannello può essere già passato a un'altra sessione: l'esito arriva come avviso dell'app.
+      // The panel may already have moved to another session: the outcome arrives as an app notice.
       const message = archiveMessage(result)
       useApp.getState().notifyInfo(message.text)
       if (message.warn) setOutcome({ ...message, reason: result.worktreeError ?? null })

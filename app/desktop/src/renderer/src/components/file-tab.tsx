@@ -1,4 +1,4 @@
-// Un file aperto come tab, accanto alle chat. Il punto delicato è l'agente che scrive lo stesso file: non si sovrascrive mai in silenzio.
+// A file open as a tab, next to the chats. The delicate point is an agent writing the same file: it is never overwritten silently.
 import { shortcutLabel } from '@shared/shortcuts'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -42,7 +42,7 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
   const id = fileTabId(root, path)
   const dirty = useApp((s) => Boolean(s.dirtyFiles[id]))
   const setFileDirty = useApp((s) => s.setFileDirty)
-  // Scrivi mentre un agente lavora nella stessa cartella: si può, ma lo devi sapere.
+  // Typing while an agent works in the same folder: allowed, but you must know about it.
   const agentWorking = useApp((s) => Object.values(s.sessions).some((x) => !x.archived && x.cwd === root && (x.run === 'running' || x.run === 'starting' || x.run === 'waiting')))
   const [buffer, setBuffer] = useState<FileBuffer | null>(() => getBuffer(id) ?? null)
   const [unavailable, setUnavailable] = useState<string | null>(null)
@@ -50,7 +50,7 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
   const [comparing, setComparing] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [missing, setMissing] = useState(false)
-  // File non di testo (o SVG): anteprima. Per un SVG si parte dal codice, salvo che non si possa modificare.
+  // Non-text files (or SVG): preview. For an SVG we start from the code, unless it can't be edited.
   const [media, setMedia] = useState<FileMedia | null>(null)
   const [svgView, setSvgView] = useState<'preview' | 'code' | null>(null)
   const editorName = EDITOR_NAME[useEditorOf(projectId)]
@@ -69,10 +69,10 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
         if (cancelled) return
         setMissing(false)
         setMedia(content.media ?? null)
-        // Senza descrizione dell'host (versione vecchia) resta il messaggio di prima.
+        // Without a description from the host (old version) the previous message stays.
         if (content.binary) return setUnavailable(content.media ? null : t('Binary file: it can’t be edited here.'))
         if (content.tooLarge) return setUnavailable(t('File too large to edit here ({size} KB).', { size: Math.round(content.size / 1024) }))
-        // Un byte non valido in UTF-8 si perderebbe al salvataggio.
+        // An invalid UTF-8 byte would be lost on save.
         if (content.text === null || content.text.includes('�')) return setUnavailable(t('This file isn’t UTF-8: it can’t be edited here.'))
         setUnavailable(null)
         const existing = getBuffer(id)
@@ -84,7 +84,7 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
         if (existing.saving) return
         const disk = toText(content.text)
         if (disk.eq(currentDoc(existing))) {
-          // Il disco e l'editor dicono la stessa cosa: nessun conflitto, nemmeno se prima c'era.
+          // Disk and editor say the same thing: no conflict, even if there was one before.
           existing.saved = disk
           existing.mtime = content.mtimeMs
           setFileDirty(id, false)
@@ -93,7 +93,7 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
         } else if (disk.eq(existing.saved)) {
           existing.mtime = content.mtimeMs
         } else if (!useApp.getState().dirtyFiles[id]) {
-          // Nessuna modifica tua: il file segue il disco, per esempio dopo il lavoro di un agente.
+          // No edits of yours: the file follows the disk, for example after an agent's work.
           existing.saved = disk
           existing.mtime = content.mtimeMs
           replaceDoc(existing, content.text)
@@ -115,7 +115,7 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
 
   const save = useCallback(async () => {
     const current = getBuffer(id)
-    // ⌘S arriva sia all'editor sia alla finestra: un salvataggio alla volta.
+    // ⌘S reaches both the editor and the window: one save at a time.
     if (!current || current.saving) return
     setProblem(null)
     const result = await saveBuffer(current)
@@ -149,7 +149,7 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
   }
   const keepMine = () => {
     if (!buffer || !conflict) return
-    // Il prossimo salvataggio sovrascrive consapevolmente la versione su disco.
+    // The next save knowingly overwrites the version on disk.
     buffer.saved = toText(conflict.text)
     buffer.mtime = conflict.mtime
     setConflict(null)
@@ -218,7 +218,7 @@ export function FileTabView({ projectId, root, path }: { projectId: string; root
   )
 }
 
-/** Chiudere una tab con modifiche non salvate. Se il salvataggio non riesce la tab resta aperta e il motivo si legge qui. */
+/** Closing a tab with unsaved changes. If saving fails the tab stays open and the reason is shown here. */
 export function UnsavedFileDialog() {
   const closing = useApp((s) => s.closingFile)
   const cancelClose = useApp((s) => s.cancelCloseFile)

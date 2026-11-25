@@ -1,16 +1,16 @@
-// Branch locali del progetto e cambio di branch del checkout principale. Solo `git switch` (mai un checkout di file) e, su scelta
-// esplicita, `git stash push -u`. Le protezioni (sessione al lavoro, branch in un worktree, nome valido) stanno qui e nel chiamante,
-// non nella UI. Un'operazione alla volta per repository (stesso lock di push e merge).
+// Local branches of the project and branch switching of the main checkout. Only `git switch` (never a file checkout) and, by explicit
+// choice, `git stash push -u`. The protections (session at work, branch in a worktree, valid name) live here and in the caller,
+// not in the UI. One operation at a time per repository (same lock as push and merge).
 import { t } from '@shared/i18n'
 import type { BranchSwitchResult, LocalBranch } from '@shared/protocol'
 import { dirtyCount, gitRead, gitWrite, resolveCommit } from './git'
 import { validBranchName, withRepoLock } from './git-push'
 
 const LIST_TIMEOUT_MS = 10_000
-/** Branch locali al massimo nell'elenco: oltre, il menu non serve più e la ricerca è nel terminale. */
+/** Maximum local branches in the list: beyond that, the menu is no longer useful and search is in the terminal. */
 const MAX_BRANCHES = 500
 
-/** Branch estratto nel checkout principale; null con HEAD staccato (o se git non risponde). */
+/** Branch checked out in the main checkout; null with a detached HEAD (or if git doesn't answer). */
 export async function currentBranch(root: string): Promise<string | null> {
   try {
     return (await gitRead(root, ['symbolic-ref', '--short', '-q', 'HEAD'], LIST_TIMEOUT_MS)).trim() || null
@@ -19,7 +19,7 @@ export async function currentBranch(root: string): Promise<string | null> {
   }
 }
 
-/** Branch estratti negli altri worktree: nome → cartella. Il primo blocco di `git worktree list` è il checkout principale e si salta. */
+/** Branches checked out in the other worktrees: name → folder. The first block of `git worktree list` is the main checkout and is skipped. */
 async function worktreeBranches(root: string): Promise<Map<string, string>> {
   const out = new Map<string, string>()
   let text: string
@@ -37,12 +37,12 @@ async function worktreeBranches(root: string): Promise<Map<string, string>> {
   return out
 }
 
-/** Branch locali, l'ultimo commit più recente prima, con quello attuale e quelli già estratti in un worktree. */
+/** Local branches, most recent commit first, with the current one and those already checked out in a worktree. */
 export async function listLocalBranches(root: string): Promise<{ current: string | null; branches: LocalBranch[] }> {
   const [current, worktrees, text] = await Promise.all([
     currentBranch(root),
     worktreeBranches(root),
-    // Un errore di git qui è un errore vero (repo illeggibile, timeout), non "nessun branch".
+    // A git error here is a real error (unreadable repo, timeout), not "no branches".
     gitRead(root, ['for-each-ref', '--sort=-committerdate', `--count=${MAX_BRANCHES}`, '--format=%(refname)%1f%(committerdate:unix)%1f%(contents:subject)', 'refs/heads'], LIST_TIMEOUT_MS)
   ])
   const branches: LocalBranch[] = []
@@ -52,12 +52,12 @@ export async function listLocalBranches(root: string): Promise<{ current: string
     const name = ref.slice('refs/heads/'.length)
     branches.push({ name, at: (Number(at) || 0) * 1000, subject: (subject ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200), current: name === current, worktree: worktrees.get(name) ?? null })
   }
-  // Il branch attuale ci deve essere anche se, per il limite, non è tra i più recenti (o se il repo non ha ancora commit).
+  // The current branch must be there even if, because of the limit, it isn't among the most recent (or if the repo has no commits yet).
   if (current && !branches.some((b) => b.name === current)) branches.unshift({ name: current, at: 0, subject: '', current: true, worktree: null })
   return { current, branches }
 }
 
-/** Il testo di un errore di git per le cause che l'utente può correggere; altrimenti il testo di git com'è. */
+/** The text of a git error for causes the user can fix; otherwise git's text as is. */
 function switchFailure(message: string, branch: string, folder: string | null): string {
   if (/already (checked out|used by worktree)/i.test(message)) {
     return t('“{branch}” is already checked out in another worktree{folder}. Open that session, or remove the worktree, to use the branch here.', { branch, folder: folder ? ` (${folder})` : '' })
@@ -75,26 +75,26 @@ function switchFailure(message: string, branch: string, folder: string | null): 
 }
 
 interface SwitchOptions {
-  /** Cosa fare delle modifiche non committate: portarle con sé (lo switch normale) o metterle da parte con uno stash. */
+  /** What to do with uncommitted changes: bring them along (the normal switch) or set them aside with a stash. */
   dirty?: 'carry' | 'stash'
-  /** Lancia se una sessione sta lavorando nel checkout principale: si chiama prima del lock e di nuovo dentro, subito prima di scrivere. */
+  /** Throws if a session is working in the main checkout: called before the lock and again inside, right before writing. */
   assertIdle: () => void
 }
 
-/** Nome che può essere solo un branch: niente caratteri di controllo, spazi o jolly, niente `~ ^ :` (che farebbero leggere una revisione) né `..` o `@{`. */
+/** Name that can only be a branch: no control characters, spaces or wildcards, no `~ ^ :` (which would make it read as a revision) nor `..` or `@{`. */
 function plainBranchName(name: string): boolean {
   return name.length > 0 && name.length <= 255 && !name.startsWith('-') && !/[\u0000-\u001f\u007f\s*?[\\~^:]/.test(name) && !name.includes('..') && !name.includes('@{')
 }
 
-/** Il branch locale esiste? Lo dice git sul riferimento esatto, non un elenco limitato. */
+/** Does the local branch exist? Git says so on the exact reference, not a limited list. */
 async function branchExists(root: string, name: string): Promise<boolean> {
   return plainBranchName(name) && (await resolveCommit(root, `refs/heads/${name}`)) !== null
 }
 
-/** Cambia il branch del checkout principale. Vedi `project.branch.switch` nel protocollo per le regole. */
+/** Switches the main checkout's branch. See `project.branch.switch` in the protocol for the rules. */
 export async function switchBranch(root: string, branch: string, options: SwitchOptions): Promise<BranchSwitchResult> {
   options.assertIdle()
-  // I nomi che non sono branch locali esistenti non arrivano a git (e uno che inizia con `-` sarebbe un'opzione).
+  // Names that aren't existing local branches don't reach git (and one starting with `-` would be an option).
   if (!(await branchExists(root, branch))) throw new Error(t('The branch “{branch}” does not exist in this project.', { branch }))
   return withRepoLock(root, async () => {
     options.assertIdle()
@@ -107,7 +107,7 @@ export async function switchBranch(root: string, branch: string, options: Switch
       await gitWrite(root, ['switch', '--no-guess', branch])
     } catch (error) {
       const reason = switchFailure((error as Error).message, branch, null)
-      // Lo stash è stato fatto per questo cambio: se non è riuscito, le modifiche tornano dove erano.
+      // The stash was made for this switch: if it didn't succeed, the changes go back where they were.
       if (stash) throw new Error(await restoreStash(root, stash, reason))
       throw new Error(reason)
     }
@@ -115,7 +115,7 @@ export async function switchBranch(root: string, branch: string, options: Switch
   })
 }
 
-/** Crea `name` dal commit attuale e lo estrae (`git switch -c`): le modifiche non committate non si toccano. */
+/** Creates `name` from the current commit and checks it out (`git switch -c`): uncommitted changes are left untouched. */
 export async function createBranch(root: string, name: string, options: Pick<SwitchOptions, 'assertIdle'>): Promise<BranchSwitchResult> {
   options.assertIdle()
   if (!validBranchName(name)) throw new Error(t('“{name}” is not a valid branch name: use letters, digits and . _ / @ + -, and no spaces.', { name }))
@@ -131,13 +131,13 @@ export async function createBranch(root: string, name: string, options: Pick<Swi
   })
 }
 
-/** Uno stash: lo sha non cambia mai, la posizione `stash@{n}` sì (lo stash è del repository, condiviso con i worktree). */
+/** A stash: the sha never changes, the position `stash@{n}` does (the stash belongs to the repository, shared with the worktrees). */
 interface StashRef {
   sha: string
   message: string
 }
 
-/** Gli stash del repository, il più recente prima. */
+/** The repository's stashes, most recent first. */
 async function stashEntries(root: string): Promise<{ sha: string; subject: string }[]> {
   const out = await gitRead(root, ['stash', 'list', '--format=%H%x1f%gs'], LIST_TIMEOUT_MS).catch(() => '')
   return out
@@ -147,7 +147,7 @@ async function stashEntries(root: string): Promise<{ sha: string; subject: strin
     .map(([sha, subject]) => ({ sha, subject: subject ?? '' }))
 }
 
-/** Lo stash creato da `stash push` qui: quello nuovo (non c'era prima) che porta il nostro messaggio, anche se un altro worktree ne ha creato uno nel frattempo. */
+/** The stash created by `stash push` here: the new one (wasn't there before) that carries our message, even if another worktree created one in the meantime. */
 async function newStash(root: string, before: Set<string>, message: string): Promise<StashRef | null> {
   const found = (await stashEntries(root)).find((e) => !before.has(e.sha) && e.subject.endsWith(message))
   return found ? { sha: found.sha, message } : null
@@ -159,20 +159,20 @@ async function stashChanges(root: string, branch: string): Promise<StashRef> {
   try {
     await gitWrite(root, ['stash', 'push', '-u', '-m', message])
   } catch (error) {
-    // Lo stash può essere stato creato prima dell'errore (per esempio nella pulizia dei file): in quel caso le modifiche sono lì.
+    // The stash may have been created before the error (for example during file cleanup): in that case the changes are there.
     const created = await newStash(root, before, message)
     if (created) throw new Error(t('Git set the changes aside but then reported an error: {output} Your changes are in the stash {sha} (“{message}”). Restore them with git stash apply {sha}.', { output: (error as Error).message, sha: created.sha, message }))
     throw new Error(t('Could not set the changes aside: {output}', { output: (error as Error).message }))
   }
   const created = await newStash(root, before, message)
-  // Nessuno stash nuovo (git ha trovato solo file ignorati o già puliti): niente da riprendere.
+  // No new stash (git found only ignored or already clean files): nothing to restore.
   if (!created) throw new Error(t('Could not set the changes aside: git saved nothing.'))
   return created
 }
 
 /**
- * Lo switch è fallito dopo lo stash: si riprende QUELLO stash (per sha, mai `stash pop`, che prende la cima, magari di un agente in un worktree):
- * `stash apply <sha>` e, solo se riesce, `stash drop` della sua posizione attuale. Restituisce il messaggio da mostrare (con il riferimento preciso se non riesce).
+ * The switch failed after the stash: THAT stash is restored (by sha, never `stash pop`, which takes the top, maybe an agent's in a worktree):
+ * `stash apply <sha>` and, only if it succeeds, `stash drop` of its current position. Returns the message to show (with the precise reference if it fails).
  */
 async function restoreStash(root: string, stash: StashRef, reason: string): Promise<string> {
   const left = () => t('{reason} Your changes are in the stash {sha} (“{message}”). Restore them with git stash apply {sha}.', { reason, sha: stash.sha, message: stash.message })
@@ -181,7 +181,7 @@ async function restoreStash(root: string, stash: StashRef, reason: string): Prom
   } catch {
     return left()
   }
-  // Applicato: si toglie lo stash, ma la posizione si rilegge adesso (un altro worktree può averne aggiunto uno) e deve avere ancora il nostro sha.
+  // Applied: the stash is removed, but the position is reread now (another worktree may have added one) and must still have our sha.
   const index = (await stashEntries(root)).findIndex((e) => e.sha === stash.sha)
   if (index >= 0) await gitWrite(root, ['stash', 'drop', `stash@{${index}}`]).catch(() => undefined)
   return reason

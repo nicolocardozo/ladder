@@ -1,5 +1,5 @@
-// Markdown dell'agente con react-markdown e GFM.
-// Il testo è diviso in blocchi memorizzati: durante lo streaming si rianalizza solo l'ultimo.
+// Agent markdown with react-markdown and GFM.
+// The text is split into memoized blocks: while streaming, only the last one is re-parsed.
 import { ImageIcon } from 'lucide-react'
 import { memo, useMemo, type ComponentProps, type ReactNode } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
@@ -13,13 +13,13 @@ import { isLangName } from './highlighter'
 
 interface Block {
   text: string
-  /** Il blocco finisce dentro un recinto ``` non ancora chiuso. */
+  /** The block ends inside a ``` fence that is not closed yet. */
   openFence: boolean
 }
 
 /**
- * Divide il markdown sulle righe vuote fuori dai blocchi di codice.
- * Non divide quando la riga successiva è indentata (continuazione di un elemento di elenco).
+ * Splits the markdown on blank lines outside code blocks.
+ * Does not split when the next line is indented (continuation of a list item).
  */
 export function splitBlocks(text: string): Block[] {
   const lines = text.split('\n')
@@ -67,7 +67,7 @@ function textOf(node: ReactNode): string {
   return ''
 }
 
-/** Linguaggio e percorso dall'info string: ```ts src/x.ts, ```src/x.ts, ```ts title="src/x.ts", ```ts:src/x.ts */
+/** Language and path from the info string: ```ts src/x.ts, ```src/x.ts, ```ts title="src/x.ts", ```ts:src/x.ts */
 function parseInfo(langClass: string | null, meta: string | null): { lang: string | null; path: string | null } {
   let lang = langClass
   let path: string | null = null
@@ -143,7 +143,7 @@ function Table({ children }: ComponentProps<'table'> & ExtraProps) {
   )
 }
 
-/** Le immagini esterne sono bloccate dalla CSP: al loro posto un link. */
+/** External images are blocked by the CSP: a link instead. */
 function Img({ src, alt }: ComponentProps<'img'> & ExtraProps) {
   if (typeof src !== 'string' || !src) return null
   return (
@@ -172,7 +172,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ source, live }: { source: st
 interface MarkdownProps {
   text: string
   streaming?: boolean
-  /** Messaggi intermedi dentro i passaggi: più piccoli e meno contrastati. */
+  /** Intermediate messages inside the steps: smaller and lower contrast. */
   compact?: boolean
   className?: string
 }

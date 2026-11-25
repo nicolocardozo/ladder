@@ -1,4 +1,4 @@
-// Impostazioni → New sessions → Session profiles (LAD-60): elenco dei profili di sessione con crea, modifica, riordino ed elimina.
+// Settings → New sessions → Session profiles: list of session profiles with create, edit, reorder and delete.
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, EllipsisVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { SessionPreset } from '@shared/protocol'
@@ -21,7 +21,7 @@ export function PresetsSection() {
   const selected = useApp((s) => s.selection.projectId)
   const project = projects.find((p) => p.id === selected) ?? null
   const defaultId = useApp((s) => (project ? s.ui[project.id]?.defaultPreset : undefined))
-  // Il dialogo sta dentro questa sezione, quindi dentro quello delle impostazioni: niente finestre modali sorelle.
+  // The dialog lives inside this section, so inside the settings dialog: no sibling modal windows.
   const [editor, setEditor] = useState<{ presetId: string | null } | null>(null)
   const [last, setLast] = useState<{ presetId: string | null }>({ presetId: null })
   const open = (presetId: string | null) => {

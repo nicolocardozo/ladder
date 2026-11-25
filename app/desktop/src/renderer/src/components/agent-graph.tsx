@@ -1,7 +1,7 @@
-// Grafico dei sotto-agenti: albero da sinistra a destra, la sessione a sinistra e i figli impilati in colonna a destra.
-// I collegamenti hanno un solo colore pieno (come le linee della mappa dei branch): lo stato sta sulle card.
-// Sta nel popover del badge (agent-map.tsx) e, ingrandito con zoom e trascinamento, in un dialogo quasi a tutto schermo.
-// Semantica ad albero (tree/treeitem con aria-level); la lista resta l'alternativa completa.
+// Sub-agent graph: a left-to-right tree, the session on the left and the children stacked in a column on the right.
+// Links have a single solid color (like the branch map lines): state lives on the cards.
+// It lives in the badge popover (agent-map.tsx) and, enlarged with zoom and drag, in a near-fullscreen dialog.
+// Tree semantics (tree/treeitem with aria-level); the list remains the complete alternative.
 import { Bot, Maximize, Minus, Plus, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { plural, t } from '@shared/i18n'
@@ -26,7 +26,7 @@ const STATUS_TEXT: Record<SubagentInfo['status'], () => string> = {
   stopped: () => t('Stopped')
 }
 
-/** Colore dei collegamenti: pieno, lo stesso delle linee della mappa dei branch. Niente trasparenze, che si sommano dove i tratti si toccano. */
+/** Link color: solid, the same as the branch map lines. No transparency, which adds up where strokes touch. */
 const LINE = 'color-mix(in oklab, var(--muted-foreground) 45%, var(--background))'
 
 const NODE_RING: Record<SubagentInfo['status'], string> = {
@@ -41,16 +41,16 @@ interface CanvasProps {
   now: number
   modelOf: (a: Pick<SubagentInfo, 'model'>) => string | null
   onOpen: (id: string) => void
-  /** Con il focus su un nodo: l'ingrandito lo porta in vista. */
+  /** When a node has focus: the enlarged view brings it into view. */
   onFocusNode?: (node: GraphNode, element: HTMLElement) => void
 }
 
-/** Nodi e collegamenti alla scala 1: chi lo contiene decide scorrimento, zoom e trascinamento. */
+/** Nodes and links at scale 1: whoever contains it decides scrolling, zoom and dragging. */
 const GraphCanvas = memo(function GraphCanvas({ layout, now, modelOf, onOpen, onFocusNode }: CanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const first = layout.byId.get(SESSION_NODE)?.children[0] ?? SESSION_NODE
   const [active, setActive] = useState(first)
-  // Un solo punto di tabulazione: l'ultimo nodo che ha avuto il focus, se c'è ancora.
+  // A single tab stop: the last node that had focus, if it still exists.
   const tabId = layout.byId.has(active) ? active : first
 
   const focusNode = (id: string) => rootRef.current?.querySelector<HTMLElement>(`[data-node="${CSS.escape(id)}"]`)?.focus({ preventScroll: true })
@@ -69,7 +69,7 @@ const GraphCanvas = memo(function GraphCanvas({ layout, now, modelOf, onOpen, on
     if (next) focusNode(next)
   }
 
-  // Il clic dà il focus ma non deve spostare la vista: il nodo si muoverebbe sotto il puntatore e il clic andrebbe perso.
+  // A click gives focus but must not move the view: the node would move under the pointer and the click would be lost.
   const handleFocus = (node: GraphNode) => (event: FocusEvent<HTMLElement>) => {
     setActive(node.id)
     if (event.currentTarget.matches(':focus-visible')) onFocusNode?.(node, event.currentTarget)
@@ -161,7 +161,7 @@ function AgentNodeView({
 }) {
   const duration = formatDuration(agentElapsed(agent, now))
   const label = [agent.title, agent.kind, STATUS_TEXT[agent.status](), duration].filter(Boolean).join(', ')
-  // Seconda riga: tipo e token, solo se il modello li ha; senza niente, lo stato.
+  // Second line: type and tokens, only if the model has them; with nothing, the state.
   const second = [agent.kind, agent.tokens != null && t('{tokens} tokens', { tokens: formatTokens(agent.tokens) })].filter(Boolean).join(' · ') || STATUS_TEXT[agent.status]()
   const facts = [agent.kind, model, agent.tokens != null && t('{tokens} tokens', { tokens: formatTokens(agent.tokens) }), agent.toolUses != null && plural(agent.toolUses, '1 tool', '{n} tools'), agent.background && t('background')]
     .filter(Boolean)
@@ -200,7 +200,7 @@ function AgentNodeView({
   )
 }
 
-/** Il grafico dentro il popover: scorre se serve, mai zoom. */
+/** The graph inside the popover: scrolls if needed, never zooms. */
 export function AgentGraph({
   agents,
   now,
@@ -217,7 +217,7 @@ export function AgentGraph({
   const modelOf = useAgentModel(agent, model)
   const forest = useMemo(() => buildForest(agents), [agents])
   const layout = useMemo(() => layoutAgentGraph(forest), [forest])
-  // Un albero alto si apre con la sessione a metà altezza, non in cima fra i primi figli: una volta, alla prima misura.
+  // A tall tree opens with the session at half height, not at the top among the first children: once, on the first measurement.
   const scroller = useRef<HTMLDivElement>(null)
   const centered = useRef(false)
   useLayoutEffect(() => {
@@ -228,10 +228,10 @@ export function AgentGraph({
     el.scrollTop = root.y + NODE_HEIGHT / 2 - el.clientHeight / 2
   }, [layout])
   return (
-    // Il grafico chiede più spazio della lista: il popover si allarga fino a mostrare tutte le colonne e si alza fino a 560px.
+    // The graph needs more space than the list: the popover widens until it shows all columns and grows up to 560px tall.
     <div ref={scroller} className="relative max-h-[min(70vh,560px)] min-h-0 overflow-auto overscroll-contain px-1.5 pb-1.5" style={{ width: `min(${layout.width + 12}px, calc(100vw - 2rem), 56rem)`, minWidth: '100%' }}>
       <div className="mx-auto w-fit shrink-0">
-        {/* Con il focus da tastiera il nodo si porta in vista a mano: lo scorrimento nativo non basta con pochi nodi. */}
+        {/* With keyboard focus the node is brought into view by hand: native scrolling is not enough with few nodes. */}
         <GraphCanvas layout={layout} now={now} modelOf={modelOf} onOpen={onOpen} onFocusNode={(_, el) => el.scrollIntoView({ block: 'nearest', inline: 'nearest' })} />
       </div>
     </div>
@@ -245,11 +245,11 @@ interface View {
 }
 const MIN_ZOOM = 0.3
 const MAX_ZOOM = 2.5
-/** Sotto questa scala i nodi non si leggono: l'inquadratura iniziale non scende oltre. */
+/** Below this scale nodes are not readable: the initial framing does not go lower. */
 const READABLE_ZOOM = 0.6
 const clampZoom = (k: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k))
 
-/** Dialogo quasi a tutto schermo: zoom con rotella, pinch del trackpad e pulsanti, trascinamento, frecce fra i nodi. */
+/** Near-fullscreen dialog: zoom with wheel, trackpad pinch and buttons, dragging, arrows between nodes. */
 export function AgentGraphDialog({
   open,
   onOpenChange,
@@ -267,7 +267,7 @@ export function AgentGraphDialog({
   onOpenAgent: (id: string) => void
   returnFocus: () => HTMLElement | null
 }) {
-  // Aperto il dettaglio di un agente il focus passa a lui, non al badge.
+  // When an agent's detail is opened, focus goes to it, not to the badge.
   const leaving = useRef(false)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -312,14 +312,14 @@ function GraphDialogBody({
   const running = useMemo(() => agents.filter((a) => a.status === 'running').length, [agents])
   const now = useNow(1000, running > 0)
   const modelOf = useAgentModel(agent, model)
-  // Il riquadro sta in un portale e può montarsi dopo questo componente: un ref a callback, e gli effetti lo aspettano.
+  // The panel is in a portal and may mount after this component: a callback ref, and the effects wait for it.
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const forest = useMemo(() => buildForest(agents), [agents])
   const layout = useMemo(() => layoutAgentGraph(forest), [forest])
 
-  // La vista vive in un ref e si scrive sul transform direttamente: trascinare e zoomare non rifà il render del grafico.
-  // Lo stato tiene solo la scala, per la percentuale e i pulsanti.
+  // The view lives in a ref and is written directly to the transform: dragging and zooming does not re-render the graph.
+  // State only holds the scale, for the percentage and the buttons.
   const viewRef = useRef<View>({ x: 0, y: 0, k: 1 })
   const [zoom, setZoom] = useState(1)
   const contentRef = useRef<HTMLDivElement | null>(null)
@@ -335,8 +335,8 @@ function GraphDialogBody({
     const l = layoutRef.current
     let v = next
     if (w && h) {
-      // Un solo limite per ogni aggiornamento (trascinamento, rotella, pinch, pulsanti, tasti): almeno 80 px del riquadro del grafico,
-      // scalato, restano nel riquadro, e almeno un nodo si vede. Se il grafico sparisce lo si riporta verso il centro.
+      // A single limit for every update (drag, wheel, pinch, buttons, keys): at least 80 px of the graph panel,
+      // scaled, stay inside the panel, and at least one node is visible. If the graph disappears it is brought back toward the center.
       const keep = 80
       const clamp = (view: View): View => ({ k: view.k, x: Math.min(w - keep, Math.max(keep - l.width * view.k, view.x)), y: Math.min(h - keep, Math.max(keep - l.height * view.k, view.y)) })
       const edge = 24
@@ -356,7 +356,7 @@ function GraphDialogBody({
             break
           }
         }
-        // Neanche al centro si vede un nodo (grafico enorme e scala massima): si resta dov'era.
+        // Not even at the center is a node visible (huge graph and maximum scale): stay where it was.
         if (!seen(v)) v = seen(viewRef.current) ? viewRef.current : v
       }
     }
@@ -384,18 +384,18 @@ function GraphDialogBody({
 
   const fit = useCallback(() => {
     if (!size.w || !size.h) return
-    // Tutto in vista se la scala resta leggibile; sotto il minimo si ferma lì e il resto si raggiunge spostando la vista.
+    // Everything in view if the scale stays readable; below the minimum it stops there and the rest is reached by moving the view.
     const k = clampZoom(Math.max(READABLE_ZOOM, Math.min(1, (size.w - 48) / layout.width, (size.h - 48) / layout.height)))
     const root = layout.byId.get(SESSION_NODE)
     const centered = (size.w - layout.width * k) / 2
-    // Troppo largo (molti livelli): si parte dal lato della sessione, senza lasciare vuoto da una parte.
+    // Too wide (many levels): start from the session side, without leaving empty space on one side.
     const x = centered >= 24 ? centered : Math.min(24, Math.max(size.w - layout.width * k - 24, size.w / 2 - ((root?.x ?? 0) + (root?.w ?? 0) / 2) * k))
-    // Troppo alto: si parte con la sessione a metà finestra, così si vede da dove nascono i rami; altrimenti il grafico è centrato.
+    // Too tall: start with the session at mid window, so you can see where the branches start; otherwise the graph is centered.
     const cy = (root?.y ?? 0) + NODE_HEIGHT / 2
     const tall = layout.height * k > size.h - 48
     setView({ k, x, y: tall ? Math.min(24, Math.max(size.h - layout.height * k - 24, size.h / 2 - cy * k)) : (size.h - layout.height * k) / 2 })
   }, [size.w, size.h, layout, setView])
-  // Si inquadra tutto una volta, appena ci sono le misure; poi decide l'utente (o "Fit to view").
+  // Everything is framed once, as soon as measurements exist; after that the user decides (or "Fit to view").
   const fitted = useRef(false)
   useEffect(() => {
     if (fitted.current || !size.w || !agents.length) return
@@ -412,13 +412,13 @@ function GraphDialogBody({
     [setView]
   )
   const zoomCenter = (factor: number) => zoomAt(factor, size.w / 2, size.h / 2)
-  // Solo il clic sui pulsanti annuncia la scala: rotella e pinch cambiano la percentuale in silenzio.
+  // Only a click on the buttons announces the scale: wheel and pinch change the percentage silently.
   const zoomButton = (factor: number) => {
     zoomCenter(factor)
     setAnnounce(`${Math.round(viewRef.current.k * 100)}%`)
   }
 
-  // La rotella deve poter chiamare preventDefault: React la registra passiva, quindi a mano.
+  // The wheel must be able to call preventDefault: React registers it as passive, so it is done by hand.
   useEffect(() => {
     const el = viewport
     if (!el) return
@@ -426,11 +426,11 @@ function GraphDialogBody({
       event.preventDefault()
       const rect = el.getBoundingClientRect()
       if (event.ctrlKey || event.metaKey) {
-        // Il pinch del trackpad arriva come rotella con ctrl e deltaY piccoli: va più veloce.
+        // Trackpad pinch arrives as wheel with ctrl and small deltaY: it goes faster.
         const speed = event.ctrlKey && !event.metaKey ? 0.01 : 0.0025
         zoomAt(Math.exp(-event.deltaY * speed), event.clientX - rect.left, event.clientY - rect.top)
       } else {
-        // Rotella o due dita spostano la vista.
+        // Wheel or two fingers move the view.
         const v = viewRef.current
         setView({ ...v, x: v.x - event.deltaX, y: v.y - event.deltaY })
       }
@@ -439,7 +439,7 @@ function GraphDialogBody({
     return () => el.removeEventListener('wheel', onWheel)
   }, [viewport, zoomAt, setView])
 
-  // Trascinamento: il pointer si cattura solo oltre qualche pixel, così il clic su un nodo resta un clic.
+  // Dragging: the pointer is captured only beyond a few pixels, so a click on a node stays a click.
   const drag = useRef<{ x: number; y: number; vx: number; vy: number; id: number; moving: boolean } | null>(null)
   const justDragged = useRef(false)
   const [dragging, setDragging] = useState(false)
@@ -472,7 +472,7 @@ function GraphDialogBody({
     }
   }
 
-  // Con le frecce il nodo che prende il focus resta nella finestra.
+  // With the arrows the node that takes focus stays in the window.
   const reveal = useCallback(
     (node: GraphNode) => {
       const v = viewRef.current
@@ -491,7 +491,7 @@ function GraphDialogBody({
     [size.w, size.h, setView]
   )
 
-  // Stabile: il grafico non si rifà a ogni render del dialogo.
+  // Stable: the graph is not rebuilt on every render of the dialog.
   const onOpenAgentRef = useRef(onOpenAgent)
   onOpenAgentRef.current = onOpenAgent
   const handleOpen = useCallback((id: string) => {
@@ -546,7 +546,7 @@ function GraphDialogBody({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        // Il riquadro non scorre da solo: se il browser lo fa (focus, selezione) si rimette a posto, la vista è il transform.
+        // The panel does not scroll by itself: if the browser does it (focus, selection) it is put back, the view is the transform.
         onScroll={(event) => {
           event.currentTarget.scrollLeft = 0
           event.currentTarget.scrollTop = 0

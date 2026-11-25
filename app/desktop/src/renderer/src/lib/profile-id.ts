@@ -1,4 +1,4 @@
-// Id dei profili (LAD-23): il predefinito è `default:<agente>` oppure assente/null. Senza dipendenze, così lo store può importarlo.
+// Profile ids: the default is `default:<agent>` or absent/null. No dependencies, so the store can import it.
 export function isDefaultProfileId(id: string | null | undefined): boolean {
   return !id || id.startsWith('default:')
 }

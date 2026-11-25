@@ -1,5 +1,5 @@
-// Push di Ladder (LAD-69): solo su azione esplicita dell'utente, mai force, con anteprima di ciò che parte. Niente shell, niente
-// interpolazione: nomi di branch e remote validati, argomenti passati a git come lista, `--` prima di remote e refspec.
+// Ladder push: only on explicit user action, never force, with a preview of what goes out. No shell, no
+// interpolation: branch and remote names validated, arguments passed to git as a list, `--` before remote and refspec.
 import { validBranchName } from '@shared/branch-name'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -10,33 +10,33 @@ import { gitRead, gitStatus, redactUrls, tailOutput, validRemoteName } from './g
 import { gitNetworkEnv } from './git-status'
 import { withRepoLock } from './repo-lock'
 
-/** Un push (hook pre-push compresi) che non finisce entro questo tempo si ferma con tutto il suo gruppo di processi. */
+/** A push (pre-push hooks included) that does not finish within this time is stopped along with its whole process group. */
 export const PUSH_TIMEOUT_MS = 3 * 60_000
-/** Commit mostrati nell'anteprima. */
+/** Commits shown in the preview. */
 const MAX_PREVIEW_COMMITS = 50
 
 export { validBranchName }
 
 export { validRemoteName }
 
-// Un'operazione alla volta per repository (push, merge, archivia; il fetch in background cede il passo): vedi repo-lock.ts.
+// One operation at a time per repository (push, merge, archive; background fetch yields): see repo-lock.ts.
 export { withRepoLock } from './repo-lock'
 
-// ── Piano del push ───────────────────────────────────────────────────────────
+// ── Push plan ────────────────────────────────────────────────────────────────
 
 interface Plan {
   branch: string
-  /** Sha completo di HEAD; '' se il branch non ha commit. */
+  /** Full sha of HEAD; '' if the branch has no commits. */
   head: string
   remotes: string[]
-  /** Remote a cui va il push; null se manca. */
+  /** Remote the push goes to; null if missing. */
   remote: string | null
-  /** L'upstream è esattamente la destinazione (stesso remote, stesso nome del branch locale): conteggi dall'upstream, niente `-u`. */
+  /** The upstream is exactly the destination (same remote, same name as the local branch): counts come from the upstream, no `-u`. */
   tracked: boolean
   upstream: string | null
-  /** Upstream che punta altrove (altro nome o altro remote): non è la destinazione. */
+  /** Upstream pointing elsewhere (another name or another remote): it is not the destination. */
   upstreamElsewhere: string | null
-  /** Riferimento locale di `<remote>/<branch>` se esiste già (ultimo fetch): base per contare cosa parte. */
+  /** Local ref of `<remote>/<branch>` if it already exists (last fetch): basis for counting what goes out. */
   targetRef: string | null
   ahead: number
   behind: number
@@ -44,10 +44,10 @@ interface Plan {
 }
 
 /**
- * Piano del push. Regola di sicurezza: la destinazione ha SEMPRE lo stesso nome del branch locale. L'upstream conta solo se è
- * proprio quel branch sul remote di push: con `git switch -c feat origin/main` l'upstream è origin/main, ma il push NON va su main:
- * si propone di pubblicare `<remote>/feat` (e l'anteprima segnala l'upstream altrove). Il remote è, in ordine: quello richiesto,
- * `branch.<b>.pushRemote`, `remote.pushDefault`, quello dell'upstream, l'unico del repo.
+ * Push plan. Safety rule: the destination ALWAYS has the same name as the local branch. The upstream counts only if it is
+ * exactly that branch on the push remote: with `git switch -c feat origin/main` the upstream is origin/main, but the push does NOT go to main:
+ * it proposes publishing `<remote>/feat` (and the preview flags the upstream elsewhere). The remote is, in order: the requested one,
+ * `branch.<b>.pushRemote`, `remote.pushDefault`, the upstream's, the repo's only one.
  */
 async function readPlan(root: string, requested: string | undefined): Promise<Plan> {
   const status = await gitStatus(root, false, false)
@@ -78,7 +78,7 @@ async function readPlan(root: string, requested: string | undefined): Promise<Pl
   else problem = remotes.length === 0 ? 'no-remote' : 'choose-remote'
 
   const head = (await gitRead(root, ['rev-parse', '--verify', '-q', 'HEAD']).catch(() => '')).trim()
-  // Pubblicazione su un branch che il remote ha già (ultimo fetch): si conta rispetto a quello, non a tutto il remote.
+  // Publishing to a branch the remote already has (last fetch): count against that, not against the whole remote.
   let targetRef: string | null = null
   let ahead = status.ahead
   let behind = status.behind
@@ -106,21 +106,21 @@ async function readPlan(root: string, requested: string | undefined): Promise<Pl
   }
 }
 
-/** Revisioni dei commit che il push invierebbe: quelli dopo l'upstream (o dopo `<remote>/<branch>`), o quelli che il remote (qualunque se manca) non ha. */
+/** Revisions of the commits the push would send: those after the upstream (or after `<remote>/<branch>`), or those the remote (any if missing) does not have. */
 function pending(plan: Plan): string[] {
   if (plan.tracked) return ['@{upstream}..HEAD']
   if (plan.targetRef) return [`${plan.targetRef}..HEAD`]
   return ['HEAD', '--not', plan.remote ? `--remotes=${plan.remote}` : '--remotes']
 }
 
-/** Quanti commit invierebbe il push. */
+/** How many commits the push would send. */
 async function pendingCount(root: string, plan: Plan, lenient: boolean): Promise<number> {
   if (plan.tracked || plan.targetRef) return plan.ahead
   const read = gitRead(root, ['rev-list', '--count', ...pending(plan)])
   return Number((await (lenient ? read.catch(() => '0') : read)).trim()) || 0
 }
 
-/** Cosa invierebbe `git.push`: solo git locale (l'upstream è quello dell'ultimo fetch), nessuna rete. */
+/** What `git.push` would send: local git only (the upstream is that of the last fetch), no network. */
 export async function pushPreview(root: string, opts: { remote?: string } = {}): Promise<GitPushPreview> {
   const plan = await readPlan(root, opts.remote)
   let commits: GitPushPreview['commits'] = []
@@ -135,7 +135,7 @@ export async function pushPreview(root: string, opts: { remote?: string } = {}):
       })
     }
   } catch {
-    // Nessun commit ancora (branch appena nato): niente da inviare.
+    // No commits yet (newborn branch): nothing to send.
   }
   return {
     branch: plan.branch,
@@ -157,10 +157,10 @@ export async function pushPreview(root: string, opts: { remote?: string } = {}):
 // ── Push ─────────────────────────────────────────────────────────────────────
 
 /**
- * Invia il branch corrente a `<remote>/<stesso nome>`. Se l'upstream è proprio quello: push semplice; altrimenti (non pubblicato,
- * upstream su un altro branch o `publish`): `-u`, che imposta l'upstream solo se il push riesce. Il refspec è esplicito e senza `+`:
- * mai force, mai su un branch con nome diverso, qualunque cosa dicano le config del repo. `busy` dice se l'agente sta
- * lavorando nella cartella (potrebbe star facendo git): in quel caso non si parte. `expectedHead`: lo sha mostrato nell'anteprima.
+ * Sends the current branch to `<remote>/<same name>`. If the upstream is exactly that: plain push; otherwise (unpublished,
+ * upstream on another branch or `publish`): `-u`, which sets the upstream only if the push succeeds. The refspec is explicit and has no `+`:
+ * never force, never to a branch with a different name, whatever the repo's config says. `busy` says whether the agent is
+ * working in the folder (it might be running git): in that case we do not start. `expectedHead`: the sha shown in the preview.
  */
 export async function pushBranch(root: string, opts: { publish?: boolean; remote?: string; expectedHead?: string }, busy: () => boolean): Promise<GitPushResult> {
   return withRepoLock(root, async () => {
@@ -174,7 +174,7 @@ export async function pushBranch(root: string, opts: { publish?: boolean; remote
     if (total === 0 && (plan.tracked || plan.targetRef) && opts.publish !== true) throw new Error(t('Nothing to push: the branch is up to date with {upstream}.', { upstream: plan.tracked ? (plan.upstream ?? plan.remote) : `${plan.remote}/${plan.branch}` }))
     const publish = !plan.tracked || opts.publish === true
     const refspec = `refs/heads/${plan.branch}:refs/heads/${plan.branch}`
-    // L'agente può essersi messo al lavoro mentre si leggeva il piano.
+    // The agent may have started working while the plan was being read.
     if (busy()) throw working()
     const run = await runPush(root, [...(publish ? ['-u'] : []), '--', plan.remote, refspec])
     if (run.timedOut) throw new Error(t('The push did not finish in {minutes} minutes and was stopped.', { minutes: String(Math.round(PUSH_TIMEOUT_MS / 60_000)) }))
@@ -183,7 +183,7 @@ export async function pushBranch(root: string, opts: { publish?: boolean; remote
   })
 }
 
-/** `git push` non interattivo, in un gruppo di processi a sé (hook compresi): allo scadere si ferma tutto. */
+/** Non-interactive `git push`, in its own process group (hooks included): on timeout everything is stopped. */
 async function runPush(root: string, args: string[]): Promise<{ code: number; output: string; timedOut: boolean }> {
   const env = await gitNetworkEnv(root)
   return new Promise((resolve, reject) => {
@@ -202,7 +202,7 @@ async function runPush(root: string, args: string[]): Promise<{ code: number; ou
       killGroup('SIGTERM')
       setTimeout(() => killGroup('SIGKILL'), 3_000).unref()
     }, PUSH_TIMEOUT_MS)
-    // Si tiene la coda: un hook molto loquace non gonfia la memoria.
+    // Keep the tail: a very chatty hook does not bloat memory.
     const collect = (chunk: Buffer) => {
       output += chunk.toString()
       if (output.length > 200_000) output = output.slice(-100_000)
@@ -223,17 +223,17 @@ async function pushErrorText(root: string, output: string): Promise<string> {
 }
 
 /**
- * Messaggio leggibile per l'output di un push fallito, con SEMPRE la coda dell'output (un hook o un helper può aver scritto il vero
- * motivo). Ordine: prima gli errori che solo git scrive (credenziali, rete nelle righe `fatal:`/`ssh:`, rifiuti del remote), poi l'hook
- * pre-push, poi le stesse parole cercate ovunque. Così un hook che stampa "Connection refused" non passa per un guasto di rete.
- * `hasPrePushHook`: nel repo c'è un hook pre-push.
+ * Readable message for a failed push's output, ALWAYS with the tail of the output (a hook or helper may have written the real
+ * reason). Order: first the errors only git writes (credentials, network in `fatal:`/`ssh:` lines, remote rejections), then the
+ * pre-push hook, then the same words searched anywhere. This way a hook that prints "Connection refused" is not mistaken for a network failure.
+ * `hasPrePushHook`: the repo has a pre-push hook.
  */
 export function translatePushError(output: string, hasPrePushHook: boolean): string {
   const tail = redactUrls(tailOutput(output))
   const withTail = (message: string) => (tail ? `${message}\n${tail}` : message)
   const authError = /Authentication failed|could not read (Username|Password)|terminal prompts disabled|Permission denied \(publickey|Invalid username or password|Host key verification failed|error: 40[13]|returned error: 40[13]|Permission to .+ denied/i
   const networkWords = 'Could not resolve host|Connection (timed out|refused|reset|closed)|Network is unreachable|No route to host|Operation timed out|does not appear to be a git repository|Could not read from remote repository|unable to access|Failed to connect|ssh: connect to host'
-  // Righe che scrive git (o ssh), non un hook: `fatal: unable to access…`, `ssh: connect to host… Connection refused`.
+  // Lines written by git (or ssh), not a hook: `fatal: unable to access…`, `ssh: connect to host… Connection refused`.
   const gitNetwork = new RegExp(`^(fatal|ssh|error): .*(${networkWords})`, 'im')
   const authText = t('Git could not sign in to the remote. Check your credentials (SSH key, credential helper or token) and try again. Ladder never asks for passwords.')
   const networkText = t('The remote could not be reached. Check your connection and the remote address, then try again.')

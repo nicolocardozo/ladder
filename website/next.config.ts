@@ -5,8 +5,8 @@ const RELEASES = "https://github.com/nicolocardozo/ladder-releases/releases/late
 const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
-  // I link di download (lib/site.ts DOWNLOADS) rimandano all'ultimo DMG pubblicato nelle release di ladder-releases.
-  // GitHub lo serve come allegato, quindi il download parte senza lasciare la pagina.
+  // The download links (lib/site.ts DOWNLOADS) point to the latest DMG published in the ladder-releases releases.
+  // GitHub serves it as an attachment, so the download starts without leaving the page.
   async redirects() {
     return [
       { source: "/download", destination: `${RELEASES}/Ladder-arm64.dmg`, permanent: false },

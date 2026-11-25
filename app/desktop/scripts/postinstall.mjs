@@ -1,6 +1,6 @@
-// Dopo l'installazione: pnpm non esegue gli script delle dipendenze, quindi qui si fa il minimo indispensabile.
-// 1. Binario di Electron, se manca.
-// 2. node-pty: lo spawn-helper del prebuild arriva senza permesso di esecuzione e il primo spawn fallirebbe.
+// After install: pnpm does not run dependency scripts, so this does the bare minimum.
+// 1. Electron binary, if missing.
+// 2. node-pty: the prebuild's spawn-helper ships without execute permission and the first spawn would fail.
 import { chmodSync, existsSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'

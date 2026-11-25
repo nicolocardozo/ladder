@@ -1,4 +1,4 @@
-// ⌘P: apre un file della cartella della sessione per nome, nel viewer dell'ispettore. ⌥↵ lo apre nell'editor.
+// ⌘P: opens a file in the session folder by name, in the inspector viewer. ⌥↵ opens it in the editor.
 import { useEffect, useMemo, useState } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
 import { useShallow } from 'zustand/react/shallow'
@@ -13,7 +13,7 @@ import { request } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
 import { Kbd } from '@/components/ui/kbd'
 
-/** Cartella di lavoro della selezione: il worktree della sessione o il progetto. */
+/** Working folder for the selection: the session's worktree or the project. */
 export function useSelectionRoot(): { projectId: string | null; root: string | null } {
   return useApp(
     useShallow((s) => {
@@ -57,7 +57,7 @@ function QuickOpenBody({ onClose }: { onClose: () => void }) {
       .catch((e: Error) => setError(e.message))
   }, [root])
 
-  // "percorso:riga" apre alla riga.
+  // "path:line" opens at the line.
   const [pathQuery, line] = useMemo(() => {
     const match = /^(.*?):(\d+)$/.exec(query.trim())
     return match ? [match[1], Number(match[2])] : [query.trim(), undefined]

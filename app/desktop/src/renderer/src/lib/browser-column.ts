@@ -1,5 +1,5 @@
-// Colonna browser del progetto: una sola, a destra delle colonne di chat. Lo stato sta in ProjectUiState.browserColumn
-// (aperta o no, pagina attiva, larghezza scelta), dichiarato nel contratto.
+// The project's browser column: only one, to the right of the chat columns. The state lives in ProjectUiState.browserColumn
+// (open or not, active page, chosen width), declared in the contract.
 import type { ProjectUiState } from '@shared/protocol'
 
 export type BrowserColumnUi = NonNullable<ProjectUiState['browserColumn']>

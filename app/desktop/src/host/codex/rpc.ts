@@ -1,5 +1,5 @@
-// Client JSON-RPC per `codex app-server` su stdio: una riga JSON per messaggio, senza il campo "jsonrpc".
-// Ricavato dallo spike S1 (spikes/codex-app-server), senza log su file e con tipi ridotti ai metodi usati.
+// JSON-RPC client for `codex app-server` over stdio: one JSON line per message, without the "jsonrpc" field.
+// Derived from the codex-app-server spike, without file logging and with types reduced to the methods used.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { t } from '@shared/i18n'
@@ -35,7 +35,7 @@ export class CodexRpc {
   private nextId = 1
   private pending = new Map<number | string, Pending>()
   private closed = false
-  /** Ultime righe di stderr: servono a spiegare un'uscita inattesa. */
+  /** Last stderr lines: they help explain an unexpected exit. */
   readonly stderr: string[] = []
 
   constructor(
@@ -45,11 +45,11 @@ export class CodexRpc {
     private readonly onRequest: (request: ServerRequest) => Promise<ServerReply>
   ) {
     this.proc = spawn(cli, ['app-server'], { stdio: ['pipe', 'pipe', 'pipe'], env })
-    // Se codex si chiude subito la scrittura dà EPIPE: non deve cadere l'host.
+    // If codex exits right away, writing gives EPIPE: it must not crash the host.
     this.proc.stdin.on('error', () => undefined)
     createInterface({ input: this.proc.stdout }).on('line', (line) => this.onLine(line))
     createInterface({ input: this.proc.stderr }).on('line', (line) => {
-      // Log con colori ANSI: si tengono le ultime righe, senza interpretarle.
+      // Log with ANSI colors: keep the last lines, without interpreting them.
       this.stderr.push(line.replace(/\x1b\[[0-9;]*m/g, ''))
       if (this.stderr.length > 40) this.stderr.shift()
     })

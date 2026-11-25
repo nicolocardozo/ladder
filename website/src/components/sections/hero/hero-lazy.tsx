@@ -1,7 +1,7 @@
 "use client"
 
-// Parti client del hero, caricate dopo il primo paint (ssr:false). Il contenitore server
-// ha già le stesse dimensioni, quindi non c'è layout shift.
+// Client parts of the hero, loaded after first paint (ssr:false). The server container
+// already has the same dimensions, so there is no layout shift.
 import dynamic from "next/dynamic"
 import { useSyncExternalStore } from "react"
 import { useTheme } from "@/lib/theme"
@@ -16,7 +16,7 @@ const subscribeRM = (cb: () => void) => {
   return () => mq.removeEventListener("change", cb)
 }
 
-/** Onde calme nei colori del brand, chiare o scure secondo il tema; ferme con movimento ridotto. */
+/** Calm waves in the brand colors, light or dark depending on the theme; still with reduced motion. */
 export function HeroWaves() {
   const reduced = useSyncExternalStore(
     subscribeRM,

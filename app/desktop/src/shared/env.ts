@@ -1,6 +1,6 @@
-// Ambiente dei processi figli: condiviso da host e main, così la regola per le variabili tolte è una sola.
+// Environment of child processes: shared by host and main, so the rule for removed variables lives in one place.
 
-/** Copia dell'ambiente senza le variabili ANTHROPIC_* e CLAUDE*: una chiave API passerebbe alla fatturazione a consumo. `strip` toglie anche altri nomi. */
+/** Copy of the environment without the ANTHROPIC_* and CLAUDE* variables: an API key would switch to pay-as-you-go billing. `strip` removes other names too. */
 export function cleanEnv(strip: readonly string[] = []): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {}
   for (const [key, value] of Object.entries(process.env)) {

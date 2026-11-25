@@ -1,4 +1,4 @@
-// Identità e testi delle tab browser (LAD-57). Come i file, una tab browser è una tab non-chat: `activeTab` ne porta l'id.
+// Identity and texts of browser tabs. Like files, a browser tab is a non-chat tab: `activeTab` carries its id.
 import { t } from '@shared/i18n'
 import type { BrowserState } from '@shared/protocol'
 
@@ -7,7 +7,7 @@ const PREFIX = 'browser:'
 export const newBrowserTabId = (): string => `${PREFIX}${crypto.randomUUID()}`
 export const isBrowserTabId = (id: string | null | undefined): id is string => Boolean(id?.startsWith(PREFIX))
 
-/** Indirizzo breve da mostrare: "localhost:5173" o "example.com", senza schema né percorso. */
+/** Short address to show: "localhost:5173" or "example.com", without scheme or path. */
 export function browserAddress(url: string): string {
   try {
     return new URL(url).host || url
@@ -16,7 +16,7 @@ export function browserAddress(url: string): string {
   }
 }
 
-/** Nome della tab: titolo della pagina, altrimenti l'indirizzo breve, altrimenti "Browser". */
+/** Tab name: page title, otherwise the short address, otherwise "Browser". */
 export function browserTabLabel(state: Pick<BrowserState, 'title' | 'url'> | undefined, savedUrl = '', savedTitle = ''): string {
   const title = (state?.title || (state ? '' : savedTitle)).trim()
   if (title) return title
@@ -26,7 +26,7 @@ export function browserTabLabel(state: Pick<BrowserState, 'title' | 'url'> | und
 
 export const MAX_TITLE = 200
 
-/** Cosa si salva di un indirizzo: solo origine e percorso, mai query o frammento (possono portare token). L'URL completo vive solo nello stato della vista. */
+/** What is saved of an address: only origin and path, never query or fragment (they may carry tokens). The full URL lives only in the view state. */
 export function storableUrl(url: string): string {
   try {
     const parsed = new URL(url)

@@ -1,4 +1,4 @@
-// Dati dell'app (LAD-22): informazioni sul database, copia coerente e backup nella cartella dati.
+// App data: database information, consistent copy and backup in the data folder.
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
@@ -8,7 +8,7 @@ import type { DataInfo } from '@shared/protocol'
 import type { Db } from './db'
 
 const BACKUPS = 'backups'
-/** Le copie automatiche non esistono: si tengono tutte quelle fatte a mano, ma l'elenco ne mostra le ultime. */
+/** There are no automatic copies: all manual ones are kept, but the list shows the latest. */
 const LISTED = 20
 
 const two = (n: number) => String(n).padStart(2, '0')
@@ -34,7 +34,7 @@ export async function dataInfo(dbPath: string): Promise<DataInfo> {
   return { dir, dbPath, dbBytes, backups }
 }
 
-/** Percorso reale (symlink risolti) anche se il file o parte delle cartelle non esistono ancora: si risolve l'antenato esistente e si riattacca il resto. */
+/** Real path (symlinks resolved) even if the file or some folders do not exist yet: resolve the existing ancestor and reattach the rest. */
 async function realTarget(path: string): Promise<string> {
   try {
     return await realpath(path)
@@ -47,7 +47,7 @@ async function realTarget(path: string): Promise<string> {
 
 const sameFile = (a: { ino: number; dev: number } | null, b: { ino: number; dev: number } | null) => a !== null && b !== null && a.ino === b.ino && a.dev === b.dev
 
-/** Vero se `dir` (una cartella che esiste) è `target` o uno dei suoi antenati. Si confrontano i file, non le stringhe: su APFS "Data" e "data" sono la stessa cartella. */
+/** True if `dir` (an existing folder) is `target` or one of its ancestors. Files are compared, not strings: on APFS "Data" and "data" are the same folder. */
 async function isAncestor(dir: string, target: string): Promise<boolean> {
   const info = await stat(dir).catch(() => null)
   if (!info) return false
@@ -58,14 +58,14 @@ async function isAncestor(dir: string, target: string): Promise<boolean> {
 }
 
 /**
- * Vero se scrivere in `target` toccherebbe il database o altro nella cartella dati: il database e i suoi -wal e -shm
- * (anche via symlink, hard link o maiuscole diverse: si confronta l'inode del file reale) e qualunque file
- * della cartella dati fuori da `backups`.
+ * True if writing to `target` would touch the database or anything else in the data folder: the database and its -wal and -shm
+ * (also via symlink, hard link or different case: the real file's inode is compared) and any file
+ * in the data folder outside `backups`.
  */
 async function overwritesData(target: string, dbPath: string): Promise<boolean> {
   const real = await realTarget(target)
   const dataDir = dirname(dbPath)
-  // La cartella delle copie deve esistere per riconoscerla per inode (è comunque la sola in cui scriviamo di nostro).
+  // The copies folder must exist to be recognized by inode (it is anyway the only one we write to ourselves).
   await mkdir(join(dataDir, BACKUPS), { recursive: true }).catch(() => undefined)
   if ((await isAncestor(dataDir, real)) && !(await isAncestor(join(dataDir, BACKUPS), real))) return true
   const info = await stat(target).catch(() => null)
@@ -74,8 +74,8 @@ async function overwritesData(target: string, dbPath: string): Promise<boolean> 
 }
 
 /**
- * Copia coerente del database con VACUUM INTO, scritta in un file temporaneo e poi spostata: una copia a metà non
- * prende mai il posto di quella buona. Senza `to` va in `backups` nella cartella dati.
+ * Consistent copy of the database with VACUUM INTO, written to a temporary file and then moved: a half-written copy
+ * never replaces the good one. Without `to` it goes to `backups` in the data folder.
  */
 export async function backupDatabase(db: Db, dbPath: string, to?: string): Promise<{ path: string; bytes: number }> {
   let target = to

@@ -1,12 +1,12 @@
-// "Altri agenti" (LAD-79): CLI come Gemini, Copilot o Cursor, con stato di accesso e login dal loro terminale.
-// L'elenco vive in app-store (`otherAgents`); le righe si aggiornano con gli eventi `agent.connection`.
+// "Other agents": CLIs like Gemini, Copilot or Cursor, with sign-in state and login from their terminal.
+// The list lives in app-store (`otherAgents`); rows are updated by `agent.connection` events.
 import type { OtherAgentConnection, TerminalInfo } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { useSettings } from '@/hooks/use-theme'
 import { onHostConnect, request } from '@/lib/host-client'
 import { useApp } from '@/store/app-store'
 
-// Ordine degli aggiornamenti per riga: la risposta di `agents.others` partita prima di un evento non lo sovrascrive.
+// Order of updates per row: the `agents.others` response that started before an event does not overwrite it.
 let sequence = 0
 const stamp: Record<string, number> = {}
 useApp.subscribe((state, prev) => {
@@ -14,7 +14,7 @@ useApp.subscribe((state, prev) => {
   for (const row of state.otherAgents ?? []) if (row !== prev.otherAgents?.find((p) => p.id === row.id)) stamp[row.id] = ++sequence
 })
 
-/** Un agente è collegato a Ladder se la CLI c'è e la prova ha aperto una sessione senza chiedere l'accesso. */
+/** An agent is connected to Ladder if the CLI is present and the probe opened a session without asking for sign-in. */
 export function isOtherLinked(agent: OtherAgentConnection): boolean {
   return agent.installed && agent.auth === 'connected'
 }
@@ -23,9 +23,9 @@ let loaded = false
 let loading: Promise<void> | null = null
 
 /**
- * Legge l'elenco una sola volta (poi lo tengono aggiornato gli eventi `agent.connection` e «Check again»): l'host risponde subito con
- * quanto sa e manda le prove come eventi. Richiamarla mentre è in corso o dopo un successo non rilancia nulla; si riprova solo dopo
- * un errore o con `force` (nuova connessione con l'host).
+ * Reads the list only once (then `agent.connection` events and «Check again» keep it updated): the host answers immediately with
+ * what it knows and sends the probes as events. Calling it while one is in progress or after a success does not relaunch anything; it retries only after
+ * an error or with `force` (new connection with the host).
  */
 export function loadOtherAgents(force = false): Promise<void> {
   if (!force) {
@@ -45,25 +45,25 @@ export function loadOtherAgents(force = false): Promise<void> {
   loading = run
   return run
 }
-// Una nuova connessione con l'host (anche la prima) rilegge l'elenco; l'host ha il suo stato.
+// A new connection with the host (even the first) rereads the list; the host has its own state.
 onHostConnect(() => void loadOtherAgents(true).catch(() => undefined))
 
 function upsert(agent: OtherAgentConnection): void {
   useApp.getState().applyEvent({ type: 'agent.connection', agent })
 }
 
-/** Ripete la prova di un agente. */
+/** Repeats an agent's probe. */
 export async function refreshOtherAgent(id: string): Promise<void> {
   upsert(await request<OtherAgentConnection>({ type: 'agents.others.refresh', id }))
 }
 
-/** Progetto in cui si apre il terminale: quello in vista, altrimenti il primo. */
+/** Project in which the terminal opens: the one in view, otherwise the first. */
 function terminalProject(): string | null {
   const state = useApp.getState()
   return state.selection.projectId ?? state.projects[0]?.id ?? null
 }
 
-/** Porta in vista un terminale di Ladder: seleziona il suo progetto, apre il pannello e chiude le Impostazioni che lo coprirebbero. */
+/** Brings a Ladder terminal into view: selects its project, opens the panel and closes the Settings that would cover it. */
 export function showTerminal(terminal: Pick<TerminalInfo, 'id' | 'projectId'>): void {
   const state = useApp.getState()
   if (state.selection.projectId !== terminal.projectId) state.selectProject(terminal.projectId)
@@ -71,7 +71,7 @@ export function showTerminal(terminal: Pick<TerminalInfo, 'id' | 'projectId'>): 
   useSettings.getState().setSettingsOpen(false)
 }
 
-/** Apre l'accesso o l'uscita dell'agente nel terminale del progetto. Rifiuta con un messaggio chiaro se non c'è un progetto. */
+/** Opens the agent's sign-in or sign-out in the project's terminal. Rejects with a clear message if there is no project. */
 async function openInTerminal(kind: 'login' | 'logout', id: string): Promise<void> {
   const projectId = terminalProject()
   if (!projectId) throw new Error(t('Open a project first: the sign-in runs in one of its terminals.'))
@@ -83,7 +83,7 @@ async function openInTerminal(kind: 'login' | 'logout', id: string): Promise<voi
 export const loginOtherAgent = (id: string) => openInTerminal('login', id)
 export const logoutOtherAgent = (id: string) => openInTerminal('logout', id)
 
-/** Il terminale di un accesso in corso, per "Show terminal". */
+/** The terminal of a sign-in in progress, for "Show terminal". */
 export function showOtherAgentTerminal(terminalId: string): boolean {
   const terminal = useApp.getState().terminals[terminalId]
   if (!terminal) return false

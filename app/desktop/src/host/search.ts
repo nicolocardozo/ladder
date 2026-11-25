@@ -1,5 +1,5 @@
-// Ricerca di ⌘K nelle conversazioni di tutti i progetti: messaggi, risposte, comandi e file toccati.
-// LIKE di SQLite restringe le righe, poi il filtro vero (senza accenti e maiuscole) lavora sul testo leggibile.
+// ⌘K search across conversations of all projects: messages, replies, commands and touched files.
+// SQLite's LIKE narrows the rows, then the real filter (accent- and case-insensitive) works on the readable text.
 import type { ChatItem, SearchHit } from '@shared/protocol'
 import type { Db, SessionRow } from './db'
 
@@ -13,7 +13,7 @@ export function normalize(text: string): string {
     .toLowerCase()
 }
 
-/** Testo cercabile di un elemento e tipo di corrispondenza. */
+/** Searchable text of an item and match kind. */
 function searchable(item: ChatItem): { text: string; kind: SearchHit['kind'] }[] {
   switch (item.kind) {
     case 'user':
@@ -44,8 +44,8 @@ export function searchItems(db: Db, rows: Map<string, SessionRow>, query: string
   const tokens = normalize(query).split(/\s+/).filter((t) => t.length > 0)
   if (tokens.length === 0 || tokens.every((t) => t.length < 2)) return []
   const live = new Set([...rows.values()].filter((r) => !r.archived).map((r) => r.id))
-  // Il JSON contiene il testo così com'è (UTF-8) e LIKE ignora le maiuscole solo per l'ASCII.
-  // Le vocali diventano "_" (un carattere qualunque): "perche" trova anche "perché". Il filtro dopo è quello esatto.
+  // The JSON holds the text as is (UTF-8) and LIKE ignores case only for ASCII.
+  // Vowels become "_" (any character): "perche" also finds "perché". The filter afterwards is the exact one.
   const likes = tokens.map((t) => `%${t.replace(/[%_\\]/g, (c) => `\\${c}`).replace(/[aeiou]/g, '_')}%`)
   const where = likes.map(() => `json like ? escape '\\'`).join(' and ')
   const candidates = db

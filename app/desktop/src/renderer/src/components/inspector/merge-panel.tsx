@@ -1,7 +1,7 @@
-// Azioni di unione (scheda Branches, ⌘⌥4), sotto la riga della sessione aperta: stato git in una riga, un pulsante principale che avanza (Commit, Push o Pubblica, Crea PR, Merge, Archivia),
-// cose da fare con la loro azione, CI e commenti compatti. Ladder fa commit, push, merge e archivia SOLO su azione esplicita e confermata
-// dell'utente (Commit dal suo campo, gli altri dopo un dialogo di conferma), mai su richiesta dell'agente. "Risolvi i conflitti", "Correggi la CI"
-// e "Invia i commenti" restano prompt modificabili per l'agente. Il passo successivo lo calcola l'host (`MergeInfo.nextAction`): qui si mostra.
+// Merge actions (Branches tab, ⌘⌥4), below the open session's row: git state in one line, a main button that advances (Commit, Push or Publish, Create PR, Merge, Archive),
+// to-dos with their action, compact CI and comments. Ladder commits, pushes, merges and archives ONLY on an explicit, confirmed user action
+// (Commit from its own field, the others after a confirmation dialog), never on the agent's request. "Resolve conflicts", "Fix CI"
+// and "Send comments" stay editable prompts for the agent. The next step is computed by the host (`MergeInfo.nextAction`): here it is only shown.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Archive,
@@ -41,7 +41,7 @@ import { CommitBox } from './commit-box'
 import { CreatePrDialog } from './create-pr-dialog'
 import { ArchiveDialog, MergeDialog, PushDialog } from './merge-dialogs'
 
-/** "updated 5 min ago", ma "updated just now" e "updated yesterday" dove "ago" non regge. */
+/** "updated 5 min ago", but "updated just now" and "updated yesterday" where "ago" doesn't work. */
 function updatedAgo(at: number): string {
   const minutes = (Date.now() - at) / 60000
   if (minutes < 1) return t('updated just now')
@@ -51,7 +51,7 @@ function updatedAgo(at: number): string {
 
 const NO_ACTION: NextAction = { kind: 'none', blocked: true, reason: null }
 
-/** Frase intera per il motivo di un pulsante disabilitato o di un passo che non c'è (visibile sotto il pulsante e nel tooltip). */
+/** Full sentence for the reason a button is disabled or a step is missing (visible below the button and in the tooltip). */
 function reasonText(reason: NextActionReason, info: MergeInfo): string {
   const base = info.base ?? ''
   const blockCount = (kind: MergeBlock['kind']) => info.blocks.find((b) => b.kind === kind)?.count
@@ -131,7 +131,7 @@ const actionButton =
 const primaryButton =
   'inline-flex h-7 items-center whitespace-nowrap gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:opacity-50'
 
-/** Lo stesso stato dell'intestazione se è osservato; altrimenti lo stesso contenuto ricostruito dalla lettura del pannello. */
+/** The same state as the header if it is observed; otherwise the same content rebuilt from the panel's read. */
 function statusOf(info: MergeInfo, stored: GitStatus | null): GitStatus {
   return (
     stored ?? {
@@ -159,11 +159,11 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
   const [creatingPr, setCreatingPr] = useState(false)
   const [dialog, setDialog] = useState<Dialogs>(null)
   const version = useApp((s) => s.fsVersion[root] ?? 0)
-  // GitHub appena collegato o scollegato: si rilegge senza riaprire il pannello.
+  // GitHub just connected or disconnected: re-read without reopening the panel.
   const githubVersion = useApp((s) => s.githubVersion)
   const stored = useApp((s) => (session ? (s.gitStatus[s.gitRoot[session.id] ?? ''] ?? null) : null))
   const prKey = session?.pr ? `${session.pr.number}:${session.pr.state}:${session.pr.checks}:${session.pr.mergeable}` : ''
-  // L'agente che parte o si ferma cambia `agentBusy`: una lettura per cambio di stato, niente polling.
+  // The agent starting or stopping changes `agentBusy`: one read per state change, no polling.
   const runKey = session?.run ?? ''
   const latest = useRef(0)
   const commitRef = useRef<HTMLDivElement>(null)
@@ -184,7 +184,7 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
     [root]
   )
 
-  // Si rilegge quando cambiano i file o lo stato della PR; "Aggiorna" legge anche i branch da origin.
+  // Re-read when files or the PR state change; "Refresh" also reads the branches from origin.
   useEffect(() => {
     if (!isGit) return
     const timer = window.setTimeout(() => load(false), version === 0 ? 0 : 600)
@@ -215,7 +215,7 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
         .join('\n')
     })
 
-  // "Commit" porta al campo del messaggio; il commit parte solo dal suo pulsante.
+  // "Commit" leads to the message field; the commit starts only from its button.
   const focusCommit = () => {
     const box = commitRef.current
     box?.scrollIntoView({ block: 'nearest' })
@@ -238,8 +238,8 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
   const reasonId = 'merge-next-reason'
   const needsGithub = na.reason === 'github_missing' || na.reason === 'github_unauthenticated'
 
-  // Le altre azioni, nel menu accanto. I motivi vengono dall'host (`agentBusy`, `blocks`, `nextAction.reason`): qui non si rifanno le sue regole.
-  // Cosa si può inviare o archiviare lo controllano l'anteprima del dialogo e l'host al momento della conferma.
+  // The other actions are in the menu next to it. The reasons come from the host (`agentBusy`, `blocks`, `nextAction.reason`): its rules are not redone here.
+  // What can be sent or archived is checked by the dialog's preview and by the host at confirmation time.
   const unpushed = info.unpushed ?? 0
   const canPush = info.hasRemote && info.branch !== null && ((!info.hasUpstream && info.ahead > 0) || unpushed > 0)
   const pushWhy = !session ? t('Open a session on this branch to push, merge or archive.') : info.agentBusy ? reasonText('agent_busy', info) : na.reason === 'behind_upstream' ? reasonText('behind_upstream', info) : null
@@ -257,7 +257,7 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
   if (canArchive && na.kind !== 'archive') menu.push({ key: 'archive', label: t('Archive…'), Icon: Archive, why: archiveWhy, onSelect: () => setDialog('archive') })
   if (pr) menu.push({ key: 'open', label: t('Open PR on GitHub'), Icon: ExternalLink, why: null, onSelect: () => void window.ladder?.openExternal(pr.url) })
 
-  // Cose da fare: una riga per blocco, ognuna con la sua azione quando c'è qualcosa che l'agente può fare.
+  // To-dos: one row per block, each with its action when there is something the agent can do.
   interface Todo {
     key: string
     text: string
@@ -485,7 +485,7 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
               summary={plural(info.comments.length, '{n} comment', '{n} comments')}
               icon={<MessageSquare aria-hidden className="size-3.5 text-muted-foreground" />}
               action={
-                // Con "La review chiede modifiche" il pulsante sta già in "Da fare": qui non si ripete.
+                // With "Review requests changes" the button is already in "To do": it is not repeated here.
                 hasBlock('changes_requested') ? null : (
                   <button type="button" onClick={askComments} className={actionButton}>
                     <MessageSquare aria-hidden className="size-3.5" />
@@ -526,7 +526,7 @@ export function MergePanel({ projectId, root, isGit, session }: { projectId: str
   )
 }
 
-/** "3 checks, 1 failed": conta i check e dice cosa non va. */
+/** "3 checks, 1 failed": counts the checks and says what is wrong. */
 function checksSummary(checks: MergeCheck[]): string {
   const failing = checks.filter((c) => c.state === 'failing').length
   const pending = checks.filter((c) => c.state === 'pending').length
@@ -537,7 +537,7 @@ function checksSummary(checks: MergeCheck[]): string {
   return parts.join(', ')
 }
 
-/** Chip della PR nella riga di stato: numero, stato in parole e CI con la sua forma (il colore non basta). */
+/** PR chip in the status row: number, state in words and CI with its shape (color is not enough). */
 function PrChip({ pr }: { pr: NonNullable<MergeInfo['pr']> }) {
   const live = pr.state === 'open' || pr.state === 'draft'
   const ci = live
@@ -573,7 +573,7 @@ function PrChip({ pr }: { pr: NonNullable<MergeInfo['pr']> }) {
   )
 }
 
-/** Riepilogo in una riga che si apre sul dettaglio: il pulsante porta `aria-expanded` e `aria-controls`. */
+/** One-line summary that opens the detail: the button carries `aria-expanded` and `aria-controls`. */
 function Disclosure({ id, summary, icon, action, children }: { id: string; summary: string; icon: ReactNode; action?: ReactNode; children: ReactNode }) {
   const [open, setOpen] = useState(false)
   return (

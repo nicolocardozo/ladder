@@ -1,6 +1,6 @@
-// Branch locali del progetto: elenco con ricerca (`BranchList`, anche per scegliere da dove parte un worktree) e menu del branch del
-// checkout principale (`BranchSwitcherPanel`): cambio con `git switch`, scelta inline per le modifiche non committate, nuovo branch da qui.
-// Le protezioni vere stanno nell'host; qui si mostra in anticipo ciò che l'host rifiuterebbe (sessione al lavoro, branch in un worktree).
+// Local branches of the project: list with search (`BranchList`, also to choose where a worktree starts from) and the main
+// checkout's branch menu (`BranchSwitcherPanel`): switch with `git switch`, inline choice for uncommitted changes, new branch from here.
+// The real protections live in the host; here we show in advance what the host would refuse (session at work, branch in a worktree).
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, GitFork, GitMerge, Plus, Search, TriangleAlert } from 'lucide-react'
 import type { LocalBranch } from '@shared/protocol'
@@ -12,15 +12,15 @@ import { relativeAge } from '@/lib/session-state'
 import { useProjectBranches } from '@/lib/use-project-branches'
 import { cn } from '@/lib/utils'
 
-/** Ricerca per sottostringa, senza distinguere maiuscole; l'ordine dell'host (ultimo commit) resta. */
+/** Substring search, case-insensitive; the host's order (last commit) is kept. */
 function filterBranches(branches: LocalBranch[], query: string): LocalBranch[] {
   const needle = query.trim().toLowerCase()
   return needle ? branches.filter((b) => b.name.toLowerCase().includes(needle)) : branches
 }
 
 /**
- * Campo di ricerca e elenco dei branch locali: spunta sul selezionato, età dell'ultimo commit, voci disabilitate con il motivo.
- * Frecce su e giù passano tra campo e voci, Invio sceglie la prima voce libera della ricerca.
+  * Search field and list of local branches: check on the selected one, age of the last commit, disabled entries with the reason.
+  * Up and down arrows move between field and entries, Enter picks the first free entry of the search.
  */
 export function BranchList({
   branches,
@@ -33,9 +33,9 @@ export function BranchList({
   branches: LocalBranch[]
   selected: string | null
   onPick: (branch: LocalBranch) => void
-  /** Motivo per cui una voce non si può scegliere (mostrato sotto il nome); null = libera. */
+  /** Reason an entry cannot be chosen (shown under the name); null = free. */
   disabledReason?: (branch: LocalBranch) => string | null
-  /** Branch che si sta per cambiare: la sua riga mostra l'attesa. */
+  /** Branch being switched: its row shows the wait. */
   pending?: string | null
   maxHeight?: string
 }) {
@@ -65,7 +65,7 @@ export function BranchList({
               e.preventDefault()
               items()[0]?.focus()
             } else if (e.key === 'Enter') {
-              // Con un cambio in corso Invio non fa nulla (come i clic sulle voci, disabilitate).
+              // With a switch in progress Enter does nothing (like clicks on the entries, disabled).
               const first = pending === null ? shown.find((b) => !reasonOf(b) && b.name !== selected) : undefined
               if (first) onPick(first)
             }
@@ -119,18 +119,18 @@ export function BranchList({
   )
 }
 
-/** Il motivo, uguale per tutti, per cui un branch estratto in un worktree non si sceglie come branch del checkout principale. */
+/** The reason, the same for everyone, why a branch checked out in a worktree cannot be chosen as the main checkout's branch. */
 export function inWorktreeReason(b: LocalBranch): string | null {
   return b.worktree ? t('Checked out in a worktree: {path}', { path: b.worktree }) : null
 }
 
 /**
- * Contenuto del menu del branch: cambio di branch del checkout principale, nuovo branch da qui, e l'accesso al pannello Merge.
- * `onDone` chiude il menu dopo un cambio riuscito; un errore resta nel menu, leggibile.
+  * Branch menu content: branch switch of the main checkout, new branch from here, and access to the Merge panel.
+  * `onDone` closes the menu after a successful switch; an error stays in the menu, readable.
  */
 export function BranchSwitcherPanel({ projectId, onDone, onOpenMerge }: { projectId: string; onDone: () => void; onOpenMerge?: () => void }) {
   const { data, error, loading, reload } = useProjectBranches(projectId, true)
-  // Branch scelto mentre ci sono modifiche non committate: il menu chiede cosa farne prima di partire.
+  // Branch chosen while there are uncommitted changes: the menu asks what to do with them before going on.
   const [confirm, setConfirm] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)

@@ -1,5 +1,5 @@
-// "Create PR…" (LAD-59): titolo e descrizione si scrivono qui (a mano, o con "Genera testo") e alla conferma vanno
-// all'agente, che fa push e `gh pr create` senza riscriverli. Non parte niente finché non premi il pulsante di conferma.
+// "Create PR…": title and description are written here (by hand, or with "Generate text") and on confirmation go
+// to the agent, which pushes and runs `gh pr create` without rewriting them. Nothing starts until you press the confirm button.
 import { useRef, useState } from 'react'
 import { GitPullRequest } from 'lucide-react'
 import type { PrPrepared, SessionSummary } from '@shared/protocol'
@@ -13,7 +13,7 @@ import { useSessionAgentLabel } from '@/lib/profiles'
 import { t } from '@shared/i18n'
 import { useWrittenText, WrittenTextBar, WrittenTextMeta, type TextValue } from './written-text'
 
-/** Montare solo quando il dialogo è aperto: ogni apertura riparte da campi vuoti. */
+/** Mount only when the dialog is open: every opening starts from empty fields. */
 export function CreatePrDialog({ projectId, session, branch, base, onClose }: { projectId: string; session: SessionSummary | null; branch: string; base: string; onClose: () => void }) {
   const agent = useSessionAgentLabel(session)
   const [value, setValue] = useState<TextValue>({ head: '', body: '' })
@@ -31,7 +31,7 @@ export function CreatePrDialog({ projectId, session, branch, base, onClose }: { 
     setBusy(true)
     setError(null)
     try {
-      // L'host scrive titolo e descrizione in file temporanei e restituisce il prompt (personalizzabile in [prompts]) con i soli percorsi.
+      // The host writes title and description to temporary files and returns the prompt (customizable in [prompts]) with only the paths.
       const { prompt } = await request<PrPrepared>({ type: 'pr.prepare', sessionId: session.id, projectId, branch, base, title, body: value.body.trim() })
       await sendToSession(session, prompt)
       onClose()

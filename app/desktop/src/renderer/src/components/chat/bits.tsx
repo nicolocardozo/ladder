@@ -1,4 +1,4 @@
-// Pezzi piccoli condivisi dalla chat.
+// Small pieces shared by the chat.
 import { File, Image as ImageIcon } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { plural, t } from '@shared/i18n'
@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { useChatActions } from './chat-context'
 import { basename } from './format'
 
-/** Anello che gira. Con movimento ridotto è tratteggiato e fermo. */
+/** Spinning ring. With reduced motion it is dashed and still. */
 export function Spinner({ className, label = t('Running') }: { className?: string; label?: string }) {
   return (
     <span
@@ -21,7 +21,7 @@ export function Spinner({ className, label = t('Running') }: { className?: strin
   )
 }
 
-/** Chip di un file citato: apre il file alla riga. Mostra il nome, il percorso completo è nel tooltip nativo. */
+/** Chip for a cited file: opens the file at the line. Shows the name; the full path is in the native tooltip. */
 export function FileChip({ path, line, label }: { path: string; line?: number; label?: string }) {
   const { openFile } = useChatActions()
   const full = line ? `${path}:${line}` : path
@@ -44,7 +44,7 @@ export function FileChip({ path, line, label }: { path: string; line?: number; l
   )
 }
 
-/** Allegati di un messaggio dell'utente: solo nome e tipo, l'immagine non viene conservata. */
+/** Attachments of a user message: only name and type, the image is not kept. */
 export function AttachmentChips({ attachments }: { attachments: { name: string; mediaType: string }[] }) {
   return (
     <ul aria-label={plural(attachments.length, '{n} attachment', '{n} attachments')} className="flex flex-wrap gap-1">
@@ -62,7 +62,7 @@ export function AttachmentChips({ attachments }: { attachments: { name: string; 
   )
 }
 
-/** Divisore "Nuovo" prima del primo contenuto non letto. */
+/** "New" divider before the first unread content. */
 export function NewDivider() {
   return (
     <div role="separator" aria-label={t('New messages')} className="flex items-center gap-2.5 py-1 text-primary">

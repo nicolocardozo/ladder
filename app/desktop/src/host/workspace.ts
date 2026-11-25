@@ -1,4 +1,4 @@
-// Modifiche, file e cronologia di una cartella di lavoro: diff per ambito, ripristino con annullamento e linea del tempo.
+// Changes, files and history of a working folder: diffs by scope, restore with undo, and timeline.
 import { createHash, randomUUID } from 'node:crypto'
 import { t } from '@shared/i18n'
 import type { ChatItem, DiffResult, DiffScope, FilePatch, HistoryEntry } from '@shared/protocol'
@@ -7,7 +7,7 @@ import { blobAt, changedFiles, commitLog, createCheckpoint, EMPTY_TREE, filePatc
 
 const MAX_PATCH = 2 * 1024 * 1024
 
-/** Fotografia dello stato attuale, su un ref fisso per cartella: il lato "dopo" dei diff attuali. */
+/** Snapshot of the current state, on a fixed ref per folder: the "after" side of current diffs. */
 export async function liveSnapshot(root: string): Promise<string> {
   const key = createHash('sha1').update(root).digest('hex').slice(0, 16)
   const sha = await createCheckpoint(root, `refs/ladder/live/${key}`, 'ladder: current state')
@@ -43,7 +43,7 @@ export async function diffFiles(db: Db, root: string, scope: DiffScope): Promise
   let live = false
   switch (scope.kind) {
     case 'turn': {
-      // Le sessioni della fase 1 hanno solo i ref con il nome del turno.
+      // Older sessions only have refs named after the turn.
       const start = turnCheckpoint(db, scope.sessionId, scope.turnId, 'start') ?? (await resolveCommit(root, `refs/ladder/${scope.sessionId}/${scope.turnId}-start`))
       if (!start) throw new Error(t('This turn has no checkpoint: it was outside git or has been deleted.'))
       const end = turnCheckpoint(db, scope.sessionId, scope.turnId, 'end') ?? (await resolveCommit(root, `refs/ladder/${scope.sessionId}/${scope.turnId}-end`))
@@ -101,8 +101,8 @@ export async function diffFile(root: string, from: string, to: string, path: str
 }
 
 /**
- * Riporta i file allo stato `to`. Prima salva lo stato attuale in un checkpoint: restituito come `undo`,
- * basta ripristinare quello per annullare. Senza `paths` tocca tutti i file diversi da `to`.
+  * Restores files to state `to`. First saves the current state in a checkpoint, returned as `undo`:
+  * restoring that is enough to undo. Without `paths` it touches all files that differ from `to`.
  */
 export async function restore(db: Db, root: string, to: string, paths: string[] | undefined, label: string, sessionId: string | null) {
   const undo = await createCheckpoint(root, `refs/ladder/undo/${randomUUID()}`, `ladder: before restore (${label})`)
@@ -118,7 +118,7 @@ export async function restore(db: Db, root: string, to: string, paths: string[] 
   return { undo, paths: targets }
 }
 
-/** Turni (checkpoint prima di ogni richiesta), ripristini e commit in un'unica linea del tempo, dal più recente. */
+/** Turns (checkpoint before each request), restores and commits in a single timeline, most recent first. */
 export async function historyList(db: Db, root: string, sessionId: string | null, sessions: Map<string, SessionRow>): Promise<HistoryEntry[]> {
   const rows = (
     sessionId

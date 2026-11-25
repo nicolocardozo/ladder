@@ -1,5 +1,5 @@
-// Crea, modifica o salva come profilo di sessione (LAD-60). Lo stesso modulo serve a "Salva come profilo" (dal menu della sessione
-// e da ⌘K, con i valori della sessione già dentro) e alla sezione dei profili nelle impostazioni.
+// Create, edit or save as a session profile. The same form serves "Save as profile" (from the session menu
+// and ⌘K, with the session's values already in) and the profiles section in settings.
 import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { AgentId, Effort, PermissionLevel, SessionPreset } from '@shared/protocol'
 import { t } from '@shared/i18n'
@@ -34,25 +34,25 @@ function Field({ label, htmlFor, error, errorId, children }: { label: string; ht
   )
 }
 
-/** Dialogo controllato. `presetId` modifica un profilo, altrimenti ne crea uno nuovo da `seed`. */
+/** Controlled dialog. `presetId` edits a profile, otherwise it creates a new one from `seed`. */
 export function PresetDialog({ open, onOpenChange, presetId, seed }: { open: boolean; onOpenChange: (open: boolean) => void; presetId?: string | null; seed?: Partial<SessionPreset> }) {
-  // Il focus iniziale lo dà il Dialog (initialFocus): così ricorda l'elemento che l'ha aperto e lo ripristina alla chiusura.
+  // Initial focus is given by the Dialog (initialFocus): so it remembers the element that opened it and restores it on close.
   const nameRef = useRef<HTMLInputElement>(null)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent initialFocus={nameRef} className="gap-4 sm:max-w-[540px]">
-        {/* Il modulo si monta a ogni apertura: i campi ripartono dai valori di partenza. */}
+        {/* The form mounts on every open: the fields restart from the starting values. */}
         {open && <PresetForm nameRef={nameRef} presetId={presetId ?? null} seed={seed} onClose={() => onOpenChange(false)} />}
       </DialogContent>
     </Dialog>
   )
 }
 
-/** La finestra aperta da fuori delle impostazioni (menu della sessione, ⌘K): la guida `presetEditor` dello store. */
+/** The window opened from outside settings (session menu, ⌘K): driven by the store's `presetEditor`. */
 export function SavePresetDialog() {
   const editor = useApp((s) => s.presetEditor)
   const setEditor = useApp((s) => s.setPresetEditor)
-  // Il contenuto resta montato durante l'animazione di chiusura.
+  // The content stays mounted during the closing animation.
   const shown = useRef(editor)
   if (editor) shown.current = editor
   return <PresetDialog open={editor !== null} onOpenChange={(open) => !open && setEditor(null)} presetId={shown.current?.presetId} seed={shown.current?.seed} />
@@ -65,13 +65,13 @@ function PresetForm({ nameRef, presetId, seed, onClose }: { nameRef: RefObject<H
   const agents = useApp((s) => s.agents)
   const globalDefaults = prefs?.defaults
 
-  // Valori di partenza: il profilo che si modifica, poi il seme (sessione), poi i predefiniti globali.
+  // Starting values: the profile being edited, then the seed (session), then the global defaults.
   const initial = useMemo<Partial<SessionPreset>>(() => {
     if (existing) return existing
     if (seed?.agent) return seed
     const resolved = resolveSessionDefaults({ agents, global: globalDefaults })
     return { agent: resolved.agent ?? agents[0]?.agent, model: resolved.model, effort: resolved.effort, permission: resolved.permission, ...seed }
-    // Solo all'apertura.
+    // Only on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -88,12 +88,12 @@ function PresetForm({ nameRef, presetId, seed, onClose }: { nameRef: RefObject<H
 
   const accounts = useProfiles(agent)
   const status = useApp((s) => agentStatusFor(s, agent, profileId && isProfileAgent(agent) ? normalizeProfileId(agent, profileId) : null)) ?? agents.find((a) => a.agent === agent) ?? null
-  // Un account salvato che non esiste più resta visibile, così si può togliere; non si riscrive al salvataggio.
+  // A saved account that no longer exists stays visible, so it can be removed; it is not rewritten on save.
   const accountGone = Boolean(profileId && isProfileAgent(agent) && !accounts.some((p) => p.id === normalizeProfileId(agent, profileId)))
   const showAccount = accounts.length > 1 || accountGone
-  // Il profilo che stai modificando è sparito (eliminato da un'altra finestra): salvarlo lo ricreerebbe.
+  // The profile you are editing is gone (deleted from another window): saving it would recreate it.
   const gone = presetId !== null && existing === null
-  // Un modello salvato che l'agente non offre più resta visibile, così non sparisce senza dirlo.
+  // A saved model that the agent no longer offers stays visible, so it doesn't vanish without saying so.
   const modelKnown = !model || !status || status.models.length === 0 || status.models.some((m) => m.id === model)
   const modelEfforts = status?.models.find((m) => m.id === model)?.efforts
   const effortLevels = EFFORTS.filter((e) => (modelEfforts ? modelEfforts.includes(e.id) : true))
@@ -104,7 +104,7 @@ function PresetForm({ nameRef, presetId, seed, onClose }: { nameRef: RefObject<H
 
   const chooseAgent = (next: AgentId) => {
     if (next === agent) return
-    // Account, modello ed effort hanno senso solo con il loro agente.
+    // Account, model and effort only make sense with their agent.
     setAgent(next)
     setProfileId(null)
     setModel(null)

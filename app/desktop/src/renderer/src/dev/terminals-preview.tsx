@@ -1,5 +1,5 @@
-// Anteprima del pannello terminali con due servizi del worktree (LAD-66): "Web" su :4200 in corso, "API" su :4300 fermo
-// (Riavvia lo rimette in corso, come farebbe terminal.restart), accanto a una shell e a un'azione di avvio.
+// Preview of the terminal panel with two worktree services: "Web" on :4200 running, "API" on :4300 stopped
+// (Restart puts it back to running, as terminal.restart would), next to a shell and a start action.
 import { useState } from 'react'
 import type { HostCommand, TerminalInfo } from '@shared/protocol'
 import { TerminalPanel } from '@/components/terminal/terminal-panel'
@@ -23,13 +23,13 @@ let handled = false
 
 export function TerminalsPreview() {
   useState(() => {
-    // Il pannello senza terminali ne aprirebbe uno: la lista c'è prima del primo render.
+    // The panel with no terminals would open one: the list exists before the first render.
     useApp.setState({ terminals: Object.fromEntries(TERMINALS.map((x) => [x.id, x])) })
     useApp.getState().setTerminalPanel(PROJECT, { open: true, active: 'tp-api', side: 'bottom' })
     installSettingsPreview()
     if (!handled) {
       handled = true
-      // terminal.restart: l'host vero rimanda terminal.upsert con lo stato in corso.
+      // terminal.restart: the real host sends terminal.upsert again with the running state.
       registerPreviewHandler((command: HostCommand) => {
         if (!command.type.startsWith('terminal.')) return undefined
         if (command.type === 'terminal.attach') return { ok: true, data: { data: '' } }

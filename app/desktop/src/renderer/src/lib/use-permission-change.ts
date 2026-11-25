@@ -1,11 +1,11 @@
-// Cambio del livello di permessi di una sessione già avviata (LAD-44).
-// Il livello nuovo si mostra subito ma solo se l'host conferma; se rifiuta, torna quello di prima e l'errore sale a chi usa l'hook.
+// Changing the permission level of an already started session.
+// The new level shows immediately but only if the host confirms; if it refuses, the previous one comes back and the error rises to whoever uses the hook.
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { matchesCommand } from '@shared/shortcuts'
 import type { PermissionLevel } from '@shared/protocol'
 import { t } from '@shared/i18n'
 
-/** Oltre questo tempo senza risposta dell'host il cambio si considera fallito. */
+/** Beyond this time without a host reply the change is considered failed. */
 const CHANGE_TIMEOUT_MS = 10_000
 
 export interface PermissionChangeResult {
@@ -14,13 +14,13 @@ export interface PermissionChangeResult {
 }
 
 interface Options {
-  /** Livello in vigore secondo l'host. */
+  /** Level in effect according to the host. */
   permission: PermissionLevel
-  /** Livello in attesa del prossimo turno secondo l'host. */
+  /** Level waiting for the next turn according to the host. */
   permissionNext?: PermissionLevel | null
-  /** Livelli ammessi dal progetto, nell'ordine in cui ⇧Tab li percorre. */
+  /** Levels allowed by the project, in the order ⇧Tab cycles through them. */
   levels: PermissionLevel[]
-  /** Invia il cambio all'host (request) e risolve con la sua risposta o rifiuta con l'errore. */
+  /** Sends the change to the host (request) and resolves with its reply or rejects with the error. */
   apply: (permission: PermissionLevel) => Promise<PermissionChangeResult>
   onError: (message: string | null) => void
 }
@@ -30,7 +30,7 @@ export function usePermissionChange({ permission, permissionNext, levels, apply,
   const [localNext, setLocalNext] = useState<PermissionLevel | null>(null)
   const pending = useRef(false)
   const mounted = useRef(true)
-  // Cambio in corso (per ignorare risposte tardive) e timer di sicurezza / di rilascio del livello provvisorio.
+  // Change in progress (to ignore late replies) and safety / release timers of the provisional level.
   const seq = useRef(0)
   const timeoutTimer = useRef<number | null>(null)
   const releaseTimer = useRef<number | null>(null)
@@ -47,7 +47,7 @@ export function usePermissionChange({ permission, permissionNext, levels, apply,
     }
   }, [])
 
-  // Quando il livello vero cambia, quello provvisorio ha fatto il suo tempo.
+  // When the real level changes, the provisional one has had its time.
   useEffect(() => {
     setOptimistic(null)
     setLocalNext(null)
@@ -59,7 +59,7 @@ export function usePermissionChange({ permission, permissionNext, levels, apply,
 
   const change = useCallback(
     (target: PermissionLevel) => {
-      // Con un cambio in attesa si parte da quello: tornare al livello attuale è ammesso, ripetere l'attesa no.
+      // With a pending change we start from that: going back to the current level is allowed, repeating the wait is not.
       if (pending.current || target === (next ?? shown)) return
       pending.current = true
       const mine = ++seq.current
@@ -89,7 +89,7 @@ export function usePermissionChange({ permission, permissionNext, levels, apply,
           } else {
             setLocalNext(null)
             setOptimistic(result.permission)
-            // L'evento con il livello nuovo di solito è già arrivato; se tarda, non restiamo su un valore provvisorio.
+            // The event with the new level has usually already arrived; if it is late, we don't stay on a provisional value.
             releaseTimer.current = window.setTimeout(() => mounted.current && setOptimistic(null), 1500)
           }
         })
@@ -108,7 +108,7 @@ export function usePermissionChange({ permission, permissionNext, levels, apply,
     change(levels[(levels.indexOf(next ?? shown) + 1) % levels.length])
   }, [levels, shown, next, change])
 
-  /** ⇧Tab con il focus sulla card di richiesta aperta o sui suoi bottoni (il composer lo gestisce da solo); altrove resta navigazione all'indietro. */
+  /** ⇧Tab with focus on the open request card or its buttons (the composer handles it itself); elsewhere it stays backwards navigation. */
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLElement>) => {
       if (event.defaultPrevented || !matchesCommand(event, 'composer.cyclePermission')) return

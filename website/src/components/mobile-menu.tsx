@@ -1,8 +1,8 @@
 "use client";
 
-// Menu della nav su mobile: niente sidebar, una tendina che scende dalla pillola dell'header
-// con i link, l'interruttore del tema e la lista d'attesa. Si chiude con un link, Esc, un tocco fuori
-// o cambiando pagina. Con movimento ridotto appare senza animazione.
+// Mobile nav menu: no sidebar, a dropdown that drops from the header pill
+// with the links, the theme switch and the waitlist. It closes with a link, Esc, a tap outside
+// or a page change. With reduced motion it appears without animation.
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -14,8 +14,8 @@ import { DownloadLink } from "@/components/download-link";
 
 type NavLink = { href: string; label: string };
 
-// Il pannello sta fuori dalla pillola: il backdrop-filter della pillola farebbe da contenitore
-// agli elementi fixed/absolute, quindi la pillola la riceve come classe e il pannello è fratello.
+// The panel sits outside the pill: the pill's backdrop-filter would act as the containing block
+// for fixed/absolute elements, so the pill receives it as a class and the panel is a sibling.
 export function MobileMenu({
   links,
   pillClassName,
@@ -31,7 +31,7 @@ export function MobileMenu({
   const pathname = usePathname();
   const theme = useTheme();
 
-  // cambiando pagina il menu si chiude (stato derivato durante il render, senza effetto)
+  // the menu closes on page change (state derived during render, no effect)
   if (pathname !== lastPath) {
     setLastPath(pathname);
     if (open) setOpen(false);
@@ -76,7 +76,7 @@ export function MobileMenu({
           onClick={() => setOpen((v) => !v)}
           className="relative inline-flex size-[34px] items-center justify-center rounded-[9px] text-ink transition-colors hover:bg-frame/80"
         >
-          {/* due linee che diventano una X */}
+          {/* two lines that become an X */}
           <span aria-hidden className="relative block h-3 w-4">
             <span
               className={cn(
@@ -94,7 +94,7 @@ export function MobileMenu({
         </button>
       </div>
 
-      {/* Velo leggero sotto la tendina */}
+      {/* Light veil under the dropdown */}
       <div
         aria-hidden
         className={cn(

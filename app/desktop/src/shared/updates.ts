@@ -1,11 +1,11 @@
-// Stato degli aggiornamenti dell'app, dal main (electron-updater) al renderer.
-// Le versioni arrivano dalle release pubbliche di nicolocardozo/ladder-releases.
+// App update state, from main (electron-updater) to the renderer.
+// Versions come from the public releases of nicolocardozo/ladder-releases.
 export type UpdateState =
-  /** Build di sviluppo o non impacchettata: niente aggiornamenti. */
+  /** Development or unpackaged build: no updates. */
   | { status: 'unsupported'; version: string }
   | { status: 'idle'; version: string; checkedAt: number | null }
   | { status: 'checking'; version: string }
   | { status: 'downloading'; version: string; next: string; percent: number }
-  /** Scaricato: si installa al riavvio, o comunque alla prossima chiusura di Ladder. */
+  /** Downloaded: installs on restart, or anyway on Ladder's next quit. */
   | { status: 'ready'; version: string; next: string }
   | { status: 'error'; version: string; message: string }

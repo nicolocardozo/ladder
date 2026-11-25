@@ -1,5 +1,5 @@
-// Anteprima di "Collega i tuoi abbonamenti" e di Impostazioni → Abbonamenti, con un host finto:
-// l'accesso scorre davvero i passi (download, verifica, browser, fine) e si può annullare, uscire o cambiare account.
+// Preview of "Connect your subscriptions" and of Settings → Subscriptions, with a fake host:
+// sign-in really goes through the steps (download, verification, browser, done) and can be cancelled, signed out or switched to another account.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConnectionId, ConnectionStatus, Profile, ProfileAgent } from '@shared/protocol'
 import { AccountButton } from '@/components/app-sidebar'
@@ -29,11 +29,11 @@ export function ConnectionsPreview() {
   const [scenario, setScenario] = useState<ConnectionScenario>('first-run')
   const [statuses, setStatuses] = useState<ConnectionSet>(() => connectionScenario('first-run'))
   const [screen, setScreen] = useState<'onboarding' | 'settings'>('onboarding')
-  // Profili (LAD-23): due account Claude e uno Codex; i collegamenti dei non predefiniti stanno a parte, per id del profilo.
+  // Profiles: two Claude accounts and one Codex; the connections of the non-default ones are kept separately, by profile id.
   const [profiles, setProfiles] = useState<Profile[]>(PREVIEW_PROFILES)
   const [profileStatuses, setProfileStatuses] = useState<Record<string, ConnectionStatus>>(() => previewProfileConnections('first-run'))
   const timers = useRef<Record<string, number[]>>({})
-  // Host finto: risponde ad agents.others* e manda `agent.connection` dopo l'accesso. La porta arriva in modo asincrono.
+  // Fake host: answers agents.others* and sends `agent.connection` after sign-in. The port arrives asynchronously.
   useState(() => installSettingsPreview())
   const userName = useApp((s) => s.prefs?.userName ?? null)
   const created = useRef(0)
@@ -48,7 +48,7 @@ export function ConnectionsPreview() {
   }
   useEffect(() => () => Object.keys(timers.current).forEach(clear), [])
 
-  // Le stesse viste dell'app leggono lo store: lo si tiene allineato (notice sopra il composer, pulsante dell'account).
+  // The same app views read the store: it is kept aligned (notice above the composer, account button).
   useEffect(() => {
     useApp.setState({ connections: statuses, agents: connectionAgents(statuses, scenario === 'attention' ? 88 : 62), profiles, profileConnections: profileStatuses, profileAgents: previewProfileAgents(profileStatuses) })
   }, [statuses, profiles, profileStatuses, scenario])
@@ -59,11 +59,11 @@ export function ConnectionsPreview() {
     setStatuses(connectionScenario(next))
     setProfiles(PREVIEW_PROFILES)
     setProfileStatuses(previewProfileConnections(next))
-    // Le simulazioni in corso nel set di prova ripartono da dove stanno: il download avanza da solo.
+    // Simulations in progress in the test set resume from where they are: the download advances by itself.
     if (next === 'downloading') simulate('codex', true, connectionScenario(next).codex.login)
   }
 
-  /** Passi dell'accesso con tempi brevi: download (se manca lo strumento), verifica, installazione, browser, fine. */
+  /** Sign-in steps with short timings: download (if the tool is missing), verification, installation, browser, done. */
   const simulate = (id: ConnectionId, download: boolean, from?: ConnectionStatus['login'], profileId?: string) => {
     const key = connectionKey(id, profileId)
     clear(key)
@@ -98,7 +98,7 @@ export function ConnectionsPreview() {
       patch(id, { login: null, error: t('Login cancelled.') }, profileId)
     },
     logout: (id, profileId) => patch(id, { state: 'unauthenticated', plan: null, email: null, user: null, error: null }, profileId),
-    // Host finto: i nomi sono unici per agente, come in quello vero.
+    // Fake host: names are unique per agent, as in the real one.
     createProfile: async (agent: ProfileAgent, name) => {
       if (profiles.some((p) => p.agent === agent && p.name.toLowerCase() === name.toLowerCase())) throw new Error(`An account named “${name}” already exists.`)
       const profile: Profile = { id: `${agent}-new-${++created.current}`, agent, name, configDir: `/tmp/ladder/profiles/${agent}-${created.current}`, isDefault: false, addedAt: Date.now() }
@@ -185,7 +185,7 @@ export function ConnectionsPreview() {
           </div>
         )}
       </div>
-      {/* Il pulsante dell'account apre Impostazioni → Abbonamenti: serve il dialogo vero. */}
+      {/* The account button opens Settings → Subscriptions: the real dialog is needed. */}
       <SettingsDialog />
     </div>
   )

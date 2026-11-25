@@ -1,31 +1,31 @@
-# Build da distribuire: firmata con Developer ID e notarizzata. Si lancia con `pnpm release:mac`, che trova il certificato.
+# Distributable build: signed with a Developer ID and notarized. Run it with `pnpm release:mac`, which finds the certificate.
 extends: electron-builder.yml
 directories:
   output: dist/release
   buildResources: resources
 mac:
-  # L'architettura (arm64 o x64) la sceglie scripts/release-mac.mjs, che costruisce DMG e zip per ciascuna.
-  # Il DMG è per il primo download dal sito, lo zip per gli aggiornamenti automatici.
+  # The architecture (arm64 or x64) is chosen by scripts/release-mac.mjs, which builds a DMG and a zip for each.
+  # The DMG is for the first download from the website, the zip for automatic updates.
   target:
     - dmg
     - zip
-  # Vale per lo zip; il DMG ha il suo nome più sotto.
+  # Applies to the zip; the DMG has its own name further down.
   artifactName: ${productName}-${version}-${arch}-mac.${ext}
   hardenedRuntime: true
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   notarize: true
 # Auto-updates: the app reads latest-mac.yml from the public releases of ladder-releases.
-# Pubblica scripts/publish-release.mjs, non electron-builder.
+# Published by scripts/publish-release.mjs, not by electron-builder.
 publish:
   provider: github
   owner: nicolocardozo
   repo: ladder-releases
   releaseType: release
-# Finestra del DMG: sfondo chiaro Circuit (sorgente e note in resources/dmg/background.svg), l'app a sinistra e Applicazioni a destra.
+# DMG window: light Circuit background (source and notes in resources/dmg/background.svg), the app on the left and Applications on the right.
 dmg:
   title: Ladder
-  # Sempre con l'architettura nel nome: Ladder-0.1.0-arm64.dmg e Ladder-0.1.0-x64.dmg
+  # Always with the architecture in the name: Ladder-0.1.0-arm64.dmg and Ladder-0.1.0-x64.dmg
   artifactName: ${productName}-${version}-${arch}.${ext}
   background: resources/dmg/background.png
   iconSize: 112

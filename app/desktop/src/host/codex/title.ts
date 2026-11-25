@@ -1,4 +1,4 @@
-// Titolo della sessione da un modello piccolo di Codex: thread effimero dell'app-server, in sola lettura.
+// Session title from a small Codex model: ephemeral app-server thread, read-only.
 import { tmpdir } from 'node:os'
 import { TextToolAttempt, TextUnsafe, codexRefuse, isPlainServerName, codexTextConfig, codexToolItem, isTextBlocked, mcpServerNames } from '../text-safety'
 import { TITLE_SYSTEM, cleanTitle } from '../titles'
@@ -7,7 +7,7 @@ import { CodexRpc } from './rpc'
 
 const TIMEOUT_MS = 40_000
 
-/** Il modello più piccolo tra quelli dell'account ("mini"); null se non ce n'è: il titolo resta provvisorio. */
+/** The smallest model on the account ("mini"); null if none: the title stays provisional. */
 export function smallCodexModel(models: { id: string; label: string }[]): string | null {
   return models.find((m) => /mini/i.test(m.id) || /mini/i.test(m.label))?.id ?? null
 }
@@ -17,19 +17,19 @@ export async function codexTitle(cli: string, version: string, model: string, pr
     const raw = await codexText(cli, version, model, TITLE_SYSTEM, prompt, TIMEOUT_MS, configDir)
     return raw === null ? null : cleanTitle(raw)
   } catch (error) {
-    // Un titolo è un di più: se la generazione ha tentato uno strumento si scarta, senza errori per l'utente.
+    // A title is a nice-to-have: if generation attempted a tool it is discarded, with no error for the user.
     if (isTextBlocked(error)) return null
     throw error
   }
 }
 
 /**
- * Testo libero dal modello piccolo (commit, PR, branch): stesso thread effimero dei titoli, SOLO testo. Barriere: sola
- * lettura, ogni comando chiede un'approvazione che si rifiuta (approvalPolicy 'untrusted'), funzioni di strumenti spente, ogni server MCP dell'utente disattivato per nome (config/read),
- * ogni richiesta di strumento rifiutata e ogni voce che non sia testo ferma il turno. In quel caso lancia TextToolAttempt
- * (il diff è un dato non affidabile). null se fallisce o scade.
- * Non si usa un CODEX_HOME temporaneo: servirebbe copiare auth.json (credenziali) e un token rinnovato nella copia
- * invaliderebbe quello dell'utente; con le credenziali nel Portachiavi non funzionerebbe affatto.
+ * Free text from the small model (commit, PR, branch): same ephemeral thread as titles, text ONLY. Barriers: read-only,
+ * every command asks for an approval that is rejected (approvalPolicy 'untrusted'), tool features off, every user MCP server disabled by name (config/read),
+ * every tool request rejected and any item that is not text stops the turn. In that case it throws TextToolAttempt
+ * (the diff is untrusted data). null if it fails or times out.
+ * A temporary CODEX_HOME is not used: it would require copying auth.json (credentials), and a refreshed token in the copy
+ * would invalidate the user's; with credentials in the Keychain it would not work at all.
  */
 export async function codexText(cli: string, version: string, model: string, system: string, prompt: string, timeoutMs: number, configDir: string | null = null, signal?: AbortSignal): Promise<string | null> {
   if (signal?.aborted) return null
@@ -40,11 +40,11 @@ export async function codexText(cli: string, version: string, model: string, sys
   let turnId = null as string | null
   let finish: (ok: boolean) => void = () => undefined
   const done = new Promise<boolean>((resolve) => (finish = resolve))
-  /** Uno strumento è stato tentato: turn/interrupt (meglio che si fermi da sé), poi si chiude il processo. */
+  /** A tool was attempted: turn/interrupt (better that it stops by itself), then the process is closed. */
   const block = (tool: string): void => {
     if (blocked !== null) return
     blocked = tool
-    // Dopo il turno di event loop: prima parte la risposta di rifiuto alla richiesta, poi l'interruzione.
+    // After the event loop turn: the rejection reply to the request goes first, then the interrupt.
     setImmediate(() => {
       if (threadId && turnId) void rpc.request('turn/interrupt', { threadId, turnId }, 2_000).catch(() => undefined).finally(() => finish(false))
       else finish(false)
@@ -64,31 +64,31 @@ export async function codexText(cli: string, version: string, model: string, sys
         finish((params.turn as { status?: string } | undefined)?.status === 'completed')
       }
     },
-    // Niente approvazioni né strumenti: ogni richiesta ha un rifiuto esplicito e ferma la generazione.
+    // No approvals or tools: every request gets an explicit rejection and stops generation.
     async (request) => {
       const { reply, tool } = codexRefuse(request.method)
       if (tool) block(tool)
       return reply
     }
   )
-  // Allo scadere si ferma il processo: le richieste in corso falliscono subito e il catch restituisce null.
+  // On timeout the process is stopped: pending requests fail immediately and the catch returns null.
   const timer = setTimeout(() => {
     finish(false)
     rpc.kill()
   }, timeoutMs)
   void rpc.exited.then(() => finish(false))
-  // Annullamento dall'esterno (text.cancel): si ferma il processo.
+  // Cancellation from outside (text.cancel): the process is stopped.
   const cancel = (): void => {
     finish(false)
     rpc.kill()
   }
   signal?.addEventListener('abort', cancel, { once: true })
-  // Annullato mentre si avviava il processo (await codexEnv): l'evento è già passato, lo si ricontrolla qui.
+  // Cancelled while the process was starting (await codexEnv): the event has already passed, so check again here.
   if (signal?.aborted) cancel()
   try {
     await rpc.initialize(version)
-    // Server MCP del config dell'utente: senza i nomi non si può spegnerli, quindi senza non si genera (fail-closed).
-    // Risposta di forma diversa dall'attesa (null) o nome non semplice: non si genera.
+    // MCP servers from the user's config: without the names they cannot be turned off, so without them nothing is generated (fail-closed).
+    // Reply of a different shape than expected (null) or a non-simple name: nothing is generated.
     const names = mcpServerNames(await rpc.request('config/read', { includeLayers: false, cwd: tmpdir() }, 15_000))
     if (!names || !names.every(isPlainServerName)) {
       unsafe = true
@@ -98,7 +98,7 @@ export async function codexText(cli: string, version: string, model: string, sys
       cwd: tmpdir(),
       model,
       ephemeral: true,
-      // 'untrusted': ogni comando, anche di sola lettura, chiede un'approvazione, che si rifiuta (provato su Codex 0.167 con cat, ls, pwd, git --version; con 'never' e 'on-request' un comando di sola lettura parte senza chiedere).
+      // 'untrusted': every command, even read-only, asks for an approval, which is rejected (tested on Codex 0.167 with cat, ls, pwd, git --version; with 'never' and 'on-request' a read-only command runs without asking).
       approvalPolicy: 'untrusted',
       sandbox: 'read-only',
       developerInstructions: system,
@@ -120,7 +120,7 @@ export async function codexText(cli: string, version: string, model: string, sys
     clearTimeout(timer)
     rpc.kill()
   }
-  // Arriva qui solo se uno strumento è stato tentato o la configurazione non si può rendere sicura: mai restituire testo.
+  // Reached only if a tool was attempted or the configuration cannot be made safe: never return text.
   if (unsafe) throw new TextUnsafe()
   console.warn(`[text] tool attempt blocked: ${blocked}`)
   throw new TextToolAttempt(blocked ?? 'unknown')

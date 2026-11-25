@@ -1,33 +1,33 @@
-// Mappa dei branch delle sessioni rispetto al ramo principale (LAD-80). Solo letture git sul checkout principale, sui riferimenti
-// (mai sulle cartelle dei worktree: se la cartella è sparita il branch si legge lo stesso), nessuna scrittura e nessuna chiamata a gh
-// (nemmeno per il ramo principale: lo risolve l'host da origin/HEAD, main o master).
-// Costo: una `for-each-ref` per giro legge sha, data e titolo di tutti i branch; i conteggi veri (merge-base, ahead/behind, righe) si
-// ricalcolano solo quando cambia una coppia (sha del branch, sha del ramo principale) e restano in cache.
+// Map of the sessions' branches relative to the main branch. Git reads only, on the main checkout, on references
+// (never on worktree folders: if the folder is gone the branch can still be read), no writes and no gh calls
+// (not even for the main branch: the host resolves it from origin/HEAD, main or master).
+// Cost: one `for-each-ref` per round reads sha, date and title of all branches; the real counts (merge-base, ahead/behind, lines) are
+// recomputed only when a pair changes (branch sha, main branch sha) and stay cached.
 import type { AgentId, BranchMap, BranchMapEntry, BranchMapProblem, PrStatus, RunState } from '@shared/protocol'
 import { t } from '@shared/i18n'
 import { currentBranch } from './branches'
 import { dirtyCount, gitRead } from './git'
 
-/** Righe di worktree al massimo nella mappa (attivi o uniti): le sessioni più recenti. */
+/** Maximum worktree rows in the map (active or merged): the most recent sessions. */
 export const MAX_BRANCH_MAP_ENTRIES = 50
-/** Sessioni del checkout principale al massimo (non costano letture git): servono a dire "sei su main" quando il checkout è sul ramo principale. */
+/** Maximum sessions of the main checkout (they cost no git reads): needed to say "you are on main" when the checkout is on the main branch. */
 const MAX_BASE_ENTRIES = 20
-/** Righe di worktree esaminate al massimo per riempire la mappa: una sessione archiviata si sa se è unita solo leggendo git. */
+/** Maximum worktree rows examined to fill the map: an archived session's merged state is known only by reading git. */
 const MAX_EXAMINED = 200
-/** Una sessione archiviata più vecchia di così non entra nemmeno nel calcolo (un branch unito da più di 7 giorni la UI lo nasconde). */
+/** An archived session older than this doesn't even enter the calculation (a branch merged more than 7 days ago is hidden by the UI). */
 const MAX_ARCHIVED_AGE_MS = 30 * 24 * 3_600_000
-/** Tempo massimo di ogni comando git. */
+/** Maximum time for each git command. */
 const READ_TIMEOUT_MS = 10_000
-/** Comandi git contemporanei al massimo (a freddo, con molti branch). */
+/** Maximum concurrent git commands (cold, with many branches). */
 const CONCURRENCY = 6
-/** Raffiche di cambi (fs, turni, fetch) si fondono in un calcolo solo. */
+/** Bursts of changes (fs, turns, fetch) merge into a single calculation. */
 const DEBOUNCE_MS = 600
-/** Rilettura periodica per i progetti con una finestra iscritta: prende push, fetch e commit che nessun evento ha segnalato. */
+/** Periodic reread for projects with a subscribed window: picks up pushes, fetches and commits that no event signaled. */
 const POLL_MS = 60_000
 const CACHE_MAX = 600
 const SHA = /^[0-9a-f]{40,64}$/
 
-/** Dati di una sessione che l'host sa senza git. */
+/** Data of a session that the host knows without git. */
 export interface BranchMapRow {
   sessionId: string
   title: string
@@ -38,30 +38,30 @@ export interface BranchMapRow {
   prState: PrStatus['state'] | null
   isWorktree: boolean
   worktreeMissing: boolean
-  /** Cartella di lavoro: chiave per le modifiche non committate lette dal tracker. */
+  /** Working folder: key for the uncommitted changes read by the tracker. */
   cwd: string
   branch: string | null
-  /** Commit da cui è nato il worktree (sha), se noto. */
+  /** Commit the worktree was born from (sha), if known. */
   start: string | null
-  /** PR unita nota (non di una sessione precedente con lo stesso nome di branch): data (mergedAt) e testa della PR. */
+  /** Known merged PR (not from a previous session with the same branch name): date (mergedAt) and PR head. */
   prMerged: { at: number; oid: string | null } | null
-  /** Unione registrata quando la sessione è stata archiviata (sopravvive al riavvio); `at` null se la data non si sa. */
+  /** Merge recorded when the session was archived (survives restart); `at` null if the date is unknown. */
   saved: { via: 'git' | 'pr'; at: number | null } | null
 }
 
 export interface BranchMapSource {
-  /** Checkout principale del progetto, dove girano tutte le letture. */
+  /** The project's main checkout, where all reads run. */
   root: string
-  /** Ramo principale (lo stesso del pannello Merge); null se il progetto non è git o la cartella non c'è. */
+  /** Main branch (same as the Merge panel); null if the project isn't git or the folder is missing. */
   base: string | null
   rows: BranchMapRow[]
 }
 
 export interface BranchMapHooks {
-  /** Dati grezzi del progetto; lancia se il progetto non esiste. */
+  /** Raw project data; throws if the project doesn't exist. */
   source: (projectId: string) => Promise<BranchMapSource>
   emit: (projectId: string, map: BranchMap) => void
-  /** File con modifiche non committate di una cartella, se il tracker git l'ha già letta. */
+  /** Files with uncommitted changes in a folder, if the git tracker has already read it. */
   dirty: (cwd: string) => number | null
 }
 
@@ -94,16 +94,16 @@ interface Watched {
 
 export class BranchMapService {
   private readonly facts = new Map<string, Promise<Facts>>()
-  /** Un solo calcolo alla volta per progetto: chi arriva durante lo condivide. */
+  /** One calculation at a time per project: whoever arrives during it shares it. */
   private readonly inflight = new Map<string, Promise<BranchMap>>()
   private readonly watched = new Map<string, Watched>()
-  /** File non committati del checkout principale quando il tracker non lo guarda: si rileggono solo se la cartella è cambiata o col poll, non a ogni calcolo. */
+  /** Uncommitted files of the main checkout when the tracker isn't watching it: reread only if the folder changed or on the poll, not on every calculation. */
   private readonly mainDirty = new Map<string, { value: number | null; stale: boolean }>()
   private stopped = false
 
   constructor(private readonly hooks: BranchMapHooks) {}
 
-  /** Mappa attuale (comando `project.branchMap`); aggiorna anche l'ultima mandata, così l'evento successivo non la ripete. */
+  /** Current map (`project.branchMap` command); also updates the last sent one, so the next event doesn't repeat it. */
   async read(projectId: string): Promise<BranchMap> {
     const map = await this.build(projectId)
     const entry = this.watched.get(projectId)
@@ -134,7 +134,7 @@ export class BranchMapService {
     this.forget(projectId)
   }
 
-  /** Progetto rimosso, o ultimo iscritto uscito: niente più timer. */
+  /** Project removed, or last subscriber gone: no more timers. */
   forget(projectId: string): void {
     const entry = this.watched.get(projectId)
     if (!entry) return
@@ -144,9 +144,9 @@ export class BranchMapService {
     this.mainDirty.delete(projectId)
   }
 
-  /** Qualcosa che può cambiare la mappa è successo: se c'è un iscritto si rilegge (a raffiche, una volta sola) e si manda se è cambiata. */
+  /** Something that may change the map happened: if there is a subscriber it is reread (in bursts, only once) and sent if it changed. */
   touch(projectId: string, mainChanged = false): void {
-    // Il segno resta anche senza iscritti: il prossimo calcolo rilegge i file non committati.
+    // The mark stays even without subscribers: the next calculation rereads the uncommitted files.
     if (mainChanged) {
       const cached = this.mainDirty.get(projectId)
       if (cached) cached.stale = true
@@ -174,8 +174,8 @@ export class BranchMapService {
   private async tick(projectId: string, entry: Watched): Promise<void> {
     entry.running = true
     try {
-      // Un calcolo già in corso (per esempio di una `read`) è partito prima di questo cambio: si aspetta e si rifà, invece di
-      // riusarne il risultato e perdere il cambio fino al giro di 60 s.
+      // A calculation already in progress (for example from a `read`) started before this change: wait and redo it, instead of
+      // reusing its result and missing the change until the 60 s round.
       await this.inflight.get(projectId)?.catch(() => undefined)
       const map = await this.build(projectId)
       if (this.stopped || this.watched.get(projectId) !== entry) return
@@ -185,7 +185,7 @@ export class BranchMapService {
         this.hooks.emit(projectId, map)
       }
     } catch {
-      // Progetto sparito o repo in uno stato transitorio: ci si riprova al prossimo cambio.
+      // Project gone or repo in a transient state: retry at the next change.
     } finally {
       entry.running = false
       if (entry.again) {
@@ -205,14 +205,14 @@ export class BranchMapService {
   }
 
   private async compute(projectId: string): Promise<BranchMap> {
-    // Se il progetto non c'è più lancia: non è una mappa da mostrare.
+    // If the project no longer exists it throws: it is not a map to show.
     const source = await this.hooks.source(projectId)
     const empty: BranchMap = { projectId, base: null, baseAt: null, baseSha: null, entries: [], hidden: 0 }
     if (!source.root || !source.base || !validRefName(source.base)) return empty
     try {
       return await this.mapOf(projectId, source as BranchMapSource & { base: string })
     } catch {
-      // Un guasto nel calcolo non lascia la UI su "Reading…" per sempre: mappa vuota con l'errore.
+      // A failure in the calculation doesn't leave the UI on "Reading…" forever: empty map with the error.
       return { ...empty, error: t('Could not read the branches') }
     }
   }
@@ -220,19 +220,19 @@ export class BranchMapService {
   private async mapOf(projectId: string, source: BranchMapSource & { base: string }): Promise<BranchMap> {
     const now = Date.now()
     const recent = source.rows.filter((r) => !(r.archived && now - r.activityAt > MAX_ARCHIVED_AGE_MS)).sort((a, b) => b.activityAt - a.activityAt)
-    // Il limite si applica solo a ciò che la UI mostra: i worktree. Le sessioni sul checkout principale non lo consumano
-    // (ne servono poche, per "sei su main"); quelle su un altro branch senza worktree non si disegnano e non si mandano.
+    // The limit applies only to what the UI shows: the worktrees. Sessions on the main checkout don't consume it
+    // (few are needed, for "you are on main"); those on another branch without a worktree are neither drawn nor sent.
     const worktrees = recent.filter((r) => r.isWorktree)
-    // Il branch del checkout principale si legge da git, non dalle sessioni (il loro `branch` è quello visto all'ultimo snapshot, e senza
-    // sessioni non c'è nulla da leggere): se non è il ramo principale compare come una riga a sé, altrimenti valgono le sessioni "sei su main".
+    // The main checkout's branch is read from git, not from the sessions (their `branch` is the one seen at the last snapshot, and without
+    // sessions there is nothing to read): if it isn't the main branch it appears as a row of its own, otherwise the "you are on main" sessions apply.
     const head = await currentBranch(source.root)
     const inMain = recent.filter((r) => !r.isWorktree)
     const onBase = (head === null ? inMain.filter((r) => r.branch === source.base) : head === source.base ? inMain.map((r) => ({ ...r, branch: head })) : []).slice(0, MAX_BASE_ENTRIES)
     const mainRow = head !== null && head !== source.base && validRefName(head) ? mainCheckoutRow(projectId, source, head, inMain) : null
     const baseRef = await readBaseRef(source.root, source.base)
 
-    // Una sessione archiviata che non è unita è un lavoro abbandonato: non ha una curva. Se è unita lo si sa solo leggendo git
-    // (o dall'unione registrata): si esamina a blocchi, in ordine di data, finché le righe valide bastano.
+    // An archived session that isn't merged is abandoned work: it has no curve. Whether it is merged is known only by reading git
+    // (or from the recorded merge): it is examined in blocks, in date order, until the valid rows are enough.
     const kept: BranchMapEntry[] = []
     let next = 0
     while (next < worktrees.length && kept.length < MAX_BRANCH_MAP_ENTRIES && next < MAX_EXAMINED) {
@@ -241,13 +241,13 @@ export class BranchMapService {
       for (const e of await this.entriesFor(source, baseRef, part)) if (!e.archived || e.merged) kept.push(e)
     }
     const shown = kept.slice(0, MAX_BRANCH_MAP_ENTRIES)
-    // Quelle che avrebbero posto ma non ci sono: l'avanzo e le righe non esaminate che certamente contano (stima per difetto).
+    // Those that would have room but aren't there: the remainder and the unexamined rows that certainly count (an underestimate).
     const hidden = kept.length - shown.length + worktrees.slice(next).filter((r) => !r.archived || r.prMerged || r.saved).length
     const rest = await this.entriesFor(source, baseRef, mainRow ? [...onBase, mainRow] : onBase)
     if (mainRow) {
       const entry = rest[rest.length - 1]
       entry.mainCheckout = true
-      // Il tracker conosce solo le cartelle che una finestra guarda: senza sessioni aperte nel checkout principale i file non committati si contano qui.
+      // The tracker knows only the folders a window is watching: without open sessions on the main checkout the uncommitted files are counted here.
       if (entry.dirty === null) {
         const cached = this.mainDirty.get(projectId)
         if (cached && !cached.stale) entry.dirty = cached.value
@@ -257,17 +257,17 @@ export class BranchMapService {
           entry.dirty = value
         }
       }
-      // Senza sessioni la riga non ha un'attività propria: vale l'ultimo commit del branch.
+      // Without sessions the row has no activity of its own: the branch's last commit counts.
       if (!inMain.some((r) => !r.archived)) entry.activityAt = entry.lastCommit?.at ?? entry.activityAt
     }
     const entries = [...shown, ...rest].sort((a, b) => b.activityAt - a.activityAt)
     return { projectId, base: source.base, baseAt: baseRef && baseRef.at > 0 ? baseRef.at : null, baseSha: baseRef?.sha ?? null, entries, hidden }
   }
 
-  /** Le righe della mappa per queste sessioni (con i fatti git dei branch). */
+  /** The map rows for these sessions (with the git facts of the branches). */
   private async entriesFor(source: BranchMapSource & { base: string }, baseRef: RefInfo | null, rows: BranchMapRow[]): Promise<BranchMapEntry[]> {
     if (rows.length === 0) return []
-    // Un solo processo per giro: sha, data e titolo dell'ultimo commit di ogni branch interessato (e di origin/<branch>, per le unioni fast-forward).
+    // One process per round: sha, date and title of the last commit of each relevant branch (and of origin/<branch>, for fast-forward merges).
     const branches = [...new Set(rows.map((r) => r.branch).filter((b): b is string => !!b && b !== source.base && validRefName(b)))]
     const refs = branches.length > 0 ? await readRefs(source.root, source.base, branches) : new Map<string, RefInfo>()
 
@@ -298,7 +298,7 @@ export class BranchMapService {
       }
       Object.assign(entries[index], await facts.catch((): Partial<Facts> => ({})))
     })
-    // Archiviata come unita e git non lo conferma (squash dopo un riavvio, PR non più in cache): vale l'unione registrata.
+    // Archived as merged and git doesn't confirm it (squash after a restart, PR no longer cached): the recorded merge applies.
     rows.forEach((row, i) => {
       const entry = entries[i]
       if (!row.archived || !row.saved || entry.merged) return
@@ -310,8 +310,8 @@ export class BranchMapService {
 }
 
 /**
- * Dati della riga del checkout principale su `head` (un branch che non è il ramo principale). La sessione è la più recente non archiviata del
- * checkout principale (la riga si apre su quella); senza sessioni ha un id sintetico e non si apre. Lo stato è il più urgente tra quelle non archiviate.
+ * Data of the main checkout's row on `head` (a branch that isn't the main branch). The session is the most recent non-archived one of the
+ * main checkout (the row opens on that); without sessions it has a synthetic id and doesn't open. The state is the most urgent among the non-archived ones.
  */
 function mainCheckoutRow(projectId: string, source: BranchMapSource, head: string, inMain: BranchMapRow[]): BranchMapRow {
   const live = inMain.filter((r) => !r.archived)
@@ -324,7 +324,7 @@ function mainCheckoutRow(projectId: string, source: BranchMapSource, head: strin
     run,
     archived: false,
     activityAt: latest?.activityAt ?? 0,
-    // PR e unione registrata sono di un branch di una sessione: per il branch letto adesso non valgono.
+    // PR and recorded merge belong to a session's branch: they don't apply to the branch read now.
     prState: null,
     isWorktree: false,
     worktreeMissing: false,
@@ -363,18 +363,18 @@ function baseEntry(row: BranchMapRow): BranchMapEntry {
   }
 }
 
-/** Nome di branch che si può usare in un riferimento: niente caratteri di controllo né jolly (git li vieta), mai un'opzione. */
+/** Branch name usable in a reference: no control characters or wildcards (git forbids them), never an option. */
 function validRefName(name: string): boolean {
   return name.length > 0 && name.length <= 255 && !name.startsWith('-') && !/[\u0000-\u001f\u007f\s*?[\\~^:]/.test(name)
 }
 
-/** Ramo principale di questo giro: origin/<base> se c'è, altrimenti quello locale. */
+/** Main branch for this round: origin/<base> if present, otherwise the local one. */
 async function readBaseRef(root: string, base: string): Promise<RefInfo | null> {
   const refs = await readRefs(root, base, [])
   return refs.get(`refs/remotes/origin/${base}`) ?? refs.get(`refs/heads/${base}`) ?? null
 }
 
-/** Sha, data (ms) e titolo dell'ultimo commit dei riferimenti richiesti. */
+/** Sha, date (ms) and title of the last commit of the requested references. */
 async function readRefs(root: string, base: string, branches: string[]): Promise<Map<string, RefInfo>> {
   const patterns = [
     ...new Set([`refs/heads/${base}`, `refs/remotes/origin/${base}`, ...branches.flatMap((b) => [`refs/heads/${b}`, `refs/remotes/origin/${b}`])])
@@ -388,7 +388,7 @@ async function readRefs(root: string, base: string, branches: string[]): Promise
   }
   for (const line of text.split('\n')) {
     const [name, sha, at, subject] = line.split('\0')
-    // Il pattern `refs/heads/foo` prende anche `refs/heads/foo/bar`: si tiene solo chi è stato chiesto.
+    // The pattern `refs/heads/foo` also matches `refs/heads/foo/bar`: keep only what was requested.
     if (!name || !SHA.test(sha ?? '') || !patterns.includes(name)) continue
     out.set(name, { sha, at: (Number(at) || 0) * 1000, subject: (subject ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200) })
   }
@@ -399,7 +399,7 @@ async function factsFor(root: string, head: RefInfo, remote: RefInfo | null, bas
   const none: Facts = { problem: null, mergeBase: null, mergeBaseAt: null, ahead: null, behind: null, merged: null, mergedAt: null, added: null, removed: null }
   const read = (args: string[]) => gitRead(root, args, READ_TIMEOUT_MS)
   const mergeBase = (await read(['merge-base', baseSha, head.sha]).catch(() => '')).trim()
-  // Storie non correlate (o merge-base illeggibile): nessuna curva con un punto di partenza.
+  // Unrelated histories (or unreadable merge-base): no curve with a starting point.
   if (!SHA.test(mergeBase)) return { ...none, problem: 'no_merge_base' }
   const [counts, mergeBaseAt, shortstat] = await Promise.all([
     read(['rev-list', '--left-right', '--count', `${head.sha}...${baseSha}`]).catch(() => ''),
@@ -418,11 +418,11 @@ async function factsFor(root: string, head: RefInfo, remote: RefInfo | null, bas
     added: shortstat === null ? null : Number(/(\d+) insertion/.exec(shortstat)?.[1] ?? 0),
     removed: shortstat === null ? null : Number(/(\d+) deletion/.exec(shortstat)?.[1] ?? 0)
   }
-  // Unito con una PR nota (squash e rebase compresi): solo se il branch non ha commit dopo la testa della PR.
+  // Merged with a known PR (squash and rebase included): only if the branch has no commits after the PR head.
   if (row.prMerged && (await coveredByPr(root, head.sha, row.prMerged.oid))) {
     return { ...facts, merged: 'pr', mergedAt: row.prMerged.at }
   }
-  // Unito in git: serve la prova che il branch ha avuto commit propri (vedi `gitMergedAt`), non basta ahead 0.
+  // Merged in git: needs proof that the branch had commits of its own (see `gitMergedAt`), ahead 0 is not enough.
   if (ahead === 0) {
     const at = await gitMergedAt(root, head, remote, baseSha, row.start)
     if (at !== null) return { ...facts, merged: 'git', mergedAt: at }
@@ -431,13 +431,13 @@ async function factsFor(root: string, head: RefInfo, remote: RefInfo | null, bas
 }
 
 /**
- * Il branch è tutto nel ramo principale (ahead 0): è stato unito, o è solo "avanzato" lungo main (un pull fast-forward o un
- * `reset --hard origin/main` di un branch che non ha mai avuto commit propri, che dal grafo sono identici a un fast-forward merge)?
- * Si dichiara unito solo con una prova, altrimenti null (meglio un mancato "unito" che uno falso). Prove:
- *  1. merge commit sul ramo principale che ha HEAD come genitore NON primo (merge --no-ff, "Create a merge commit" di GitHub): data del merge;
- *  2. fast-forward: HEAD è diverso dal commit di nascita e il suo branch su origin (pubblicato dopo la nascita: discendente di `start`)
- *     è dentro il ramo principale. Un branch mai pubblicato (o con il remoto già potato) e unito in fast-forward resta null.
- * Un `reset` che butta i commit propri non lascia prove: null. Rebase-and-merge riscrive i commit (ahead > 0): lo copre solo la PR.
+ * Is the branch entirely in the main branch (ahead 0): was it merged, or just "advanced" along main (a fast-forward pull or a
+ * `reset --hard origin/main` of a branch that never had commits of its own, which in the graph are identical to a fast-forward merge)?
+ * It is declared merged only with proof, otherwise null (a missed "merged" is better than a false one). Proofs:
+ *  1. merge commit on the main branch that has HEAD as a NON-first parent (merge --no-ff, GitHub's "Create a merge commit"): the merge date;
+ *  2. fast-forward: HEAD differs from the birth commit and its branch on origin (published after birth: a descendant of `start`)
+ *     is inside the main branch. A branch never published (or with the remote already pruned) and merged by fast-forward stays null.
+ * A `reset` that throws away its own commits leaves no proof: null. Rebase-and-merge rewrites the commits (ahead > 0): only the PR covers it.
  */
 async function gitMergedAt(root: string, head: RefInfo, remote: RefInfo | null, baseSha: string, start: string | null): Promise<number | null> {
   if (start && start === head.sha) return null
@@ -448,24 +448,24 @@ async function gitMergedAt(root: string, head: RefInfo, remote: RefInfo | null, 
   return null
 }
 
-/** `a` è `b` o un suo antenato? true/false; null se non si sa (oggetto mancante, timeout). */
+/** Is `a` equal to `b` or one of its ancestors? true/false; null if unknown (missing object, timeout). */
 async function isAncestor(root: string, a: string, b: string): Promise<boolean | null> {
   try {
     await gitRead(root, ['merge-base', '--is-ancestor', a, b], READ_TIMEOUT_MS)
     return true
   } catch (error) {
-    // Uscita 1 = non è un antenato; qualunque altro errore (oggetto mancante, timeout) = non lo si sa.
+    // Exit 1 = not an ancestor; any other error (missing object, timeout) = unknown.
     return (error as { code?: unknown }).code === 1 ? false : null
   }
 }
 
-/** HEAD è la testa della PR unita o un suo antenato? Se non si può dire (oggetto non scaricato, timeout) no: nel dubbio non unito. Senza testa nota sì, come per `merge.info`. */
+/** Is HEAD the merged PR's head or one of its ancestors? If it can't be said (object not fetched, timeout) no: when in doubt, not merged. Without a known head yes, as for `merge.info`. */
 async function coveredByPr(root: string, head: string, oid: string | null): Promise<boolean> {
   if (!oid || !SHA.test(oid)) return true
   return (await isAncestor(root, head, oid)) === true
 }
 
-/** Data del merge commit che ha portato `head` nel ramo principale (lo ha tra i genitori, non come primo); null se non c'è (fast-forward, rebase) o non si legge. */
+/** Date of the merge commit that brought `head` into the main branch (it has it among its parents, not as the first); null if there is none (fast-forward, rebase) or it can't be read. */
 async function mergeCommitAt(root: string, head: string, baseSha: string): Promise<number | null> {
   try {
     const out = await gitRead(root, ['log', '--ancestry-path', '--merges', '--format=%P %ct', `${head}..${baseSha}`], READ_TIMEOUT_MS)
@@ -473,7 +473,7 @@ async function mergeCommitAt(root: string, head: string, baseSha: string): Promi
     for (const line of out.split('\n')) {
       const parts = line.trim().split(/\s+/)
       const time = Number(parts.pop())
-      // Come primo genitore c'è il ramo principale: se HEAD è lì, è main che ha solo incluso un commit già suo.
+      // The first parent is the main branch: if HEAD is there, main merely included a commit that was already its own.
       if (parts.indexOf(head) < 1 || !time) continue
       at = at === null ? time : Math.min(at, time)
     }
@@ -483,7 +483,7 @@ async function mergeCommitAt(root: string, head: string, baseSha: string): Promi
   }
 }
 
-/** Esegue `fn` su tutti gli elementi, al massimo `limit` alla volta. */
+/** Runs `fn` on all items, at most `limit` at a time. */
 async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0
   const worker = async () => {

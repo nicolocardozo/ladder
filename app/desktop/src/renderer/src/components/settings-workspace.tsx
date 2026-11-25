@@ -1,4 +1,4 @@
-// Impostazioni → Workspace: editor esterno e worktree (cartella e prefisso dei branch, poi script, attesa e file copiati per progetto).
+// Settings → Workspace: external editor and worktrees (folder and branch prefix, then script, wait and copied files per project).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { t, plural } from '@shared/i18n'
@@ -22,7 +22,7 @@ export function WorkspaceSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Where files open outside Ladder and where sessions that work in their own copy of the project keep it.')}
       </DialogDescription>
-      {/* Da 820 px: editor e cartella dei worktree affiancati; le impostazioni del progetto, più alte, restano a tutta larghezza sotto. */}
+      {/* From 820 px: editor and worktree folder side by side; the project settings, taller, stay full width below. */}
       <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
         <EditorBlock />
         <WorktreesBlock />
@@ -32,7 +32,7 @@ export function WorkspaceSection() {
   )
 }
 
-// ── Editor esterno ─────────────────────────────────────────────────────────
+// ── External editor ─────────────────────────────────────────────────────────
 
 function EditorBlock() {
   const [prefs, update] = usePrefs()
@@ -65,7 +65,7 @@ function EditorBlock() {
   )
 }
 
-// ── Worktree: cartella e prefisso ──────────────────────────────────────────
+// ── Worktree: folder and prefix ──────────────────────────────────────────
 
 function WorktreesBlock() {
   const [prefs, update] = usePrefs()
@@ -73,7 +73,7 @@ function WorktreesBlock() {
   if (!prefs) return null
   const shown = draft ?? prefs.branchPrefix
   const cleaned = cleanBranchPrefix(shown)
-  // cleanBranchPrefix ripiega sul predefinito se il valore non vale: lo si dice invece di salvare altro.
+  // cleanBranchPrefix falls back to the default if the value is invalid: we say so instead of saving something else.
   const invalid = shown.trim() !== '' && cleaned !== shown.trim()
   const commit = () => {
     if (draft === null) return
@@ -124,7 +124,7 @@ function WorktreesBlock() {
   )
 }
 
-// ── Worktree: per progetto ─────────────────────────────────────────────────
+// ── Worktree: per project ─────────────────────────────────────────────────
 
 function ProjectWorktreeBlock() {
   const projects = useApp((s) => s.projects).filter((p) => p.isGit)
@@ -161,7 +161,7 @@ function ProjectWorktreeBlock() {
 
 function ProjectWorktreeFields({ project }: { project: Project }) {
   const fromFile = useProjectSettings(project)
-  // Ultima risposta dell'host a un salvataggio: vale finché il progetto non viene riletto.
+  // Last host response to a save: valid until the project is reread.
   const [saved, setSaved] = useState<ProjectSettings | null>(null)
   useEffect(() => setSaved(null), [fromFile])
   const settings = saved ?? fromFile
@@ -180,8 +180,8 @@ function ProjectWorktreeFields({ project }: { project: Project }) {
   )
   useEffect(loadFiles, [loadFiles])
 
-  // Salvataggi in coda: uno alla volta, così nessuno parte da un elenco già superato. `latest` è l'ultima risposta dell'host
-  // (o l'ultima lettura del file): gli elenchi dei servizi si costruiscono su quella, mai su una copia vecchia.
+  // Queued saves: one at a time, so none starts from an outdated list. `latest` is the host's last response
+  // (or the last read of the file): service lists are built on that, never on an old copy.
   const latest = useRef<ProjectSettings | null>(settings)
   useEffect(() => {
     if (fromFile) latest.current = fromFile
@@ -196,14 +196,14 @@ function ProjectWorktreeFields({ project }: { project: Project }) {
     const next = await request<ProjectSettings>({ type: 'project.worktree.set', projectId: project.id, patch })
     latest.current = next
     setSaved(next)
-    // Le cartelle da copiare cambiano l'anteprima.
+    // The folders to copy change the preview.
     if (patch.copy) loadFiles()
   }
   const save = (patch: WorktreeSettingsPatch) => {
     setError(null)
     return enqueue(() => send(patch)).catch((e: Error) => setError(e.message))
   }
-  /** Cambia l'elenco personale dei servizi: `change` riceve quello attuale dell'host e restituisce il nuovo, che si invia completo. Null = ok, altrimenti l'errore. */
+  /** Changes the personal list of services: `change` receives the host's current one and returns the new one, which is sent in full. Null = ok, otherwise the error. */
   const saveServices = (change: (personal: PersonalService[]) => PersonalService[]): Promise<string | null> => {
     setError(null)
     return enqueue(async () => {
@@ -264,7 +264,7 @@ function ProjectWorktreeFields({ project }: { project: Project }) {
   )
 }
 
-/** Campo di script: si salva uscendo dal campo; vuoto = nessuno script. */
+/** Script field: saved on blur; empty = no script. */
 function ScriptRow({ label, hint, placeholder, value, onSave }: { label: string; hint: string; placeholder: string; value: string | null; onSave: (value: string | null) => void }) {
   const [draft, setDraft] = useState(value ?? '')
   const commit = () => {
@@ -294,7 +294,7 @@ function ScriptRow({ label, hint, placeholder, value, onSave }: { label: string;
 
 const FILES_SHOWN = 12
 
-/** Cosa si copia dal checkout principale in un worktree nuovo: regole di .worktreeinclude (o `.env*`), file trovati e percorsi in più. */
+/** What is copied from the main checkout into a new worktree: rules from .worktreeinclude (or `.env*`), files found and extra paths. */
 function FilesPreview({ settings, files, error, onSaveCopy }: { settings: ProjectSettings; files: WorktreeFiles | null; error: string | null; onSaveCopy: (copy: string[]) => void }) {
   const [extra, setExtra] = useState(settings.worktree.copy.join('\n'))
   const commitExtra = () => {

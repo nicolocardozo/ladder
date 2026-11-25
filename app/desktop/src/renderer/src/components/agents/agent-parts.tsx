@@ -1,5 +1,5 @@
-// Pezzi del catalogo ACP che dicono cosa è successo a un agente: blocco di sicurezza, firma, checksum e accesso (LAD-56).
-// Descrivono lo stato e basta: niente "sicuro". Ladder non vede né salva credenziali: l'accesso lo fa l'agente.
+// Pieces of the ACP catalog that say what happened to an agent: security block, signature, checksum and login.
+// They describe the state and nothing more: no "safe". Ladder neither sees nor stores credentials: the agent handles login.
 import { useEffect, useRef, useState } from 'react'
 import { BadgeCheck, CircleAlert, CircleHelp, ExternalLink, KeyRound, Loader2, TriangleAlert } from 'lucide-react'
 import type { AgentBlockCode, AgentCatalogEntry, AgentLogin, AgentSignature } from '@shared/protocol'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { blockText, blockTitle, groupedChecksum, openSecure, shortChecksum, signatureText, type AgentCatalogActions } from '@/lib/agent-catalog'
 import { cn } from '@/lib/utils'
 
-/** Link che apre una pagina https fuori da Ladder; il testo dice dove va. */
+/** Link that opens an https page outside Ladder; the text says where it goes. */
 export function ExternalLinkButton({ url, label, aria }: { url: string; label: string; aria: string }) {
   return (
     <button
@@ -25,8 +25,8 @@ export function ExternalLinkButton({ url, label, aria }: { url: string; label: s
 }
 
 /**
- * Perché Ladder non scarica o non installa, con il link alla procedura del vendor.
- * Un conflitto di checksum è un avviso (colore e icona di attenzione, annunciato subito); gli altri sono note tenui.
+  * Why Ladder does not download or install, with the link to the vendor's procedure.
+  * A checksum conflict is a warning (attention color and icon, announced immediately); the others are muted notes.
  */
 export function BlockNotice({
   code,
@@ -40,7 +40,7 @@ export function BlockNotice({
   name: string
   installUrl: string | null
   announce?: boolean
-  /** Solo per `checksum-unavailable`: rilegge il catalogo. Quel blocco passa da solo, quindi niente link al sito del vendor. */
+  /** Only for `checksum-unavailable`: re-reads the catalog. That block clears by itself, so no link to the vendor site. */
   onRetry?: () => void
   retrying?: boolean
 }) {
@@ -65,7 +65,7 @@ export function BlockNotice({
   )
 }
 
-/** Aggiornamento disponibile ma checksum non leggibile ora: senza checksum non c'è conferma, quindi una nota e "Try again" che rilegge. */
+/** Update available but checksum not readable now: without a checksum there is no confirmation, so a note and a "Try again" that re-reads. */
 export function UpdateNote({ name, version, onRetry, retrying = false }: { name: string; version: string; onRetry: () => void; retrying?: boolean }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-md bg-muted p-3 text-xs">
@@ -81,7 +81,7 @@ export function UpdateNote({ name, version, onRetry, retrying = false }: { name:
   )
 }
 
-/** Firma del binario installato: solo lo stato (chi ha firmato, ad hoc, non firmato). */
+/** Signature of the installed binary: state only (who signed, ad hoc, unsigned). */
 export function SignatureLine({ signature }: { signature: AgentSignature }) {
   const Icon = signature.state === 'signed' ? BadgeCheck : signature.state === 'adhoc' || signature.state === 'unverified' ? CircleHelp : CircleAlert
   const text = signatureText(signature)
@@ -93,7 +93,7 @@ export function SignatureLine({ signature }: { signature: AgentSignature }) {
   )
 }
 
-/** Checksum sha256: breve per riconoscerlo, intero (a gruppi di 8) a richiesta, e copiabile per intero. */
+/** sha256 checksum: short to recognize it, whole (in groups of 8) on request, and copyable in full. */
 export function ChecksumField({ sha256 }: { sha256: string }) {
   const [open, setOpen] = useState(false)
   return (
@@ -115,9 +115,9 @@ export function ChecksumField({ sha256 }: { sha256: string }) {
 }
 
 /**
- * Accesso di un agente già aggiunto che lo chiede (`required`): un bottone per ogni metodo di tipo `agent`,
- * che invia `agents.authenticate`; per i metodi `terminal` solo un testo (l'host non li supporta ancora, quindi niente bottone che fallisce).
- * Mentre si aspetta il bottone resta al suo posto (aria-disabled) per non far perdere il focus.
+  * Login of an already added agent that asks for it (`required`): a button for each method of type `agent`,
+  * which sends `agents.authenticate`; for `terminal` methods only a text (the host does not support them yet, so no button that fails).
+  * While waiting the button stays in place (aria-disabled) so focus is not lost.
  */
 export function LoginPanel({ entry, actions, projectId, onLogin }: { entry: AgentCatalogEntry; actions: AgentCatalogActions; projectId?: string; onLogin: (id: string, login: AgentLogin) => void }) {
   const [pending, setPending] = useState<string | null>(null)
@@ -145,7 +145,7 @@ export function LoginPanel({ entry, actions, projectId, onLogin }: { entry: Agen
       .authenticate(entry.id, methodId, projectId)
       .then((login) => {
         if (!mounted.current) return
-        // La risposta vale anche se si è smesso di aspettare: l'accesso è comunque finito.
+        // The reply counts even if we stopped waiting: the login is finished anyway.
         onLogin(entry.id, login)
         if (mine === attempt.current && login.state !== 'ready') setFailed({ method: methodId, message: t('Still not signed in. Try again.') })
       })
@@ -155,7 +155,7 @@ export function LoginPanel({ entry, actions, projectId, onLogin }: { entry: Agen
   function stopWaiting(): void {
     attempt.current++
     setPending(null)
-    // L'host ferma l'agente e libera l'id: la richiesta pendente risponde con il login com'era, e un nuovo Sign in parte subito.
+    // The host stops the agent and frees the id: the pending request answers with the login as it was, and a new Sign in starts right away.
     actions.cancelAuthenticate(entry.id).catch(() => undefined)
   }
 

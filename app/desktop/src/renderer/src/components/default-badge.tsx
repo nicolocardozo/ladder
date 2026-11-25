@@ -1,4 +1,4 @@
-// Badge "Default": marca il modello o il livello di effort con cui parte una sessione. Il tooltip dice da dove viene.
+// "Default" badge: marks the model or effort level a session starts with. The tooltip says where it comes from.
 import { t } from '@shared/i18n'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { defaultSourceHint, type DefaultSource } from '@/lib/effective-defaults'

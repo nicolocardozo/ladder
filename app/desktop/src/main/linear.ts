@@ -1,12 +1,12 @@
-// Issue di Linear per "Nuova sessione da…". La chiave API personale la incolli in Impostazioni:
-// si salva cifrata con il portachiavi di macOS (safeStorage) e si usa solo per l'API di Linear.
+// Linear issues for "New session from…". You paste your personal API key in Settings:
+// it is stored encrypted with the macOS keychain (safeStorage) and used only for the Linear API.
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, safeStorage } from 'electron'
 import { t } from '@shared/i18n'
 import type { IssueItem, IssueList } from '@shared/protocol'
 
-/** LADDER_LINEAR_API sostituisce l'indirizzo per le prove con un server finto. */
+/** LADDER_LINEAR_API replaces the address for tests with a fake server. */
 const ENDPOINT = () => process.env.LADDER_LINEAR_API || 'https://api.linear.app/graphql'
 const keyFile = () => join(app.getPath('userData'), 'linear-key.bin')
 
@@ -48,7 +48,7 @@ export async function linearStatus(): Promise<LinearStatus> {
   }
 }
 
-/** Salva la chiave dopo averla provata; null la toglie. */
+/** Saves the key after testing it; null removes it. */
 export async function setLinearKey(key: string | null): Promise<LinearStatus> {
   if (!key) {
     rmSync(keyFile(), { force: true })
@@ -88,7 +88,7 @@ const toItem = (i: RawIssue): IssueItem => ({
   updatedAt: Date.parse(i.updatedAt) || null
 })
 
-/** Le tue issue aperte; con un identificativo (ABC-123) anche quella issue, se non è tra le tue. */
+/** Your open issues; with an identifier (ABC-123) also that issue, if it is not among yours. */
 export async function linearIssues(search: string): Promise<IssueList> {
   const key = readKey()
   if (!key) return { items: [], problem: t('Connect Linear in Settings → Integrations with a personal API key.') }

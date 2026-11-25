@@ -1,4 +1,4 @@
-// Gruppi di progetti della sidebar: stato globale in kv, coerente con i progetti esistenti.
+// Sidebar project groups: global state in kv, consistent with existing projects.
 import { randomUUID } from 'node:crypto'
 import { t } from '@shared/i18n'
 import type { ProjectGroup, ProjectGroupsState } from '@shared/protocol'
@@ -9,17 +9,17 @@ const KEY = 'project-groups'
 export class ProjectGroups {
   constructor(
     private readonly db: Db,
-    /** Id dei progetti esistenti: lo stato salvato si allinea a questi a ogni lettura. */
+    /** Ids of existing projects: the saved state is aligned to these on every read. */
     private readonly knownIds: () => string[],
     private readonly changed: (state: ProjectGroupsState) => void
   ) {}
 
-  /** Stato attuale, già ripulito: niente orfani, niente doppioni, i progetti nuovi in coda a `ungrouped`. */
+  /** Current state, already cleaned: no orphans, no duplicates, new projects at the end of `ungrouped`. */
   get(): ProjectGroupsState {
     return this.normalize(this.read())
   }
 
-  /** Dopo che un progetto è stato aggiunto o rimosso: riallinea, salva e avvisa se è cambiato qualcosa. */
+  /** After a project is added or removed: realigns, saves and notifies if anything changed. */
   sync(): void {
     const raw = this.read()
     const state = this.normalize(raw)
@@ -33,7 +33,7 @@ export class ProjectGroups {
     const group: ProjectGroup = { id: randomUUID(), name: this.cleanName(name), collapsed: false, projectIds: [] }
     const known = new Set([...state.ungrouped, ...state.groups.flatMap((g) => g.projectIds)])
     for (const id of new Set(projectIds)) if (known.has(id)) group.projectIds.push(id)
-    // I progetti scelti escono dal loro posto di prima.
+    // The chosen projects leave their previous place.
     state.groups.forEach((g) => (g.projectIds = g.projectIds.filter((id) => !group.projectIds.includes(id))))
     state.ungrouped = state.ungrouped.filter((id) => !group.projectIds.includes(id))
     state.groups.push(group)
@@ -87,7 +87,7 @@ export class ProjectGroups {
     return this.commit(state)
   }
 
-  // ── Interni ──────────────────────────────────────────────────────────────
+  // ── Internals ────────────────────────────────────────────────────────────
 
   private cleanName(name: string): string {
     const clean = name.trim()
@@ -107,7 +107,7 @@ export class ProjectGroups {
     return state
   }
 
-  /** Legge il JSON salvato; se manca o è rovinato riparte da zero senza fallire. */
+  /** Reads the saved JSON; if missing or corrupted it starts from scratch without failing. */
   private read(): ProjectGroupsState {
     const row = this.db.prepare('select value from kv where key = ?').get(KEY) as { value: string } | undefined
     try {
@@ -133,7 +133,7 @@ export class ProjectGroups {
       .run(KEY, JSON.stringify(state))
   }
 
-  /** Toglie ciò che non esiste più e i doppioni (vale il primo posto); i progetti non elencati vanno in coda a `ungrouped`. */
+  /** Removes what no longer exists and duplicates (the first place wins); unlisted projects go to the end of `ungrouped`. */
   private normalize(state: ProjectGroupsState): ProjectGroupsState {
     const known = this.knownIds()
     const alive = new Set(known)

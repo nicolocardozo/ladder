@@ -1,4 +1,4 @@
-// Effort come cursore a tacche, nel menu del modello: si clicca, si trascina o si usano le frecce ← →.
+// Effort as a notched slider, in the model menu: click, drag, or use the ← → arrows.
 import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { Gauge } from 'lucide-react'
 import type { Effort } from '@shared/protocol'
@@ -13,20 +13,20 @@ const THUMB = 18
 const INSET = 1
 
 interface EffortSliderProps {
-  /** Livelli del modello scelto, dal più basso al più alto. */
+  /** Levels of the chosen model, lowest to highest. */
   levels: Effort[]
   value: Effort | null
-  /** Senza una scelta esplicita decide l'agente: il cursore sta sul livello medio-alto, ma l'etichetta dice "predefinito". */
+  /** Without an explicit choice the agent decides: the slider sits on the medium-high level, but the label says "default". */
   onChange: (effort: Effort) => void
 }
 
-/** Indice del cursore: senza una scelta sta sul livello medio-alto. */
+/** Slider index: without a choice it sits on the medium-high level. */
 function indexOfLevel(levels: Effort[], value: Effort | null): number {
   const fallback = levels.includes('high') ? levels.indexOf('high') : levels.length - 1
   return value && levels.includes(value) ? levels.indexOf(value) : fallback
 }
 
-/** Frecce ← →: gestisce l'evento e dà il livello nuovo, o null se il tasto non conta o non cambia nulla. */
+/** ← → arrows: handles the event and returns the new level, or null if the key doesn't matter or changes nothing. */
 function stepWithArrows(event: KeyboardEvent, levels: Effort[], value: Effort | null, pinned = false): Effort | null {
   const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
   if (!step) return null
@@ -36,15 +36,15 @@ function stepWithArrows(event: KeyboardEvent, levels: Effort[], value: Effort | 
   return next && (pinned || next !== value) ? next : null
 }
 
-/** Nome del livello nella lingua corrente; senza una scelta, "Default". */
+/** Level name in the current language; without a choice, "Default". */
 export function effortName(levels: Effort[], value: Effort | null): string {
   return value && levels.includes(value) ? t(EFFORTS.find((e) => e.id === value)?.label ?? value) : t('Default')
 }
 
 /**
- * Il cursore da solo. Nel menu del modello lo avvolge EffortSlider (le frecce le gestisce la voce di menu);
- * `standalone` lo rende un controllo con il suo focus (role="slider"), per le impostazioni.
- * `pinned`: il valore mostrato non è una scelta (è ereditato), quindi anche scegliere lo stesso livello o premere una freccia al limite lo salva.
+ * The slider on its own. In the model menu EffortSlider wraps it (the menu item handles the arrows);
+ * `standalone` makes it a control with its own focus (role="slider"), for settings.
+ * `pinned`: the shown value is not a choice (it is inherited), so even picking the same level or pressing an arrow at the limit saves it.
  */
 export function EffortTrack({ levels, value, onChange, standalone, label, muted, pinned }: EffortSliderProps & { standalone?: boolean; label?: string; muted?: boolean; pinned?: boolean }) {
   const track = useRef<HTMLDivElement>(null)
@@ -67,7 +67,7 @@ export function EffortTrack({ levels, value, onChange, standalone, label, muted,
     event.stopPropagation()
     dragging.current = true
     event.currentTarget.setPointerCapture(event.pointerId)
-    // Al clic, con un valore solo ereditato, anche lo stesso livello si salva.
+    // On click, with a merely inherited value, even the same level is saved.
     pick(event.clientX, pinned)
   }
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -94,7 +94,7 @@ export function EffortTrack({ levels, value, onChange, standalone, label, muted,
       className={`relative shrink-0 cursor-pointer touch-none rounded-full bg-foreground/10 ${standalone ? 'outline-none focus-visible:ring-2 focus-visible:ring-ring/50' : ''} ${muted ? 'opacity-50' : ''}`}
       style={{ width: WIDTH, height: THUMB + INSET * 2 } as CSSProperties}
     >
-      {/* Parte piena fino al cursore: si apre con clip-path, senza toccare il layout. */}
+      {/* Filled part up to the thumb: revealed with clip-path, without touching the layout. */}
       <span
         aria-hidden
         className="absolute inset-0 rounded-full bg-primary transition-[clip-path] duration-150 ease-out motion-reduce:transition-none"
@@ -120,9 +120,9 @@ export function EffortTrack({ levels, value, onChange, standalone, label, muted,
 }
 
 interface EffortSliderMenuProps extends Omit<EffortSliderProps, 'value'> {
-  /** Livello mostrato: quello scelto o, senza scelta, il predefinito. */
+  /** Level shown: the chosen one or, without a choice, the default. */
   value: Effort | null
-  /** `value` è una scelta esplicita; altrimenti è il predefinito e un clic lo salva comunque. */
+  /** `value` is an explicit choice; otherwise it is the default and a click saves it anyway. */
   chosen: boolean
   defaultLevel?: Effort | null
   defaultSource?: DefaultSource | null

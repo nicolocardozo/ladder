@@ -1,4 +1,4 @@
-// Ispettore a destra: Modifiche (⌘⌥1), File (⌘⌥2), Cronologia (⌘⌥3), Branches (⌘⌥4) sulla cartella della sessione.
+// Inspector on the right: Changes (⌘⌥1), Files (⌘⌥2), History (⌘⌥3), Branches (⌘⌥4) on the session folder.
 import { shortcutLabel, type CommandId } from '@shared/shortcuts'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -42,18 +42,18 @@ export function Inspector({ projectId, root, isGit, session, composerKey }: Insp
   const items = useApp((s) => (session ? (s.items[session.id] ?? NO_ITEMS) : NO_ITEMS))
   const openRequest = useApp((s) => (s.inspectorRequest?.projectId === projectId ? s.inspectorRequest : null))
   const [width, setWidth] = useState(readWidth)
-  // Tutte le schede guardano la stessa cartella: il checkout del progetto o il worktree della sessione.
+  // All tabs look at the same folder: the project checkout or the session's worktree.
   const projectName = useApp((s) => s.projects.find((p) => p.id === projectId)?.name ?? null)
   const projectBranch = useApp((s) => s.projects.find((p) => p.id === projectId)?.branch ?? null)
   const where = session?.worktree ? t('worktree {branch}', { branch: session.worktree.branch }) : (session?.branch ?? projectBranch)
 
-  // L'host osserva la cartella finché l'ispettore è aperto: albero, stato e diff "attuali" si aggiornano da soli.
+  // The host watches the folder while the inspector is open: "current" tree, status and diff update on their own.
   useEffect(() => {
     send({ type: 'fs.watch', root, on: true })
     return () => send({ type: 'fs.watch', root, on: false })
   }, [root])
 
-  // LAD-75: durante il trascinamento si ritocca il DOM; lo stato e la memoria si aggiornano a fine gesto.
+  // During dragging the DOM is adjusted directly; state and memory are updated at the end of the gesture.
   const panel = useRef<HTMLElement>(null)
   const maxWidth = () => {
     const room = (panel.current?.parentElement?.clientWidth ?? window.innerWidth) - MIN_CONTENT_WIDTH

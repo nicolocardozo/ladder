@@ -1,5 +1,5 @@
-// Profili (LAD-23): più account per agente. Ogni profilo non predefinito ha una cartella di configurazione sotto la cartella dati
-// di Ladder (CLAUDE_CONFIG_DIR / CODEX_HOME) con le sue credenziali; il predefinito non ha cartella e usa quella della CLI.
+// Profiles: multiple accounts per agent. Each non-default profile has a configuration folder under Ladder's data folder
+// (CLAUDE_CONFIG_DIR / CODEX_HOME) with its own credentials; the default has no folder and uses the CLI's.
 import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -16,7 +16,7 @@ export const defaultProfileId = (agent: ProfileAgent): string => `default:${agen
 
 export const isDefaultProfileId = (id: string): boolean => id.startsWith('default:')
 
-/** `undefined` per il predefinito (assente o `default:<agent>`), altrimenti l'id del profilo. */
+/** `undefined` for the default (absent or `default:<agent>`), otherwise the profile id. */
 export function customProfileId(id: string | null | undefined): string | undefined {
   return id && !isDefaultProfileId(id) ? id : undefined
 }
@@ -30,7 +30,7 @@ interface ProfileRow {
 }
 
 export class Profiles {
-  /** Solo i profili creati dall'utente: i predefiniti si ricavano. */
+  /** Only user-created profiles: defaults are derived. */
   private custom = new Map<string, Profile>()
 
   constructor(private readonly db: Db) {
@@ -43,7 +43,7 @@ export class Profiles {
     return { id: defaultProfileId(agent), agent, name: t('Default'), configDir: null, isDefault: true, addedAt: 0 }
   }
 
-  /** Predefiniti compresi, in ordine: per agente, poi per data. */
+  /** Defaults included, in order: by agent, then by date. */
   all(): Profile[] {
     return PROFILE_AGENTS.flatMap((agent) => [this.defaultOf(agent), ...this.customOf(agent)])
   }
@@ -75,7 +75,7 @@ export class Profiles {
     if (!isProfileAgent(agent)) throw new Error(t('This agent does not have accounts.'))
     const name = this.cleanName(agent, rawName)
     const id = randomUUID()
-    // La cartella contiene le credenziali dell'account: solo per l'utente.
+    // The folder holds the account's credentials: user only.
     const configDir = join(dataDir(), 'profiles', agent, id)
     mkdirSync(configDir, { recursive: true, mode: 0o700 })
     const profile: Profile = { id, agent, name, configDir, isDefault: false, addedAt: Date.now() }
@@ -93,7 +93,7 @@ export class Profiles {
     return next
   }
 
-  /** Toglie il profilo e le scelte dei progetti; la cartella di configurazione resta (ci sono le credenziali). */
+  /** Removes the profile and the projects' choices; the configuration folder stays (it holds the credentials). */
   remove(id: string): Profile {
     const profile = this.mustGet(id)
     if (profile.isDefault) throw new Error(t('The default account cannot be removed.'))
@@ -103,7 +103,7 @@ export class Profiles {
     return profile
   }
 
-  /** Scelte per agente di un progetto; assente se non ce n'è nessuna. */
+  /** Per-agent choices of a project; absent if there are none. */
   forProject(projectId: string): Partial<Record<ProfileAgent, string>> | undefined {
     const rows = this.db.prepare('select agent, profile_id from project_profiles where project_id = ?').all(projectId) as { agent: string; profile_id: string }[]
     const out: Partial<Record<ProfileAgent, string>> = {}
@@ -129,8 +129,8 @@ export class Profiles {
   }
 
   /**
-   * Profilo con cui parte una nuova sessione: quello chiesto, poi quello del progetto, poi il predefinito.
-   * Torna l'id del profilo non predefinito, o null. Agenti senza profili (ACP): sempre null.
+   * Profile a new session starts with: the requested one, then the project's, then the default.
+   * Returns the id of the non-default profile, or null. Agents without profiles (ACP): always null.
    */
   resolve(agent: string, projectId: string, requested?: string | null): string | null {
     if (!isProfileAgent(agent)) return null
@@ -142,7 +142,7 @@ export class Profiles {
     return this.forProject(projectId)?.[agent] ?? null
   }
 
-  /** Cartella di configurazione del profilo di una sessione; null per il predefinito o un profilo che non c'è più. */
+  /** Configuration folder of a session's profile; null for the default or a profile that no longer exists. */
   configDir(profileId: string | null | undefined): string | null {
     const id = customProfileId(profileId)
     return id ? (this.custom.get(id)?.configDir ?? null) : null

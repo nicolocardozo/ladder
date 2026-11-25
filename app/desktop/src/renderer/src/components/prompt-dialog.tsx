@@ -1,5 +1,5 @@
-// Prompt dietro un pulsante (Crea PR, Correggi la CI, Risolvi i conflitti, Invia i commenti): lo leggi e lo cambi
-// prima di mandarlo all'agente. Il testo di partenza viene da [prompts] in .ladder/settings.toml o da quello di Ladder.
+// Prompt behind a button (Create PR, Fix CI, Resolve conflicts, Send comments): you read and change it
+// before sending it to the agent. The starting text comes from [prompts] in .ladder/settings.toml or from Ladder's defaults.
 import { useEffect, useRef, useState } from 'react'
 import type { SessionSummary } from '@shared/protocol'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -15,7 +15,7 @@ export interface PromptRequest {
   vars: Record<string, string>
 }
 
-/** Invia il testo alla sessione: in chat come messaggio, nel terminale incollato (lo invii tu con Invio). */
+/** Sends the text to the session: in chat as a message, in the terminal pasted (you send it with Enter). */
 export function sendToSession(session: SessionSummary, text: string): Promise<unknown> {
   if (session.mode === 'terminal') {
     if (session.terminalId) send({ type: 'terminal.input', id: session.terminalId, data: `\x1b[200~${text}\x1b[201~` })

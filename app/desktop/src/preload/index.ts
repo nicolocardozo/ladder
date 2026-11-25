@@ -3,17 +3,17 @@ import { DEFAULT_THEME, THEMES } from '@shared/themes.generated'
 import type { AppPrefs, Attachment, AttentionEvent, BrowserAction, BrowserBounds, BrowserNavigateResult, BrowserShortcut, BrowserState, EditorAvailability, EditorId, IssueList, WindowView } from '@shared/protocol'
 import type { UpdateState } from '@shared/updates'
 
-// La porta verso l'host arriva dal processo main e va girata al mondo della pagina:
-// con contextIsolation il renderer non vede ipcRenderer, ma riceve la porta con window.postMessage.
+// The port to the host comes from the main process and must be passed to the page's world:
+// with contextIsolation the renderer does not see ipcRenderer, but receives the port with window.postMessage.
 ipcRenderer.on('ladder:host-port', (event) => {
   window.postMessage('ladder:host-port', '*', event.ports)
 })
 
-// Lingua scelta, passata dal main come il tema: l'interfaccia nasce già nella lingua giusta.
+// Chosen language, passed by main like the theme: the interface starts out in the right language.
 const localeArgument = process.argv.find((arg) => arg.startsWith('--ladder-locale='))?.split('=')[1]
 const initialLocale = localeArgument === 'it' ? 'it' : 'en'
 
-// Tema scelto, passato dal main come argomento: si applica a <html> appena esiste, prima del primo paint.
+// Chosen theme, passed by main as an argument: applied to <html> as soon as it exists, before the first paint.
 const argument = process.argv.find((arg) => arg.startsWith('--ladder-theme='))?.split('=')[1]
 const initialTheme = THEMES.some((t) => t.id === argument) ? argument! : DEFAULT_THEME
 function applyTheme(id: string): boolean {
@@ -32,8 +32,8 @@ if (!applyTheme(initialTheme)) {
   observer.observe(document, { childList: true })
 }
 
-// Schermo intero: i semafori spariscono, quindi <html> porta data-fullscreen e il CSS azzera il loro spazio.
-// Lo stato è della finestra; il valore iniziale è sincrono, così dopo un reload non c'è nessun salto.
+// Fullscreen: the traffic lights disappear, so <html> carries data-fullscreen and the CSS zeroes their space.
+// The state belongs to the window; the initial value is synchronous, so after a reload there is no jump.
 function applyFullScreen(on: boolean): void {
   const root = document.documentElement
   if (root) root.toggleAttribute('data-fullscreen', on)
@@ -56,20 +56,20 @@ const api = {
     chrome: process.versions.chrome,
     node: process.versions.node
   },
-  /** Lingua all'avvio; i cambi arrivano con prefs.onChange. */
+  /** Language at startup; changes arrive with prefs.onChange. */
   locale: initialLocale as 'en' | 'it',
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('ladder:pick-folder'),
-  /** "Salva con nome": percorso scelto o null se annulli. `defaultName` è il nome proposto. */
+  /** "Save as": chosen path or null if you cancel. `defaultName` is the suggested name. */
   pickSavePath: (defaultName: string): Promise<string | null> => ipcRenderer.invoke('ladder:pick-save-path', defaultName),
-  /** Apre file e riga nell'editor indicato (altrimenti quello delle preferenze); risponde l'editor usato, null se è partita l'app predefinita. */
+  /** Opens file and line in the given editor (otherwise the one from preferences); replies with the editor used, null if the default app was launched. */
   openInEditor: (path: string, line?: number, editor?: EditorId): Promise<EditorId | null> =>
     ipcRenderer.invoke('ladder:open-in-editor', path, line, editor),
-  /** Editor installati, per il menu "Apri in…" e per le impostazioni. */
+  /** Installed editors, for the "Open in…" menu and for settings. */
   editors: (): Promise<EditorAvailability> => ipcRenderer.invoke('ladder:editors'),
   reveal: (path: string): Promise<void> => ipcRenderer.invoke('ladder:reveal', path),
   theme: {
     initial: initialTheme,
-    /** Salva il tema per tutta l'app e lo applica a tutte le finestre. */
+    /** Saves the theme for the whole app and applies it to all windows. */
     set: (id: string): Promise<string> => ipcRenderer.invoke('ladder:set-theme', id),
     onChange: (listener: (id: string) => void): (() => void) => {
       const handler = (_event: unknown, id: string) => listener(id)
@@ -82,15 +82,15 @@ const api = {
     ipcRenderer.on('ladder:open-settings', handler)
     return () => ipcRenderer.off('ladder:open-settings', handler)
   },
-  /** Progetto e sessione che hai davanti: il main non notifica ciò che stai già guardando. */
+  /** Project and session you are looking at: main does not notify about what you are already watching. */
   setView: (view: WindowView): void => ipcRenderer.send('ladder:view', view),
-  /** Clic su una notifica o un link ladder://: apri la sessione e scorri all'elemento. */
+  /** Click on a notification or a ladder:// link: open the session and scroll to the item. */
   onOpenSession: (listener: (target: { sessionId: string; itemId: string | null }) => void): (() => void) => {
     const handler = (_event: unknown, target: { sessionId: string; itemId: string | null }) => listener(target)
     ipcRenderer.on('ladder:open-session', handler)
     return () => ipcRenderer.off('ladder:open-session', handler)
   },
-  /** Banner di prova di macOS: false se il sistema non supporta le notifiche. */
+  /** macOS test banner: false if the system does not support notifications. */
   testNotification: (): Promise<boolean> => ipcRenderer.invoke('ladder:test-notification'),
   prefs: {
     get: (): Promise<AppPrefs> => ipcRenderer.invoke('ladder:prefs'),
@@ -107,23 +107,23 @@ const api = {
     issues: (search: string): Promise<IssueList> => ipcRenderer.invoke('ladder:linear-issues', search)
   },
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('ladder:open-external', url),
-  /** Browser integrato (LAD-57): una vista nativa per tab, posizionata con bounds e nascosta con visible(false). */
+  /** Built-in browser: one native view per tab, positioned with bounds and hidden with visible(false). */
   browser: {
-    /** Crea la vista (nascosta) o restituisce quella esistente; `url` è la prima pagina. */
+    /** Creates the view (hidden) or returns the existing one; `url` is the first page. */
     open: (tabId: string, projectId: string, url?: string): Promise<BrowserState | null> => ipcRenderer.invoke('ladder:browser-open', tabId, projectId, url),
     setBounds: (tabId: string, bounds: BrowserBounds): void => ipcRenderer.send('ladder:browser-bounds', tabId, bounds),
     setVisible: (tabId: string, visible: boolean): void => ipcRenderer.send('ladder:browser-visible', tabId, visible),
     navigate: (tabId: string, input: string): Promise<BrowserNavigateResult> => ipcRenderer.invoke('ladder:browser-navigate', tabId, input),
     action: (tabId: string, action: BrowserAction): Promise<void> => ipcRenderer.invoke('ladder:browser-action', tabId, action),
     openExternal: (tabId: string): Promise<void> => ipcRenderer.invoke('ladder:browser-open-external', tabId),
-    /** Pagina come allegato immagine (PNG, o JPEG se supera 5 MB); null se non c'è nulla da catturare; rifiuta con un errore tradotto se non entra nel limite. */
+    /** Page as an image attachment (PNG, or JPEG if it exceeds 5 MB); null if there is nothing to capture; rejects with a translated error if it does not fit the limit. */
     screenshot: (tabId: string): Promise<Attachment | null> => ipcRenderer.invoke('ladder:browser-screenshot', tabId),
     selection: (tabId: string): Promise<string> => ipcRenderer.invoke('ladder:browser-selection', tabId),
-    /** Tab chiusa o progetto rimosso; clearData cancella anche cookie e storage del progetto. */
+    /** Tab closed or project removed; clearData also deletes the project's cookies and storage. */
     destroy: (tabId: string, clearData?: boolean): Promise<void> => ipcRenderer.invoke('ladder:browser-destroy', tabId, clearData),
-    /** Cancella tutti i dati della partizione del progetto (cookie, storage, cache, credenziali) e ne distrugge le viste. */
+    /** Deletes all data of the project's partition (cookies, storage, cache, credentials) and destroys its views. */
     purge: (projectId: string): Promise<void> => ipcRenderer.invoke('ladder:browser-purge', projectId),
-    /** Scorciatoie dell'app premute con il focus nella pagina (la pagina non le riceve). */
+    /** App shortcuts pressed while the page has focus (the page does not receive them). */
     onShortcut: (listener: (shortcut: BrowserShortcut) => void): (() => void) => {
       const handler = (_event: unknown, shortcut: BrowserShortcut) => listener(shortcut)
       ipcRenderer.on('ladder:browser-shortcut', handler)

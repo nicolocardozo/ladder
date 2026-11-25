@@ -1,5 +1,5 @@
-// Registro ACP pubblico, letto in fase di build e rinfrescato ogni giorno (cache di Next).
-// Se il registro non risponde la pagina esce lo stesso, senza l'elenco completo.
+// Public ACP registry, read at build time and refreshed daily (Next cache).
+// If the registry doesn't respond the page is still built, without the full list.
 import { cacheLife } from "next/cache"
 
 const REGISTRY_URL = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json"
@@ -22,7 +22,7 @@ type RawEntry = {
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "")
-// Solo link http(s): il registro è di terzi
+// Only http(s) links: the registry is third-party
 const safeUrl = (v: unknown) => {
   const s = str(v)
   return /^https?:\/\//.test(s) ? s : null

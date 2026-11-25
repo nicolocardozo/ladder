@@ -1,6 +1,6 @@
-// Cronologia: checkpoint presi prima di ogni richiesta, ripristini e commit in un'unica linea del tempo verticale.
-// Stessa grafica della scheda Branches: una linea, pallini con l'anello del colore dello sfondo, un solo colore; la forma dice il tipo.
-// Da ogni punto vedi le modifiche o ci riporti la cartella (annullabile).
+// History: checkpoints taken before each request, restores and commits in a single vertical timeline.
+// Same graphics as the Branches tab: one line, dots with a ring in the background color, a single color; the shape tells the type.
+// From each point you see the changes or restore the folder to it (undoable).
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowUp, ChevronRight, GitBranch, Undo2 } from 'lucide-react'
 import type { HistoryEntry, SessionSummary } from '@shared/protocol'
@@ -13,14 +13,14 @@ import { useBranchMap } from './branch-map'
 import { PanelNote } from './changes-panel'
 import { useRestore } from './use-restore'
 
-// Geometria del disegno: la linea sta a RAIL, il centro del pallino a DOT_Y (sulla prima riga di testo), il testo parte dopo GUTTER.
+// Drawing geometry: the line sits at RAIL, the dot center at DOT_Y (on the first text row), the text starts after GUTTER.
 const RAIL = 14
 const DOT_Y = 17
 const GUTTER = 34
 
 const ringed = { paintOrder: 'stroke' } as const
 
-/** Segno del tipo di voce: checkpoint = pallino pieno piccolo, commit = pallino pieno più grande col centro vuoto, ripristino = rombo. */
+/** Entry type mark: checkpoint = small filled dot, commit = larger filled dot with an empty center, restore = diamond. */
 function EntryMark({ kind }: { kind: HistoryEntry['kind'] }) {
   return (
     <svg aria-hidden width={20} height={20} viewBox="0 0 20 20" className="pointer-events-none absolute text-primary" style={{ left: RAIL - 10, top: DOT_Y - 10 }}>
@@ -38,14 +38,14 @@ function EntryMark({ kind }: { kind: HistoryEntry['kind'] }) {
   )
 }
 
-/** In cima: "<branch> · from <base> ↑N", se la sessione sta su un branch diverso dal ramo principale. Al clic apre la scheda Branches. */
+/** On top: "<branch> · from <base> ↑N", if the session is on a branch other than the main one. Clicking opens the Branches tab. */
 function BranchLine({ projectId, session }: { projectId: string; session: SessionSummary }) {
   const map = useBranchMap(projectId, true)
   const openInspector = useApp((s) => s.openInspector)
   const inMain = !session.worktree
   const entry = useMemo(() => {
     if (!map) return null
-    // Sul checkout principale vale la riga del checkout principale (porta l'id della sessione più recente, non sempre questa).
+    // On the main checkout the main checkout row applies (it carries the id of the most recent session, not always this one).
     return map.entries.find((e) => (inMain ? e.mainCheckout : e.sessionId === session.id)) ?? null
   }, [map, inMain, session.id])
   if (!map || !entry || entry.isBase || !entry.branch || !map.base) return null
@@ -145,7 +145,7 @@ export function HistoryPanel({ projectId, root, isGit, session }: HistoryPanelPr
             const last = index === entries.length - 1
             return (
               <li key={entry.id} className="group relative py-1.5 pr-3" style={{ paddingLeft: GUTTER }}>
-                {/* Un tratto di linea per voce: la prima parte dal suo pallino, l'ultima finisce nel suo. */}
+                {/* One line segment per entry: the first starts at its dot, the last ends at its own. */}
                 {!(first && last) && <span aria-hidden className="absolute w-0.5" style={{ left: RAIL - 1, top: first ? DOT_Y : 0, bottom: last ? `calc(100% - ${DOT_Y}px)` : 0, background: 'color-mix(in oklab, var(--muted-foreground) 45%, var(--background))' }} />}
                 <EntryMark kind={entry.kind} />
                 <p className="truncate text-sm leading-[18px]" title={entry.title}>

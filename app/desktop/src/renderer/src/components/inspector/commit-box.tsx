@@ -1,6 +1,6 @@
-// Messaggio di commit nel pannello "Pronto per il merge" (LAD-59). Il commit lo fa Ladder con git (`git.commit`),
-// non l'agente, e solo quando premi "Commit". Il testo proposto dal modello resta modificabile; un errore dell'host
-// (anche un hook che fallisce) si mostra qui sotto e non cancella ciò che hai scritto.
+// Commit message in the "Ready to merge" panel. Ladder makes the commit with git (`git.commit`),
+// not the agent, and only when you press "Commit". The text proposed by the model stays editable; a host error
+// (even a failing hook) is shown below and doesn't erase what you wrote.
 import { useRef, useState } from 'react'
 import { GitCommitHorizontal } from 'lucide-react'
 import { MAX_COMMIT_SUBJECT, type GitCommitResult, type SessionSummary } from '@shared/protocol'
@@ -34,7 +34,7 @@ export function CommitBox({ projectId, session, dirty }: { projectId: string; se
     setDone(null)
     let ok = false
     try {
-      // `paths: 'all'` vale solo se nulla è in stage: se c'è uno stage l'host committa quello e basta.
+      // `paths: 'all'` only applies if nothing is staged: if there is a stage the host commits that and nothing else.
       const result = await request<GitCommitResult>({ type: 'git.commit', sessionId: session.id, subject, body: value.body.trim() || undefined, paths: 'all' })
       setValue({ head: '', body: '' })
       setDone(result)
@@ -50,7 +50,7 @@ export function CommitBox({ projectId, session, dirty }: { projectId: string; se
     }
   }
 
-  // Il primo rigo dell'errore è il motivo; il resto (output di un hook o di git) va in un blocco a parte.
+  // The first line of the error is the reason; the rest (hook or git output) goes in a separate block.
   const [reason, ...rest] = (error ?? '').split('\n')
   const output = rest.join('\n').trim()
 

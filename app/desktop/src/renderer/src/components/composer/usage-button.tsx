@@ -1,4 +1,4 @@
-// Limiti d'uso del piano, a portata di clic nel composer: quanto hai consumato, quando si azzera, e un refresh.
+// Plan usage limits, one click away in the composer: how much you have used, when it resets, and a refresh.
 import { useEffect, useId, useRef, useState } from 'react'
 import { ChartNoAxesColumn, RotateCw, TriangleAlert } from 'lucide-react'
 import type { AgentId, AgentStatus, ConnectionId, UsageWindow } from '@shared/protocol'
@@ -12,7 +12,7 @@ import { accountKey, useUsageAccounts, type UsageAccount } from '@/lib/usage-acc
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 
-/** Dati più vecchi di così si rileggono da soli quando si apre il pannello. */
+/** Data older than this is re-read automatically when the panel opens. */
 const STALE_MS = 60_000
 
 export function windowName(usage: UsageWindow): string {
@@ -29,7 +29,7 @@ function duration(seconds: number): string {
   return t('{d} d {h} h', { d: Math.floor(hours / 24), h: hours % 24 })
 }
 
-/** Ora locale del reset: solo l'ora se è oggi, altrimenti anche il giorno della settimana. */
+/** Local reset time: just the time if it is today, otherwise also the day of the week. */
 export function resetsWhen(resetsAt: number, now: number): string {
   const date = new Date(resetsAt * 1000)
   const sameDay = date.toDateString() === new Date(now * 1000).toDateString()
@@ -41,23 +41,23 @@ function resetsLabel(resetsAt: number, now: number): string {
   return t('Resets {when} · in {left}', { when: resetsWhen(resetsAt, now), left: duration(resetsAt - now) })
 }
 
-/** Da quanto una finestra merita un avviso sull'icona (e nel popover); il bannerino sopra il composer parte più in alto. */
+/** How far along a window deserves a warning on the icon (and in the popover); the small banner above the composer starts higher. */
 export const USAGE_WARN_AT = 80
 export const USAGE_BANNER_AT = 95
 
-/** Gravità di una finestra: 0 niente, 1 vicina al limite, 2 limite esaurito. */
+/** Severity of a window: 0 nothing, 1 close to the limit, 2 limit reached. */
 function usageSeverity(usage: UsageWindow, threshold: number): 0 | 1 | 2 {
   if (usage.state === 'limited') return 2
   if (threshold === USAGE_BANNER_AT) return usage.percent !== null && usage.percent >= threshold ? 1 : 0
   return usage.percent === null ? (usage.state === 'warning' ? 1 : 0) : usage.percent >= threshold ? 1 : 0
 }
 
-/** Uso extra e simili: spesa opzionale senza reset, non è un limite del piano che si azzera. */
+/** Extra usage and the like: optional spend without a reset, not a plan limit that resets. */
 function isSpend(usage: UsageWindow): boolean {
   return usage.key === 'extra_usage' || (usage.resetsAt === null && !!usage.label)
 }
 
-/** La finestra più vicina al limite fra quelle sopra soglia, o null: sotto soglia non c'è niente da dire. */
+/** The window closest to the limit among those above the threshold, or null: below the threshold there is nothing to say. */
 export function usageAlert(windows: UsageWindow[], threshold = USAGE_WARN_AT): { usage: UsageWindow; limited: boolean } | null {
   let best: UsageWindow | null = null
   let bestScore = 0
@@ -71,7 +71,7 @@ export function usageAlert(windows: UsageWindow[], threshold = USAGE_WARN_AT): {
   return best ? { usage: best, limited: best.state === 'limited' } : null
 }
 
-/** "Weekly: close to the limit (88% used)." e "Resets Mon 09:00.", già tradotti. */
+/** "Weekly: close to the limit (88% used)." and "Resets Mon 09:00.", already translated. */
 export function usageAlertText(alert: { usage: UsageWindow; limited: boolean }, now: number): { what: string; reset: string | null } {
   const { usage, limited } = alert
   const window = windowName(usage)
@@ -86,7 +86,7 @@ export function updatedLabel(at: number | null | undefined, now: number): string
   return seconds < 60 ? t('Updated just now') : t('Updated {left} ago', { left: duration(seconds) })
 }
 
-/** `compact`: righe da 12 px per le Impostazioni (finestre già aperte accanto all'account), senza il dettaglio per modello. */
+/** `compact`: 12 px rows for Settings (windows already open next to the account), without the per-model detail. */
 export function UsageRow({ usage, now, compact }: { usage: UsageWindow; now: number; compact?: boolean }) {
   const percent = usage.percent === null ? null : Math.min(100, Math.max(0, usage.percent))
   const tone = usage.state === 'limited' ? 'bg-destructive' : usage.state === 'warning' || (percent !== null && percent >= 80) ? 'bg-attention' : 'bg-primary'
@@ -111,20 +111,20 @@ export function UsageRow({ usage, now, compact }: { usage: UsageWindow; now: num
   )
 }
 
-/** Esito di una lettura: `ok` con finestre, `empty` se l'host risponde ma non c'è niente da mostrare, `error` se la richiesta fallisce o è rifiutata. */
+/** Outcome of a read: `ok` with windows, `empty` if the host answers but there is nothing to show, `error` if the request fails or is rejected. */
 export type UsageRead = 'ok' | 'empty' | 'error'
 
-/** Letture in corso per account (una sola alla volta: chi chiede mentre un'altra è in corso ne riceve la stessa) e ora dell'ultima completata. */
+/** In-flight reads per account (one at a time: whoever asks while another is running gets the same one) and time of the last completed one. */
 const reading = new Map<string, Promise<UsageRead>>()
 const lastRead = new Map<string, number>()
 
-/** Il dato di un account va riletto: mai letto o più vecchio di STALE_MS. Vale anche per le letture vuote, che non hanno `usageAt`. */
+/** An account's data needs re-reading: never read or older than STALE_MS. Also applies to empty reads, which have no `usageAt`. */
 function isStale(key: string, usageAt: number | null | undefined): boolean {
   const last = Math.max(usageAt ?? 0, lastRead.get(key) ?? 0)
   return !last || Date.now() - last > STALE_MS
 }
 
-/** Rilegge i limiti di un agente nativo (e del suo profilo): l'host aggiorna lo store. */
+/** Re-reads the limits of a native agent (and its profile): the host updates the store. */
 export function readUsage(agent: AgentId, profileId?: string | null): Promise<UsageRead> {
   const key = accountKey(agent, profileId)
   const running = reading.get(key)
@@ -142,13 +142,13 @@ export function readUsage(agent: AgentId, profileId?: string | null): Promise<Us
   return promise
 }
 
-/** Limiti d'uso di un agente (e del suo profilo): lettura dallo store, refresh e finestre ancora valide. */
+/** Usage limits of an agent (and its profile): read from the store, refresh and still-valid windows. */
 export function useUsage(agent: AgentId, profileId?: string | null) {
   const status = useApp((s) => agentStatusFor(s, agent, profileId))
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
   const [now, setNow] = useState(() => Date.now() / 1000)
-  // Un profilo senza stato proprio (non ancora letto) si può comunque rileggere.
+  // A profile without its own state (not read yet) can still be re-read.
   const native = status ? status.kind === 'native' : isProfileAgent(agent)
 
   const refresh = () => {
@@ -162,15 +162,15 @@ export function useUsage(agent: AgentId, profileId?: string | null) {
         setNow(Date.now() / 1000)
       })
   }
-  /** All'apertura: l'ora si aggiorna e un dato vecchio si rilegge. */
+  /** On open: the time is updated and old data is re-read. */
   const opened = () => {
     setNow(Date.now() / 1000)
     if (isStale(accountKey(agent, profileId), status?.usageAt)) refresh()
   }
 
-  // Una finestra già azzerata non dice più niente: si aspetta il dato nuovo.
+  // A window that has already reset says nothing anymore: wait for the new data.
   const windows = (status?.usage ?? []).filter((w) => w.resetsAt === null || w.resetsAt > now)
-  // Al prossimo reset (o ogni minuto) l'ora si aggiorna: le finestre azzerate spariscono anche a popover chiuso.
+  // At the next reset (or every minute) the time updates: reset windows disappear even with the popover closed.
   const usage = status?.usage
   useEffect(() => {
     const next = (usage ?? []).map((w) => w.resetsAt).filter((at): at is number => at !== null && at > now)
@@ -182,7 +182,7 @@ export function useUsage(agent: AgentId, profileId?: string | null) {
 }
 
 export function UsageButton({ agent, profileId }: { agent: AgentId; profileId?: string | null }) {
-  // Icona e avviso valgono solo per l'account della sessione aperta; il pannello mostra anche gli altri.
+  // Icon and notice only apply to the account of the open session; the panel also shows the others.
   const { now, windows } = useUsage(agent, profileId)
   const [open, setOpen] = useState(false)
   const alert = usageAlert(windows)
@@ -205,7 +205,7 @@ export function UsageButton({ agent, profileId }: { agent: AgentId; profileId?: 
   )
 }
 
-/** Una copia dell'insieme con le chiavi aggiunte o tolte: lo stato di React cambia sempre, anche per chiavi già presenti. */
+/** A copy of the set with keys added or removed: React state always changes, even for keys already present. */
 function withKeys(set: Set<string>, keys: string[], on: boolean): Set<string> {
   const next = new Set(set)
   for (const key of keys) (on ? next.add(key) : next.delete(key))
@@ -213,8 +213,8 @@ function withKeys(set: Set<string>, keys: string[], on: boolean): Set<string> {
 }
 
 /**
- * Il pannello dei limiti: tutti gli abbonamenti collegati (quello della sessione per primo), ciascuno con le sue finestre
- * e le sessioni in uso. Si monta all'apertura: i dati vecchi si rileggono da soli, in parallelo.
+ * The limits panel: all connected subscriptions (the session's first), each with its windows
+ * and the sessions in use. It mounts on open: old data is re-read automatically, in parallel.
  */
 function UsagePanel({ agent, profileId, onNavigate }: { agent: AgentId; profileId?: string | null; onNavigate: () => void }) {
   const accounts = useUsageAccounts({ agent, profileId })
@@ -226,14 +226,14 @@ function UsagePanel({ agent, profileId, onNavigate }: { agent: AgentId; profileI
   const announceTimer = useRef<number | undefined>(undefined)
   const native = accounts.filter((a) => a.native)
 
-  /** Svuota la regione e riscrive dopo un attimo: lo stesso messaggio due volte di fila si annuncia comunque. */
+  /** Clears the region and rewrites after a moment: the same message twice in a row is still announced. */
   const say = (message: string) => {
     window.clearTimeout(announceTimer.current)
     setAnnounce('')
     if (message) announceTimer.current = window.setTimeout(() => setAnnounce(message), 100)
   }
 
-  /** Rilegge gli account dati, tutti insieme (le letture già in corso si uniscono, vedi `readUsage`). */
+  /** Re-reads the given accounts, all together (reads already in flight are merged, see `readUsage`). */
   const read = (list: UsageAccount[], announceDone: boolean) => {
     const todo = list.filter((a) => a.native)
     if (!todo.length) return
@@ -246,7 +246,7 @@ function UsagePanel({ agent, profileId, onNavigate }: { agent: AgentId; profileI
         readUsage(a.agent, a.profileId).then((result) => {
           if (!mounted.current) return result
           setBusy((prev) => withKeys(prev, [a.key], false))
-          // "Update failed" solo se la richiesta è fallita: una risposta senza dati non è un errore.
+          // "Update failed" only if the request failed: a response without data is not an error.
           if (result === 'error') setFailed((prev) => withKeys(prev, [a.key], true))
           return result
         })
@@ -258,7 +258,7 @@ function UsagePanel({ agent, profileId, onNavigate }: { agent: AgentId; profileI
     })
   }
 
-  // All'apertura l'ora si aggiorna e i dati più vecchi di STALE_MS (o mai letti) si rileggono; poi l'ora scorre ogni 30 secondi.
+  // On open the time updates and data older than STALE_MS (or never read) is re-read; then the time ticks every 30 seconds.
   useEffect(() => {
     mounted.current = true
     setNow(Date.now() / 1000)
@@ -272,11 +272,11 @@ function UsagePanel({ agent, profileId, onNavigate }: { agent: AgentId; profileI
       window.clearInterval(timer)
       window.clearTimeout(announceTimer.current)
     }
-    // Solo all'apertura: `read` e `accounts` cambiano a ogni render.
+    // Only on open: `read` and `accounts` change on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Il dato più vecchio fra gli abbonamenti mostrati.
+  // The oldest data among the subscriptions shown.
   const stamps = native.map((a) => a.status?.usageAt).filter((at): at is number => typeof at === 'number' && at > 0)
   const oldest = stamps.length ? Math.min(...stamps) : null
   const refreshing = busy.size > 0
@@ -325,13 +325,13 @@ function UsagePanel({ agent, profileId, onNavigate }: { agent: AgentId; profileI
   )
 }
 
-/** Nome di un abbonamento: il piano dell'account e, se l'agente ne ha più d'uno, il profilo. */
+/** Name of a subscription: the account's plan and, if the agent has more than one, the profile. */
 export function accountName(account: Pick<UsageAccount, 'agent' | 'status' | 'profileName'>): string {
   const base = account.status?.account ?? account.status?.name ?? (account.agent === 'claude-code' || account.agent === 'codex' ? CONNECTION_NAME[account.agent] : account.agent)
   return [base, account.profileName].filter(Boolean).join(' · ')
 }
 
-/** Un abbonamento nel pannello: intestazione con logo, nome (porta alle Impostazioni), sessioni in corso e avviso; poi le finestre. */
+/** A subscription in the panel: header with logo, name (leads to Settings), running sessions and notice; then the windows. */
 function AccountUsage({ account, now, loading, failed, onRefresh, onNavigate }: { account: UsageAccount; now: number; loading: boolean; failed: boolean; onRefresh: () => void; onNavigate: () => void }) {
   const headingId = useId()
   const name = accountName(account)
@@ -349,7 +349,7 @@ function AccountUsage({ account, now, loading, failed, onRefresh, onNavigate }: 
                 type="button"
                 title={t('Open {name} in Settings', { name })}
                 onClick={() => {
-                  // Apre Impostazioni → Subscriptions, porta il focus sulla riga e la evidenzia.
+                  // Opens Settings → Subscriptions, moves focus to the row and highlights it.
                   useApp.getState().focusConnection(account.agent as ConnectionId, account.profileId, { highlight: true })
                   onNavigate()
                 }}
@@ -369,7 +369,7 @@ function AccountUsage({ account, now, loading, failed, onRefresh, onNavigate }: 
           </span>
         )}
       </div>
-      {/* La frase d'avviso vale solo per la sessione aperta; gli altri abbonamenti hanno il segno accanto al nome. */}
+      {/* The notice sentence only applies to the open session; other subscriptions have the mark next to the name. */}
       {account.current && alert && alertText && (
         <p role="status" className={cn('flex items-start gap-2 rounded-md px-2 py-1.5 text-xs', alert.limited ? 'bg-destructive/10' : 'bg-attention/10')}>
           <TriangleAlert aria-hidden className={cn('mt-px size-3.5 shrink-0', alert.limited ? 'text-destructive' : 'text-attention')} strokeWidth={2} />

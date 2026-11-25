@@ -1,5 +1,5 @@
-// Errori di caricamento del browser integrato in parole da leggere. `code` è il codice di rete di Chromium
-// (-102 connessione rifiutata, -105 nome non risolto…); 0 è un errore nostro, già tradotto dal main.
+// Built-in browser load errors in readable words. `code` is Chromium's network code
+// (-102 connection refused, -105 name not resolved…); 0 is an error of our own, already translated by main.
 import { t } from '@shared/i18n'
 import type { BrowserLoadError } from '@shared/protocol'
 import { browserAddress } from '@/lib/browser-tabs'
@@ -7,9 +7,9 @@ import { browserAddress } from '@/lib/browser-tabs'
 export interface DescribedError {
   title: string
   detail: string
-  /** Cosa provare, quando c'è un'indicazione sensata. */
+  /** What to try, when there is a sensible hint. */
   hint: string | null
-  /** Il motivo tecnico, per chi lo cerca: "ERR_CONNECTION_REFUSED (-102)". Null per gli errori nostri. */
+  /** The technical reason, for those who look it up: "ERR_CONNECTION_REFUSED (-102)". Null for our own errors. */
   technical: string | null
 }
 
@@ -35,7 +35,7 @@ export function describeLoadError(error: BrowserLoadError): DescribedError {
     return { title: t('{address} took too long to respond', { address }), detail: t('The connection timed out.'), hint: t('Try again in a moment.'), technical }
   if (code === -100 || code === -101 || code === -324)
     return { title: t('The connection to {address} was interrupted', { address }), detail: t('The server closed the connection without a complete answer.'), hint: t('Try again in a moment.'), technical }
-  // -200 … -219: certificato non valido o non attendibile.
+  // -200 … -219: invalid or untrusted certificate.
   if (code <= -200 && code >= -219)
     return { title: t('The connection to {address} isn’t private', { address }), detail: t('The site’s certificate can’t be trusted.'), hint: null, technical }
   return { title: t('Couldn’t load {address}', { address }), detail: t('Something went wrong while loading the page.'), hint: t('Try again, or open it in your system browser.'), technical }

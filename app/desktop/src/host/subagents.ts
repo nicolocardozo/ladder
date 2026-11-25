@@ -1,19 +1,19 @@
-// Sotto-agenti per sessione: gli adapter mandano aggiornamenti parziali, qui si uniscono in una lista per la mappa.
-// Restano in memoria: dopo un riavvio dell'app i sotto-agenti di prima non sono più vivi.
+// Subagents per session: adapters send partial updates, here they are merged into a list for the map.
+// They stay in memory: after an app restart the earlier subagents are no longer alive.
 import { t } from '@shared/i18n'
 import type { SubagentDetail, SubagentInfo } from '@shared/protocol'
 
-/** Strumento del sotto-agente: id per aggiornarne lo stato quando arriva il risultato. */
+/** Subagent tool: id to update its status when the result arrives. */
 export type SubagentTool = SubagentDetail['tools'][number] & { id: string }
 
-/** I campi pesanti (prompt, report, strumenti) non finiscono in SubagentInfo: restano nella board e viaggiano solo con subagent.detail. */
+/** Heavy fields (prompt, report, tools) do not end up in SubagentInfo: they stay on the board and travel only with subagent.detail. */
 export type SubagentUpdate = Partial<Omit<SubagentInfo, 'id'>> & {
   id: string
   prompt?: string | null
   report?: string | null
-  /** File con l'output di un sotto-agente in background. */
+  /** File with the output of a background subagent. */
   outputFile?: string | null
-  /** Testo completo del tool_result dell'Agent: il report vero di un sotto-agente in primo piano. */
+  /** Full text of the Agent's tool_result: the real report of a foreground subagent. */
   result?: string | null
   tool?: SubagentTool
 }
@@ -27,23 +27,23 @@ export interface SubagentExtra {
 }
 
 const TOOLS_LIMIT = 200
-// Rete di sicurezza: nel turno nessun agente sparisce, i finiti dei turni passati li toglie turnStarted.
+// Safety net: within the turn no agent disappears; finished ones from past turns are removed by turnStarted.
 const HARD_LIMIT = 1000
-/** Finiti tolti dall'elenco: ultimo SubagentInfo e dati pesanti restano consultabili (find, subagent.detail). */
+/** Finished ones removed from the list: last SubagentInfo and heavy data remain available (find, subagent.detail). */
 const CACHE_LIMIT = 300
 
 export class SubagentBoard {
   private bySession = new Map<string, Map<string, SubagentInfo>>()
   private extras = new Map<string, Map<string, SubagentExtra>>()
   private cache = new Map<string, Map<string, { info: SubagentInfo; extra: SubagentExtra | null }>>()
-  /** Inizio dell'ultimo turno aperto dall'host: i finiti prima di quel momento escono dall'elenco al turno dopo. */
+  /** Start of the last turn opened by the host: finished ones before that moment leave the list at the next turn. */
   private lastTurnStart = new Map<string, number>()
-  /** Ultimo aggiornamento ricevuto per ogni voce: serve a riconoscere quelle rimaste "in corso" senza lavorare. */
+  /** Last update received for each entry: used to spot those left "running" without working. */
   private touched = new Map<string, Map<string, number>>()
-  /** Voci chiuse dalla rete di sicurezza e non da un esito vero: un aggiornamento le riporta in corso, o la loro fine conta. */
+  /** Entries closed by the safety net and not by a real outcome: an update brings them back to running, or their end counts. */
   private expired = new Map<string, Set<string>>()
 
-  /** Un sotto-agente per id o per id della riga tool che l'ha lanciato; se non è più in elenco, dalla cache dei finiti. */
+  /** A subagent by id or by the id of the tool row that launched it; if no longer in the list, from the cache of finished ones. */
   find(sessionId: string, id: string): { info: SubagentInfo; extra: SubagentExtra | null } | null {
     const agents = this.bySession.get(sessionId)
     const info = agents?.get(id) ?? (agents ? [...agents.values()].find((a) => a.toolId === id) : undefined)
@@ -57,8 +57,8 @@ export class SubagentBoard {
     return agents?.size ? [...agents.values()] : undefined
   }
 
-  /** Conteggi leggeri per il summary. */
-  /** `turnActive`: fuori da un turno nessun agente è "in primo piano" (quelli che continuano, come in Codex, contano come background). */
+  /** Light counts for the summary. */
+  /** `turnActive`: outside a turn no agent is "foreground" (those that continue, as in Codex, count as background). */
   counts(sessionId: string, turnActive: boolean): { total: number; running: number; runningForeground: number; error: number } | undefined {
     const list = this.list(sessionId)
     if (!list) return undefined
@@ -70,7 +70,7 @@ export class SubagentBoard {
     }
   }
 
-  /** Unisce un aggiornamento; true se qualcosa è cambiato. */
+  /** Merges an update; true if something changed. */
   update(sessionId: string, update: SubagentUpdate): boolean {
     let agents = this.bySession.get(sessionId)
     if (!agents) {
@@ -82,14 +82,14 @@ export class SubagentBoard {
     const before = agents.get(update.id)
     const lightKeys = Object.keys(defined(update)).filter((k) => k !== 'id')
     if (!before) {
-      // Un agente già finito e tolto dall'elenco: i dati pesanti in ritardo vanno nella cache, il resto si ignora.
+      // An agent already finished and removed from the list: late heavy data goes to the cache, the rest is ignored.
       const cached = this.cache.get(sessionId)?.get(update.id)
       if (cached && lightKeys.length === 0) {
         cached.extra ??= { prompt: null, report: null, outputFile: null, result: null, tools: [] }
         applyExtra(cached.extra, { prompt, report, outputFile, result, tool })
         return false
       }
-      // Campi leggeri su un agente in cache (torna a lavorare): rientra nell'elenco con i suoi dati pesanti.
+      // Light fields on a cached agent (it goes back to work): it re-enters the list with its heavy data.
       if (cached) {
         this.cache.get(sessionId)!.delete(update.id)
         agents.set(update.id, cached.info)
@@ -100,8 +100,8 @@ export class SubagentBoard {
         }
         return this.update(sessionId, { ...update, prompt, report, outputFile, result, tool }) || true
       }
-      // Una voce nasce solo da una fonte affidabile (lancio, task_started, spawn): status 'running' esplicito e un titolo.
-      // Un id sconosciuto con un campo qualunque (attività, strumento, esito in ritardo) non crea agenti fantasma.
+      // An entry is born only from a reliable source (launch, task_started, spawn): explicit 'running' status and a title.
+      // An unknown id with any field (activity, tool, late outcome) does not create ghost agents.
       if (update.status !== 'running' || !update.title) return false
     }
     this.touch(sessionId, update.id)
@@ -124,7 +124,7 @@ export class SubagentBoard {
       id: update.id
     }
     const wasExpired = this.expired.get(sessionId)?.delete(update.id) ?? false
-    // Un titolo vero resta: solo quello generico si lascia sostituire.
+    // A real title stays: only the generic one may be replaced.
     if (before && before.title !== t('Subagent') && update.title !== undefined) next.title = before.title
     if (before && before.status !== 'running' && update.status === undefined) next.status = wasExpired && lightKeys.length > 0 ? 'running' : before.status
     if (next.status !== 'running') {
@@ -143,8 +143,8 @@ export class SubagentBoard {
   }
 
   /**
-   * Turno aperto dall'host: via dall'elenco i finiti prima dell'inizio del turno precedente (restano nella cache),
-   * restano quelli al lavoro e quelli finiti nel turno che si chiude. Non va chiamato per i turni impliciti aperti dall'adapter.
+   * Turn opened by the host: finished ones before the start of the previous turn leave the list (they stay in the cache),
+   * those at work and those finished in the turn that is closing stay. Must not be called for implicit turns opened by the adapter.
    */
   turnStarted(sessionId: string): boolean {
     const cutoff = this.lastTurnStart.get(sessionId) ?? 0
@@ -161,13 +161,13 @@ export class SubagentBoard {
     return changed
   }
 
-  /** Qualche sotto-agente della sessione sta ancora lavorando (anche in background, a turno chiuso). */
+  /** Some subagent of the session is still working (even in the background, with the turn closed). */
   hasRunning(sessionId: string): boolean {
     for (const agent of this.bySession.get(sessionId)?.values() ?? []) if (agent.status === 'running') return true
     return false
   }
 
-  /** L'agente si è fermato (interruzione, processo chiuso): chi era al lavoro risulta fermato. */
+  /** The agent stopped (interruption, process closed): those that were working show as stopped. */
   stopRunning(sessionId: string, { foregroundOnly = false } = {}): boolean {
     const agents = this.bySession.get(sessionId)
     if (!agents) return false
@@ -185,8 +185,8 @@ export class SubagentBoard {
   }
 
   /**
-   * Rete di sicurezza: le voci in corso senza aggiornamenti da oltre `maxAgeMs` risultano fermate.
-   * Ritorna le voci com'erano prima (vuoto se non è cambiato nulla).
+   * Safety net: entries in progress with no updates for more than `maxAgeMs` show as stopped.
+   * Returns the entries as they were before (empty if nothing changed).
    */
   expireStale(sessionId: string, maxAgeMs: number, live: Set<string> | null = null): SubagentInfo[] {
     const agents = this.bySession.get(sessionId)
@@ -208,7 +208,7 @@ export class SubagentBoard {
     return expired
   }
 
-  /** La voce è stata chiusa dalla rete di sicurezza e nessun aggiornamento l'ha ancora toccata. */
+  /** The entry was closed by the safety net and no update has touched it yet. */
   wasExpired(sessionId: string, id: string): boolean {
     return this.expired.get(sessionId)?.has(id) ?? false
   }
@@ -242,7 +242,7 @@ export class SubagentBoard {
     if (cached.size > CACHE_LIMIT) cached.delete(cached.keys().next().value!)
   }
 
-  /** true se sono cambiati report, risultato o file di output (il dettaglio aperto si ricarica). */
+  /** true if report, result or output files changed (the open detail reloads). */
   private mergeExtra(sessionId: string, id: string, patch: Pick<SubagentUpdate, 'prompt' | 'report' | 'outputFile' | 'result' | 'tool'>): boolean {
     let all = this.extras.get(sessionId)
     if (!all) {

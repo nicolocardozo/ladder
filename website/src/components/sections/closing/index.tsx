@@ -6,14 +6,14 @@ import { DownloadLink } from "@/components/download-link"
 export function Closing() {
   return (
     <section id="closing" className="px-3">
-      {/* Riquadro con lo stesso raggio dell'hero (26px), colori invertiti rispetto all'hero: fondo Circuit con puntini chiari */}
+      {/* Panel with the same radius as the hero (26px), colors inverted relative to the hero: Circuit background with light dots */}
       <div className="relative isolate overflow-hidden rounded-[22px] sm:rounded-[30px] bg-c-bg px-6 py-24 dark:ring-1 dark:ring-white/8 text-c-text sm:py-[120px]">
-        {/* Velo iris leggero */}
+        {/* Light iris veil */}
         <div
           aria-hidden
           className="absolute inset-0 -z-10 bg-[radial-gradient(60%_70%_at_50%_45%,rgba(123,92,240,0.16),transparent_70%)]"
         />
-        {/* Puntini statici, senza reazione al cursore */}
+        {/* Static dots, no reaction to the cursor */}
         <div
           aria-hidden
           className="absolute inset-0 -z-20 bg-[radial-gradient(circle,#4A4357_1.1px,transparent_1.6px)] [background-size:22px_22px] opacity-70 [mask-image:radial-gradient(70%_80%_at_50%_50%,#000,transparent)]"
@@ -37,7 +37,7 @@ export function Closing() {
               <ArrowRight aria-hidden className="size-5" />
             </DownloadLink>
           </div>
-          {/* Il pulsante sceglie da solo il DMG giusto; qui l'alternativa se ha indovinato male */}
+          {/* The button picks the right DMG by itself; here is the alternative if it guessed wrong */}
           <p className="mt-5 text-sm text-c-muted">
             For macOS on{" "}
             <a href={DOWNLOADS.arm64} className="underline decoration-c-border underline-offset-4 hover:text-c-text">

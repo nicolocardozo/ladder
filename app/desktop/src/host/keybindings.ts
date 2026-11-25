@@ -1,5 +1,5 @@
-// Scorciatoie: keybindings.json nella cartella dati (formato di VS Code, modificabile a mano) e preset scelto, salvato in kv.
-// Le voci non valide si ignorano e si segnalano, ma restano nel file; il file con errore di sintassi non si sovrascrive.
+// Shortcuts: keybindings.json in the data folder (VS Code format, editable by hand) and the chosen preset, stored in kv.
+// Invalid entries are ignored and reported, but stay in the file; a file with a syntax error is not overwritten.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import { t } from '@shared/i18n'
@@ -10,7 +10,7 @@ import type { Db } from './db'
 const KEY = 'shortcut-preset'
 const DEBOUNCE_MS = 250
 
-/** Toglie commenti (// e /* *\/) e virgole finali, lasciando intatte le stringhe: le posizioni degli errori restano quelle del file. */
+/** Strips comments (// and /* *\/) and trailing commas, leaving strings intact: error positions stay those of the file. */
 export function stripJsonc(text: string): string {
   let out = ''
   let i = 0
@@ -33,7 +33,7 @@ export function stripJsonc(text: string): string {
       i++
     }
   }
-  // Virgola prima di ] o } (anche con spazi in mezzo): fuori dalle stringhe.
+  // Comma before ] or } (even with spaces in between): outside strings.
   let result = ''
   let inString = false
   for (let k = 0; k < out.length; k++) {
@@ -52,14 +52,14 @@ export function stripJsonc(text: string): string {
 }
 
 interface Parsed {
-  /** Voci valide, nell'ordine del file. */
+  /** Valid entries, in file order. */
   valid: Keybinding[]
-  /** Voci scartate così come stanno nel file: si rimettono in fondo al salvataggio. */
+  /** Entries discarded as they are in the file: they are put back at the end when saving. */
   skipped: unknown[]
   warnings: string[]
 }
 
-/** Problema di una voce, o null se è valida. `-comando` toglie il predefinito: la scorciatoia non serve. */
+/** Problem with an entry, or null if valid. `-command` removes the default: the shortcut is not needed. */
 function problemOf(entry: unknown): string | null {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return t('not an object with "key" and "command"')
   const { key, command } = entry as Record<string, unknown>
@@ -69,7 +69,7 @@ function problemOf(entry: unknown): string | null {
   if (!command.startsWith('-')) {
     const chord = parseShortcut(key)
     if (!chord) return t('invalid shortcut “{key}”', { key })
-    // Stessa regola della schermata delle impostazioni: senza ⌘, ⌃ o ⌥ (o un tasto funzione) intercetterebbe la scrittura.
+    // Same rule as the settings screen: without ⌘, ⌃ or ⌥ (or a function key) it would intercept typing.
     if (!hasAnchor(chord)) return t('shortcut “{key}” needs ⌘, ⌃ or ⌥', { key })
   }
   return null
@@ -90,7 +90,7 @@ function parseEntries(list: unknown[]): Parsed {
 export class Shortcuts {
   private preset: ShortcutPreset
   private parsed: Parsed = { valid: [], skipped: [], warnings: [] }
-  /** Messaggio di sintassi se il file non si legge; le voci restano quelle dell'ultima lettura buona. */
+  /** Syntax message if the file cannot be read; entries stay those of the last good read. */
   private syntaxError: string | null = null
   private watcher: FSWatcher | null = null
   private timer: NodeJS.Timeout | null = null
@@ -107,12 +107,12 @@ export class Shortcuts {
     this.load()
   }
 
-  /** Avvio: dice al main cosa usare per il menu e osserva il file. */
+  /** Startup: tells the main process what to use for the menu and watches the file. */
   start(): void {
     this.last = JSON.stringify(this.state())
     this.toMain({ type: 'shortcuts', preset: this.preset, overrides: this.parsed.valid })
     try {
-      // Si osserva la cartella: un salvataggio atomico (rename) sostituisce il file e un watcher sul file si perderebbe.
+      // Watch the folder: an atomic save (rename) replaces the file and a watcher on the file would be lost.
       mkdirSync(dirname(this.file), { recursive: true })
       const name = basename(this.file)
       this.watcher = watch(dirname(this.file), (_event, changed) => {
@@ -122,7 +122,7 @@ export class Shortcuts {
       })
       this.watcher.on('error', () => undefined)
     } catch {
-      // Senza osservatore resta la rilettura a ogni shortcuts.get.
+      // Without a watcher, the re-read on every shortcuts.get remains.
     }
   }
 
@@ -136,7 +136,7 @@ export class Shortcuts {
     return { preset: this.preset, overrides: this.parsed.valid, warnings, file: this.file, invalid: this.syntaxError !== null }
   }
 
-  /** Rilegge il file e avvisa solo se lo stato è davvero cambiato (così i salvataggi nostri non fanno doppi eventi). */
+  /** Re-reads the file and notifies only if the state really changed (so our own saves do not cause double events). */
   get(): ShortcutsState {
     this.load()
     return this.state()
@@ -156,7 +156,7 @@ export class Shortcuts {
       const problem = problemOf(entry)
       if (problem) throw new Error(t('Invalid shortcut: {problem}', { problem }))
     }
-    // Le voci che non capiamo restano nel file, davanti a quelle nuove.
+    // Entries we do not understand stay in the file, ahead of the new ones.
     const entries = [...this.parsed.skipped, ...overrides.map(({ key, command }) => ({ key, command }))]
     this.write(`${JSON.stringify(entries, null, 2)}\n`)
     this.setPreset(preset)
@@ -166,7 +166,7 @@ export class Shortcuts {
   }
 
   reset(): ShortcutsState {
-    // Il contenuto di prima non si butta: va in keybindings.json.bak.
+    // The previous content is not thrown away: it goes to keybindings.json.bak.
     if (existsSync(this.file)) {
       try {
         if (this.rawText().trim().replace(/\s/g, '') !== '[]') copyFileSync(this.file, `${this.file}.bak`)
@@ -180,7 +180,7 @@ export class Shortcuts {
     return this.state()
   }
 
-  /** Crea il file vuoto se manca e chiede al main di aprirlo. */
+  /** Creates the empty file if missing and asks the main process to open it. */
   openFile(): null {
     if (!existsSync(this.file)) this.write('[]\n')
     this.toMain({ type: 'open-keybindings' })
@@ -196,7 +196,7 @@ export class Shortcuts {
     return readFileSync(this.file, 'utf8')
   }
 
-  /** Legge il file. File assente = nessuna personalizzazione; errore di sintassi = si tiene l'ultimo stato buono. */
+  /** Reads the file. Missing file = no customization; syntax error = keep the last good state. */
   private load(): void {
     let text: string
     try {
@@ -208,7 +208,7 @@ export class Shortcuts {
       } else this.syntaxError = t('Could not read keybindings.json: {message}', { message: (error as Error).message })
       return
     }
-    // Un file vuoto (appena creato a mano) conta come nessuna voce.
+    // An empty file (just created by hand) counts as no entries.
     if (!text.trim()) {
       this.parsed = { valid: [], skipped: [], warnings: [] }
       this.syntaxError = null
@@ -238,7 +238,7 @@ export class Shortcuts {
     this.toMain({ type: 'shortcuts', preset: state.preset, overrides: state.overrides })
   }
 
-  /** Scrittura atomica: file temporaneo nella stessa cartella e rename. */
+  /** Atomic write: temporary file in the same folder and rename. */
   private write(text: string): void {
     mkdirSync(dirname(this.file), { recursive: true })
     const tmp = `${this.file}.${process.pid}.tmp`

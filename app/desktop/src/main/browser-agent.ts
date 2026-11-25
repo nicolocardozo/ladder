@@ -1,7 +1,7 @@
-// Browser per l'agente (LAD-57 parte 2), lato main: esegue sulle viste dell'agente le operazioni chieste dall'host.
-// La vista è una tab Browser dell'utente (main/browser.ts) con partizione isolata e in memoria; qui si legge la pagina,
-// si clicca, si scrive e si cattura lo schermo. Gli script girano in un mondo isolato: la pagina non li vede e non li altera.
-// Il risultato verso l'host è sempre un oggetto di dati semplici (stringhe, numeri): il contenuto della pagina non diventa mai un comando.
+// Browser for the agent, main side: runs on the agent's views the operations requested by the host.
+// The view is a user Browser tab (main/browser.ts) with an isolated, in-memory partition; here the page is read,
+// clicked, typed into and captured. Scripts run in an isolated world: the page cannot see or alter them.
+// The result sent to the host is always a plain data object (strings, numbers): page content never becomes a command.
 import { BrowserWindow } from 'electron'
 import { t } from '@shared/i18n'
 import { parseAgentUrl, normalizeHost } from '@shared/agent-browser'
@@ -10,9 +10,9 @@ import { agentAllows, createAgentTab, destroyTab, encodeShot, keyOf, tabs, type 
 
 const AGENT_WORLD = 998
 const SCRIPT_TIMEOUT_MS = 5_000
-/** Una vista nascosta può rispondere "superficie non pronta" al primo scatto: un solo secondo tentativo, dopo questa attesa. */
+/** A hidden view may answer "surface not ready" on the first capture: a single second attempt, after this wait. */
 const CAPTURE_RETRY_MS = 150
-/** Per scatto: due tentativi + attesa restano sotto i 15 s con cui l'host chiude l'operazione. */
+/** Per capture: two attempts + wait stay under the 15 s after which the host closes the operation. */
 const CAPTURE_TIMEOUT_MS = 6_000
 const PRIME_TIMEOUT_MS = 5_000
 const NAVIGATE_TIMEOUT_MS = 24_000
@@ -21,7 +21,7 @@ const SHOT_MIN_WIDTH = 480
 const TEXT_MAX = 100_000
 const REF = /^e\d{1,6}$/
 
-/** Operazioni in corso per sessione: lo stop le chiude subito. */
+/** Operations in progress per session: stop closes them immediately. */
 const running = new Map<string, Set<() => void>>()
 
 const fail = (code: Extract<BrowserAgentResult, { ok: false }>['code'], error: string, host?: string): BrowserAgentResult => ({ ok: false, code, error, ...(host ? { host } : {}) })
@@ -32,14 +32,14 @@ function tabOf(sessionId: string): Tab | null {
   return null
 }
 
-/** Finestra che ospita la vista: quella attiva, altrimenti la prima aperta. */
+/** Window that hosts the view: the active one, otherwise the first one open. */
 function pickWindow(): BrowserWindow | null {
   const focused = BrowserWindow.getFocusedWindow()
   if (focused && !focused.isDestroyed()) return focused
   return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null
 }
 
-/** Esegue `task` finché non scade o lo stop la chiude. */
+/** Runs `task` until it expires or stop closes it. */
 function guarded<T>(sessionId: string, ms: number, task: Promise<T>, onTimeout: T, onStop: T): Promise<T> {
   return new Promise<T>((resolve) => {
     const cancels = running.get(sessionId) ?? new Set<() => void>()
@@ -56,7 +56,7 @@ function guarded<T>(sessionId: string, ms: number, task: Promise<T>, onTimeout: 
   })
 }
 
-/** Script nel mondo isolato: stringa JSON o null se la pagina non risponde. */
+/** Script in the isolated world: JSON string or null if the page does not respond. */
 async function script(tab: Tab, code: string): Promise<unknown> {
   const run = tab.view.webContents.executeJavaScriptInIsolatedWorld(AGENT_WORLD, [{ code }])
   return guarded<unknown>(tab.agent!.sessionId, SCRIPT_TIMEOUT_MS, run, null, null)
@@ -72,7 +72,7 @@ const parse = (raw: unknown): Record<string, unknown> | null => {
   }
 }
 
-// ── Script della pagina ───────────────────────────────────────────────────
+// ── Page scripts ──────────────────────────────────────────────────────────
 
 const readScript = (maxChars: number, maxElements: number): string => `(() => {
   const S = (window.__ladderAgent ??= { n: 0, ids: new WeakMap(), els: new Map() });
@@ -113,24 +113,24 @@ const typeScript = (ref: string, text: string): string => `(() => { const REF = 
   if (el.isContentEditable) { if (document.activeElement !== el) return JSON.stringify({ ok: false, why: 'not-editable' }); const range = document.createRange(); range.selectNodeContents(el); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range); return JSON.stringify({ ok: document.execCommand('insertText', false, TEXT) }); }
   return JSON.stringify({ ok: false, why: 'not-editable' }); })()`
 
-// ── Operazioni ────────────────────────────────────────────────────────────
+// ── Operations ────────────────────────────────────────────────────────────
 
 async function navigate(tab: Tab, url: string): Promise<BrowserAgentResult> {
   const agent = tab.agent!
   const parsed = parseAgentUrl(url)
   if (!parsed.ok) return fail('failed', t('Only http and https addresses can be opened here.'))
-  // Il main ricontrolla da sé: anche se l'host sbagliasse, un dominio non autorizzato non si apre.
+  // Main re-checks on its own: even if the host got it wrong, an unauthorized domain is not opened.
   if (!agentAllows(agent, parsed.url.toString())) return fail('blocked', t('{host} is not allowed in the agent browser.', { host: parsed.host }), parsed.host)
   agent.blocked = null
   const contents = tab.view.webContents
-  // Prima navigazione su about:blank: una vista nascosta che carica subito la pagina vera non ottiene mai la superficie per capturePage (provato su Electron 45).
+  // First navigate to about:blank: a hidden view that loads the real page right away never gets the surface for capturePage (tested on Electron 45).
   if (!agent.primed) {
     agent.primed = true
     const priming = contents.loadURL('about:blank').then(
       () => 'ok' as const,
       () => 'ok' as const
     )
-    // Anche la preparazione si ferma con lo stop; al ritorno si ricontrolla tutto, perché stop o cambio di livello possono essere arrivati nel frattempo.
+    // Preparation is also stopped by stop; on return everything is re-checked, because stop or a level change may have arrived in the meantime.
     const primed = await guarded<string>(agent.sessionId, PRIME_TIMEOUT_MS, priming, 'timeout', 'stopped')
     if (primed === 'stopped' || agent.stopped) return stoppedResult()
     if (contents.isDestroyed()) return fail('closed', t('The agent browser is closed.'))
@@ -146,7 +146,7 @@ async function navigate(tab: Tab, url: string): Promise<BrowserAgentResult> {
     contents.stop()
     return fail('timeout', t('The page took too long to load.'))
   }
-  // Un redirect (o una sottorisorsa principale) fuori dai domini ammessi è stato fermato: l'agente deve chiedere all'utente.
+  // A redirect (or a main subresource) outside the allowed domains was stopped: the agent must ask the user.
   if (outcome !== 'ok' && agent.blocked) return fail('blocked', t('The page tried to go to {host}, which is not allowed in the agent browser. Ask the user before opening it.', { host: agent.blocked }), agent.blocked)
   if (outcome !== 'ok') return fail('failed', t('The page did not load: {reason}', { reason: outcome.replace(/^ERR_/, '').slice(0, 120) }))
   return { ok: true, url: contents.getURL(), title: contents.getTitle() }
@@ -174,7 +174,7 @@ async function read(tab: Tab, maxChars: number, maxElements: number): Promise<Br
   return { ok: true, url: String(data.url ?? '').slice(0, 500), title: String(data.title ?? '').slice(0, 300), text: String(data.text ?? '').slice(0, chars), truncated: data.truncated === true, elements }
 }
 
-/** Pixel campionati su una miniatura: tutti uguali e trasparenti o bianchi = immagine che sembra valida ma è vuota. */
+/** Pixels sampled on a thumbnail: all equal and transparent or white = an image that looks valid but is empty. */
 function looksBlank(image: Electron.NativeImage): boolean {
   const small = image.resize({ width: 32, height: 32, quality: 'good' })
   const px = small.toBitmap()
@@ -185,7 +185,7 @@ function looksBlank(image: Electron.NativeImage): boolean {
   return true
 }
 
-/** Cattura la vista, anche se nascosta; se il primo scatto fallisce, è vuoto o uniforme, invalida e riprova una volta dopo CAPTURE_RETRY_MS (se non c'è stato uno stop). */
+/** Captures the view, even if hidden; if the first capture fails, is empty or uniform, invalidates and retries once after CAPTURE_RETRY_MS (unless stop occurred). */
 async function capture(tab: Tab): Promise<Electron.NativeImage | null> {
   const contents = tab.view.webContents
   const once = (): Promise<Electron.NativeImage | null> =>
@@ -196,7 +196,7 @@ async function capture(tab: Tab): Promise<Electron.NativeImage | null> {
   contents.invalidate()
   await new Promise((resolve) => setTimeout(resolve, CAPTURE_RETRY_MS))
   if (contents.isDestroyed() || tab.agent!.stopped) return first
-  // Se anche il secondo scatto non riesce si tiene il primo (uniforme ma valido) piuttosto che nulla.
+  // If the second capture also fails, keep the first (uniform but valid) rather than nothing.
   const second = await once()
   return second && !second.isEmpty() ? second : first
 }
@@ -208,7 +208,7 @@ async function screenshot(tab: Tab): Promise<BrowserAgentResult> {
   if (image.isEmpty()) return fail('failed', t('The screenshot is empty. Open the agent browser tab so it is visible, then try again.'))
   const shot = encodeShot(image, SHOT_MAX_WIDTH, SHOT_MIN_WIDTH)
   if (!shot) return fail('failed', t('Could not shrink the screenshot under 5 MB.'))
-  // Uniforme dopo il tentativo ripetuto: la pagina può essere davvero bianca o non ancora disegnata; l'immagine si restituisce con una nota.
+  // Uniform after the retry: the page may really be white or not yet painted; the image is returned with a note.
   const blank = looksBlank(image)
   return { ok: true, image: { mediaType: shot.mediaType, data: shot.data.toString('base64') }, ...(blank ? { note: t('The screenshot is a single flat colour. The page may be blank or still loading.') } : {}) }
 }
@@ -231,7 +231,7 @@ async function interact(tab: Tab, code: string): Promise<BrowserAgentResult> {
   }
 }
 
-/** Una operazione dell'host. `result` è sempre dati semplici. */
+/** An operation from the host. `result` is always plain data. */
 export async function runAgentOp(op: BrowserAgentOp): Promise<BrowserAgentResult> {
   if (!op || typeof op !== 'object' || typeof op.sessionId !== 'string' || !op.sessionId) return fail('failed', t('The browser did not understand the request.'))
   const existing = tabOf(op.sessionId)
@@ -252,11 +252,11 @@ export async function runAgentOp(op: BrowserAgentOp): Promise<BrowserAgentResult
       if (!existing?.agent) return { ok: true }
       if (op.freeze !== false) {
         existing.agent.stopped = true
-        // Stop dell'utente: le autorizzazioni date finora non sopravvivono (anche l'host le azzera).
+        // User stop: authorizations given so far do not survive (the host also resets them).
         existing.agent.hosts.clear()
         existing.agent.any = false
       }
-      // Ferma caricamento e script in corso; il resto lo rifiuta il controllo di `stopped` qui sotto.
+      // Stops loading and running scripts; the rest is rejected by the `stopped` check below.
       for (const cancel of [...(running.get(op.sessionId) ?? [])]) cancel()
       if (!existing.view.webContents.isDestroyed()) existing.view.webContents.stop()
       return { ok: true }
@@ -270,7 +270,7 @@ export async function runAgentOp(op: BrowserAgentOp): Promise<BrowserAgentResult
   if (existing.view.webContents.isDestroyed()) return fail('closed', t('The agent browser is closed.'))
   switch (op.op) {
     case 'allow':
-      // `host: null` riparte da zero: svuota i domini e fissa `any` (true solo per Full access, false altrimenti); con un dominio, lo aggiunge.
+      // `host: null` starts over: clears the domains and sets `any` (true only for Full access, false otherwise); with a domain, adds it.
       if (op.host === null) {
         existing.agent.hosts.clear()
         existing.agent.any = op.any === true

@@ -1,6 +1,6 @@
-// Predefiniti di una nuova sessione: funzione pura, senza React né store.
-// Ordine: progetto (ProjectUiState.defaults) → [agents] default del TOML (solo agente) → globali (AppPrefs.defaults)
-// → ultimo agente usato → Claude Code o il primo disponibile.
+// Defaults for a new session: pure function, no React or store.
+// Order: project (ProjectUiState.defaults) → TOML [agents] default (agent only) → globals (AppPrefs.defaults)
+// → last used agent → Claude Code or the first available.
 import type { AgentId, AgentStatus, Effort, PermissionLevel, SessionDefaults } from '@shared/protocol'
 import { EFFORTS, LEVEL_ORDER, supportsEffort } from '@/lib/agents'
 
@@ -8,15 +8,15 @@ export interface ResolveInput {
   agents: AgentStatus[]
   project?: SessionDefaults | null
   global?: SessionDefaults | null
-  /** [agents] default del TOML del progetto. */
+  /** TOML [agents] default of the project. */
   tomlAgent?: AgentId | null
   lastAgent?: AgentId | null
-  /** Agenti ammessi dal progetto; vuoto = tutti. */
+  /** Agents allowed by the project; empty = all. */
   allowed?: AgentId[]
   maxPermission?: PermissionLevel | null
-  /** Scelta esplicita dell'utente: vince su ogni predefinito. */
+  /** Explicit user choice: wins over every default. */
   forceAgent?: AgentId | null
-  /** Modello con cui parte ogni agente senza una scelta (predefinito dell'agente per il progetto); senza, il suo isDefault. */
+  /** Model each agent starts with when no choice is made (the agent's default for the project); without it, its isDefault. */
   agentModels?: Partial<Record<AgentId, string | null>>
 }
 
@@ -27,7 +27,7 @@ export interface Resolved {
   permission: PermissionLevel
 }
 
-/** Riduce il livello al massimo del progetto. */
+/** Clamps the level to the project's maximum. */
 export function capPermission(level: PermissionLevel, max: PermissionLevel | null | undefined): PermissionLevel {
   if (!max) return level
   return LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(max) ? max : level
@@ -43,25 +43,25 @@ export function isValidModel(status: AgentStatus | undefined, model: string | nu
   return Boolean(model && status?.models.some((m) => m.id === model))
 }
 
-/** Un effort vale se l'agente lo supporta e il modello (o, senza modello, almeno uno) lo accetta. */
+/** An effort is valid if the agent supports it and the model (or, with no model, at least one) accepts it. */
 export function isValidEffort(status: AgentStatus | undefined, model: string | null, effort: Effort | null | undefined): effort is Effort {
   if (!effort || !status || !supportsEffort(status.agent) || !EFFORTS.some((e) => e.id === effort)) return false
   const candidates = model ? status.models.filter((m) => m.id === model) : status.models
-  if (candidates.length === 0) return !model // modelli non ancora noti: nessuna conferma possibile se c'è un modello
+  if (candidates.length === 0) return !model // models not known yet: no confirmation possible if there is a model
   return candidates.some((m) => m.efforts === undefined || m.efforts.includes(effort))
 }
 
-/** Modello con cui parte un agente: il primo valido tra i livelli (dal più specifico). Un solo punto, per resolver e controlli. */
+/** Model an agent starts with: the first valid across the levels (most specific first). A single place, for the resolver and the controls. */
 export function pickModel(status: AgentStatus | undefined, ...levels: (SessionDefaults | null | undefined)[]): string | null {
   return (status && levels.map((d) => d?.models?.[status.agent]).find((m) => isValidModel(status, m))) || null
 }
 
-/** Effort con cui parte un agente, validato contro il modello finale. */
+/** Effort an agent starts with, validated against the final model. */
 export function pickEffort(status: AgentStatus | undefined, model: string | null, ...levels: (SessionDefaults | null | undefined)[]): Effort | null {
   return (status && levels.map((d) => d?.efforts?.[status.agent]).find((e) => isValidEffort(status, model, e))) || null
 }
 
-/** Modello che parte quando nessun livello ne sceglie uno: predefinito dell'agente (per il progetto, se noto), poi isDefault. */
+/** Model that starts when no level picks one: the agent's default (for the project, if known), then isDefault. */
 export function launchModel(status: AgentStatus | undefined, agentModels?: Partial<Record<AgentId, string | null>>): string | null {
   if (!status) return null
   const fromHost = agentModels?.[status.agent]
@@ -74,27 +74,27 @@ export function resolveSessionDefaults(input: ResolveInput): Resolved {
   const agent = candidates.find((a): a is AgentId => isUsable(a, input)) ?? null
   const status = agent ? input.agents.find((a) => a.agent === agent) : undefined
   const model = pickModel(status, project, global)
-  // Senza modello scelto parte quello dell'agente: l'effort si valida contro quello, come fa il composer.
+  // With no model chosen the agent's own starts: the effort is validated against that, as the composer does.
   const effort = pickEffort(status, model ?? launchModel(status, input.agentModels), project, global)
   const permission = capPermission(project?.permission ?? global?.permission ?? 'edit', input.maxPermission)
   return { agent, model, effort, permission }
 }
 
-/** Parti di un predefinito salvato che non valgono più (agente assente o non ammesso, modello o effort sconosciuti). */
+/** Parts of a saved default that are no longer valid (agent missing or not allowed, unknown model or effort). */
 export interface DefaultsIssues {
   agent: boolean
   models: AgentId[]
   efforts: AgentId[]
 }
 
-/** `lower`: il livello sotto, che il resolver usa quando il modello di questo non vale; serve a validare l'effort con lo stesso modello. */
+/** `lower`: the level below, which the resolver uses when this level's model is not valid; it lets the effort be validated with the same model. */
 export function defaultsIssues(defaults: SessionDefaults | null | undefined, agents: AgentStatus[], allowed: AgentId[] = [], lower?: SessionDefaults | null, agentModels?: Partial<Record<AgentId, string | null>>): DefaultsIssues {
   const issues: DefaultsIssues = { agent: false, models: [], efforts: [] }
   if (!defaults) return issues
   if (defaults.agent) issues.agent = !agents.some((s) => s.agent === defaults.agent && s.available) || (allowed.length > 0 && !allowed.includes(defaults.agent))
   for (const [id, model] of Object.entries(defaults.models ?? {})) {
     const status = agents.find((s) => s.agent === id)
-    // 'default' è l'alias di "nessun modello": eredita, non è un modello sconosciuto.
+    // 'default' is the alias for "no model": it inherits, it is not an unknown model.
     if (status && status.models.length > 0 && model !== 'default' && !isValidModel(status, model)) issues.models.push(id as AgentId)
   }
   for (const [id, effort] of Object.entries(defaults.efforts ?? {})) {
@@ -104,7 +104,7 @@ export function defaultsIssues(defaults: SessionDefaults | null | undefined, age
   return issues
 }
 
-/** Toglie campi vuoti: un oggetto senza nulla diventa undefined, così non si salva rumore. */
+/** Removes empty fields: an object with nothing in it becomes undefined, so no noise is saved. */
 export function compactDefaults(d: SessionDefaults): SessionDefaults | undefined {
   const out: SessionDefaults = {}
   if (d.agent) out.agent = d.agent

@@ -1,10 +1,10 @@
-// Collegamenti (Claude, Codex, GitHub): nomi, stati e comandi verso l'host. Lo stato vive in app-store (`connections`).
+// Connections (Claude, Codex, GitHub): names, states and commands to the host. State lives in app-store (`connections`).
 import type { AgentId, ConnectionId, ConnectionStatus, Profile, ProfileAgent } from '@shared/protocol'
 import { request } from '@/lib/host-client'
 import { hostProfileId, isDefaultProfileId } from '@/lib/profiles'
 import { useApp } from '@/store/app-store'
 
-/** Ordine delle righe, in Impostazioni e nel primo avvio. */
+/** Row order, in Settings and at first launch. */
 export const CONNECTION_ORDER: ConnectionId[] = ['claude-code', 'codex', 'github']
 
 export const CONNECTION_NAME: Record<ConnectionId, string> = {
@@ -13,45 +13,45 @@ export const CONNECTION_NAME: Record<ConnectionId, string> = {
   github: 'GitHub'
 }
 
-/** Collegamento che un agente nativo richiede; gli agenti ACP gestiscono da sé il login. */
+/** Connection that a native agent requires; ACP agents handle login themselves. */
 export function connectionOfAgent(agent: AgentId): ConnectionId | null {
   return agent === 'claude-code' || agent === 'codex' ? agent : null
 }
 
-/** Collegato e non nel mezzo di un cambio di account. */
+/** Connected and not in the middle of an account switch. */
 export function isLinked(status: ConnectionStatus | null | undefined): boolean {
   return status?.state === 'connected'
 }
 
-/** Manca il login (o lo strumento): una sessione con questo agente fallirebbe al primo messaggio. `error` non blocca: lo stato non si è potuto leggere. */
+/** Login (or the tool) is missing: a session with this agent would fail at the first message. `error` does not block: the state could not be read. */
 export function needsSignIn(status: ConnectionStatus | null | undefined): boolean {
   return status?.state === 'missing' || status?.state === 'unauthenticated'
 }
 
-/** Almeno un agente può rispondere: un collegamento nativo attivo o un agente ACP disponibile. */
+/** At least one agent can answer: an active native connection or an available ACP agent. */
 export function hasLinkedAgent(): boolean {
   const { connections, profileConnections, agents } = useApp.getState()
   return isLinked(connections['claude-code']) || isLinked(connections.codex) || Object.values(profileConnections).some(isLinked) || agents.some((a) => a.kind === 'acp' && a.available)
 }
 
-/** I comandi possono restituire una promessa: la riga disattiva i bottoni finché non si risolve. */
+/** Commands may return a promise: the row disables the buttons until it resolves. */
 export interface ConnectionActions {
-  /** `profileId` (Claude Code e Codex): assente = profilo predefinito. */
+  /** `profileId` (Claude Code and Codex): absent = default profile. */
   login: (id: ConnectionId, switchAccount?: boolean, profileId?: string) => void | Promise<void>
   cancel: (id: ConnectionId, profileId?: string) => void | Promise<void>
   logout: (id: ConnectionId, profileId?: string) => void | Promise<void>
-  /** Gestione dei profili (LAD-23). Assenti dove non si gestiscono (primo avvio). Rifiutano con il messaggio dell'host (nome già usato, profilo in uso…). */
+  /** Profile management. Absent where they are not managed (first launch). They reject with the host's message (name already used, profile in use…). */
   createProfile?: (agent: ProfileAgent, name: string) => Promise<Profile>
   renameProfile?: (profileId: string, name: string) => Promise<Profile>
   removeProfile?: (profileId: string) => Promise<void>
 }
 
-/** Chiave di una riga: collegamento più profilo (assente = predefinito). */
+/** Row key: connection plus profile (absent = default). */
 export function connectionKey(id: ConnectionId, profileId?: string | null): string {
   return isDefaultProfileId(profileId) ? id : `${id}:${profileId}`
 }
 
-// Ordine degli aggiornamenti per riga: una risposta di `connection.list` partita prima di un evento non lo sovrascrive.
+// Order of updates per row: a `connection.list` response that started before an event does not overwrite it.
 let sequence = 0
 const stamp: Record<string, number> = {}
 useApp.subscribe((state, prev) => {
@@ -65,9 +65,9 @@ function apply(status: ConnectionStatus): void {
   useApp.getState().applyEvent({ type: 'connection.update', status })
 }
 
-/** Comando con risposta di stato: il resto arriva con gli eventi `connection.update`. Un errore di canale diventa l'errore della riga. */
+/** Command with a state response: the rest arrives with `connection.update` events. A channel error becomes the row's error. */
 function run(id: ConnectionId, command: Parameters<typeof request>[0], useResponse = true, profileId?: string): Promise<void> {
-  // `connection.cancel` non promette una risposta di stato: l'evento che segue basta.
+  // `connection.cancel` does not promise a state response: the event that follows is enough.
   return request<ConnectionStatus | undefined>(command)
     .then((status) => {
       if (useResponse && status) apply(status)
@@ -75,20 +75,20 @@ function run(id: ConnectionId, command: Parameters<typeof request>[0], useRespon
     .catch((e: Error) => {
       const state = useApp.getState()
       const current = isDefaultProfileId(profileId) ? state.connections[id] : state.profileConnections[profileId!]
-      // Un annullamento voluto non è un errore.
+      // A deliberate cancellation is not an error.
       if (current && !/cancell?ed|annullat/i.test(e.message)) apply({ ...current, login: null, error: e.message })
     })
 }
 
 export const liveConnectionActions: ConnectionActions = {
-  // La risposta di login (fase iniziale) può essere più vecchia degli eventi già arrivati, come il codice di GitHub: bastano gli eventi.
+  // The login response (initial phase) may be older than the events already arrived, like the GitHub code: the events are enough.
   login: (id, switchAccount, profileId) => run(id, { type: 'connection.login', id, ...(switchAccount ? { switchAccount: true } : {}), ...withProfile(profileId) }, false, profileId),
   cancel: (id, profileId) => run(id, { type: 'connection.cancel', id, ...withProfile(profileId) }, true, profileId),
   logout: (id, profileId) => run(id, { type: 'connection.logout', id, ...withProfile(profileId) }, true, profileId),
   createProfile: async (agent, name) => {
     const profile = await request<Profile>({ type: 'profile.create', agent, name })
     useApp.getState().applyEvent({ type: 'profile.upsert', profile })
-    // Il nuovo profilo non ha ancora un collegamento nello store: si legge, così la riga mostra "Sign in".
+    // The new profile has no connection in the store yet: it is read, so the row shows "Sign in".
     void run(agent, { type: 'connection.refresh', id: agent, profileId: profile.id }, true, profile.id)
     return profile
   },
@@ -108,7 +108,7 @@ function withProfile(profileId?: string): { profileId?: string } {
   return id ? { profileId: id } : {}
 }
 
-/** Rilegge lo stato di tutti i collegamenti, senza avviare nulla (host senza snapshot.connections, apertura di Impostazioni → Abbonamenti). Le righe già aggiornate da un evento dopo la richiesta restano come sono. */
+/** Rereads the state of all connections, without starting anything (host without snapshot.connections, opening of Settings → Subscriptions). Rows already updated by an event after the request stay as they are. */
 export function refreshConnections(): void {
   const startedAt = sequence
   request<ConnectionStatus[]>({ type: 'connection.list' })

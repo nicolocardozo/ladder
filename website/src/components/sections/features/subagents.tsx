@@ -15,7 +15,7 @@ const SUBS = [
 const NODE =
   "absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-[10px] bg-c-bg px-[11px] py-2 text-[11px] text-c-text shadow-[0_0_0_1px_rgb(24_20_36/0.9),0_12px_28px_-10px_rgb(60_30_160/0.4)] transition-[opacity,transform] duration-[350ms] sm:text-xs motion-reduce:transition-none"
 
-// Mappa che si costruisce: l'agente principale lancia tre sotto-agenti, che finiscono uno alla volta
+// A map that builds itself: the main agent launches three subagents, which finish one at a time
 export function SubagentsViz() {
   const ref = useRef<HTMLDivElement>(null)
   const active = useActive(ref)
@@ -27,7 +27,7 @@ export function SubagentsViz() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  // Stato statico completo: tutti visibili e finiti
+  // Complete static state: all visible and finished
   const [shownRaw, setShown] = useState([true, true, true])
   const [doneRaw, setDone] = useState([true, true, true])
   const shown = active ? shownRaw : [true, true, true]
@@ -67,7 +67,7 @@ export function SubagentsViz() {
 
   return (
     <div ref={ref} className="absolute inset-0">
-      {/* Linee in pixel reali (non un viewBox deformato), così il tratteggio animato resta pulito */}
+      {/* Lines in real pixels (not a distorted viewBox), so the animated dashing stays clean */}
       {size.w > 0 && (
         <svg width={size.w} height={size.h} className="absolute inset-0" aria-hidden>
           {SUBS.map((n, i) => {

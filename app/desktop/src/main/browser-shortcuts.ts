@@ -1,8 +1,8 @@
-// Quali tasti premuti nella pagina nativa del browser (LAD-57) vanno inoltrati al renderer.
-// Le scorciatoie dell'app vengono dal registro centrale (shared/shortcuts.ts): seguono preset e personalizzazioni.
+// Which keys pressed in the native browser page are forwarded to the renderer.
+// App shortcuts come from the central registry (shared/shortcuts.ts): they follow presets and customizations.
 import { findBinding } from '../shared/shortcuts'
 
-/** Il minimo di Electron.Input che serve qui: così la funzione si prova senza Electron. */
+/** The minimum of Electron.Input needed here: so the function can be tested without Electron. */
 export interface ShortcutInput {
   type: string
   key: string
@@ -14,13 +14,13 @@ export interface ShortcutInput {
 }
 
 /**
- * ⌘+tasto (senza altri modificatori) che resta sempre alla pagina, anche se un comando dell'app ci è legato:
- * grassetto e salva (⌘B, ⌘S), copia/incolla/taglia/seleziona tutto/annulla (⌘C ⌘V ⌘X ⌘A ⌘Z), cerca e ricarica (⌘F, ⌘R).
- * Se l'utente rimappa un comando su uno di questi, vince la pagina; le varianti con ⇧, ⌥ o ⌃ restano all'app.
+  * ⌘+key (no other modifiers) that always stays with the page, even if an app command is bound to it:
+  * bold and save (⌘B, ⌘S), copy/paste/cut/select all/undo (⌘C ⌘V ⌘X ⌘A ⌘Z), find and reload (⌘F, ⌘R).
+  * If the user remaps a command to one of these, the page wins; variants with ⇧, ⌥ or ⌃ stay with the app.
  */
 const PAGE_KEYS = new Set(['b', 's', 'c', 'v', 'x', 'a', 'z', 'f', 'r'])
 
-/** ⌘L porta il cursore nell'indirizzo: lo gestisce la vista del browser, non è un comando del registro. */
+/** ⌘L moves the cursor to the address bar: handled by the browser view, it is not a registry command. */
 const ADDRESS_KEY = 'l'
 
 export function isAppShortcut(input: ShortcutInput): boolean {
@@ -34,8 +34,8 @@ export function isAppShortcut(input: ShortcutInput): boolean {
 }
 
 /**
- * ⌘R (senza altri modificatori) sulla pagina nativa: la pagina lo vede, ma il menu dell'app non deve eseguirlo. Senza questo
- * il ruolo `reload` del menu View (⌘R) ricaricherebbe la finestra dell'app, non la pagina. Vale per keyDown e keyUp.
+  * ⌘R (no other modifiers) on the native page: the page sees it, but the app menu must not run it. Without this
+  * the View menu's `reload` role (⌘R) would reload the app window, not the page. Applies to keyDown and keyUp.
  */
 export function pageKeepsReload(input: ShortcutInput): boolean {
   return input.meta && !input.control && !input.alt && !input.shift && input.key.toLowerCase() === 'r'
