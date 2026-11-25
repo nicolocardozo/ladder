@@ -18,6 +18,17 @@ extraResources:
     to: cli/chunks
   - from: src/cli/bin/ladder
     to: bin/ladder
+  # Licenses: Ladder's own, the third-party packages in the bundle (scripts/third-party-notices.mjs), Electron and Chromium.
+  - from: ../../LICENSE
+    to: LICENSE.txt
+  - from: ../../NOTICE
+    to: NOTICE.txt
+  - from: out/THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
+  - from: node_modules/electron/dist/LICENSE
+    to: LICENSE.electron.txt
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: LICENSES.chromium.html
 asar: true
 # node-pty is the only native module: it stays outside the asar (spawn-helper must be a real executable file).
 asarUnpack:

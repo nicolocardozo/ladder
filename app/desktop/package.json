@@ -13,7 +13,7 @@
     "test:remote": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"src/shared/*.test.ts\" \"src/shared/remote/*.test.ts\" \"src/host/remote/*.test.ts\" \"src/main/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "node scripts/postinstall.mjs",
-    "dist": "electron-vite build && electron-builder --mac --dir",
+    "dist": "electron-vite build && node scripts/third-party-notices.mjs && electron-builder --mac --dir",
     "release:mac": "node scripts/release-mac.mjs",
     "sync-brand": "node scripts/sync-brand.mjs",
     "ladder": "node --no-warnings src/cli/main.ts",

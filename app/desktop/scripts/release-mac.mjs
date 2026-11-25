@@ -32,6 +32,7 @@ if (archs.some((a) => a !== 'arm64' && a !== 'x64')) fail(`Unknown architecture:
 // --dmg-only: redoes only signing and notarization of the already built DMGs.
 if (!process.argv.includes('--dmg-only')) {
   run('npx', ['electron-vite', 'build'])
+  run('node', ['scripts/third-party-notices.mjs'])
   for (const arch of archs) {
     // The arm64 Electron is already in node_modules: no download, which occasionally fails. electron-builder downloads the Intel one (then it stays cached).
     const dist = arch === 'arm64' ? ['-c.electronDist=node_modules/electron/dist'] : []
