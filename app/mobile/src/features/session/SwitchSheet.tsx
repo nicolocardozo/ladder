@@ -6,10 +6,13 @@ import { t } from '@shared/i18n'
 import { byUrgency, isLive, sessionState } from '@/lib/session-state'
 import { SessionRow } from '@/features/sessions/SessionRow'
 import { useApp } from '@/store/app'
-import { Sheet } from '@/ui/Sheet'
+import { useOnce } from '@/lib/use-once'
+import { SheetTitle } from '@/ui/NativeSheet'
 import { Text } from '@/ui/Text'
 
-export function SwitchSheet({ sessionId, visible, onClose }: { sessionId: string; visible: boolean; onClose: () => void }) {
+/** Contenuto dello sheet "cambia sessione", uguale nello sheet nativo (iOS) e in quello nostro. */
+export function SwitchContent({ sessionId, onClose: onCloseRaw }: { sessionId: string; onClose: () => void }) {
+  const onClose = useOnce(onCloseRaw)
   const router = useRouter()
   const sessionsMap = useApp((s) => s.sessions)
   const projects = useApp((s) => s.projects)
@@ -27,7 +30,8 @@ export function SwitchSheet({ sessionId, visible, onClose }: { sessionId: string
     router.replace({ pathname: '/session/[id]', params: { id } })
   }
   return (
-    <Sheet visible={visible} onClose={onClose} title={t('Sessions')}>
+    <>
+      <SheetTitle>{t('Sessions')}</SheetTitle>
       <View style={{ paddingHorizontal: 8 }}>
         {now.length > 0 ? (
           <>
@@ -55,6 +59,6 @@ export function SwitchSheet({ sessionId, visible, onClose }: { sessionId: string
           </Text>
         ) : null}
       </View>
-    </Sheet>
+    </>
   )
 }

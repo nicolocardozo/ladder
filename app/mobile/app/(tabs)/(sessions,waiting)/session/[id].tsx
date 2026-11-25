@@ -1,20 +1,19 @@
-import { useFocusEffect, useLocalSearchParams } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pressable, View } from 'react-native'
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import { useCallback, useEffect, useMemo } from 'react'
+import { Pressable, View, useWindowDimensions } from 'react-native'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { plural, t } from '@shared/i18n'
 import { Composer } from '@/features/session/Composer'
 import { ChatList } from '@/features/session/ChatList'
-import { PermissionSheet, levelName } from '@/features/session/PermissionSheet'
-import { SwitchSheet } from '@/features/session/SwitchSheet'
-import { TurnSheet } from '@/features/session/TurnSheet'
-import { RequestSheet } from '@/features/request/RequestSheet'
+import { levelName } from '@/features/session/PermissionSheet'
 import { actions } from '@/host/actions'
 import { canAct, follow } from '@/host/controller'
 import { clearSessionNotifications } from '@/host/push'
 import { stateLabel } from '@/lib/format'
 import { sessionState } from '@/lib/session-state'
+import { IOS } from '@/lib/platform'
+import { openSheet } from '@/lib/sheets'
 import { buildChatRows, openRequests, type TurnSummary } from '@/lib/turns'
 import { useDev } from '@/store/dev'
 import { usePush } from '@/store/push'
@@ -23,7 +22,6 @@ import { useTheme } from '@/theme/theme'
 import { AgentMark, useModelLabel } from '@/ui/AgentMark'
 import { Chip } from '@/ui/Button'
 import { Icon } from '@/ui/Icon'
-import { ScreenHeader } from '@/ui/ScreenHeader'
 import { StateGlyph } from '@/ui/StateGlyph'
 import { Text } from '@/ui/Text'
 
@@ -35,10 +33,12 @@ export default function SessionScreen() {
   const items = useApp((s) => s.items[id])
   const online = useApp((s) => canAct(s.conn))
   const model = useModelLabel(session?.agent ?? 'claude-code', session?.model ?? null)
-  const [turn, setTurn] = useState<TurnSummary | null>(null)
-  const [switching, setSwitching] = useState(false)
-  const [permission, setPermission] = useState(false)
-  const [reviewing, setReviewing] = useState<string | null>(null)
+  const router = useRouter()
+  const { width } = useWindowDimensions()
+  const setTurn = useCallback((turn: TurnSummary) => openSheet(router, { kind: 'turn', sessionId: id, turn }), [router, id])
+  const setReviewing = useCallback((requestId: string) => openSheet(router, { kind: 'request', sessionId: id, requestId }), [router, id])
+  const openPermission = useCallback(() => openSheet(router, { kind: 'permission', sessionId: id }), [router, id])
+  const openSwitch = useCallback(() => openSheet(router, { kind: 'switch', sessionId: id }), [router, id])
 
   // Segue la sessione mentre la schermata è aperta (chat in diretta, ultima pagina).
   useEffect(() => {
@@ -84,18 +84,81 @@ export default function SessionScreen() {
   const devSheet = useDev((d) => d.sheet)
   useEffect(() => {
     if (!__DEV__ || !devSheet || !session || !items) return
-    if (devSheet === 'permission' || devSheet === 'full') setPermission(true)
-    else if (devSheet === 'switch') setSwitching(true)
+    if (devSheet === 'permission' || devSheet === 'full') openPermission()
+    else if (devSheet === 'switch') openSwitch()
     else if (devSheet === 'request' && pinned) setReviewing(pinned.requestId)
-    else if (devSheet === 'turn') setTurn((buildChatRows(items, session.run).find((r) => r.kind === 'turn') as { turn: TurnSummary } | undefined)?.turn ?? null)
+    else if (devSheet === 'turn') {
+      const turn = (buildChatRows(items, session.run).find((r) => r.kind === 'turn') as { turn: TurnSummary } | undefined)?.turn
+      if (turn) setTurn(turn)
+    }
     useDev.getState().setSheet(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devSheet, !!session, !!items])
 
+  // Opzioni dell'header: si ricalcolano solo quando cambia ciò che si vede (titolo, modello, stato, permesso, tema), non a ogni
+  // pezzo di testo in arrivo, altrimenti setOptions scatterebbe a ogni rendering durante lo streaming.
+  const title = session?.title
+  const agent = session?.agent
+  const permission = session?.permission
+  const state = session ? sessionState(session) : 'idle'
+  const headerOptions = useMemo(() => {
+    if (!title || !agent || !permission) {
+      // Sessione sparita: via titolo e pulsanti della sessione di prima, resta il titolo generico.
+      return { title: t('Session'), headerTitle: t('Session'), headerRight: () => null, unstable_headerRightItems: () => [] }
+    }
+    const stateColor = state === 'waiting' ? c.waiting : state === 'error' ? c.error : c.textMuted
+    const titleView = (
+      <Pressable onPress={openSwitch} accessibilityRole="button" accessibilityLabel={`${title}. ${t('Switch session')}`} hitSlop={6} style={{ maxWidth: width - (IOS ? 190 : 170), alignItems: IOS ? 'center' : 'flex-start' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Text variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>
+            {title}
+          </Text>
+          <Icon name="chevron-down" size={14} color={c.textMuted} />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <AgentMark agent={agent} size={12} />
+          <Text variant="caption" tone="muted" numberOfLines={1} style={{ flexShrink: 1 }}>
+            {model}
+          </Text>
+          <Text variant="caption" tone="muted">
+            ·
+          </Text>
+          {state !== 'idle' ? <StateGlyph state={state} size={11} /> : null}
+          <Text variant="caption" style={{ color: stateColor }} numberOfLines={1}>
+            {state === 'idle' ? t('Idle') : stateLabel(state)}
+          </Text>
+        </View>
+      </Pressable>
+    )
+    // Il livello di permesso si legge a colpo d'occhio: icona e nome ("Ask"). Su iOS sta in una capsula di vetro dell'header.
+    const chip = IOS ? (
+      <Pressable onPress={openPermission} accessibilityRole="button" accessibilityLabel={`${t('Permission')}: ${levelName(permission)}`} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, height: 36 }}>
+        <Icon name="shield" size={16} color={c.text} />
+        <Text variant="label" style={{ color: c.text }}>
+          {levelName(permission)}
+        </Text>
+      </Pressable>
+    ) : (
+      <Chip label={levelName(permission)} icon="shield" onPress={openPermission} />
+    )
+    return {
+      title,
+      headerLargeTitleEnabled: false,
+      headerTitle: () => titleView,
+      headerTitleAlign: 'left' as const,
+      // La chat è una lista invertita: il sistema non le applica l'effetto di bordo, quindi l'header ha lo sfondo pieno (i pulsanti restano di vetro).
+      headerTransparent: false,
+      headerStyle: { backgroundColor: c.background },
+      unstable_headerRightItems: () => [{ type: 'custom' as const, element: chip }],
+      headerRight: () => chip
+    }
+    // `model` e `state` dipendono da session ma cambiano di rado; il resto della sessione (attività, testo) non entra qui.
+  }, [title, agent, permission, state, model, c, width, openSwitch, openPermission])
+
   if (!session) {
     return (
       <View style={{ flex: 1, backgroundColor: c.background }}>
-        <ScreenHeader title={t('Session')} />
+        <Stack.Screen options={headerOptions} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
           <Text variant="title">{t('This session is gone')}</Text>
           <Text variant="body" tone="muted" style={{ textAlign: 'center', marginTop: 6 }}>
@@ -106,40 +169,10 @@ export default function SessionScreen() {
     )
   }
 
-  const state = sessionState(session)
   const agentsRunning = session.subagentCounts?.running ?? 0
-  const stateColor = state === 'waiting' ? c.waiting : state === 'error' ? c.error : c.textMuted
   return (
     <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.background }}>
-      <ScreenHeader
-        right={
-          <View style={{ paddingRight: 8 }}>
-            <Chip label={levelName(session.permission)} icon="shield" onPress={() => setPermission(true)} />
-          </View>
-        }
-      >
-        <Pressable onPress={() => setSwitching(true)} accessibilityRole="button" accessibilityLabel={`${session.title}. ${t('Switch session')}`} style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <Text variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>
-              {session.title}
-            </Text>
-            <Icon name="chevron-down" size={16} color={c.textMuted} />
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <AgentMark agent={session.agent} size={13} />
-            <Text variant="caption" tone="muted" numberOfLines={1} style={{ flexShrink: 1 }}>
-              {model}
-            </Text>
-            <Text variant="caption" tone="muted">
-              ·
-            </Text>
-            {state !== 'idle' ? <StateGlyph state={state} size={12} /> : null}
-            <Text variant="caption" style={{ color: stateColor }} numberOfLines={1}>
-              {state === 'idle' ? t('Idle') : stateLabel(state)}
-            </Text>
-          </View>
-        </Pressable>
-      </ScreenHeader>
+      <Stack.Screen options={headerOptions} />
       {agentsRunning > 0 ? (
         <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
           <Text variant="caption" tone="muted">
@@ -157,10 +190,6 @@ export default function SessionScreen() {
       ) : (
         <Composer sessionId={id} request={pinned} onReview={setReviewing} />
       )}
-      <TurnSheet turn={turn} onClose={() => setTurn(null)} />
-      <SwitchSheet sessionId={id} visible={switching} onClose={() => setSwitching(false)} />
-      <PermissionSheet sessionId={id} visible={permission} onClose={() => setPermission(false)} />
-      <RequestSheet sessionId={reviewing ? id : null} requestId={reviewing} onClose={() => setReviewing(null)} />
     </KeyboardAvoidingView>
   )
 }

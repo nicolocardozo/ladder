@@ -1,6 +1,5 @@
 import { useRouter } from 'expo-router'
-import { ScrollView, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { ScrollView } from 'react-native'
 import Constants from 'expo-constants'
 import { t, LOCALES } from '@shared/i18n'
 import { disconnect } from '@/host/controller'
@@ -12,12 +11,10 @@ import { usePush } from '@/store/push'
 import { themeById } from '@/theme/theme'
 import { useTheme } from '@/theme/theme'
 import { Group, Row } from '@/ui/List'
-import { ScreenHeader } from '@/ui/ScreenHeader'
 
 export default function Settings() {
   const { c, info } = useTheme()
   const router = useRouter()
-  const insets = useSafeAreaInsets()
   const prefs = usePrefs((s) => s.theme)
   const language = usePrefs((s) => s.language)
   const mode = useApp((s) => s.mode)
@@ -27,9 +24,7 @@ export default function Settings() {
   const themeValue = prefs.matchSystem ? t('Match system') : prefs.choice === 'mac' ? t('Same as Mac') : themeById(prefs.choice).name
   const languageValue = language === 'system' ? t('System') : (LOCALES.find((l) => l.id === language)?.name ?? '')
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
-      <ScreenHeader title={t('Settings')} />
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}>
+    <ScrollView style={{ backgroundColor: c.background }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: 32 }}>
         <Group>
           <Row label={t('Mac and connection')} value={macName ?? ''} onPress={() => router.push('/mac')} last />
         </Group>
@@ -50,7 +45,6 @@ export default function Settings() {
             <Row label={t('Exit demo')} destructive onPress={() => void disconnect().then(() => resetTo(router, '/welcome'))} last />
           </Group>
         ) : null}
-      </ScrollView>
-    </View>
+    </ScrollView>
   )
 }

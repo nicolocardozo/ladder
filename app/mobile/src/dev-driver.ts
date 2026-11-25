@@ -7,6 +7,7 @@ import { usePairFlow } from '@/store/pair-flow'
 import { startDemo, disconnect } from '@/host/controller'
 import { actions } from '@/host/actions'
 import { devLocalNotification, requestPermission } from '@/host/push'
+import { openSheet } from '@/lib/sheets'
 import { useApp } from '@/store/app'
 import type { RequestItem } from '@/lib/turns'
 import { useDev, type DevSheet } from '@/store/dev'
@@ -23,12 +24,16 @@ interface Cmd {
   system?: { light: string; dark: string } | false
   lang?: 'en' | 'it'
   route?: string
+  /** Come `route`, ma impila la schermata (router.push): prova il tasto indietro nativo. */
+  push?: string
   /** Apre il flusso di abbinamento con un link `ladder://pair#…` (come un deep link). */
   link?: string
   /** Con `link`: password già inserita e collegamento automatico al passo del nome. */
   password?: string
   auto?: boolean
   sheet?: DevSheet
+  /** Apre lo sheet "Nuova sessione" (come il tocco sul "+"). */
+  newSession?: boolean
   /** Notifica locale con i `data` di un push vero (prova del tocco): kind, sessione, richiesta e ritardo in secondi. `mac` forza un Mac diverso. */
   /** Chiede il permesso delle notifiche come "Turn on notifications" (la finestra di sistema si conferma a mano o con adb / AppleScript). */
   askPush?: boolean
@@ -119,7 +124,13 @@ function run(cmd: Cmd) {
     applyLocale(cmd.lang)
   }
   useDev.getState().setSheet(null)
-  if (cmd.route) router.replace(cmd.route as never)
+  if (cmd.push) router.push(cmd.push as never)
+  if (cmd.route) {
+    // Un eventuale sheet nativo aperto si chiude prima, altrimenti la rotta nuova finirebbe dentro lo sheet.
+    if (router.canDismiss()) router.dismissAll()
+    router.replace(cmd.route as never)
+  }
+  if (cmd.newSession) setTimeout(() => openSheet(router, { kind: 'new-session' }), 1800)
   // Lo sheet si apre a schermata già montata (la vecchia non deve consumarlo).
   if (cmd.sheet) setTimeout(() => useDev.getState().setSheet(cmd.sheet ?? null), 1800)
 }

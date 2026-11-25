@@ -3,6 +3,7 @@
 import { registerCatalog } from '@shared/i18n'
 
 registerCatalog('it', {
+  'Starting a session from your phone is coming soon. For now, start it on your Mac and it will show up here.': 'Avviare una sessione dal telefono arriverà presto. Per ora avviala sul Mac e comparirà qui.',
   Back: 'Indietro',
   'Your Mac is asleep': 'Il tuo Mac è in stop',
   'Ladder is closed on your Mac': 'Ladder è chiuso sul tuo Mac',
