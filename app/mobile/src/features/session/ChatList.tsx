@@ -71,7 +71,7 @@ export function ChatList({ sessionId, onTurn, bottomInset }: { sessionId: string
     ({ item }: { item: ChatRow }) => {
       switch (item.kind) {
         case 'user':
-          return <UserBubble text={item.item.text} steered={item.item.steered} />
+          return <UserBubble text={item.item.text} steered={item.item.steered} attachments={item.item.attachments} />
         case 'assistant':
           return <AssistantText text={item.item.text} streaming={item.item.streaming} />
         case 'turn':

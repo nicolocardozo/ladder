@@ -3,7 +3,7 @@
 // decide cosa fare (tenere aperto lo sheet, rimettere il testo nel composer).
 import * as Haptics from 'expo-haptics'
 import { t } from '@shared/i18n'
-import type { PermissionLevel, QueuedMessage, RemoteSessionCreate, SessionSummary } from '@shared/protocol'
+import type { Attachment, PermissionLevel, QueuedMessage, RemoteSessionCreate, SessionSummary } from '@shared/protocol'
 import type { RequestItem } from '@/lib/turns'
 import { useToast } from '@/ui/toast'
 import { request } from './controller'
@@ -23,6 +23,10 @@ export function explain(error: unknown): string {
       return t('This request is not available from the phone.')
     case 'Invalid request.':
       return t('Invalid request.')
+    case 'Too many images. Try again in a moment.':
+      return t('Too many images. Try again in a moment.')
+    case 'Invalid images. Send up to 3 JPEG, PNG or WebP images, 1 MB each and 2 MB in total.':
+      return t('Invalid images. Send up to 3 JPEG, PNG or WebP images, 1 MB each and 2 MB in total.')
     default:
       return text
   }
@@ -69,8 +73,12 @@ export const actions = {
   answer(sessionId: string, req: RequestItem, answers: Record<string, string>): Promise<boolean> {
     return done(run(() => request({ type: 'session.respond', sessionId, requestId: req.requestId, response: { answers }, via: 'phone' }), { haptic: true }))
   },
-  send(sessionId: string, text: string, busy: 'queue' | 'steer'): Promise<boolean> {
-    return done(run(() => request({ type: 'session.send', sessionId, text, busy })))
+  send(sessionId: string, text: string, busy: 'queue' | 'steer', attachments: Attachment[] = []): Promise<boolean> {
+    return done(run(() => request({ type: 'session.send', sessionId, text, busy, ...(attachments.length > 0 ? { attachments } : {}) })))
+  },
+  /** Esegue un comando dell'agente scelto da "/" (`session.command`): l'host aggiunge la riga "comando" in chat. */
+  command(sessionId: string, name: string, args: string): Promise<boolean> {
+    return done(run(() => request({ type: 'session.command', sessionId, name, args })))
   },
   interrupt(sessionId: string): Promise<boolean> {
     return done(run(() => request({ type: 'session.interrupt', sessionId })))

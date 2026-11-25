@@ -145,3 +145,18 @@ test('l’host accetta comandi fino a REMOTE_MAX_COMMAND, il client fino a REMOT
   const sealed = pair2.server.seal(big)
   assert.equal(sealed.map((m) => pair2.client.open<string>(m)).at(-1), big)
 })
+
+test('LAD-92: lastSize è la dimensione UTF-8 del messaggio ricomposto, senza ricodificarlo', () => {
+  const r = new FrameReassembler()
+  const json = JSON.stringify({ text: 'è'.repeat(100_000) })
+  let out: string | null = null
+  for (const f of splitFrames(json)) out = r.push(f)
+  assert.equal(out, json)
+  assert.equal(r.lastSize, new TextEncoder().encode(json).length)
+  const { client, server } = pair()
+  const msg = { a: 'è'.repeat(70_000) }
+  let got: unknown = null
+  for (const bytes of client.seal(msg)) got = server.open(bytes) ?? got
+  assert.deepEqual(got, msg)
+  assert.equal(server.lastSize, new TextEncoder().encode(JSON.stringify(msg)).length)
+})

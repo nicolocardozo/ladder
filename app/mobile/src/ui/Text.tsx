@@ -1,4 +1,4 @@
-import { Text as RNText, type TextProps as RNTextProps, type TextStyle } from 'react-native'
+import { Platform, Text as RNText, type TextProps as RNTextProps, type TextStyle } from 'react-native'
 import { useTheme, type Tokens } from '@/theme/theme'
 import { MAX_FONT_SCALE, TYPE, type Variant } from '@/theme/type'
 
@@ -25,6 +25,9 @@ export function toneColor(c: Tokens, tone: Tone): string {
   }
 }
 
+/** Android aggiunge spazio sopra e sotto il testo (font padding): senza, il testo sta al centro della sua riga come su iOS. */
+const ANDROID: TextStyle = { includeFontPadding: false }
+
 interface Props extends RNTextProps {
   variant?: Variant
   tone?: Tone
@@ -37,5 +40,5 @@ export function Text({ variant = 'body', tone = 'default', system, style, ...res
   const { c } = useTheme()
   const base = TYPE[variant]
   const override: TextStyle = system ? { fontFamily: undefined, fontWeight: variant === 'title' || variant === 'headline' || variant === 'display' ? '600' : '400' } : {}
-  return <RNText maxFontSizeMultiplier={MAX_FONT_SCALE} {...rest} style={[base, { color: toneColor(c, tone) }, override, style]} />
+  return <RNText maxFontSizeMultiplier={MAX_FONT_SCALE} {...rest} style={[base, Platform.OS === 'android' ? ANDROID : null, { color: toneColor(c, tone) }, override, style]} />
 }

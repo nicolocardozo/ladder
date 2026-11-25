@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import type { ChatItem, FromRemoteHost, HostEvent, RemoteAuthResult, RemoteLogEntry, ToRemoteHost } from '../../shared/protocol.ts'
+import { isImagePlaceholder } from '../../shared/image-placeholder.ts'
 import { generateKeyPair } from '../../shared/remote/noise.ts'
 import { generateDeviceKey, signChannelBinding, toBase64Url, type DeviceKeyPair } from '../../shared/remote/pairing.ts'
 import { clientHandshake, type RemoteSession } from '../../shared/remote/session.ts'
@@ -358,15 +359,23 @@ test('isRemoteCommandType e parseRemoteMessage', () => {
   assert.equal(parseRemoteMessage({ rid: 'x', command: { type: 'hello' } }, m).rid, 'x')
 })
 
-test('session.respond vale sempre via phone; session.send perde gli allegati', async () => {
+/** Base64 di un'immagine finta con il numero magico giusto (e `size` byte). */
+function img(mediaType: string, size = 64): string {
+  const head: Record<string, number[]> = { 'image/jpeg': [0xff, 0xd8, 0xff, 0xe0], 'image/png': [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'image/webp': [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50] }
+  const bytes = Buffer.alloc(size, 7)
+  Buffer.from(head[mediaType]).copy(bytes)
+  return bytes.toString('base64')
+}
+const att = (mediaType = 'image/jpeg', size = 64, name = 'a.jpg') => ({ name, mediaType, data: img(mediaType, size) })
+
+test('session.respond vale sempre via phone; session.send tiene solo allegati validi', async () => {
   const c = await connect()
   await c.call({ type: 'session.respond', sessionId: 's1', requestId: 'q', response: { optionId: 'allow' }, via: 'chat' })
-  await c.call({ type: 'session.send', sessionId: 's1', text: 'hi', attachments: [{ name: 'x' }] })
+  await c.call({ type: 'session.send', sessionId: 's1', text: 'hi', attachments: [{ name: '../x/p.jpg', mediaType: 'image/jpeg', data: img('image/jpeg') }], extra: 1 })
   await c.call({ type: 'session.interrupt', sessionId: 's1' })
   const [respond, send, interrupt] = c.fake.calls
   assert.equal((respond.command as { via: string }).via, 'phone')
-  assert.deepEqual(send.command, { type: 'session.send', sessionId: 's1', text: 'hi' })
-  assert.equal('attachments' in (send.command as object), false)
+  assert.deepEqual(send.command, { type: 'session.send', sessionId: 's1', text: 'hi', attachments: [{ name: 'p.jpg', mediaType: 'image/jpeg', data: img('image/jpeg') }] })
   assert.equal((interrupt.command as { type: string }).type, 'session.interrupt')
   // Stessa origin per tutti i comandi di una connessione.
   assert.equal(respond.origin, send.origin)
@@ -1038,8 +1047,6 @@ test('session.create: forma e campi in più (allegati, terminale, worktree, comm
     { ...createBase, command: 'rm -rf /' },
     { ...createBase, worktree: true },
     { ...createBase, branch: { name: 'x', existing: false } },
-    { ...createBase, attachments: [{ id: 'a' }] },
-    { ...createBase, attachments: 'x' },
     { ...createBase, profileId: 5 }
   ]
   for (const command of bad) {
@@ -1281,4 +1288,266 @@ test('account: profile.upsert e profile.removed arrivano ai telefoni senza la ca
   await c.flush()
   const evs = c.events.filter((e) => e.kind === 'event').map((e) => (e as { event: unknown }).event)
   assert.deepEqual(evs.slice(0, 2), [{ type: 'profile.upsert', profile: { id: 'pr', agent: 'codex', name: 'Work', isDefault: false } }, { type: 'profile.removed', profileId: 'pr' }])
+})
+
+test('LAD-92: session.send con immagini: tipi, nome pulito, log senza contenuto', async () => {
+  const entries: RemoteLogEntry[] = []
+  const env = setup({ log: entries })
+  const c = await connect({ env })
+  const r = await c.call({ type: 'session.send', sessionId: 's1', text: 'guarda', attachments: [att('image/png', 100, 'C:\\tmp\\sh\u0001ot.png'), att('image/webp', 100, '')] })
+  assert.ok(r.kind === 'result' && r.ok)
+  const sent = env.fake.calls[0].command as { attachments: { name: string; mediaType: string }[] }
+  assert.deepEqual(sent.attachments.map((a) => [a.name, a.mediaType]), [['shot.png', 'image/png'], ['image.webp', 'image/webp']])
+  await c.call({ type: 'session.send', sessionId: 's1', text: 'x', attachments: [att()] })
+  await c.flush()
+  assert.deepEqual(entries.map((e) => e.detail), ['Message with 2 images', 'Message with 1 image'])
+})
+
+test('LAD-92: allegati non validi respinti prima dell’host', async () => {
+  // Ogni caso su una connessione nuova e con l'orologio avanti: i limiti per dispositivo e il blocco dopo troppi errori non c'entrano qui.
+  let clock = 9_000_000
+  const env = setup({ now: () => clock })
+  const good = att()
+  const bad: unknown[] = [
+    [good, good, good, good],
+    [{ ...good, mediaType: 'image/gif' }],
+    [{ ...good, mediaType: 'image/png' }], // magic jpeg dichiarato png
+    [{ ...good, data: 'not base64!' }],
+    [{ ...good, data: good.data.slice(1) }], // lunghezza non multipla di 4
+    [{ ...good, data: '' }],
+    [att('image/jpeg', 1024 * 1024 + 1)],
+    [att('image/jpeg', 1024 * 1024), att('image/jpeg', 1024 * 1024), att('image/jpeg', 10)],
+    [{ name: 'x' }],
+    ['x'],
+    'x'
+  ]
+  for (const attachments of bad) {
+    clock += 120_000
+    const c = await connect({ env })
+    const r = await c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments })
+    assert.ok(r.kind === 'result' && !r.ok, JSON.stringify(attachments).slice(0, 60))
+    assert.match((r as { error: string }).error, /Invalid images/)
+    // Il gateway ammette poche connessioni insieme: questa si chiude.
+    c.client.link.close()
+    await c.flush()
+  }
+  assert.equal(env.fake.calls.length, 0)
+  // Limiti esatti: 3 immagini, 1 MiB l'una ma 2 MiB in tutto.
+  clock += 120_000
+  const c = await connect({ env })
+  const ok = await c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [att('image/jpeg', 1024 * 1024), att('image/jpeg', 1024 * 1024)] })
+  assert.ok(ok.kind === 'result' && ok.ok)
+})
+
+test('LAD-92: limite dei messaggi dipende dall’autenticazione (1 MiB prima, 3 MiB dopo, solo con immagini)', async () => {
+  // Prima dell'autenticazione 1 MiB: il messaggio più grande chiude la connessione.
+  const pre = await connect({ authenticate: false })
+  for (const m of pre.session().seal({ type: 'pair', pad: 'a'.repeat(1024 * 1024 + 10) })) pre.client.link.send(m)
+  await new Promise((r) => setTimeout(r, 100))
+  assert.equal(pre.gateway.size, 0)
+  // Autenticato: oltre 1 MiB senza allegati chiude, con allegati passa.
+  const big = await connect()
+  const a = att('image/jpeg', 1024 * 1024)
+  const r = await big.call({ type: 'session.send', sessionId: 's1', text: 'x'.repeat(100_000), attachments: [a, a] })
+  assert.ok(r.kind === 'result' && r.ok)
+  assert.equal(big.gateway.size, 1)
+  for (const m of big.session().seal({ rid: 'z', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(1024 * 1024 + 10) } })) big.client.link.send(m)
+  await new Promise((r2) => setTimeout(r2, 100))
+  assert.equal(big.gateway.size, 0)
+  // Oltre 3 MiB chiude anche con allegati.
+  const huge = await connect()
+  for (const m of huge.session().seal({ rid: 'z', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(3 * 1024 * 1024), attachments: [att()] } })) huge.client.link.send(m)
+  await new Promise((r2) => setTimeout(r2, 100))
+  assert.equal(huge.gateway.size, 0)
+})
+
+test('LAD-92: session.create con immagini: passano all’host, testo vuoto ok con immagine, log con il numero', async () => {
+  const entries: RemoteLogEntry[] = []
+  const fake = createHost()
+  const c = await connect({ env: setup({ host: fake.host, log: entries }) })
+  const r = await c.call({ ...createBase, text: '', attachments: [att('image/png')] })
+  assert.ok(r.kind === 'result' && r.ok)
+  assert.equal((fake.calls[0].command as { attachments: unknown[] }).attachments.length, 1)
+  const empty = await c.call({ ...createBase, text: '' })
+  assert.ok(empty.kind === 'result' && !empty.ok)
+  const badImg = await c.call({ ...createBase, attachments: [{ ...att(), mediaType: 'image/png' }] })
+  assert.ok(badImg.kind === 'result' && !badImg.ok)
+  await c.flush()
+  assert.match(entries[0].detail, /\(1 image\)$/)
+})
+
+test('LAD-92: limite delle immagini per dispositivo (raffica 6, poi 10 al minuto)', async () => {
+  const entries: RemoteLogEntry[] = []
+  let clock = 9_000_000
+  const env = setup({ log: entries, now: () => clock })
+  const c = await connect({ env })
+  const send = () => c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [att(), att(), att()] })
+  assert.ok(((await send()) as { ok: boolean }).ok)
+  assert.ok(((await send()) as { ok: boolean }).ok)
+  const refused = await send()
+  assert.ok(refused.kind === 'result' && !refused.ok)
+  assert.match((refused as { error: string }).error, /Too many images/)
+  clock += 60_000
+  assert.ok(((await send()) as { ok: boolean }).ok)
+})
+
+test('LAD-92: session.commands ammesso; project.files (elenco intero) no', async () => {
+  const env = setup()
+  const c = await connect({ env })
+  const ok = await c.call({ type: 'session.commands', sessionId: 's1' })
+  assert.ok(ok.kind === 'result' && ok.ok)
+  assert.equal(isRemoteCommandType('project.files'), false)
+  const no = await c.call({ type: 'project.files', projectId: 'p1' })
+  assert.ok(no.kind === 'result' && !no.ok)
+  assert.equal(env.fake.calls.length, 1)
+})
+
+test('LAD-92: project.files.search filtra sul Mac, limita, usa la cache e il limite per dispositivo', async () => {
+  let clock = 9_000_000
+  let reads = 0
+  const fake = fakeHost()
+  fake.host.projectFiles = async (id) => {
+    if (id !== 'p1') throw new Error('Project not found.')
+    reads++
+    return ['README.md', 'src/app.ts', 'src/deep/er/app.test.ts', '../evil', '/abs/x', ...Array.from({ length: 100 }, (_, i) => `src/f${i}.ts`)]
+  }
+  const c = await connect({ env: setup({ host: fake.host, now: () => clock }) })
+  const r = (await c.call({ type: 'project.files.search', projectId: 'p1', query: 'APP' })) as { ok: boolean; data: string[] }
+  assert.deepEqual(r.data, ['src/app.ts', 'src/deep/er/app.test.ts'])
+  const many = (await c.call({ type: 'project.files.search', projectId: 'p1', query: '', limit: 500 })) as { data: string[] }
+  assert.equal(many.data.length, 50)
+  assert.ok(!many.data.some((p) => p.startsWith('/') || p.includes('..')))
+  assert.equal(reads, 1)
+  clock += 11_000
+  await c.call({ type: 'project.files.search', projectId: 'p1', query: 'x' })
+  assert.equal(reads, 2)
+  const missing = await c.call({ type: 'project.files.search', projectId: 'nope', query: '' })
+  assert.ok(missing.kind === 'result' && !missing.ok)
+  const long = await c.call({ type: 'project.files.search', projectId: 'p1', query: 'a'.repeat(201) })
+  assert.ok(long.kind === 'result' && !long.ok)
+  // Raffica 10 (3 già usate + 1 sopra: progetto mancante conta), poi rifiuto.
+  let refused = 0
+  for (let i = 0; i < 12; i++) {
+    const x = await c.call({ type: 'project.files.search', projectId: 'p1', query: 'a' })
+    if (x.kind === 'result' && !x.ok && /Too many/.test(x.error)) refused++
+  }
+  assert.ok(refused > 0)
+  clock += 5_000
+  const again = await c.call({ type: 'project.files.search', projectId: 'p1', query: 'a' })
+  assert.ok(again.kind === 'result' && again.ok)
+})
+
+test('LAD-92: solo immagini = testo segnaposto della finestra, per send e create; con testo resta il testo', async () => {
+  const fake = createHost()
+  let clock = 9_000_000
+  const c = await connect({ env: setup({ host: fake.host, now: () => clock }) })
+  await c.call({ type: 'session.send', sessionId: 's1', text: '', attachments: [att()] })
+  await c.call({ type: 'session.send', sessionId: 's1', text: '  \n', attachments: [att(), att('image/png')] })
+  await c.call({ type: 'session.send', sessionId: 's1', text: 'guarda', attachments: [att()] })
+  await c.call({ ...createBase, text: '', attachments: [att()] })
+  clock += 60_000 // il secchiello delle immagini si riempie di nuovo
+  await c.call({ ...createBase, text: '', attachments: [att(), att()] })
+  const texts = fake.calls.map((x) => (x.command as { text: string }).text)
+  assert.deepEqual(texts, ['(image attached)', '(images attached)', 'guarda', '(image attached)', '(images attached)'])
+  assert.equal(isImagePlaceholder(texts[0]) && isImagePlaceholder(texts[1]), true)
+  assert.equal(isImagePlaceholder('guarda'), false)
+})
+
+test('LAD-92: i limiti si applicano prima di validare: immagini non valide consumano il secchiello e vengono contate', async () => {
+  let clock = 9_000_000
+  const entries: RemoteLogEntry[] = []
+  const env = setup({ now: () => clock, log: entries })
+  const c = await connect({ env })
+  const badSend = () => c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [{ ...att(), mediaType: 'image/png' }, att(), att()] })
+  // Prima raffica 6 immagini = 2 richieste (non valide: errore "Invalid images"), poi il secchiello è vuoto: "Too many images" senza validare.
+  for (let i = 0; i < 2; i++) assert.match(((await badSend()) as { error: string }).error, /Invalid images/)
+  const refused = await badSend()
+  assert.match((refused as { error: string }).error, /Too many images/)
+  await c.flush()
+  assert.ok(entries.some((e) => e.detail === 'Message refused: too many images'))
+  assert.equal(env.fake.calls.length, 0)
+})
+
+test('LAD-92: allegati non validi ripetuti chiudono la connessione', async () => {
+  let clock = 9_000_000
+  const env = setup({ now: () => clock })
+  const c = await connect({ env })
+  for (let i = 0; i < 6 && !c.closed(); i++) {
+    clock += 120_000
+    await Promise.race([c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [{ name: 'x' }] }), new Promise((r) => setTimeout(r, 50))])
+  }
+  await c.flush()
+  assert.equal(env.gateway.size, 0)
+})
+
+test('LAD-92: oltre 1 MiB solo con forma di allegati valida (chiavi in più o allegati strani chiudono)', async () => {
+  const bad = [
+    { rid: 'a', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(1024 * 1024 + 10), attachments: [att()], extra: 1 } },
+    { rid: 'b', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(1024 * 1024 + 10), attachments: ['x'] } },
+    { rid: 'c', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(1024 * 1024 + 10), attachments: [] } },
+    { rid: 'd', command: { type: 'session.respond', sessionId: 's1', requestId: 'q', response: { optionId: 'o', message: 'x'.repeat(1024 * 1024 + 10) }, attachments: [att()] } },
+    { rid: 'e', evil: 'x'.repeat(1024 * 1024 + 10), command: { type: 'session.send', sessionId: 's1', text: 'a', attachments: [att()] } }
+  ]
+  for (const message of bad) {
+    const c = await connect()
+    for (const m of c.session().seal(message)) c.client.link.send(m)
+    await new Promise((r) => setTimeout(r, 100))
+    assert.equal(c.gateway.size, 0, JSON.stringify(message).slice(0, 50))
+  }
+})
+
+test('LAD-92: session.command: nome dall’elenco della sessione, argomenti ≤ 2000, log senza argomenti', async () => {
+  const entries: RemoteLogEntry[] = []
+  const fake = fakeHost()
+  const base = fake.host.handle
+  fake.host.handle = async (command, origin) => {
+    if (command.type === 'session.commands') return [{ name: 'review', description: '', hint: null, source: 'builtin' }]
+    return base(command, origin)
+  }
+  const c = await connect({ env: setup({ host: fake.host, log: entries }) })
+  assert.equal(isRemoteCommandType('session.command'), true)
+  const ok = await c.call({ type: 'session.command', sessionId: 's1', name: 'review', args: 'secret args', evil: true })
+  assert.ok(ok.kind === 'result' && !ok.ok, 'chiavi in più respinte')
+  const good = await c.call({ type: 'session.command', sessionId: 's1', name: 'review', args: 'secret args' })
+  assert.ok(good.kind === 'result' && good.ok)
+  assert.deepEqual(fake.calls.filter((x) => (x.command as { type: string }).type === 'session.command').map((x) => x.command), [{ type: 'session.command', sessionId: 's1', name: 'review', args: 'secret args' }])
+  const unknown = await c.call({ type: 'session.command', sessionId: 's1', name: 'nope', args: '' })
+  assert.ok(unknown.kind === 'result' && !unknown.ok)
+  assert.match((unknown as { error: string }).error, /Unknown command: \/nope/)
+  for (const bad of [{ name: 'a b', args: '' }, { name: '/review', args: '' }, { name: '', args: '' }, { name: 'review', args: 'x'.repeat(2001) }, { name: 'review' }, { name: 'review', args: 5 }]) {
+    const r = await c.call({ type: 'session.command', sessionId: 's1', ...bad })
+    assert.ok(r.kind === 'result' && !r.ok, JSON.stringify(bad))
+  }
+  assert.ok(((await c.call({ type: 'session.command', sessionId: 's1', name: 'review', args: 'x'.repeat(2000) })) as { ok: boolean }).ok)
+  await c.flush()
+  assert.equal(entries[0].detail, 'Command /review')
+  assert.ok(!entries.some((e) => e.detail.includes('secret')))
+})
+
+test('LAD-92: create rifiutata dal limite delle sessioni restituisce le immagini al dispositivo', async () => {
+  let clock = 9_000_000
+  const fake = createHost()
+  const c = await connect({ env: setup({ host: fake.host, now: () => clock }) })
+  for (let i = 0; i < 3; i++) await c.call({ ...createBase }) // raffica di 3 sessioni
+  // La quarta è rifiutata dal limite delle sessioni: le sue 3 immagini non restano consumate.
+  const refused = await c.call({ ...createBase, attachments: [att(), att(), att()] })
+  assert.match((refused as { error: string }).error, /Too many new sessions/)
+  const send = await c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [att(), att(), att()] })
+  assert.ok(send.kind === 'result' && send.ok)
+  const send2 = await c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [att(), att(), att()] })
+  assert.ok(send2.kind === 'result' && send2.ok)
+})
+
+test('LAD-92: letture contemporanee dell’elenco file a cache fredda ne fanno una sola', async () => {
+  let reads = 0
+  const fake = fakeHost()
+  fake.host.projectFiles = async () => {
+    reads++
+    await new Promise((r) => setTimeout(r, 30))
+    return ['a.ts', 'b.ts']
+  }
+  const c = await connect({ env: setup({ host: fake.host }) })
+  const all = await Promise.all([1, 2, 3, 4].map((i) => c.call({ type: 'project.files.search', projectId: 'p1', query: String(i) })))
+  assert.ok(all.every((r) => r.kind === 'result' && r.ok))
+  assert.equal(reads, 1)
 })

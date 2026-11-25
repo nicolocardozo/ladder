@@ -1,12 +1,15 @@
 // Gateway remoto: porta il protocollo della finestra su una connessione cifrata (Noise NK), per il telefono.
 // Non sa nulla del trasporto (WebSocket oggi, relay con LAD-50): riceve un RemoteLink già aperto.
 // Import relativi (niente alias @shared): il file è provato in-process con `node --test`.
-import type { AgentId, AgentStatus, FromRemoteHost, HostCommand, HostEvent, PermissionLevel, RemoteAgentStatus, RemoteAuthErrorCode, RemoteCommand, RemoteEvent, RemoteLogAction, RemoteLogEntry, RemotePage, RemoteProfile, RemoteProjectDefaults, RemoteSessionCreate, RemoteSnapshot, RequestResponse, SessionSummary } from '../../shared/protocol.ts'
-import { isLocale, t, type Locale } from '../../shared/i18n.ts'
+import { REMOTE_MAX_ATTACH_COMMAND, REMOTE_MAX_ATTACHMENTS, REMOTE_MAX_COMMAND } from '../../shared/protocol.ts'
+import type { AgentId, AgentStatus, FromRemoteHost, HostCommand, HostEvent, PermissionLevel, RemoteAgentStatus, RemoteAuthErrorCode, RemoteCommand, RemoteEvent, RemoteLogAction, RemoteLogEntry, RemotePage, RemoteProfile, RemoteProjectDefaults, RemoteSessionCreate, RemoteSnapshot, RequestResponse, SessionSummary, SlashCommand } from '../../shared/protocol.ts'
+import { isLocale, plural, t, type Locale } from '../../shared/i18n.ts'
 import { serverHandshake, type RemoteSession } from '../../shared/remote/session.ts'
 import type { NoiseKeyPair } from '../../shared/remote/noise.ts'
 import { authErrorText, type DeviceRow, type RemoteAccess } from './access.ts'
-import { isForwardedEventType, parseRemoteMessage, RemoteCommandError } from './allowlist.ts'
+import { searchFiles } from './file-search.ts'
+import { carriesAttachmentsShape, declaredAttachments, isForwardedEventType, parseRemoteMessage, RemoteCommandError } from './allowlist.ts'
+import { imagePlaceholder } from '../../shared/image-placeholder.ts'
 
 /** Un canale di byte già aperto: un messaggio = un messaggio Noise. Lo implementano il WebSocket locale e (LAD-50) il relay. */
 export interface RemoteLink {
@@ -23,7 +26,7 @@ export interface RemoteLink {
 /** Quello che il gateway usa dell'Host. */
 export interface RemoteHostApi {
   snapshot(): Promise<Extract<HostEvent, { type: 'snapshot' }>>
-  handle(command: Exclude<RemoteCommand, { type: 'session.page' | 'session.watch' | 'device.push.set' | 'device.notify.set' | 'device.state' | 'project.sessions.archived' | 'session.create' | 'agents.usage' }> | Extract<HostCommand, { type: 'session.create' | 'agents.usage' }>, origin: object): Promise<unknown>
+  handle(command: Exclude<RemoteCommand, { type: 'session.page' | 'session.watch' | 'device.push.set' | 'device.notify.set' | 'device.state' | 'project.sessions.archived' | 'session.create' | 'project.files.search' | 'agents.usage' }> | Extract<HostCommand, { type: 'session.create' | 'agents.usage' }>, origin: object): Promise<unknown>
   pageItems(sessionId: string, before?: number, limit?: number): RemotePage
   /** Tetto di permesso per progetto e preferenza di invio, per l'istantanea; manca = nessun tetto e 'steer'. */
   remoteExtras?(): Promise<{ permissionsMax: RemoteSnapshot['permissionsMax']; busySend: RemoteSnapshot['prefs']['busySend']; defaults?: RemoteSnapshot['defaults'] }>
@@ -37,6 +40,8 @@ export interface RemoteHostApi {
    * il profilo predefinito (assente o `default:*`) torna senza `profileId`. Manca = si normalizza solo `default:*`.
    */
   usageTarget?(agent: string, profileId?: string): { agent: string; profileId?: string }
+  /** LAD-92: elenco dei file di un progetto (percorsi relativi, .gitignore rispettato) per `project.files.search`. Errore tradotto se il progetto non esiste. */
+  projectFiles?(projectId: string): Promise<string[]>
   /** Sessioni archiviate di un progetto (project.sessions.archived). */
   archivedSessions?(projectId: string, before?: number, limit?: number): SessionSummary[]
   connectionClosed(origin: object): void
@@ -86,11 +91,21 @@ const MAX_USAGE_CACHE = 64
 /** LAD-89: nuove sessioni dal telefono, per dispositivo: a raffica 3, poi 5 al minuto. */
 export const CREATE_BURST = 3
 export const CREATE_PER_MINUTE = 5
+/** LAD-92: immagini dal telefono, per dispositivo: a raffica 6, poi 10 al minuto (contano su `session.send` e `session.create`). */
+export const IMAGE_BURST = 6
+export const IMAGE_PER_MINUTE = 10
+/** LAD-92: ricerche di file (menzioni `@`), per dispositivo: a raffica 10, poi 4 al secondo. L'elenco dei file di un progetto resta in cache 10 secondi. */
+export const SEARCH_BURST = 10
+export const SEARCH_PER_SECOND = 4
+export const FILES_CACHE_MS = 10_000
+const MAX_FILES_CACHE = 16
 /** Attesa prima di rimandare i predefiniti (più cambi ravvicinati = un solo evento). */
 const DEFAULTS_DEBOUNCE_MS = 300
 export const RATE_PER_SECOND = 20
 export const RATE_BURST = 40
 const MAX_REJECTED_IN_A_ROW = 100
+/** LAD-92: un allegato non valido pesa come tanti rifiuti: 5 di fila chiudono la connessione. */
+const ATTACHMENT_ERROR_WEIGHT = 20
 
 /** Istantanea ridotta: niente bozze, terminali, scorciatoie, collegamenti, profili; della UI solo gruppi e seenAt. */
 /** LAD-90: niente email dell'account né percorso della CLI verso il telefono. */
@@ -193,6 +208,11 @@ export class RemoteGateway {
   /** LAD-89: generazione dell'ultimo invio di predefiniti (un invio più vecchio che finisce dopo è scartato) e firma degli agenti già visti. */
   private defaultsGen = 0
   private readonly agentSigs = new Map<string, string>()
+  /** LAD-92: gettoni delle immagini e delle ricerche per dispositivo; elenchi di file per progetto (e quelli in lettura adesso). */
+  private readonly imageBuckets = new Map<string, { tokens: number; at: number }>()
+  private readonly searchBuckets = new Map<string, { tokens: number; at: number }>()
+  private readonly filesCache = new Map<string, { at: number; files: string[] }>()
+  private readonly filesReading = new Map<string, Promise<string[]>>()
   /** LAD-89: ultimi predefiniti mandati ai telefoni e timer dell'invio ritardato. */
   private lastDefaults = ''
   private defaultsTimer: ReturnType<typeof setTimeout> | null = null
@@ -344,7 +364,11 @@ export class RemoteGateway {
           return
         }
         const message = conn.session.open<unknown>(bytes)
-        if (message !== null) this.onMessage(conn, message)
+        if (message !== null) {
+          // LAD-92: dopo l'autenticazione il limite è più largo, ma solo i messaggi con immagini possono superare REMOTE_MAX_COMMAND.
+          if (conn.session.lastSize > REMOTE_MAX_COMMAND && !carriesAttachmentsShape(message)) throw new Error('message too large')
+          this.onMessage(conn, message)
+        }
       } catch (error) {
         // Decifratura fallita, versione diversa, messaggio troppo grande, JSON rotto: la connessione non si recupera.
         this.drop(conn, error instanceof Error ? error.message : String(error))
@@ -493,6 +517,8 @@ export class RemoteGateway {
         if (conn.handshakeTimer) clearTimeout(conn.handshakeTimer)
         conn.handshakeTimer = null
         conn.auth = outcome.device
+        // LAD-92: solo ora (autenticato) la connessione può ricevere messaggi con immagini.
+        session.setMaxInbound(REMOTE_MAX_ATTACH_COMMAND)
         // LAD-53: la lingua dell'app decide il testo dei push; senza, resta quella salvata (o inglese).
         if (conn.locale) {
           try {
@@ -522,20 +548,37 @@ export class RemoteGateway {
 
   private onMessage(conn: RemoteConnection, value: unknown): void {
     if (!conn.auth) return this.onFirstMessage(conn, value)
+    // Prima i limiti, poi il lavoro vero (validare e decodificare le immagini costa): servono solo la forma e l'id della richiesta.
+    const shape = typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as { rid?: unknown; command?: { type?: unknown; sessionId?: unknown } }) : null
+    // Un rid presente ma storto è un client che non rispetta il protocollo: la connessione si chiude (come fa parseRemoteMessage).
+    if (shape && shape.rid !== undefined && !(typeof shape.rid === 'string' && shape.rid.length > 0 && shape.rid.length <= 128)) return this.drop(conn, 'bad message')
+    const early = shape && typeof shape.rid === 'string' ? shape.rid : undefined
+    if (!this.allow(conn)) {
+      if (++conn.rejected >= MAX_REJECTED_IN_A_ROW) this.drop(conn, 'rate limit')
+      else if (early) this.send(conn, { kind: 'result', rid: early, ok: false, error: t('Too many requests. Slow down.') })
+      return
+    }
+    // LAD-92: le immagini dichiarate contano subito sul limite del dispositivo (anche se poi non passano i controlli).
+    const declared = declaredAttachments(value)
+    if (declared > 0 && !this.takeFrom(this.imageBuckets, conn, IMAGE_BURST, IMAGE_PER_MINUTE / 60_000, Math.min(declared, REMOTE_MAX_ATTACHMENTS))) {
+      const create = shape?.command?.type === 'session.create'
+      const id = typeof shape?.command?.sessionId === 'string' && shape.command.sessionId.length <= 256 ? shape.command.sessionId : null
+      this.record(conn, create ? 'create' : 'send', create ? null : id, create ? t('New session refused: too many images') : t('Message refused: too many images'))
+      if (++conn.rejected >= MAX_REJECTED_IN_A_ROW) this.drop(conn, 'rate limit')
+      else if (early) this.send(conn, { kind: 'result', rid: early, ok: false, error: t('Too many images. Try again in a moment.') })
+      return
+    }
     let rid: string | undefined
     let command: RemoteCommand
     try {
-      const parsed = parseRemoteMessage(value, { invalid: t('Invalid request.'), notAllowed: t('This request is not available from the phone.') })
+      const parsed = parseRemoteMessage(value, { invalid: t('Invalid request.'), notAllowed: t('This request is not available from the phone.'), attachments: t('Invalid images. Send up to 3 JPEG, PNG or WebP images, 1 MB each and 2 MB in total.') })
       rid = parsed.rid
       command = parsed.command
     } catch (error) {
       if (error instanceof RemoteCommandError && error.rid) this.send(conn, { kind: 'result', rid: error.rid, ok: false, error: error.message })
       else if (!(error instanceof RemoteCommandError)) this.drop(conn, 'bad message')
-      return
-    }
-    if (!this.allow(conn)) {
-      if (++conn.rejected >= MAX_REJECTED_IN_A_ROW) this.drop(conn, 'rate limit')
-      else if (rid) this.send(conn, { kind: 'result', rid, ok: false, error: t('Too many requests. Slow down.') })
+      // Allegati non validi ripetuti: un'app che si comporta bene non li manda; si chiude dopo pochi (5) tentativi di fila.
+      if (error instanceof RemoteCommandError && error.attachments && (conn.rejected += ATTACHMENT_ERROR_WEIGHT) >= MAX_REJECTED_IN_A_ROW) this.drop(conn, 'invalid attachments')
       return
     }
     conn.rejected = 0
@@ -572,6 +615,45 @@ export class RemoteGateway {
     return true
   }
 
+  /** Gettoni per dispositivo: `cost` alla volta; true se c'erano. `refill` = gettoni al millisecondo. */
+  private takeFrom(buckets: Map<string, { tokens: number; at: number }>, conn: RemoteConnection, burst: number, refill: number, cost: number): boolean {
+    const id = conn.auth?.id ?? ''
+    const now = this.now()
+    const bucket = buckets.get(id) ?? { tokens: burst, at: now }
+    bucket.tokens = Math.min(burst, bucket.tokens + (now - bucket.at) * refill)
+    bucket.at = now
+    buckets.set(id, bucket)
+    if (bucket.tokens < cost) return false
+    bucket.tokens -= cost
+    return true
+  }
+
+  /** Rimette `cost` gettoni nel secchiello del dispositivo (una richiesta contata ma poi rifiutata per altro). */
+  private refundFrom(buckets: Map<string, { tokens: number; at: number }>, conn: RemoteConnection, burst: number, cost: number): void {
+    const bucket = buckets.get(conn.auth?.id ?? '')
+    if (bucket) bucket.tokens = Math.min(burst, bucket.tokens + cost)
+  }
+
+  /** Elenco dei file del progetto, in cache per FILES_CACHE_MS; letture contemporanee dello stesso progetto (cache fredda) ne fanno una sola. */
+  private async projectFiles(projectId: string): Promise<string[]> {
+    const now = this.now()
+    const hit = this.filesCache.get(projectId)
+    if (hit && now - hit.at < FILES_CACHE_MS) return hit.files
+    const running = this.filesReading.get(projectId)
+    if (running) return running
+    const read = (async () => (await this.options.host.projectFiles?.(projectId)) ?? [])()
+    this.filesReading.set(projectId, read)
+    try {
+      const files = await read
+      this.filesCache.delete(projectId)
+      this.filesCache.set(projectId, { at: now, files })
+      while (this.filesCache.size > MAX_FILES_CACHE) this.filesCache.delete(this.filesCache.keys().next().value as string)
+      return files
+    } finally {
+      this.filesReading.delete(projectId)
+    }
+  }
+
   private async run(conn: RemoteConnection, command: RemoteCommand): Promise<unknown> {
     const { host } = this.options
     switch (command.type) {
@@ -605,19 +687,28 @@ export class RemoteGateway {
       case 'session.create': {
         // Limite proprio per dispositivo: ogni tentativo conta, anche se poi non passa i controlli; un rifiuto finisce nel log.
         if (!this.takeCreate(conn)) {
+          // Rifiutata per il limite delle sessioni: le immagini già contate tornano al dispositivo.
+          if (command.attachments?.length) this.refundFrom(this.imageBuckets, conn, IMAGE_BURST, command.attachments.length)
           this.record(conn, 'create', null, t('New session refused: too many requests'))
           throw new Error(t('Too many new sessions. Try again in a moment.'))
         }
+        // Le immagini sono già state contate (e validate) da onMessage.
+        const images = command.attachments?.length ?? 0
         const info = (await host.checkCreate?.(command)) ?? { agent: command.agent, project: command.projectId }
-        const detail = t('New session: {agent} in {project}', { agent: info.agent, project: info.project })
+        const base = t('New session: {agent} in {project}', { agent: info.agent, project: info.project })
+        const detail = images > 0 ? t('{detail} ({images})', { detail: base, images: plural(images, '{n} image', '{n} images', { n: images }) }) : base
         if (command.permission === 'full' && !this.options.access.allowFull) {
           this.record(conn, 'create', null, t('{detail} (blocked)', { detail }))
           throw new Error(t('Full access cannot be turned on from the phone. Allow it in Settings on your Mac.'))
         }
         // Chat, nessun worktree, nessun allegato: il comando si ricostruisce campo per campo (il testo non va nel log).
-        const created = (await host.handle({ type: 'session.create', projectId: command.projectId, agent: command.agent, text: command.text, model: command.model, effort: command.effort, permission: command.permission, ...(command.profileId ? { profileId: command.profileId } : {}), mode: 'chat' }, conn)) as SessionSummary | null
+        const created = (await host.handle({ type: 'session.create', projectId: command.projectId, agent: command.agent, text: images > 0 && !command.text.trim() ? imagePlaceholder(images) : command.text, model: command.model, effort: command.effort, permission: command.permission, ...(command.profileId ? { profileId: command.profileId } : {}), mode: 'chat', ...(images > 0 ? { attachments: command.attachments } : {}) }, conn)) as SessionSummary | null
         this.record(conn, 'create', created?.id ?? null, detail)
         return created
+      }
+      case 'project.files.search': {
+        if (!this.takeFrom(this.searchBuckets, conn, SEARCH_BURST, SEARCH_PER_SECOND / 1000, 1)) throw new Error(t('Too many requests. Slow down.'))
+        return searchFiles(await this.projectFiles(command.projectId), command.query, command.limit)
       }
       case 'agents.usage': {
         // Agente e account verificati prima di tutto (niente chiavi inventate); il predefinito ha una sola chiave.
@@ -645,10 +736,19 @@ export class RemoteGateway {
         return clean
       }
       case 'session.send': {
-        // Gli allegati non passano dal telefono.
-        const { attachments: _attachments, ...rest } = command
-        const result = await host.handle(rest, conn)
-        this.record(conn, 'send', command.sessionId, t('Message ({n} chars)', { n: command.text.length }))
+        // LAD-92: immagini già contate e validate da onMessage; nel log si scrive solo quante sono. Un messaggio di sole immagini
+        // porta il testo segnaposto della finestra: l'agente non accetta un blocco di testo vuoto.
+        const images = command.attachments?.length ?? 0
+        const result = await host.handle(images > 0 && !command.text.trim() ? { ...command, text: imagePlaceholder(images) } : command, conn)
+        this.record(conn, 'send', command.sessionId, images > 0 ? plural(images, 'Message with {n} image', 'Message with {n} images', { n: images }) : t('Message ({n} chars)', { n: command.text.length }))
+        return result
+      }
+      case 'session.command': {
+        // Il comando deve essere nell'elenco attuale della sessione (lo stesso di `session.commands`); gli argomenti non vanno nel log.
+        const list = ((await host.handle({ type: 'session.commands', sessionId: command.sessionId }, conn)) as SlashCommand[] | null) ?? []
+        if (!list.some((c) => c.name === command.name)) throw new Error(t('Unknown command: /{name}', { name: command.name }))
+        const result = await host.handle(command, conn)
+        this.record(conn, 'send', command.sessionId, t('Command /{name}', { name: command.name }))
         return result
       }
       case 'session.respond': {

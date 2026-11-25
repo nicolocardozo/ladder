@@ -1,6 +1,6 @@
 import { Redirect, useRouter } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
-import { TextInput, View } from 'react-native'
+import { View } from 'react-native'
 import { t } from '@shared/i18n'
 import { PairStep } from '@/features/pair/PairStep'
 import { startPairing, type PairOutcome } from '@/host/controller'
@@ -12,6 +12,7 @@ import { useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
 import { Button } from '@/ui/Button'
 import { Text } from '@/ui/Text'
+import { TextInput } from '@/ui/TextInput'
 import { authMessage } from '@/ui/auth-text'
 
 function failureText(f: PairFailure): string {

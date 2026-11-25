@@ -979,11 +979,8 @@ export class Host {
       case 'subagent.list':
         this.mustRow(command.sessionId)
         return this.subagents.list(command.sessionId) ?? []
-      case 'project.files': {
-        const project = this.projects.get(command.projectId)
-        if (!project) throw new Error(t('Project not found.'))
-        return project.isGit ? listFiles(project.path) : (await listTree(project.path)).files
-      }
+      case 'project.files':
+        return this.projectFiles(command.projectId)
       case 'session.queue.set': {
         // La UI riceve la coda senza i dati delle immagini: gli allegati restano quelli salvati qui.
         const stored = new Map((JSON.parse(this.mustRow(command.sessionId).queue) as QueuedMessage[]).map((q) => [q.id, q]))
@@ -3471,6 +3468,13 @@ export class Host {
       if (!isValidEffort(status, model, command.effort)) throw new Error(t('This model does not support that effort level.'))
     }
     return { agent: base.name, project: project.name }
+  }
+
+  /** File del progetto (percorsi relativi, .gitignore rispettato); usato anche da `project.files.search` del telefono. */
+  async projectFiles(projectId: string): Promise<string[]> {
+    const project = this.projects.get(projectId)
+    if (!project) throw new Error(t('Project not found.'))
+    return project.isGit ? listFiles(project.path) : (await listTree(project.path)).files
   }
 
   /** Sessioni archiviate di un progetto, a pagine (comando remoto project.sessions.archived). */

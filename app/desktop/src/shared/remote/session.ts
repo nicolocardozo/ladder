@@ -34,10 +34,20 @@ export class RemoteSession {
     return splitFrames(JSON.stringify(message)).map((frame) => this.transport.encrypt(frame))
   }
 
+  /** Byte (UTF-8) dell'ultimo messaggio ricomposto da `open`, come li ha contati il ricompositore. */
+  lastSize = 0
+
+  /** LAD-92: cambia il limite dei messaggi in arrivo; il gateway lo alza dopo l'autenticazione. */
+  setMaxInbound(maxMessage: number): void {
+    this.reassembler.setMax(maxMessage)
+  }
+
   /** Un messaggio Noise ricevuto → il JSON ricomposto, o null se il messaggio continua nel frame dopo. */
   open<T>(bytes: Uint8Array): T | null {
     const text = this.reassembler.push(this.transport.decrypt(bytes))
-    return text === null ? null : (JSON.parse(text) as T)
+    if (text === null) return null
+    this.lastSize = this.reassembler.lastSize
+    return JSON.parse(text) as T
   }
 
   get handshakeHash(): Uint8Array {

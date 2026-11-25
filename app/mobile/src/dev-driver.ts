@@ -11,6 +11,7 @@ import { devNotificationTap } from '@/host/push-taps'
 import { openSheet, useSheets } from '@/lib/sheets'
 import { useApp } from '@/store/app'
 import type { RequestItem } from '@/lib/turns'
+import { useMeter } from '@/features/composer/useDictation'
 import { useDev, type DevSheet } from '@/store/dev'
 import { usePrefs } from '@/store/prefs'
 import type { ThemeId } from '@/theme/theme'
@@ -49,6 +50,10 @@ interface Cmd {
   /** Cambia le preferenze delle notifiche (come i toggle di Impostazioni). */
   notifyPrefs?: Parameters<ReturnType<typeof usePrefs.getState>['setNotify']>[0]
   notify?: { kind: 'request' | 'turn' | 'error' | 'agents'; sessionId: string; itemId?: string | null; delayS?: number; mac?: string }
+  /** Composer aperto: testo da scrivere e immagini (file locali) da allegare; `dictation` forza lo stato della dettatura. */
+  composer?: { text?: string; images?: string[]; send?: boolean }
+  welcome?: 'chips' | 'caption'
+  dictation?: 'listening' | 'denied' | 'not-installed' | 'unsupported' | 'off'
   /** Torna indietro di una schermata (il tasto indietro). */
   back?: boolean
   /** Apre una sessione come il tocco su una notifica (anche con uno sheet aperto sopra una chat). */
@@ -114,8 +119,18 @@ function act(a: NonNullable<Cmd['act']>) {
   }
 }
 
+let devMeter: ReturnType<typeof setInterval> | null = null
+
 function run(cmd: Cmd) {
   if (cmd.target && cmd.target !== Platform.OS) return
+  if (cmd.composer) useDev.getState().composer?.(cmd.composer)
+  if (cmd.welcome) useDev.setState({ welcome: cmd.welcome })
+  if (cmd.dictation) {
+    useDev.setState({ dictation: cmd.dictation === 'off' ? null : cmd.dictation })
+    if (devMeter) clearInterval(devMeter)
+    devMeter = null
+    if (cmd.dictation === 'listening') devMeter = setInterval(() => useMeter.setState({ level: 0.15 + Math.abs(Math.sin(Date.now() / 160)) * 0.7 * Math.random() }), 80)
+  }
   if (cmd.back) router.back()
   if (cmd.tap) devNotificationTap(cmd.tap)
   if (cmd.act) act(cmd.act)

@@ -2,11 +2,46 @@
 // Due usi: la modalità demo dell'app (nessuna rete, anche in produzione: sarà la demo per App Review, LAD-55) e l'harness
 // e2e in Node (scripts/e2e-host.ts), che lo mette dietro il vero RemoteGateway dell'host. Niente API di React Native né
 // alias: solo import di tipi, così gira con `node` direttamente. Ogni azione cambia lo stato locale ed emette gli stessi eventi del Mac.
-import type { AgentId, AgentStatus, ChatItem, PermissionLevel, QueuedMessage, RemoteAgentStatus, RemoteCommand, RemoteEvent, RemotePage, RemoteSessionCreate, RemoteSnapshot, SessionSummary, SubagentInfo, UsageWindow } from '@shared/protocol'
+import type { AgentId, AgentStatus, Attachment, ChatItem, SlashCommand, PermissionLevel, QueuedMessage, RemoteAgentStatus, RemoteCommand, RemoteEvent, RemotePage, RemoteSessionCreate, RemoteSnapshot, SessionSummary, SubagentInfo, UsageWindow } from '@shared/protocol'
 import { buildFixture, type Fixture } from './fixtures.ts'
 
 type RequestItem = Extract<ChatItem, { kind: 'request' }>
 const LEVELS: PermissionLevel[] = ['plan', 'ask', 'edit', 'full']
+
+/** Comandi della sessione, come li manda Claude Code (demo). */
+const DEMO_COMMANDS: SlashCommand[] = [
+  { name: 'compact', description: 'Summarize the conversation to free up context', hint: '[instructions]', source: 'builtin' },
+  { name: 'review', description: 'Review the uncommitted changes', hint: null, source: 'builtin' },
+  { name: 'init', description: 'Create a CLAUDE.md for this project', hint: null, source: 'builtin' },
+  { name: 'security-review', description: 'Check the pending changes for security issues', hint: null, source: 'builtin' },
+  { name: 'clear', description: 'Start over with an empty context', hint: null, source: 'builtin' },
+  { name: 'commit', description: 'Write a commit for the current changes', hint: '[message]', source: 'custom' },
+  { name: 'pr', description: 'Open a pull request from this branch', hint: '[title]', source: 'custom' },
+  { name: 'simplify', description: 'Review changed code for reuse and clarity', hint: null, source: 'skill' }
+]
+
+/** File del progetto (demo): abbastanza da provare la ricerca. */
+const DEMO_FILES = [
+  'README.md',
+  'package.json',
+  'tsconfig.json',
+  'src/main.ts',
+  'src/app.tsx',
+  'src/routes/index.tsx',
+  'src/routes/payments.tsx',
+  'src/routes/payments-filters.tsx',
+  'src/components/Button.tsx',
+  'src/components/FilterBar.tsx',
+  'src/components/PaymentsTable.tsx',
+  'src/lib/api.ts',
+  'src/lib/format.ts',
+  'src/lib/filters.ts',
+  'src/lib/filters.test.ts',
+  'src/store/payments.ts',
+  'docs/architecture.md',
+  'docs/payments filters.md',
+  'scripts/release.mjs'
+]
 
 export interface FakeHostOptions {
   fixture?: Fixture
@@ -101,7 +136,15 @@ export class FakeHost {
         return undefined
       }
       case 'session.send':
-        return this.send(command.sessionId, command.text, command.busy ?? 'queue')
+        return this.send(command.sessionId, command.text, command.busy ?? 'queue', command.attachments)
+      case 'session.command':
+        // Demo: il comando compare come messaggio (il Mac vero aggiunge una riga "comando").
+        return this.send(command.sessionId, `/${command.name} ${command.args}`.trim(), 'queue')
+      case 'session.commands':
+        this.need(command.sessionId)
+        return structuredClone(DEMO_COMMANDS)
+      case 'project.files.search':
+        return this.searchFiles(command.projectId, command.query, command.limit)
       case 'session.interrupt':
         this.interrupt(command.sessionId)
         return undefined
@@ -197,7 +240,8 @@ export class FakeHost {
     const project = this.fixture.projects.find((p) => p.id === command.projectId)
     if (!project) throw new Error('Project not found.')
     const text = command.text.trim()
-    if (!text) throw new Error('The message is empty.')
+    const files = (command.attachments ?? []).map((a) => ({ name: a.name, mediaType: a.mediaType }))
+    if (!text && files.length === 0) throw new Error('The message is empty.')
     const status = this.fixture.agents.find((a) => a.agent === command.agent && a.available)
     const allowed = this.fixture.defaults[project.id]?.allowed ?? []
     if (!status || (allowed.length > 0 && !allowed.includes(command.agent))) throw new Error(`${command.agent} is not allowed in this project.`)
@@ -214,7 +258,7 @@ export class FakeHost {
     const session: SessionSummary = {
       id,
       projectId: project.id,
-      title: text.split('\n')[0].slice(0, 48),
+      title: (text.split('\n')[0] || 'Image').slice(0, 48),
       titleSource: 'generated',
       agent: command.agent,
       ...(command.profileId ? { profileId: command.profileId } : {}),
@@ -250,7 +294,7 @@ export class FakeHost {
     this.items.set(id, [])
     this.seqs.set(id, 0)
     this.emit({ type: 'session.upsert', session: structuredClone(session) })
-    this.after(400, () => this.startTurn(id, text))
+    this.after(400, () => this.startTurn(id, text, files))
     return structuredClone(session)
   }
 
@@ -283,26 +327,36 @@ export class FakeHost {
 
   // ── Azioni ──
 
-  private send(sessionId: string, text: string, busy: 'queue' | 'steer'): void {
+  /** Come `project.files.search` del Mac, in piccolo: sottostringa senza maiuscole, nome del file prima del percorso. */
+  private searchFiles(projectId: string, query: string, limit = 20): string[] {
+    if (!this.fixture.projects.some((p) => p.id === projectId)) throw new Error('Project not found.')
+    const q = query.trim().toLowerCase()
+    const name = (f: string) => f.slice(f.lastIndexOf('/') + 1).toLowerCase()
+    const hits = DEMO_FILES.filter((f) => !q || f.toLowerCase().includes(q)).sort((a, b) => Number(name(b).startsWith(q)) - Number(name(a).startsWith(q)) || a.split('/').length - b.split('/').length || a.localeCompare(b))
+    return hits.slice(0, Math.max(1, Math.min(limit, 50)))
+  }
+
+  private send(sessionId: string, text: string, busy: 'queue' | 'steer', attachments: Attachment[] = []): void {
     const s = this.need(sessionId)
     const body = text.trim()
-    if (!body) throw new Error('The message is empty.')
+    if (!body && attachments.length === 0) throw new Error('The message is empty.')
+    const files = attachments.map((a) => ({ name: a.name, mediaType: a.mediaType }))
     const working = s.run === 'running' || s.run === 'starting'
     if (working) {
       if (busy === 'steer' && s.canSteer) {
-        this.push(sessionId, this.lastTurn(sessionId), 'user', { text: body, steered: true })
+        this.push(sessionId, this.lastTurn(sessionId), 'user', { text: body, steered: true, ...(files.length ? { attachments: files } : {}) })
         return
       }
       this.patch(s, { queue: [...s.queue, { id: `q${Date.now()}`, text: body }] })
       return
     }
-    this.startTurn(sessionId, body)
+    this.startTurn(sessionId, body, files)
   }
 
-  private startTurn(sessionId: string, text: string): void {
+  private startTurn(sessionId: string, text: string, files: { name: string; mediaType: string }[] = []): void {
     const s = this.need(sessionId)
     const turnId = `${sessionId}-turn-${Date.now()}`
-    this.push(sessionId, turnId, 'user', { text })
+    this.push(sessionId, turnId, 'user', { text, ...(files.length ? { attachments: files } : {}) })
     this.patch(s, { run: 'running', activity: 'Thinking', unread: false, activityAt: Date.now() })
     this.simulate(sessionId, turnId, text)
   }

@@ -163,3 +163,18 @@ test('dopo un timeout: la sessione nata nel frattempo si riconosce, così non si
   assert.equal(findCreated(two, known, cmd, 1_000_000)?.id, 'y')
   assert.equal(findCreated([made({ id: 'x', title: 'Other' }), made({ id: 'z', title: 'Another' })], known, cmd, 1_000_000), null)
 })
+
+test('con immagini il testo può essere vuoto; senza testo né immagini no (LAD-92)', () => {
+  assert.equal(messageError('', 1), null)
+  assert.equal(messageError('   ', 2), null)
+  assert.equal(messageError('', 0), 'empty')
+  assert.equal(messageError('x'.repeat(200_001), 1), 'long')
+})
+
+test('comando di creazione con allegati: la chiave c’è solo se ci sono immagini', () => {
+  const v = resolveForm(input(), { projectId: 'a' })
+  const img = { name: 'p-ab12c.jpg', mediaType: 'image/jpeg', data: 'AAAA' }
+  assert.deepEqual((createCommand(v, 'guarda', [img]) as { attachments?: unknown }).attachments, [img])
+  assert.equal('attachments' in createCommand(v, 'guarda')!, false)
+  assert.equal('attachments' in createCommand(v, 'guarda', [])!, false)
+})

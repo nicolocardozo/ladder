@@ -29,9 +29,16 @@ export function splitFrames(json: string): Uint8Array[] {
 export class FrameReassembler {
   private parts: Uint8Array[] = []
   private size = 0
-  private readonly maxMessage: number
+  private maxMessage: number
+  /** Byte dell'ultimo messaggio ricomposto (UTF-8, già noti: niente da ricodificare). */
+  lastSize = 0
 
   constructor(maxMessage: number = REMOTE_MAX_MESSAGE) {
+    this.maxMessage = maxMessage
+  }
+
+  /** Cambia il limite (LAD-92: più largo dopo l'autenticazione). Vale dal messaggio successivo. */
+  setMax(maxMessage: number): void {
     this.maxMessage = maxMessage
   }
 
@@ -53,6 +60,7 @@ export class FrameReassembler {
       at += part.length
     }
     this.parts = []
+    this.lastSize = this.size
     this.size = 0
     // fatal: un UTF-8 non valido è un errore di protocollo, non un carattere sostitutivo.
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes)

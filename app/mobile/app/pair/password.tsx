@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'
-import { TextInput } from 'react-native'
+
 import { Redirect } from 'expo-router'
 import { t } from '@shared/i18n'
 import { PairStep } from '@/features/pair/PairStep'
@@ -8,6 +8,7 @@ import { useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
 import { Button } from '@/ui/Button'
 import { Text } from '@/ui/Text'
+import { TextInput } from '@/ui/TextInput'
 import { authMessage } from '@/ui/auth-text'
 
 /** Password del Mac per i telefoni nuovi (solo se il codice dice `pw`). La verifica la fa il Mac, al `pair`. */

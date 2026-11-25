@@ -9,7 +9,7 @@
 // - modello ed effort: `launch[agente]` com'è (null = predefinito dell'agente, e si mostra il modello `isDefault`); se l'utente cambia
 //   agente o account, un modello che il nuovo stato non ha torna a null;
 // - permesso: `defaults.permission` (già ridotto dal Mac); sopra il tetto del progetto o Full con l'accesso spento = livello spento con il motivo.
-import type { AgentId, Effort, PermissionLevel, Project, ProjectGroupsState, RemoteAgentStatus, RemoteProfile, RemoteProjectDefaults, SessionSummary } from '../../../desktop/src/shared/protocol.ts'
+import type { AgentId, Attachment, Effort, PermissionLevel, Project, ProjectGroupsState, RemoteAgentStatus, RemoteProfile, RemoteProjectDefaults, SessionSummary } from '../../../desktop/src/shared/protocol.ts'
 import { t } from '../../../desktop/src/shared/i18n.ts'
 import { buildHome, type SectionModel } from './home-model.ts'
 import { allowedLevel, PERMISSION_LEVELS } from './permission.ts'
@@ -170,11 +170,11 @@ export function resolveForm(input: FormInput, picks: Picks = {}): FormValues {
   }
 }
 
-/** Il testo si può mandare: non vuoto (dopo trim) e non oltre il limite dell'host. */
-export const messageError = (text: string): 'empty' | 'long' | null => (text.trim().length === 0 ? 'empty' : text.length > MAX_MESSAGE ? 'long' : null)
+/** Il testo si può mandare: non vuoto (dopo trim; con almeno un'immagine può esserlo) e non oltre il limite dell'host. */
+export const messageError = (text: string, images = 0): 'empty' | 'long' | null => (text.length > MAX_MESSAGE ? 'long' : text.trim().length === 0 && images === 0 ? 'empty' : null)
 
 /** Comando `session.create` dal modulo risolto; null se manca qualcosa (progetto, agente). */
-export function createCommand(values: FormValues, text: string) {
+export function createCommand(values: FormValues, text: string, attachments: Attachment[] = []) {
   if (!values.projectId || !values.agent) return null
   return {
     type: 'session.create' as const,
@@ -185,7 +185,8 @@ export function createCommand(values: FormValues, text: string) {
     effort: values.effort,
     permission: values.permission,
     ...(values.profileId ? { profileId: values.profileId } : {}),
-    mode: 'chat' as const
+    mode: 'chat' as const,
+    ...(attachments.length > 0 ? { attachments } : {})
   }
 }
 

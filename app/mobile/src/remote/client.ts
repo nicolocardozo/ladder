@@ -52,6 +52,8 @@ export interface ClientOptions {
 const BACKOFF_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000]
 const CONNECT_TIMEOUT_MS = 8_000
 const REQUEST_TIMEOUT_MS = 25_000
+/** Un comando con immagini porta fino a ~3 MB: su una rete lenta ci vuole più tempo. */
+const ATTACH_TIMEOUT_MS = 90_000
 /** Dopo tanto tempo (o tentativi) senza collegamento si passa da "Reconnecting" a "Mac unreachable". */
 const UNREACHABLE_AFTER_MS = 20_000
 const UNREACHABLE_AFTER_ATTEMPTS = 3
@@ -141,7 +143,8 @@ export class RemoteClient {
   request<T = unknown>(command: RemoteCommand): Promise<T> {
     if (!this.session || !this.link || !this.ready) return Promise.reject(new Error('offline'))
     if (!this.take()) return Promise.reject(new Error(t('Too many requests. Slow down.')))
-    return this.rawRequest<T>(command)
+    const withImages = (command.type === 'session.send' || command.type === 'session.create') && !!command.attachments?.length
+    return this.rawRequest<T>(command, withImages ? ATTACH_TIMEOUT_MS : REQUEST_TIMEOUT_MS)
   }
 
   /**

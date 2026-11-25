@@ -1755,12 +1755,15 @@ export type RemoteAllowedType =
   | 'session.queue.set'
   | 'session.queue.deliver'
   | 'session.permission.set'
+  | 'session.commands'
+  | 'session.command'
   | 'subagent.list'
 
 /**
  * Comandi del client remoto. Rispetto alla finestra:
  * - `hello` risponde RemoteSnapshot (non lo snapshot completo), solo come risultato: l'evento `snapshot` non parte;
- * - `session.send` ignora gli allegati e `session.respond` vale sempre `via: 'phone'` (li forza il gateway);
+ * - `session.send` e `session.create` accettano fino a REMOTE_MAX_ATTACHMENTS immagini (LAD-92, validate dal Mac); `session.respond` vale sempre `via: 'phone'` (li forza il gateway);
+ * - `session.command` (LAD-92) esegue un comando / della sessione: `name` deve essere nell'elenco attuale di `session.commands` di quella sessione, `args` è testo di al massimo 2000 caratteri; nel log delle azioni: "Command /name" (mai gli argomenti);
  * - `session.permission.set` resta limitato dal massimo del progetto, come per la finestra;
  * - `session.queue.set` conta solo id e testo (gli allegati accodati restano quelli salvati sul Mac);
  * - `session.queue.deliver` consegna anche gli allegati che erano stati accodati sul Mac: il telefono non li vede, ma partono;
@@ -1814,7 +1817,7 @@ export type RemoteCommand =
    * con `session.upsert` (di solito prima del risultato), e si può seguire subito con `session.watch` (poi `session.page` per
    * gli item già scritti: gli eventi session.items partono solo per le sessioni seguite).
    * Validazione stretta (errore tradotto, nessuna sessione creata se qualcosa non va):
-   * - chiavi ammesse solo quelle di RemoteSessionCreate; `attachments` non vuoti (`[]` vale come nessuno), `command`,
+   * - chiavi ammesse solo quelle di RemoteSessionCreate; `attachments` (LAD-92: immagini, vedi sotto; `[]` vale come nessuno), `command`,
    *   `worktree`, `branch`, `baseBranch`, `newBranch`, `setupWait`, `source`, `title` o `mode` diverso da 'chat' = richiesta rifiutata;
    * - `projectId` esistente; `agent` conosciuto, disponibile e ammesso dal progetto (`agents.allowed`);
    * - `text` non vuoto (dopo trim), al massimo 200000 caratteri;
@@ -1824,10 +1827,21 @@ export type RemoteCommand =
    *   niente riduzione silenziosa a edit: il telefono mostra già Full disabilitato). Sopra `permissionsMax` del progetto si RIDUCE
    *   al tetto (come per la finestra);
    * - `profileId` (opzionale) esistente e dell'agente scelto.
+   * - LAD-92 `attachments` (anche di `session.send`): al massimo REMOTE_MAX_ATTACHMENTS immagini, `mediaType` in REMOTE_ATTACHMENT_TYPES,
+   *   `data` base64 canonico, al massimo REMOTE_MAX_ATTACHMENT_BYTES decodificati l'una e REMOTE_MAX_ATTACHMENTS_TOTAL in tutto, numero magico
+   *   coerente col tipo; `name` ridotto a basename (120 caratteri, niente controlli; vuoto = image.jpg/png/webp). Errore tradotto se qualcosa non va.
+   *   Con almeno un'immagine `text` può essere vuoto. Contano sul limite per dispositivo (raffica 6, poi 10 al minuto). Log: "Message with N images".
    * La sessione parte nel checkout principale del progetto (nessun worktree dal telefono) e in chat (mai terminale).
    * Nel log delle azioni (`create`): "New session: <agente> in <progetto>", senza il testo.
    */
   | RemoteSessionCreate
+  /**
+   * LAD-92: ricerca di file di un progetto per le menzioni `@` del telefono. Risponde string[]: percorsi relativi alla radice del
+   * progetto (rispetta .gitignore come la finestra), al massimo min(`limit`, REMOTE_FILE_SEARCH_MAX), `limit` predefinito 20.
+   * `query` al massimo 200 caratteri; vuota = i file meno profondi. Il filtro gira sul Mac: il telefono non scarica mai l'elenco intero,
+   * per questo `project.files` (l'elenco completo) NON è ammesso dal telefono. Limite per dispositivo (raffica 10, poi 4 al secondo).
+   */
+  | { type: 'project.files.search'; projectId: string; query: string; limit?: number }
   /**
    * LAD-90: rilegge i limiti d'uso del piano (stessi parametri del comando della finestra). Risponde AgentStatus senza `email` né `path`
    * (RemoteAgentStatus). Al massimo una lettura vera ogni 60 secondi per agente+profilo per connessione: prima, risponde con l'ultimo
@@ -1847,6 +1861,8 @@ export interface RemoteSessionCreate {
   profileId?: string | null
   /** Solo 'chat' (o assente). */
   mode?: 'chat'
+  /** LAD-92: immagini (al massimo REMOTE_MAX_ATTACHMENTS), validate come quelle di `session.send`. */
+  attachments?: Attachment[]
 }
 
 /** LAD-90: AgentStatus come lo vede il telefono: senza email dell'account né percorso della CLI. */
@@ -1998,13 +2014,23 @@ export type FromRemoteHost =
  * Un messaggio Noise porta al massimo 65535 byte (65519 di testo con il tag), quindi un JSON lungo si spezza.
  * I frame MORE sono sempre pieni (65519 byte): uno più corto chiude la connessione.
  * Il client chiude la connessione se un JSON ricomposto supera REMOTE_MAX_MESSAGE byte; l'host, che riceve solo comandi
- * piccoli, già a REMOTE_MAX_COMMAND.
+ * piccoli: prima dell'autenticazione a REMOTE_MAX_COMMAND, dopo a REMOTE_MAX_ATTACH_COMMAND (LAD-92, per i messaggi con immagini;
+ * un messaggio sopra REMOTE_MAX_COMMAND che non porta allegati su `session.send`/`session.create` chiude la connessione).
  */
 export const REMOTE_FRAME_END = 0
 export const REMOTE_FRAME_MORE = 1
 export const REMOTE_MAX_MESSAGE = 16 * 1024 * 1024
 /** Massimo di un messaggio del client verso l'host (comandi, non snapshot). */
 export const REMOTE_MAX_COMMAND = 1024 * 1024
+/** LAD-92: massimo di un messaggio di un client AUTENTICATO (solo `session.send`/`session.create` con immagini possono superare REMOTE_MAX_COMMAND). */
+export const REMOTE_MAX_ATTACH_COMMAND = 3 * 1024 * 1024
+/** LAD-92: immagini per messaggio, byte decodificati per immagine e in totale, tipi ammessi. */
+export const REMOTE_MAX_ATTACHMENTS = 3
+export const REMOTE_MAX_ATTACHMENT_BYTES = 1024 * 1024
+export const REMOTE_MAX_ATTACHMENTS_TOTAL = 2 * 1024 * 1024
+export const REMOTE_ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
+/** LAD-92: risultati massimi di `project.files.search`. */
+export const REMOTE_FILE_SEARCH_MAX = 50
 
 // ── fine LAD-49 ──
 

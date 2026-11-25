@@ -1,9 +1,11 @@
 // Righe della chat: messaggio dell'utente, risposta dell'agente (markdown, testo rivelato a ritmo costante),
 // riga del turno ("Edited 2 files and ran 3 commands"), note.
 import { memo, useEffect, useRef, useState } from 'react'
-import { AccessibilityInfo, Pressable, View } from 'react-native'
+import { AccessibilityInfo, Image, Pressable, View } from 'react-native'
 import { plural, t } from '@shared/i18n'
+import { isImagePlaceholder } from '@shared/image-placeholder'
 import { duration } from '@/lib/format'
+import { thumbFor } from '@/lib/sent-thumbs'
 import { nextRevealLength, sliceReveal } from '@/lib/text-reveal'
 import { summaryParts, type ChatRow, type TurnSummary } from '@/lib/turns'
 import { alpha, useTheme } from '@/theme/theme'
@@ -49,15 +51,34 @@ export const AssistantText = memo(function AssistantText({ text, streaming }: { 
   )
 })
 
-export const UserBubble = memo(function UserBubble({ text, steered }: { text: string; steered?: boolean }) {
+export const UserBubble = memo(function UserBubble({ text, steered, attachments }: { text: string; steered?: boolean; attachments?: { name: string; mediaType: string }[] }) {
   const { c } = useTheme()
   return (
-    <View style={{ paddingHorizontal: 16, paddingVertical: 6, alignItems: 'flex-end' }}>
-      <View style={{ maxWidth: '86%', backgroundColor: c.selection, borderRadius: RADIUS.xl, borderBottomRightRadius: 6, paddingHorizontal: 14, paddingVertical: 10 }}>
-        <Text system selectable style={{ fontSize: CHAT_FONT_SIZE, lineHeight: CHAT_LINE_HEIGHT }}>
-          {text}
-        </Text>
-      </View>
+    <View style={{ paddingHorizontal: 16, paddingVertical: 6, alignItems: 'flex-end', gap: 6 }}>
+      {attachments?.length ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, maxWidth: '86%' }}>
+          {attachments.map((a, i) => {
+            const uri = thumbFor(a.name)
+            return uri ? (
+              <Image key={`${a.name}-${i}`} source={{ uri }} accessibilityLabel={t('Photo {n} of {total}', { n: i + 1, total: attachments.length })} accessibilityIgnoresInvertColors style={{ width: 96, height: 96, borderRadius: RADIUS.lg, backgroundColor: c.surface }} />
+            ) : (
+              <View key={`${a.name}-${i}`} accessible accessibilityLabel={a.name} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, minHeight: 32, borderRadius: RADIUS.md, backgroundColor: c.surface }}>
+                <Icon name="image" size={16} color={c.textMuted} />
+                <Text variant="caption" tone="muted" numberOfLines={1} style={{ maxWidth: 180 }}>
+                  {a.name}
+                </Text>
+              </View>
+            )
+          })}
+        </View>
+      ) : null}
+      {text.trim() && !(attachments?.length && isImagePlaceholder(text.trim())) ? (
+        <View style={{ maxWidth: '86%', backgroundColor: c.selection, borderRadius: RADIUS.xl, borderBottomRightRadius: 6, paddingHorizontal: 14, paddingVertical: 10 }}>
+          <Text system selectable style={{ fontSize: CHAT_FONT_SIZE, lineHeight: CHAT_LINE_HEIGHT }}>
+            {text}
+          </Text>
+        </View>
+      ) : null}
       {steered ? (
         <Text variant="caption" tone="muted" style={{ marginTop: 4 }}>
           {t('Sent into the running turn')}

@@ -75,3 +75,28 @@ test('limiti d’uso: la lettura rimette l’ora ed emette agent.status; ACP non
   assert.ok(snap.defaults['p-web'])
   host.dispose()
 })
+
+test('allegati: l’invio e la nuova sessione portano i nomi nella chat (LAD-92)', async () => {
+  const host = new FakeHost({ speed: 0.05 })
+  const events: RemoteEvent[] = []
+  host.onEvent((e) => events.push(e))
+  const idle = host.snapshot().sessions.find((s) => s.run === 'idle' && !s.archived)!.id
+  await host.handle({ type: 'session.send', sessionId: idle, text: '', attachments: [{ name: 'shot-1.jpg', mediaType: 'image/jpeg', data: 'AAAA' }] })
+  const user = events.flatMap((e) => (e.type === 'session.items' ? e.items : [])).find((i) => i.kind === 'user' && i.attachments?.length)
+  assert.ok(user && user.kind === 'user')
+  assert.deepEqual(user.attachments, [{ name: 'shot-1.jpg', mediaType: 'image/jpeg' }])
+  await assert.rejects(host.handle({ type: 'session.send', sessionId: idle, text: '  ' }), /empty/)
+  host.dispose()
+})
+
+test('comandi e ricerca dei file nella demo (LAD-92)', async () => {
+  const host = new FakeHost()
+  const commands = (await host.handle({ type: 'session.commands', sessionId: 's1' })) as { name: string }[]
+  assert.ok(commands.some((c) => c.name === 'review'))
+  const files = (await host.handle({ type: 'project.files.search', projectId: 'p-web', query: 'FILTERS', limit: 3 })) as string[]
+  assert.ok(files.length > 0 && files.length <= 3)
+  assert.ok(files.every((f) => f.toLowerCase().includes('filters')))
+  assert.equal(((await host.handle({ type: 'project.files.search', projectId: 'p-web', query: '' })) as string[]).length, 19)
+  await assert.rejects(host.handle({ type: 'project.files.search', projectId: 'nope', query: 'a' }), /not found/)
+  host.dispose()
+})

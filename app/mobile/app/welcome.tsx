@@ -5,37 +5,53 @@ import { t } from '@shared/i18n'
 import { startDemo } from '@/host/controller'
 import { useTheme } from '@/theme/theme'
 import { Button } from '@/ui/Button'
-import { introState } from '@/ui/Intro'
+import { Icon, type IconName } from '@/ui/Icon'
 import { Logo } from '@/ui/Logo'
+import { useDev } from '@/store/dev'
 import { Text } from '@/ui/Text'
+
+const CHIPS: { icon: IconName; label: () => string }[] = [
+  { icon: 'lock', label: () => t('End-to-end encrypted') },
+  { icon: 'user-off', label: () => t('No account') },
+  { icon: 'sparkle', label: () => t('Your own agents & plans') }
+]
 
 /** Prima schermata: abbinare il Mac o provare la demo (anche in produzione: è quella per App Review). */
 export default function Welcome() {
   const { c } = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const caption = __DEV__ && useDev((d) => d.welcome) === 'caption'
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 28, paddingTop: insets.top + 24, paddingBottom: 24 }}>
-        {/* Il logo col suo accento: sale a gradini solo se l'intro è già chiusa (altrimenti ha appena fatto lo stesso), poi un'onda lenta. */}
-        {/* Solo il simbolo: il nome compare già nel titolo qui sotto. */}
-        <Logo variant="mark" size={96} enter={introState.done} idle />
-        <Text variant="display" style={{ marginTop: 28 }} accessibilityRole="header">
+        {/* Colonna centrata: simbolo fermo (nessuna animazione: l'intro all'avvio ha già dato il movimento), titolo, testo e i tre punti. */}
+        <View style={{ alignItems: 'center' }}>
+          <Logo variant="mark" size={96} />
+        </View>
+        <Text variant="display" style={{ marginTop: 28, textAlign: 'center' }} accessibilityRole="header">
           {t('Ladder in your pocket')}
         </Text>
-        <Text variant="bodyL" tone="muted" style={{ marginTop: 12 }}>
+        <Text variant="bodyL" tone="muted" style={{ marginTop: 12, textAlign: 'center' }}>
           {t('See who is waiting for you, approve a request, read the reply as it arrives. Your agents keep running on your Mac.')}
         </Text>
-        <View style={{ marginTop: 20, gap: 8 }}>
-          {[t('End-to-end encrypted between your phone and your Mac'), t('Uses the agents and subscriptions you already have'), t('No account to create')].map((line) => (
-            <View key={line} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: c.accent, marginTop: 9 }} />
-              <Text variant="body" style={{ flex: 1 }}>
-                {line}
-              </Text>
-            </View>
-          ))}
-        </View>
+        {/* Tre capsule in una riga che va a capo, centrate (variante A); in sviluppo il driver può mostrare al loro posto una riga sola (B). */}
+        {caption ? (
+          <Text variant="caption" tone="muted" style={{ marginTop: 20, textAlign: 'center' }}>
+            {t('End-to-end encrypted · No account')}
+          </Text>
+        ) : (
+          <View style={{ marginTop: 20, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
+            {CHIPS.map((chip) => (
+              <View key={chip.icon} accessible accessibilityLabel={chip.label()} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, paddingHorizontal: 12, borderRadius: 16, backgroundColor: c.surface }}>
+                <Icon name={chip.icon} size={15} color={c.accent} />
+                <Text variant="caption" tone="muted">
+                  {chip.label()}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
       <View style={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16), gap: 8 }}>
         <Button label={t('Pair with your Mac')} variant="primary" onPress={() => router.push('/pair/camera')} />

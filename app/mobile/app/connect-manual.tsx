@@ -2,7 +2,7 @@
 // percorso del QR (conferma → password → nome → connessione). Raggiungibile solo nelle build di sviluppo.
 import { Redirect, useRouter } from 'expo-router'
 import { useState } from 'react'
-import { ScrollView, TextInput, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '@shared/i18n'
 import { readPairingLink } from '@/lib/pair-link'
@@ -12,6 +12,7 @@ import { RADIUS } from '@/theme/type'
 import { Button } from '@/ui/Button'
 import { ScreenHeader } from '@/ui/ScreenHeader'
 import { Text } from '@/ui/Text'
+import { TextInput } from '@/ui/TextInput'
 import { linkErrorText } from '@/ui/auth-text'
 
 export default function ConnectManual() {

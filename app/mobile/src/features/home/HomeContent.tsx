@@ -1,7 +1,7 @@
 // Home: "adesso" (cosa succede) e "sfoglia" (la mappa del Mac). Non è una copia della sidebar del desktop.
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
-import { FlatList, Pressable, TextInput, View } from 'react-native'
+import { FlatList, Pressable, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { plural, t } from '@shared/i18n'
 import type { SessionSummary } from '@shared/protocol'
@@ -19,6 +19,7 @@ import { ConnectionPill } from '@/ui/ConnectionPill'
 import { Icon } from '@/ui/Icon'
 import { SignalGlyph, StateGlyph } from '@/ui/StateGlyph'
 import { Text } from '@/ui/Text'
+import { TextInput } from '@/ui/TextInput'
 import { ProjectSessions } from '../sessions/ProjectSessions'
 import { SessionRow } from '../sessions/SessionRow'
 

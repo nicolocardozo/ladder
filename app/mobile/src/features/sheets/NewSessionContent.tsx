@@ -2,15 +2,18 @@
 // stanno nelle opzioni, chiuse, con una riga di riepilogo. I valori di partenza li decide il Mac (`RemoteSnapshot.defaults`, vedi
 // lib/new-session.ts). Un errore resta nel modulo, in chiaro, e il testo non si perde. A sessione creata si apre la sua chat
 // nella pila delle Sessioni e lo sheet si chiude.
+import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
-import { Pressable, TextInput, View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import { t } from '@shared/i18n'
 import type { AgentId, Effort, PermissionLevel } from '@shared/protocol'
 import { actions } from '@/host/actions'
 import { canAct } from '@/host/controller'
+import { commandFits } from '@/lib/attachments'
 import { focusedRoute, openSession } from '@/lib/nav'
 import { createCommand, effortName, findCreated, MAX_MESSAGE, messageError, projectSections, resolveForm, type FormInput, type Picks } from '@/lib/new-session'
+import { rememberThumb } from '@/lib/sent-thumbs'
 import { nativeSheets, useSheets } from '@/lib/sheets'
 import { useOnce } from '@/lib/use-once'
 import { useApp } from '@/store/app'
@@ -24,6 +27,11 @@ import { Icon } from '@/ui/Icon'
 import { Group, Row } from '@/ui/List'
 import { SheetTitle } from '@/ui/NativeSheet'
 import { Text } from '@/ui/Text'
+import { TextInput } from '@/ui/TextInput'
+import { AttachButton, AttachmentStrip, DictationNotice, MicButton, SuggestList, Waveform } from '../composer/parts'
+import { useAttachments } from '../composer/useAttachments'
+import { useDictation } from '../composer/useDictation'
+import { useSuggest, type Selection } from '../composer/useSuggest'
 import { levelName } from '../session/PermissionSheet'
 
 type Step = 'form' | 'project' | 'agent' | 'account' | 'model' | 'effort' | 'permission'
@@ -61,17 +69,48 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
   const [error, setError] = useState<string | null>(null)
   const input_ = useRef<ComponentRef<typeof TextInput>>(null)
   const mounted = useRef(true)
+  const att = useAttachments()
+  const [sel, setSel] = useState<Selection>({ start: text.length, end: text.length })
+  const [forced, setForced] = useState<Selection | null>(null)
+  const textRef = useRef(text)
+  textRef.current = text
   // Solo sviluppo: il driver porta il focus nel campo per provare la tastiera.
   const devFocus = useDev((d) => d.focusNewSession)
   useEffect(() => {
     if (__DEV__ && devFocus && view === 'form') setTimeout(() => input_.current?.focus(), 700)
   }, [devFocus, view])
   useEffect(() => () => void (mounted.current = false), [])
+  // Solo sviluppo: il driver scrive nel campo e allega file locali.
+  useEffect(() => {
+    if (!__DEV__) return
+    useDev.getState().setComposer((cmd) => {
+      if (cmd.text !== undefined) {
+        change(cmd.text)
+        setSel({ start: cmd.text.length, end: cmd.text.length })
+      }
+      for (const uri of cmd.images ?? []) void att.addUri(uri)
+    })
+    return () => useDev.getState().setComposer(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const change = (v: string) => {
     setText(v)
     setDraft(DRAFT_KEY, v)
     if (error) setError(null)
+  }
+  const dict = useDictation({ getText: () => textRef.current, setText: change })
+  const listening = dict.state === 'listening'
+  // Qui i comandi non ci sono (la sessione non esiste ancora): solo i file del progetto scelto.
+  const suggest = useSuggest({ projectId: values.projectId, text, selection: sel, setText: change, enabled: !sending })
+  const typed = (v: string) => {
+    if (listening) dict.stop()
+    change(v)
+    if (att.error) att.clearError()
+  }
+  const pickSuggestion = (value: string) => {
+    const cursor = suggest.choose(value, 'file')
+    if (cursor !== null) setForced({ start: cursor, end: cursor })
   }
   const pick = (patch: Picks) => {
     setPicks((p) => ({ ...p, ...patch }))
@@ -81,10 +120,12 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
 
   const project = projects.find((p) => p.id === values.projectId)
   const agentName = (agent: AgentId): string => agents.find((a) => a.agent === agent)?.name ?? agent
-  const problem = messageError(text)
-  const command = createCommand(values, text)
-  const canSend = online && !sending && !problem && !!command
-  const reason = !online ? t('Reconnect to your Mac to send.') : problem === 'long' ? t('The message is too long ({max} characters at most).', { max: MAX_MESSAGE.toLocaleString() }) : !values.agent && values.projectId ? t('No agent is available for this project.') : null
+  const problem = messageError(text, att.ready.length)
+  const payload = att.ready.map((f) => ({ name: f.name, mediaType: 'image/jpeg', data: f.base64 }))
+  const command = createCommand(values, text, payload)
+  const tooBig = !!command && !commandFits(text, att.ready)
+  const canSend = online && !sending && !att.busy && !problem && !!command && !tooBig
+  const reason = !online ? t('Reconnect to your Mac to send.') : tooBig ? t('The message and its images are too big to send together. Remove an image or shorten the text.') : problem === 'long' ? t('The message is too long ({max} characters at most).', { max: MAX_MESSAGE.toLocaleString() }) : !values.agent && values.projectId ? t('No agent is available for this project.') : null
 
   // Solo sviluppo: invio automatico per provare lo stato di invio.
   useEffect(() => {
@@ -96,6 +137,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
     if (!command || !canSend) return
     setSending(true)
     setError(null)
+    for (const f of att.ready) rememberThumb(f.name, f.uri)
     // Sessioni di prima e ora d'invio: se la risposta non arriva (timeout, collegamento caduto) la sessione può esistere lo stesso.
     const known = new Set(Object.keys(useApp.getState().sessions))
     const startedAt = Date.now()
@@ -112,6 +154,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
     // Bozza e ultimo progetto si aggiornano comunque: anche con lo sheet già chiuso la sessione è nata.
     usePrefs.getState().setLastProject(command.projectId)
     setDraft(DRAFT_KEY, '')
+    att.clear()
     if (!mounted.current) return
     // Come al tocco su una notifica (push-taps.ts): si chiude solo lo sheet, e solo dopo si apre la chat.
     if (nativeSheets() && router.canDismiss()) router.dismiss()
@@ -124,7 +167,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
       if (route?.name.startsWith('sheet/') || (route?.name.startsWith('session/') && route.params?.id === created.id)) return
       openSession(router, created.id)
     }, 450)
-  }, [command, canSend, onClose, router, setDraft])
+    }, [command, canSend, onClose, router, setDraft, att])
   const sendRef = useRef(send)
   sendRef.current = send
 
@@ -207,19 +250,47 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
         <Row label={t('Project')} value={project?.name ?? ''} onPress={() => setView('project')} last />
       </Group>
       <View style={{ marginHorizontal: 16, marginTop: 12 }}>
-        <TextInput
-          ref={input_}
-          value={text}
-          onChangeText={change}
-          placeholder={t('What should the agent do?')}
-          placeholderTextColor={c.textMuted}
-          multiline
-          editable={!sending}
-          accessibilityLabel={t('First message')}
-          textAlignVertical="top"
-          style={{ minHeight: 120, maxHeight: 240, borderRadius: RADIUS.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, color: c.text, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 12, fontSize: 17, lineHeight: 24 }}
-        />
+        <View style={{ borderRadius: RADIUS.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: listening ? c.accent : c.border }}>
+          {att.count > 0 ? (
+            <View style={{ marginHorizontal: -4 }}>
+              <AttachmentStrip items={att.items} onRemove={att.remove} disabled={sending} />
+            </View>
+          ) : null}
+          <TextInput
+            ref={input_}
+            value={text}
+            onChangeText={typed}
+            onSelectionChange={(e) => {
+              setSel(e.nativeEvent.selection)
+              if (forced) setForced(null)
+            }}
+            selection={forced ?? undefined}
+            placeholder={listening ? t('Listening…') : t('What should the agent do?')}
+            placeholderTextColor={c.textMuted}
+            multiline
+            editable={!sending}
+            accessibilityLabel={t('First message')}
+            textAlignVertical="top"
+            style={{ minHeight: 96, maxHeight: 220, color: c.text, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4, fontSize: 17, lineHeight: 24 }}
+          />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingBottom: 4 }}>
+            <AttachButton onPick={(source) => void att.pick(source)} hasClipboardImage={() => Clipboard.hasImageAsync()} disabled={sending} full={att.count >= 3} />
+            <View style={{ flex: 1, alignItems: 'center' }}>{listening ? <Waveform color={c.accent} /> : null}</View>
+            <MicButton state={dict.state} onStart={() => void dict.start()} onStop={dict.stop} disabled={sending} />
+          </View>
+        </View>
       </View>
+      {suggest.trigger ? (
+        <View style={{ marginHorizontal: 4 }}>
+          <SuggestList kind="file" commands={[]} files={suggest.files} loading={suggest.loading} failed={suggest.failed} query={suggest.trigger.query} onCommand={() => {}} onFile={pickSuggestion} />
+        </View>
+      ) : null}
+      {dict.problem ? <DictationNotice problem={dict.problem} onDismiss={dict.dismiss} onSettings={dict.openSettings} onDownload={(l) => void dict.downloadModel(l)} /> : null}
+      {att.error ? (
+        <Text variant="caption" tone="error" accessibilityRole="alert" style={{ paddingHorizontal: 20, paddingTop: 8 }}>
+          {att.error}
+        </Text>
+      ) : null}
       <Pressable
         onPress={() => setOpen((o) => !o)}
         accessibilityRole="button"

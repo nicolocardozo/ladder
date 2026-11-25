@@ -24,6 +24,13 @@ export type IconName =
   | 'alert'
   | 'refresh'
   | 'gauge'
+  | 'mic'
+  | 'image'
+  | 'clipboard'
+  | 'file'
+  | 'slash'
+  | 'user-off'
+  | 'sparkle'
 
 interface Props {
   name: IconName
@@ -131,6 +138,49 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.75 }: Props) {
       break
     case 'refresh':
       body = <Path d="M19 12a7 7 0 11-2.1-5M19 4.5V8h-3.5" {...p} />
+      break
+    case 'mic':
+      body = (
+        <>
+          <Rect x="9" y="4" width="6" height="10.5" rx="3" {...p} />
+          <Path d="M6 11.5a6 6 0 0012 0M12 17.5V20.5" {...p} />
+        </>
+      )
+      break
+    case 'image':
+      body = (
+        <>
+          <Rect x="4" y="5" width="16" height="14" rx="2.5" {...p} />
+          <Circle cx="9" cy="10" r="1.5" {...p} />
+          <Path d="M4.5 17l4.5-4.5 3.5 3.5 2.5-2.5 4.5 4" {...p} />
+        </>
+      )
+      break
+    case 'clipboard':
+      body = (
+        <>
+          <Rect x="6" y="5.5" width="12" height="14.5" rx="2.5" {...p} />
+          <Path d="M9.5 5.5V5a1 1 0 011-1h3a1 1 0 011 1v.5M9.5 11h5M9.5 14.5h5" {...p} />
+        </>
+      )
+      break
+    case 'file':
+      body = <Path d="M7 4h6.5L18 8.5V19a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 016 19V5.5A1.5 1.5 0 017 4zM13.5 4v4.5H18" {...p} />
+      break
+    case 'slash':
+      body = <Path d="M15.5 4.5l-7 15" {...p} />
+      break
+    case 'user-off':
+      body = (
+        <>
+          <Circle cx="12" cy="9" r="3.2" {...p} />
+          <Path d="M5.5 19.5c.6-3.3 3.2-5 6.5-5s5.9 1.7 6.5 5" {...p} />
+          <Path d="M4.5 4.5l15 15" {...p} />
+        </>
+      )
+      break
+    case 'sparkle':
+      body = <Path d="M12 4.5l1.9 5.6 5.6 1.9-5.6 1.9L12 19.5l-1.9-5.6-5.6-1.9 5.6-1.9L12 4.5z" {...p} />
       break
     case 'gauge':
       body = (

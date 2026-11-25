@@ -10,7 +10,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ChatItem, HostEvent } from '../src/shared/protocol.ts'
+import type { ChatItem, HostEvent, SlashCommand } from '../src/shared/protocol.ts'
 import { openDb } from '../src/host/db.ts'
 import { RemoteAccess } from '../src/host/remote/access.ts'
 import { RemoteGateway, type RemoteHostApi } from '../src/host/remote/gateway.ts'
@@ -50,6 +50,16 @@ const snapshot = {
 } as unknown as Extract<HostEvent, { type: 'snapshot' }>
 
 let created_n = 1
+// LAD-92: comandi della sessione e file del progetto finti, per provare `/` e `@` dal telefono.
+const slashCommands: SlashCommand[] = [
+  { name: 'compact', description: 'Compact the conversation', hint: null, source: 'builtin' },
+  { name: 'review', description: 'Review the uncommitted changes', hint: '[instructions]', source: 'builtin' },
+  { name: 'init', description: 'Create a CLAUDE.md for this project', hint: null, source: 'builtin' },
+  { name: 'ship', description: 'Run the checks and open a pull request', hint: '[title]', source: 'custom' },
+  { name: 'simplify', description: 'Simplify the changed code', hint: null, source: 'skill' }
+]
+const fakeFiles = ['README.md', 'package.json', 'tsconfig.json', ...Array.from({ length: 300 }, (_, i) => `src/${['host', 'renderer', 'shared', 'main'][i % 4]}/module-${i}.ts`), 'src/host/remote/gateway.ts', 'src/host/remote/allowlist.ts', 'docs/remote.md']
+const describeAttachments = (list: { name: string; mediaType: string; data: string }[] | undefined) => (list ?? []).map((a) => `${a.name} (${a.mediaType}, ${Math.round((a.data.length * 3) / 4 / 1024)} KB)`)
 const host: RemoteHostApi = {
   snapshot: async () => snapshot,
   handle: async (command) => {
@@ -62,13 +72,27 @@ const host: RemoteHostApi = {
       console.log(`[harness] agents.usage read (provider hit) for ${command.agent}`)
       return { ...snapshot.agents[0], usageAt: Date.now() }
     }
+    if (command.type === 'session.commands') return slashCommands
+    if (command.type === 'session.send') {
+      console.log(`[harness] session.send ${command.sessionId} text=<${command.text.length} chars> attachments=${JSON.stringify(describeAttachments(command.attachments))}`)
+      const n = items.length + 1
+      const item = { ...base, id: `i${n}`, seq: n, kind: 'user', text: command.text, ...(command.attachments?.length ? { attachments: command.attachments.map((a) => ({ name: a.name, mediaType: a.mediaType })) } : {}) } as unknown as ChatItem
+      items.push(item)
+      gateway.broadcast({ type: 'session.items', sessionId: command.sessionId, items: [item], replace: false } as unknown as HostEvent)
+      return null
+    }
     if (command.type === 'session.create') {
-      console.log(`[harness] session.create ${JSON.stringify({ ...command, text: `<${command.text.length} chars>` })}`)
+      console.log(`[harness] session.create attachments=${JSON.stringify(describeAttachments(command.attachments))}`)
+      console.log(`[harness] session.create ${JSON.stringify({ ...command, text: `<${command.text.length} chars>`, attachments: undefined })}`)
       const created = { id: `s${++created_n}`, projectId: command.projectId, title: command.text.slice(0, 40), agent: command.agent, run: 'running' }
       gateway.broadcast({ type: 'session.upsert', session: created } as unknown as HostEvent)
       return created
     }
     return null
+  },
+  projectFiles: async (projectId) => {
+    if (projectId !== 'p1') throw new Error('Project not found.')
+    return fakeFiles
   },
   checkCreate: async (command) => {
     if (command.projectId !== 'p1') throw new Error('Project not found.')

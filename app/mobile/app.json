@@ -13,7 +13,7 @@
       "supportsTablet": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": true,
-        "NSCameraUsageDescription": "Ladder uses the camera to scan the pairing code shown on your Mac.",
+        "NSCameraUsageDescription": "Ladder uses the camera to scan the pairing code shown on your Mac and to take photos to send to your agent.",
         "UIViewControllerBasedStatusBarAppearance": false
       },
       "icon": {
@@ -51,9 +51,24 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac.",
+          "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac and to take photos to send to your agent.",
           "recordAudioAndroid": false,
-          "microphonePermission": false
+          "microphonePermission": "Ladder uses the microphone to dictate messages. Speech is recognized on your phone and never leaves it."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ladder reads the photos you choose to send to your agent.",
+          "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac and to take photos to send to your agent.",
+          "microphonePermission": "Ladder uses the microphone to dictate messages. Speech is recognized on your phone and never leaves it."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Ladder uses the microphone to dictate messages. Speech is recognized on your phone and never leaves it.",
+          "speechRecognitionPermission": "Ladder uses on-device speech recognition to turn your voice into text. Nothing is sent to a server."
         }
       ],
       [
