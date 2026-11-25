@@ -1,26 +1,26 @@
-// Notifiche push ai telefoni (LAD-53), direttamente al servizio di Expo (→ APNs / FCM): nessun server nostro.
-// Il contenuto è generico (titolo "Ladder" + una frase per tipo di evento): nomi di progetti e testi non passano mai da Expo,
-// Apple o Google; il telefono, al tocco, legge i dettagli dal canale cifrato. I token non si scrivono mai interi nel log.
-// Nessun access token di Expo: serve solo con "enhanced security" acceso nel progetto Expo, che qui non è previsto.
-// Import relativi: il file è provato con `node --test` (con un fetch finto: i test non chiamano mai Expo).
+// Push notifications to phones, sent straight to Expo's service (→ APNs / FCM): no server of ours.
+// Content is generic (title "Ladder" + one sentence per event type): project names and texts never go through Expo,
+// Apple or Google; on tap, the phone reads the details from the encrypted channel. Tokens are never written in full to the log.
+// No Expo access token: it is only needed with "enhanced security" on in the Expo project, which is not planned here.
+// Relative imports: the file is tested with `node --test` (with a fake fetch: tests never call Expo).
 import { REMOTE_PUSH_CHANNEL, REMOTE_PUSH_TITLE, type PushEvent, type RemotePushData } from '../../shared/protocol.ts'
 import type { DeviceRow, RemoteAccess } from './access.ts'
 import { pushBody, wantsPush } from './push-policy.ts'
 
 export const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
 export const EXPO_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts'
-/** Limiti di Expo: 100 messaggi per richiesta di invio, 1000 id per richiesta di ricevute. */
+/** Expo limits: 100 messages per send request, 1000 ids per receipts request. */
 export const MAX_BATCH = 100
 const MAX_RECEIPT_BATCH = 1000
 const TIMEOUT_MS = 15_000
-/** Le ricevute si leggono dopo ~15 minuti (Expo le tiene 24 ore); al massimo tante in attesa. */
+/** Receipts are read after ~15 minutes (Expo keeps them 24 hours); at most this many pending. */
 export const RECEIPT_DELAY_MS = 15 * 60_000
 const MAX_PENDING_RECEIPTS = 500
-/** Dopo MessageRateExceeded (o un 429) non si manda nulla per questo tempo: i push persi non si ritentano (niente tempeste). */
+/** After MessageRateExceeded (or a 429) nothing is sent for this long: lost pushes are not retried (no storms). */
 export const BACKOFF_MS = 60_000
-/** Un push in più per lo stesso evento (per esempio errore segnalato da due punti) entro questa finestra si scarta. */
+/** An extra push for the same event (for example an error reported from two places) within this window is dropped. */
 const DEDUPE_MS = 5_000
-/** Scadenza del push se il telefono è irraggiungibile: una richiesta più vecchia di un'ora non serve più. */
+/** Push expiry if the phone is unreachable: a request older than an hour is no longer useful. */
 const TTL_SECONDS = 3600
 
 export type FetchLike = (url: string, init: { method: 'POST'; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>
@@ -43,7 +43,7 @@ interface Ticket {
   details?: { error?: string }
 }
 
-/** `ExponentPushToken[abcd…]`: dei token si vede solo l'inizio. */
+/** `ExponentPushToken[abcd…]`: only the start of a token is shown. */
 export function maskToken(token: string): string {
   const inner = /^(Expo(?:nent)?PushToken)\[(.*)\]$/.exec(token)
   return inner ? `${inner[1]}[${inner[2].slice(0, 4)}…]` : `${token.slice(0, 4)}…`
@@ -53,9 +53,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 export interface PushServiceOptions {
   access: Pick<RemoteAccess, 'pushTargets' | 'clearPushToken' | 'enabled'>
-  /** Id del Mac per `RemotePushData.mac`. */
+  /** Mac id for `RemotePushData.mac`. */
   macId: () => string
-  /** Dispositivi con l'app in primo piano adesso (RemoteGateway.foregroundDevices). */
+  /** Devices with the app in the foreground right now (RemoteGateway.foregroundDevices). */
   foreground: () => ReadonlySet<string>
   fetch?: FetchLike
   now?: () => number
@@ -84,7 +84,7 @@ export class PushService {
     this.options.log?.(`push: ${message}`)
   }
 
-  /** Dispositivi a cui mandare questo evento adesso: con token, evento voluto, fuori dalla fascia silenziosa, app non in primo piano. */
+  /** Devices to send this event to now: with a token, event wanted, outside quiet hours, app not in the foreground. */
   targets(event: PushEvent): DeviceRow[] {
     if (!this.options.access.enabled) return []
     const at = this.now()
@@ -92,7 +92,7 @@ export class PushService {
     return this.options.access.pushTargets().filter((d) => d.pushToken !== null && !foreground.has(d.id) && wantsPush(d.notify, event.kind, at))
   }
 
-  /** Un evento deciso dal main: lo manda ai dispositivi giusti. Non lancia mai. */
+  /** An event decided by main: sends it to the right devices. Never throws. */
   async notify(event: PushEvent): Promise<void> {
     try {
       const at = this.now()
@@ -110,10 +110,10 @@ export class PushService {
     }
   }
 
-  /** Spedisce a Expo in gruppi da 100 e gestisce gli esiti per messaggio. Non lancia mai. */
+  /** Sends to Expo in groups of 100 and handles the outcome of each message. Never throws. */
   async send(messages: ExpoMessage[]): Promise<void> {
     for (let i = 0; i < messages.length; i += MAX_BATCH) {
-      // In pausa (anche scattata da un gruppo precedente): il resto si scarta.
+      // Paused (even if triggered by a previous group): the rest is dropped.
       if (this.now() < this.pausedUntil) {
         this.log(`paused (rate limit), dropping ${messages.length - i} message(s)`)
         return
@@ -138,7 +138,7 @@ export class PushService {
         }
         this.handleTickets(batch, tickets)
       } catch (error) {
-        // Rete assente o scaduta: il push si perde, il prossimo evento riprova.
+        // Network absent or timed out: the push is lost, the next event retries.
         this.log(`send failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
@@ -160,7 +160,7 @@ export class PushService {
         this.pausedUntil = this.now() + BACKOFF_MS
         this.log('MessageRateExceeded, pausing')
       } else if (code === 'InvalidCredentials') {
-        // Credenziali APNs/FCM del progetto Expo: non dipende dal token, quindi i token restano. Una volta sola nel log.
+        // APNs/FCM credentials of the Expo project: independent of the token, so tokens stay. Logged once only.
         if (!this.warnedCredentials) this.log('InvalidCredentials: the Expo project push credentials are not valid (tokens kept)')
         this.warnedCredentials = true
       } else if (code === 'MessageTooBig') {
@@ -183,7 +183,7 @@ export class PushService {
     }
   }
 
-  /** Legge le ricevute dei messaggi di almeno 15 minuti fa: un DeviceNotRegistered toglie il token. Non lancia mai. */
+  /** Reads the receipts of messages at least 15 minutes old: a DeviceNotRegistered removes the token. Never throws. */
   async pollReceipts(): Promise<void> {
     const at = this.now()
     const due = this.pending.filter((p) => at - p.at >= RECEIPT_DELAY_MS)
@@ -231,8 +231,8 @@ function firstError(body: unknown): string {
 }
 
 /**
- * Il messaggio per un dispositivo. iOS: suono predefinito. Android: canale `sessions` (lo crea l'app) e priorità alta.
- * Expo non espone threadId né collapseId: nessun raggruppamento per sessione (lo farà l'app, se serve, dai `data`).
+ * The message for a device. iOS: default sound. Android: `sessions` channel (created by the app) and high priority.
+ * Expo exposes neither threadId nor collapseId: no per-session grouping (the app can do it from `data`, if needed).
  */
 export function message(device: Pick<DeviceRow, 'pushToken' | 'locale'>, event: PushEvent, mac: string): ExpoMessage {
   return {

@@ -1,5 +1,5 @@
-// RemoteSession: handshake Noise + messaggi JSON cifrati, uguale sui due lati (Mac e telefono).
-// Il trasporto (WebSocket, relay) porta i byte: un messaggio Noise per messaggio di trasporto.
+// RemoteSession: Noise handshake + encrypted JSON messages, identical on both sides (Mac and phone).
+// The transport (WebSocket, relay) carries the bytes: one Noise message per transport message.
 import {
   REMOTE_MAX_COMMAND,
   REMOTE_MAX_MESSAGE,
@@ -19,7 +19,7 @@ function toJson<T>(bytes: Uint8Array): T {
   return JSON.parse(decoder.decode(bytes)) as T
 }
 
-/** Una sessione cifrata già stabilita. Qualunque errore di `open` va trattato chiudendo la connessione. */
+/** An already established encrypted session. Any `open` error must be handled by closing the connection. */
 export class RemoteSession {
   private readonly transport: NoiseTransport
   private readonly reassembler: FrameReassembler
@@ -29,20 +29,20 @@ export class RemoteSession {
     this.reassembler = new FrameReassembler(maxMessage)
   }
 
-  /** JSON → messaggi Noise da spedire, nell'ordine. */
+  /** JSON → Noise messages to send, in order. */
   seal(message: unknown): Uint8Array[] {
     return splitFrames(JSON.stringify(message)).map((frame) => this.transport.encrypt(frame))
   }
 
-  /** Byte (UTF-8) dell'ultimo messaggio ricomposto da `open`, come li ha contati il ricompositore. */
+  /** Bytes (UTF-8) of the last message reassembled by `open`, as counted by the reassembler. */
   lastSize = 0
 
-  /** LAD-92: cambia il limite dei messaggi in arrivo; il gateway lo alza dopo l'autenticazione. */
+  /** Changes the limit on incoming messages; the gateway raises it after authentication. */
   setMaxInbound(maxMessage: number): void {
     this.reassembler.setMax(maxMessage)
   }
 
-  /** Un messaggio Noise ricevuto → il JSON ricomposto, o null se il messaggio continua nel frame dopo. */
+  /** A received Noise message → the reassembled JSON, or null if the message continues in the next frame. */
   open<T>(bytes: Uint8Array): T | null {
     const text = this.reassembler.push(this.transport.decrypt(bytes))
     if (text === null) return null
@@ -55,7 +55,7 @@ export class RemoteSession {
   }
 }
 
-/** Lato telefono. `start()` dà il primo messaggio; `finish(msg2)` dà la sessione e l'hello del Mac. */
+/** Phone side. `start()` gives the first message; `finish(msg2)` gives the session and the Mac's hello. */
 export function clientHandshake(options: { macPublicKey: Uint8Array; hello: Omit<RemoteClientHello, 'v'>; ephemeral?: NoiseKeyPair }) {
   const noise = new NoiseInitiator({ prologue, remoteStatic: options.macPublicKey, ephemeral: options.ephemeral })
   return {
@@ -72,7 +72,7 @@ export function clientHandshake(options: { macPublicKey: Uint8Array; hello: Omit
   }
 }
 
-/** Lato Mac: legge il primo messaggio, controlla la versione e risponde con il proprio hello. */
+/** Mac side: reads the first message, checks the version and replies with its own hello. */
 export function serverHandshake(options: { identity: NoiseKeyPair; hello: Omit<RemoteServerHello, 'v'>; ephemeral?: NoiseKeyPair; maxInbound?: number }) {
   const noise = new NoiseResponder({ prologue, staticKey: options.identity, ephemeral: options.ephemeral })
   return {

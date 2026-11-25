@@ -1,10 +1,10 @@
-// Solo sviluppo: server locale che passa comandi all'app (screenshot e prove senza toccare lo schermo).
-//   node scripts/dev-driver.mjs            # in ascolto su 127.0.0.1:8099
+// Development only: local server that passes commands to the app (screenshots and tests without touching the screen).
+//   node scripts/dev-driver.mjs            # listens on 127.0.0.1:8099
 //   curl -s localhost:8099/cmd -d '{"demo":true,"theme":"daylight","route":"/session/s2","sheet":"request"}'
-// L'app (solo __DEV__, src/dev-driver.ts) legge GET /cmd ogni secondo ed esegue ogni comando nuovo.
+// The app (__DEV__ only, src/dev-driver.ts) reads GET /cmd every second and runs every new command.
 import { createServer } from 'node:http'
 
-// Porta: 8099, o DEV_DRIVER_PORT (con la stessa EXPO_PUBLIC_DEV_DRIVER_PORT per l'app).
+// Port: 8099, or DEV_DRIVER_PORT (with the same EXPO_PUBLIC_DEV_DRIVER_PORT for the app).
 const PORT = Number(process.env.DEV_DRIVER_PORT ?? 8099)
 let current = { id: 0 }
 createServer((req, res) => {
@@ -19,4 +19,4 @@ createServer((req, res) => {
   }
   res.setHeader('content-type', 'application/json')
   res.end(JSON.stringify(current))
-}).listen(PORT, '127.0.0.1', () => console.log(`dev-driver su 127.0.0.1:${PORT} (l'emulatore Android lo raggiunge come 10.0.2.2)`))
+}).listen(PORT, '127.0.0.1', () => console.log(`dev-driver on 127.0.0.1:${PORT} (the Android emulator reaches it as 10.0.2.2)`))

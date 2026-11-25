@@ -1,16 +1,16 @@
-// Dettatura sul telefono con SpeechAnalyzer (iOS 26): modulo nativo locale. Su iOS precedenti e su Android non c'è (`null`):
-// lì si usa expo-speech-recognition (src/features/composer/useDictation.ts).
+// On-phone dictation with SpeechAnalyzer (iOS 26): local native module. On earlier iOS and on Android it is absent (`null`):
+// there expo-speech-recognition is used (src/features/composer/useDictation.ts).
 import { requireOptionalNativeModule } from 'expo'
 
-/** `installed`: pronto. `supported`: si può scaricare. `downloading`: già in scarico. `unsupported`: la lingua non c'è. */
+/** `installed`: ready. `supported`: can be downloaded. `downloading`: already downloading. `unsupported`: the language isn't available. */
 export type AssetStatus = 'installed' | 'supported' | 'downloading' | 'unsupported'
 
 export type LadderSpeechEvents = {
-  /** Trascrizione corrente: `isFinal` chiude la frase (le provvisorie arrivano mentre si parla). */
+  /** Current transcript: `isFinal` closes the sentence (interim ones arrive while speaking). */
   result: (e: { text: string; isFinal: boolean }) => void
-  /** Livello del microfono, 0..1. */
+  /** Microphone level, 0..1. */
   level: (e: { level: number }) => void
-  /** Avanzamento del download del modello, 0..1. */
+  /** Model download progress, 0..1. */
   progress: (e: { fraction: number }) => void
   end: () => void
   error: (e: { message: string }) => void
@@ -18,20 +18,20 @@ export type LadderSpeechEvents = {
 
 export interface LadderSpeechModule {
   addListener<K extends keyof LadderSpeechEvents>(name: K, listener: LadderSpeechEvents[K]): { remove(): void }
-  /** iOS 26 con il trascrittore disponibile su questo dispositivo. */
+  /** iOS 26 with the transcriber available on this device. */
   isAvailable(): boolean
-  /** Stato del modello della lingua e, se il sistema lo dice, i byte da scaricare. */
+  /** Language model status and, if the system reports it, the bytes to download. */
   assetStatus(locale: string): Promise<{ status: AssetStatus; bytes: number | null }>
-  /** Scarica e installa il modello della lingua (eventi `progress`). Risolve a modello pronto. */
+  /** Downloads and installs the language model (`progress` events). Resolves when the model is ready. */
   install(locale: string): Promise<void>
-  /** Permesso del microfono: `granted`, `denied` o `undetermined`. */
+  /** Microphone permission: `granted`, `denied` or `undetermined`. */
   micPermission(): Promise<'granted' | 'denied' | 'undetermined'>
   requestMic(): Promise<boolean>
-  /** Inizia ad ascoltare: eventi `result`, `level`, `end`, `error`. */
+  /** Starts listening: `result`, `level`, `end`, `error` events. */
   start(locale: string, contextualStrings: string[]): Promise<void>
-  /** Ferma e conclude la frase in corso (arriva l'ultimo `result` finale, poi `end`). */
+  /** Stops and finishes the sentence in progress (the last final `result` arrives, then `end`). */
   stop(): Promise<void>
-  /** Ferma subito, senza risultato finale. */
+  /** Stops immediately, without a final result. */
   abort(): void
 }
 

@@ -1,6 +1,6 @@
-// Copia locale cifrata per leggere le chat senza connessione. Le chat sono dati sensibili (codice, comandi): in AsyncStorage
-// finirebbero in chiaro, e nei backup. Qui il testo è cifrato con ChaCha20-Poly1305 (@noble/ciphers, lo stesso del canale)
-// e la chiave sta nel portachiavi, solo su questo dispositivo e solo a telefono sbloccato.
+// Encrypted local copy to read chats offline. Chats are sensitive data (code, commands): in AsyncStorage
+// they would end up in plain text, and in backups. Here the text is encrypted with ChaCha20-Poly1305 (@noble/ciphers, same as the channel)
+// and the key lives in the keychain, only on this device and only while the phone is unlocked.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { chacha20poly1305 } from '@noble/ciphers/chacha.js'
 import * as SecureStore from 'expo-secure-store'
@@ -14,7 +14,7 @@ const decoder = new TextDecoder('utf-8', { fatal: true })
 
 function toBase64(bytes: Uint8Array): string {
   let bin = ''
-  // A blocchi: String.fromCharCode con troppi argomenti sfora lo stack.
+  // In chunks: String.fromCharCode with too many arguments overflows the stack.
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
   return btoa(bin)
 }
@@ -55,12 +55,12 @@ export async function readSecureCache<T>(): Promise<T | null> {
     const plain = chacha20poly1305(k, bytes.subarray(0, NONCE_LEN)).decrypt(bytes.subarray(NONCE_LEN))
     return JSON.parse(decoder.decode(plain)) as T
   } catch {
-    // Chiave persa, dato corrotto o cache vecchia: si riparte da zero.
+    // Lost key, corrupted data or stale cache: start from scratch.
     return null
   }
 }
 
-/** Cancella la copia e la chiave (scollegamento, "Forget this Mac"). */
+/** Deletes the copy and the key (disconnect, "Forget this Mac"). */
 export async function clearSecureCache(): Promise<void> {
   await AsyncStorage.removeItem(CACHE_KEY).catch(() => {})
   await AsyncStorage.removeItem('ladder-cache-v1').catch(() => {})

@@ -1,4 +1,4 @@
-// Testi derivati dallo stato: etichette, età, durate. Usa l'i18n condiviso.
+// State-derived texts: labels, ages, durations. Uses the shared i18n.
 import { t } from '@shared/i18n'
 import type { SessionState } from './session-state.ts'
 
@@ -30,7 +30,7 @@ export function relativeAge(at: number, now = Date.now()): string {
   return days === 1 ? t('yesterday') : t('{n} d', { n: days })
 }
 
-/** "2 min 14 s" per durate di turni e tempi di disconnessione. */
+/** "2 min 14 s" for turn durations and disconnection times. */
 export function duration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
   if (s < 60) return t('{n} s', { n: s })

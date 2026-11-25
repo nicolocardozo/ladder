@@ -1,5 +1,5 @@
-// Miniature delle immagini appena inviate (LAD-92): il Mac riporta in chat solo nome e tipo dell'allegato, non i dati.
-// Il telefono ricorda la miniatura locale per nome (unico a ogni invio) e la mostra nel messaggio; senza, resta il nome.
+// Thumbnails of images just sent: the Mac reports only the attachment's name and type back in the chat, not the data.
+// The phone remembers the local thumbnail by name (unique per send) and shows it in the message; without it, the name remains.
 const thumbs = new Map<string, string>()
 const MAX = 60
 

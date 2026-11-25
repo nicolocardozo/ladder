@@ -1,4 +1,4 @@
-// Canale remoto (LAD-51): comandi della finestra, stato, rigenerazione della chiave. WebSocket locale su porta libera, niente relay.
+// Remote channel: window commands, state, key regeneration. Local WebSocket on a free port, no relay.
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -26,7 +26,7 @@ function setup() {
   return { channel, statuses, dir }
 }
 
-test('canale spento: niente QR, stato senza impronta né identità creata', async () => {
+test('channel off: no QR, status without fingerprint or created identity', async () => {
   delete process.env.LADDER_REMOTE_PORT
   delete process.env.LADDER_RELAY_URL
   const { channel, dir } = setup()
@@ -40,14 +40,14 @@ test('canale spento: niente QR, stato senza impronta né identità creata', asyn
   await channel.close()
 })
 
-test('QR, password, revoca e rigenerazione della chiave', async () => {
+test('QR, password, revocation and key regeneration', async () => {
   process.env.LADDER_REMOTE_PORT = '0'
   delete process.env.LADDER_RELAY_URL
   try {
     const { channel, statuses } = setup()
     await channel.configure({ enabled: false, relayUrl: null, allowFull: false })
     const status = channel.status()
-    assert.equal(status.enabled, true) // in sviluppo basta LADDER_REMOTE_PORT
+    assert.equal(status.enabled, true) // in development LADDER_REMOTE_PORT is enough
     assert.equal(status.allowFull, false)
     assert.ok(status.fingerprint)
 
@@ -66,7 +66,7 @@ test('QR, password, revoca e rigenerazione della chiave', async () => {
     await assert.rejects(() => channel.handleCommand({ type: 'remote.password.set', password: 'x' }), /between/)
     await channel.handleCommand({ type: 'remote.password.set', password: null })
 
-    // Un dispositivo finto (riga nel database) si rinomina e si revoca; uno sconosciuto dà errore.
+    // A fake device (row in the database) can be renamed and revoked; an unknown one gives an error.
     const device = (channel.access as unknown as { insertDevice(k: string, n: string, p: 'ios'): { id: string } }).insertDevice('K'.repeat(43), 'Old name', 'ios')
     await channel.handleCommand({ type: 'remote.device.rename', deviceId: device.id, name: '  Zoë’s iPhone ' })
     assert.equal(channel.status().devices[0].name, 'Zoë’s iPhone')
@@ -74,7 +74,7 @@ test('QR, password, revoca e rigenerazione della chiave', async () => {
     assert.equal(channel.status().devices.length, 0)
     await assert.rejects(() => channel.handleCommand({ type: 'remote.device.revoke', deviceId: 'nope' }), /not found/)
 
-    // Rigenerazione: impronta nuova, dispositivi revocati, codice annullato.
+    // Regeneration: new fingerprint, revoked devices, cancelled code.
     const second = (channel.access as unknown as { insertDevice(k: string, n: string, p: 'ios'): { id: string } }).insertDevice('L'.repeat(43), 'Phone', 'ios')
     await channel.handleCommand({ type: 'remote.pair.start' })
     const before = channel.status().fingerprint
@@ -85,7 +85,7 @@ test('QR, password, revoca e rigenerazione della chiave', async () => {
     assert.equal(after.pairing, null)
     assert.equal(channel.access.device(second.id)?.revokedAt !== null, true)
     assert.ok(statuses.length > 5)
-    // Il nuovo QR usa la chiave nuova.
+    // The new QR uses the new key.
     const again = (await channel.handleCommand({ type: 'remote.pair.start' })) as RemotePairStart
     assert.equal(again.fingerprint, after.fingerprint)
     assert.deepEqual((await channel.handleCommand({ type: 'remote.log.list' })) as unknown, { entries: [], hasMore: false })
@@ -97,17 +97,17 @@ test('QR, password, revoca e rigenerazione della chiave', async () => {
 
 const decodeKey = (text: string): Uint8Array => new Uint8Array(Buffer.from(text, 'base64url'))
 
-test('QR senza strada per il Mac: errore tradotto invece di un QR inutile', async () => {
+test('QR without a route to the Mac: translated error instead of a useless QR', async () => {
   delete process.env.LADDER_REMOTE_PORT
   delete process.env.LADDER_RELAY_URL
   const { channel } = setup()
-  // Relay con indirizzo non valido: non parte, e non c'è il WebSocket locale.
+  // Relay with an invalid address: it does not start, and there is no local WebSocket.
   await channel.configure({ enabled: true, relayUrl: 'http://not-a-relay.example' })
   await assert.rejects(() => channel.handleCommand({ type: 'remote.pair.start' }), /Cannot reach the relay/)
   await channel.close()
 })
 
-test('QR e rigenerazione in fila: il QR non nasce con la chiave vecchia', async () => {
+test('QR and regeneration in sequence: the QR is not built with the old key', async () => {
   process.env.LADDER_REMOTE_PORT = '0'
   try {
     const { channel } = setup()
@@ -122,11 +122,11 @@ test('QR e rigenerazione in fila: il QR non nasce con la chiave vecchia', async 
   }
 })
 
-test('rigenerare la chiave non si blocca con il relay irraggiungibile (l\'avviso "rekeyed" è al meglio)', async () => {
+test('regenerating the key does not hang when the relay is unreachable (the "rekeyed" notice is best effort)', async () => {
   delete process.env.LADDER_REMOTE_PORT
   delete process.env.LADDER_RELAY_URL
   const { channel } = setup()
-  // Porta chiusa: il client del relay non si collega mai, quindi l'avviso non può partire.
+  // Closed port: the relay client never connects, so the notice cannot be sent.
   await channel.configure({ enabled: true, relayUrl: 'ws://127.0.0.1:1' })
   const before = channel.status().fingerprint
   const started = Date.now()

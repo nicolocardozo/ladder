@@ -2,7 +2,7 @@ import { MacContent } from '@/features/mac/MacContent'
 import { NativeSheet, SheetTitle } from '@/ui/NativeSheet'
 import { t } from '@shared/i18n'
 
-// Il Mac e la connessione sopra la Home: si chiude e si torna lì (niente salto alle Impostazioni).
+// The Mac and the connection above the Home: it closes and you go back there (no jump to Settings).
 export default function MacRoute() {
   return (
     <NativeSheet fit>

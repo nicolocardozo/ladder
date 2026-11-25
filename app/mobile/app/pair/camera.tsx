@@ -5,7 +5,7 @@ import { t } from '@shared/i18n'
 import { PairStep } from '@/features/pair/PairStep'
 import { Button } from '@/ui/Button'
 
-/** Spiegazione del permesso della fotocamera, prima della richiesta di sistema. */
+/** Explanation of the camera permission, before the system request. */
 export default function CameraStep() {
   const router = useRouter()
   const [permission, request] = useCameraPermissions()

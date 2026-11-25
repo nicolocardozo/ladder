@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   openGraph: { url: "/privacy" },
 }
 
-// Da aggiornare a ogni cambio che tocca i dati (analytics, aggiornamenti automatici, nuovi servizi)
+// To be updated on every change that touches data (analytics, automatic updates, new services)
 const UPDATED = "2026-11-24"
 
 export default function Page() {

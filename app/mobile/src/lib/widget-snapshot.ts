@@ -1,12 +1,12 @@
-// Dati del widget "Agent activity" (LAD-93): quante sessioni lavorano, quante aspettano te e i titoli di quelle che aspettano.
-// Li scrive l'app (nel gruppo condiviso, dove li legge l'estensione) a ogni cambio dello stato; il widget non ha rete.
-// Solo logica pura, provata con node --test.
+// Data of the "Agent activity" widget: how many sessions are working, how many are waiting for you and the titles of the waiting ones.
+// The app writes them (in the shared group, where the extension reads them) on every state change; the widget has no network.
+// Pure logic only, tested with node --test.
 import type { Project, SessionSummary } from '../../../desktop/src/shared/protocol.ts'
 import { sessionState } from './session-state.ts'
 
-/** Dopo tanto senza aggiornamenti il widget non dice più che qualcosa lavora: mostra "Updated 12 min ago". */
+/** After so long without updates the widget no longer says something is working: it shows "Updated 12 min ago". */
 export const WIDGET_STALE_AFTER_MS = 10 * 60_000
-/** Quanti titoli in attesa si mostrano (il widget medio ne ha posto per tre). */
+/** How many waiting titles are shown (the medium widget has room for three). */
 export const WIDGET_TOP = 3
 
 export interface WidgetTop {
@@ -16,20 +16,20 @@ export interface WidgetTop {
 }
 
 export interface WidgetSnapshot {
-  /** Quando l'app l'ha scritto (ms). */
+  /** When the app wrote it (ms). */
   updatedAt: number
-  /** Il Mac risponde: senza, i numeri sono l'ultima cosa nota. */
+  /** The Mac responds: without it, the numbers are the last thing known. */
   connected: boolean
   working: number
   waiting: number
-  /** Sessioni in attesa, dalla più vecchia: i titoli stanno solo sul telefono, in questo gruppo condiviso. */
+  /** Waiting sessions, oldest first: titles live only on the phone, in this shared group. */
   top: WidgetTop[]
 }
 
 export interface SnapshotOptions {
-  /** Scrivere anche titoli e progetti (spento di serie): fuori dalla cache cifrata, e nei backup. Spento, non si scrive alcun titolo. */
+  /** Also write titles and projects (off by default): outside the encrypted cache, and in backups. When off, no title is written. */
   showTitles?: boolean
-  /** Ora da scrivere: quella dell'ultima volta che il Mac rispondeva. Senza, `now`. */
+  /** Time to write: that of the last time the Mac responded. Without it, `now`. */
   updatedAt?: number
 }
 
@@ -53,13 +53,13 @@ export function buildSnapshot(sessions: SessionSummary[], projects: Project[], n
   }
 }
 
-/** Uguale a prima a parte l'ora: allora non si riscrive (ogni scrittura ricarica il widget, che ha un budget). */
+/** Same as before apart from the time: then it is not rewritten (each write reloads the widget, which has a budget). */
 export const snapshotKey = (s: WidgetSnapshot): string => JSON.stringify([s.connected, s.working, s.waiting, s.top])
 
-/** Il widget dichiara la sua età invece dei numeri dopo `WIDGET_STALE_AFTER_MS`. */
+/** The widget declares its age instead of the numbers after `WIDGET_STALE_AFTER_MS`. */
 export const isStale = (s: WidgetSnapshot, now: number): boolean => now - s.updatedAt >= WIDGET_STALE_AFTER_MS
 
-/** Testi già tradotti: l'estensione non ha il catalogo dell'app. */
+/** Already-translated texts: the extension does not have the app's catalog. */
 export interface WidgetText {
   working: string
   waiting: string
@@ -71,9 +71,9 @@ export interface WidgetText {
 
 export interface WidgetProps extends WidgetSnapshot {
   stale: boolean
-  /** "Updated 12 min ago", già scritto dal telefono (nella lingua scelta); null finché i dati sono freschi. */
+  /** "Updated 12 min ago", already written by the phone (in the chosen language); null while the data is fresh. */
   agoLabel: string | null
-  /** `ladder://waiting` se qualcosa aspetta, altrimenti la radice. */
+  /** `ladder://waiting` if something is waiting, otherwise the root. */
   link: string
   text: WidgetText
 }
@@ -87,14 +87,14 @@ export interface TimelineEntry {
   props: WidgetProps
 }
 
-/** Ogni quanto la timeline cambia l'etichetta dell'età dopo che i dati sono vecchi, e per quanto tempo la si prepara. */
+/** How often the timeline changes the age label once the data is old, and for how long it is prepared. */
 const AGE_STEP_MS = 5 * 60_000
 const AGE_UNTIL_MS = 3 * 60 * 60_000
 
 /**
- * Voci della timeline: ora e, ogni 5 minuti da `WIDGET_STALE_AFTER_MS` in poi (fino a 3 ore), la stessa cosa marcata "non aggiornata"
- * con l'età già scritta ("Updated 15 min ago"). Il sistema scorre le voci da solo, anche con l'app chiusa: è così che il widget smette
- * di affermare cose che nessuno verifica più. `updatedAgo` compone l'etichetta nella lingua del telefono.
+ * Timeline entries: now and, every 5 minutes from `WIDGET_STALE_AFTER_MS` on (up to 3 hours), the same thing marked "stale"
+ * with the age already written ("Updated 15 min ago"). The system advances through the entries on its own, even with the app closed: this is how the widget stops
+ * claiming things nobody verifies anymore. `updatedAgo` builds the label in the phone's language.
  */
 export function widgetTimeline(s: WidgetSnapshot, text: WidgetText, now: number, updatedAgo: (minutes: number) => string): TimelineEntry[] {
   const age = (at: number): string => updatedAgo(Math.max(1, Math.floor((at - s.updatedAt) / 60_000)))

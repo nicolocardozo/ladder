@@ -1,6 +1,6 @@
-// Dati d'esempio realistici: progetti in sezioni, sessioni in tutti gli stati, chat con strumenti, richieste e domande.
-// Alimentano la modalità demo dell'app (anche in produzione: sarà quella per App Review, LAD-55) e l'harness e2e.
-// Solo import di tipi: gira anche con `node` senza alias.
+// Realistic sample data: projects in sections, sessions in every state, chats with tools, requests and questions.
+// They feed the app's demo mode (also in production: it is the one for App Review) and the e2e harness.
+// Type imports only: it also runs with `node` without aliases.
 import type { AgentStatus, ChatItem, Project, ProjectGroupsState, ProjectUiState, RemoteProfile, RemoteProjectDefaults, SessionSummary, SubagentInfo, PermissionLevel, UsageWindow } from '@shared/protocol'
 import { Conv } from './conv.ts'
 
@@ -8,24 +8,24 @@ const MIN = 60_000
 
 export interface Fixture {
   macName: string
-  /** Tema del Mac: nelle fixture è Circuit (il canale non lo porta ancora). */
+  /** Mac theme: in the fixtures it is Circuit (the channel doesn't carry it yet). */
   macTheme: string
   projects: Project[]
   sessions: SessionSummary[]
   ui: Record<string, Pick<ProjectUiState, 'groups' | 'groupOf' | 'seenAt'>>
   projectGroups: ProjectGroupsState
   agents: AgentStatus[]
-  /** Account di Claude Code e Codex (abbonamenti). */
+  /** Claude Code and Codex accounts (subscriptions). */
   profiles: RemoteProfile[]
-  /** Come parte una nuova sessione, per progetto. */
+  /** How a new session starts, per project. */
   defaults: Record<string, RemoteProjectDefaults>
   items: Record<string, ChatItem[]>
   subagents: Record<string, SubagentInfo[]>
-  /** Massimo di permesso per progetto: oggi lo snapshot remoto non lo porta (vedi report), le fixture sì per mostrare i livelli spenti. */
+  /** Maximum permission per project: today the remote snapshot doesn't carry it, the fixtures do to show the disabled levels. */
   permissionMax: Record<string, PermissionLevel>
 }
 
-/** Finestra dei limiti d'uso: 5 ore o settimanale, con il reset fra `inMin` minuti. */
+/** Usage limits window: 5 hours or weekly, with the reset in `inMin` minutes. */
 const usageWindow = (key: string, minutes: number, percent: number, inMin: number, now: number, state: UsageWindow['state'] = 'ok'): UsageWindow => ({
   key,
   minutes,
@@ -149,7 +149,7 @@ export function buildFixture(now = Date.now()): Fixture {
     sessions.push({ ...s, lastReadSeq: s.unread ? lastSeq - 2 : lastSeq, request, openRequests: open.length, ...(open.length && !s.waitingSince ? { waitingSince: open[0].at } : {}) })
   }
 
-  // 1. In corso (Claude): un turno concluso e uno aperto con il test che gira.
+  // 1. Running (Claude): one finished turn and one open with the test running.
   {
     const c = new Conv('s1')
     c.turn().user('The payments table loses its filter when I change page. Can you find out why?')
@@ -173,7 +173,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s1', 'p-web', 'Fix payments table filters', { run: 'running', activity: 'Runs pnpm test PaymentsTable', branch: 'feat/payments-filters', activityAt: now - 20_000, updatedAt: now - 20_000, permission: 'edit' }), c, 10_000)
   }
 
-  // 2. In attesa: permesso per un comando.
+  // 2. Waiting: permission for a command.
   {
     const c = new Conv('s2')
     c.turn().user('Add a CSV export button to the payments table.')
@@ -190,7 +190,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s2', 'p-web', 'Add CSV export', { run: 'waiting', waitingLabel: 'Approval', waitingSince: now - 12 * MIN, activityAt: now - 12 * MIN, updatedAt: now - 12 * MIN, branch: 'feat/csv-export' }), c, 12 * MIN)
   }
 
-  // 3. Da leggere: risposta conclusa con elenco e codice.
+  // 3. To read: finished reply with list and code.
   {
     const c = new Conv('s3')
     c.turn().user('Refactor the auth middleware so it no longer depends on the session object.')
@@ -210,7 +210,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s3', 'p-web', 'Refactor auth middleware', { unread: true, activityAt: now - 25 * MIN, updatedAt: now - 25 * MIN, model: 'claude-sonnet-4-6' }), c, 25 * MIN)
   }
 
-  // 4. Ferma, vecchia.
+  // 4. Idle, old.
   {
     const c = new Conv('s4')
     c.turn().user('Move the colour tokens to CSS variables so we can do a dark mode.')
@@ -220,7 +220,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s4', 'p-web', 'Dark mode tokens', { activityAt: now - 2 * 24 * 60 * MIN, updatedAt: now - 2 * 24 * 60 * MIN }), c, 2 * 24 * 60 * MIN)
   }
 
-  // 5. In attesa: domanda con due quesiti (Codex).
+  // 5. Waiting: question with two items (Codex).
   {
     const c = new Conv('s5')
     c.turn().user('Migrate the invoices table to Postgres 17 and keep the old one readable for a week.')
@@ -251,7 +251,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s5', 'p-api', 'Migrate invoices to Postgres 17', { run: 'waiting', waitingLabel: 'Question', agent: 'codex', model: 'gpt-5.5-codex', effort: 'medium', waitingSince: now - 4 * MIN, activityAt: now - 4 * MIN, updatedAt: now - 4 * MIN, permission: 'edit' }), c, 4 * MIN)
   }
 
-  // 6. Errore.
+  // 6. Error.
   {
     const c = new Conv('s6')
     c.turn().user('Add rate limiting to the login endpoint: 5 attempts per minute per IP.')
@@ -262,7 +262,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s6', 'p-api', 'Rate limit login', { run: 'error', activityAt: now - 47 * MIN, updatedAt: now - 47 * MIN }), c, 47 * MIN)
   }
 
-  // 7. In coda (messaggio accodato).
+  // 7. Queued (queued message).
   {
     const c = new Conv('s7')
     c.turn().user('Bump all dependencies to the latest minor.')
@@ -272,7 +272,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s7', 'p-api', 'Bump dependencies', { queue: [{ id: 'q1', text: 'Then run the e2e suite and tell me what fails.' }], activityAt: now - 3 * 60 * MIN, updatedAt: now - 3 * 60 * MIN }), c, 3 * 60 * MIN)
   }
 
-  // 8. Design system, ferma.
+  // 8. Design system, idle.
   {
     const c = new Conv('s8')
     c.turn().user('Document the Button variants in Storybook.')
@@ -282,7 +282,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s8', 'p-ds', 'Button variants stories', { activityAt: now - 26 * 60 * MIN, updatedAt: now - 26 * 60 * MIN }), c, 26 * 60 * MIN)
   }
 
-  // 9. Ladder: in corso (Codex) con due sotto-agenti.
+  // 9. Ladder: running (Codex) with two subagents.
   {
     const c = new Conv('s9')
     c.turn().user('Wire the Expo app to the remote channel: handshake, hello and reconnection.')
@@ -301,7 +301,7 @@ export function buildFixture(now = Date.now()): Fixture {
     ]
   }
 
-  // 10. Ladder: in attesa con modifica e anteprima.
+  // 10. Ladder: waiting with edit and preview.
   {
     const c = new Conv('s10')
     c.turn().user('Write the release notes for 0.1.4 in CHANGELOG.md.')
@@ -319,7 +319,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s10', 'p-ladder', 'Write release notes', { run: 'waiting', waitingLabel: 'Approval', waitingSince: now - 2 * MIN, activityAt: now - 2 * MIN, updatedAt: now - 2 * MIN, model: 'claude-sonnet-4-6', permission: 'ask' }), c, 2 * MIN)
   }
 
-  // 11. Ladder: da leggere (ACP).
+  // 11. Ladder: to read (ACP).
   {
     const c = new Conv('s11')
     c.turn().user('Why does the sidebar flicker when a session finishes?')
@@ -329,7 +329,7 @@ export function buildFixture(now = Date.now()): Fixture {
     add(base('s11', 'p-ladder', 'Fix sidebar flicker', { agent: 'acp:gemini-cli', model: 'gemini-3-pro', effort: null, unread: true, activityAt: now - 55 * MIN, updatedAt: now - 55 * MIN, canSteer: false }), c, 55 * MIN)
   }
 
-  // 12-13. Ferme.
+  // 12-13. Idle.
   for (const [id, pid, title, ago] of [
     ['s12', 'p-dots', 'Zsh startup time', 5 * 24 * 60],
     ['s13', 'p-notes', 'Weekly review template', 6 * 60]
@@ -340,7 +340,7 @@ export function buildFixture(now = Date.now()): Fixture {
     c.end({ durationMs: 20_000 })
     add(base(id, pid, title, { activityAt: now - ago * MIN, updatedAt: now - ago * MIN }), c, ago * MIN)
   }
-  // Archiviate: non sono nello snapshot, si leggono dalla schermata del progetto.
+  // Archived: not in the snapshot, read from the project screen.
   for (const [id, pid, title, days] of [
     ['s15', 'p-web', 'Spike: Tailwind 4 migration', 12],
     ['s16', 'p-web', 'Old payments table prototype', 40]

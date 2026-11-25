@@ -1,8 +1,8 @@
-// Collega l'app a un "Mac": quello vero (RemoteClient sul canale cifrato) o quello della demo (FakeHost locale).
-// Il resto dell'app vede solo lo store e `request`: stesso percorso nei due casi.
+// Connects the app to a "Mac": the real one (RemoteClient on the encrypted channel) or the demo one (local FakeHost).
+// The rest of the app only sees the store and `request`: same path in both cases.
 //
-// Ogni avvio (startRemote, startDemo, disconnect) incrementa `generation` e ferma tutto ciò che c'era prima: un avvio che
-// aspettava la cache e arriva tardi si accorge che il mondo è cambiato e si ritira, senza lasciare client o demo vivi.
+// Every start (startRemote, startDemo, disconnect) increments `generation` and stops everything that came before: a start that
+// was waiting for the cache and arrives late notices the world has changed and backs off, leaving no client or demo alive.
 import { AppState as RNAppState } from 'react-native'
 import { getLocale } from '@shared/i18n'
 import type { ChatItem, RemoteAuthErrorCode, RemoteCommand, RemotePage, RemotePairingPayload, RemoteSnapshot, SubagentInfo } from '@shared/protocol'
@@ -19,7 +19,7 @@ import { usePrefs } from '@/store/prefs'
 import { clearSecureCache, readSecureCache, writeSecureCache } from '@/store/secure-cache'
 
 const MAX_WATCHED = 8
-/** Quanto silenzio dal Mac, tornando in primo piano, prima di controllare che il collegamento sia ancora vivo. */
+/** How much silence from the Mac, on returning to the foreground, before checking the connection is still alive. */
 const STALE_AFTER_MS = 15_000
 
 let client: RemoteClient | null = null
@@ -28,10 +28,10 @@ let unsubDemo: (() => void) | null = null
 let unsubStore: (() => void) | null = null
 let cacheTimer: ReturnType<typeof setTimeout> | null = null
 let generation = 0
-/** Sessioni seguite, la meno recente per prima: stesso limite dell'host (8). */
+/** Followed sessions, least recent first: same limit as the host (8). */
 const watched: string[] = []
 
-/** Dove si raggiunge il Mac: il relay se l'abbinamento lo ha, altrimenti il WebSocket locale (sviluppo). */
+/** Where the Mac is reached: the relay if the pairing has one, otherwise the local WebSocket (development). */
 export function linkFor(route: { relay?: string; id?: string; ws?: string }): LinkFactory {
   if (route.relay && route.id) return relayLinkFactory(route.relay, route.id)
   if (route.ws) return wsLinkFactory(route.ws)
@@ -40,14 +40,14 @@ export function linkFor(route: { relay?: string; id?: string; ws?: string }): Li
 
 const store = useApp
 
-/** Ferma client, demo e timer, e invalida ogni avvio in corso. */
+/** Stops client, demo and timers, and invalidates any start in progress. */
 function stopAll(): number {
   generation++
-  // Un abbinamento in corso non sopravvive a un cambio di mondo (demo, scollegamento, nuovo avvio).
+  // A pairing in progress does not survive a change of world (demo, disconnection, new start).
   pairingRun++
   pairingClient?.stop()
   pairingClient = null
-  // Le notifiche seguono il collegamento: senza client (o nella demo) non si ascolta né si manda nulla.
+  // Notifications follow the connection: without a client (or in the demo) nothing is listened to or sent.
   void stopPush(false)
   client?.stop()
   client = null
@@ -63,7 +63,7 @@ function stopAll(): number {
   return generation
 }
 
-// ── Copia locale cifrata: la chat resta leggibile senza connessione ──
+// ── Encrypted local copy: the chat stays readable offline ──
 
 async function writeCache(): Promise<void> {
   const s = store.getState()
@@ -76,7 +76,7 @@ async function writeCache(): Promise<void> {
   try {
     await writeSecureCache({ projects: s.projects, sessions: s.sessions, ui: s.ui, projectGroups: s.projectGroups, agents: s.agents, profiles: s.profiles, defaults: s.defaults, permissionsMax: s.permissionsMax, items, macName: s.macName, macTheme: s.macTheme })
   } catch {
-    // portachiavi o archivio non disponibili: la prossima volta
+    // keychain or storage unavailable: next time
   }
 }
 
@@ -93,12 +93,12 @@ function scheduleCache(): void {
   }, 2_000)
 }
 
-// ── Avvio ──
+// ── Start ──
 
 /**
- * Il client reale. Con `global: true` (l'unico che resta aperto) alimenta lo store: eventi, stato della connessione, snapshot.
- * Un client di abbinamento (`global: false`) non scrive mai nello store e non guida la navigazione: il suo esito arriva solo
- * a chi ha chiesto di abbinare, così un tentativo fallito non può cambiare ciò che vede l'app né toccare l'abbinamento buono.
+ * The real client. With `global: true` (the only one that stays open) it feeds the store: events, connection state, snapshot.
+ * A pairing client (`global: false`) never writes to the store and does not drive navigation: its outcome only goes
+ * to whoever asked to pair, so a failed attempt cannot change what the app shows or touch the good pairing.
  */
 function makeClient(opts: {
   global: boolean
@@ -132,10 +132,10 @@ function makeClient(opts: {
         const s = store.getState()
         s.applySnapshot(snapshot)
         s.setMac(hello.mac)
-        // Dopo (ri)connessione: di nuovo in ascolto sulle sessioni seguite e chat rilette ("Updating messages").
+        // After (re)connection: listen again to followed sessions and re-read chats ("Updating messages").
         await Promise.all(watched.map((id) => followNow(id).catch(() => {})))
-        // Token, preferenze e stato (primo piano) delle notifiche, a ogni connessione: dopo le riletture, che riempiono il secchio delle
-        // richieste del client, e senza aspettarli (non rallentano il "connected").
+        // Token, preferences and (foreground) state of notifications, on every connection: after the re-reads, which fill the client's
+        // request bucket, and without waiting for them (they do not slow down "connected").
         pushLinkReady()
       }
     },
@@ -143,19 +143,19 @@ function makeClient(opts: {
   )
 }
 
-/** Abbinamento da riprovare quando l'app torna in primo piano (il portachiavi non era leggibile all'avvio). */
+/** Pairing to retry when the app returns to the foreground (the keychain was not readable at launch). */
 let retryPairing: Pairing | null = null
 
 /**
- * Collega a un Mac già abbinato (`auth` con l'id del dispositivo). La modalità passa a 'remote' subito, prima di qualunque
- * attesa: l'interfaccia non deve credere che non ci sia nessun Mac (e rimandare alla schermata di benvenuto) mentre si legge la cache.
+ * Connects to an already paired Mac (`auth` with the device id). The mode switches to 'remote' immediately, before any
+ * wait: the UI must not believe there is no Mac (and send back to the welcome screen) while the cache is being read.
  */
 export async function startRemote(pairing: Pairing): Promise<void> {
   const gen = stopAll()
   retryPairing = null
   store.getState().reset()
   store.setState({ mode: 'remote', conn: { kind: 'connecting', since: Date.now() }, macName: pairing.macName })
-  // Prima di qualunque attesa: al tocco su una notifica (app appena aperta) il Mac abbinato è già noto.
+  // Before any wait: on a notification tap (app just opened) the paired Mac is already known.
   startPush((command) => (client ? client.request(command) : Promise.reject(new Error('offline'))), pairing.macKey)
   await readCache()
   if (gen !== generation) return
@@ -163,7 +163,7 @@ export async function startRemote(pairing: Pairing): Promise<void> {
   try {
     deviceKey = await loadDeviceKey(false)
   } catch {
-    // Portachiavi non leggibile adesso (telefono appena acceso, bloccato): l'abbinamento non si tocca, si riprova al ritorno in primo piano.
+    // Keychain not readable right now (phone just powered on, locked): the pairing is left alone, retried on return to the foreground.
     if (gen === generation) {
       retryPairing = pairing
       store.setState({ conn: { kind: 'unreachable', since: Date.now(), reason: 'Secure storage is not available' } })
@@ -172,7 +172,7 @@ export async function startRemote(pairing: Pairing): Promise<void> {
   }
   if (gen !== generation) return
   if (!deviceKey) {
-    // Abbinamento senza chiave del dispositivo (portachiavi ripristinato a metà): non si può autenticare, si riparte.
+    // Pairing without a device key (keychain half-restored): cannot authenticate, start over.
     await disconnect()
     return
   }
@@ -189,7 +189,7 @@ export async function startRemote(pairing: Pairing): Promise<void> {
       if (macName !== pairing.macName) void savePairing({ ...pairing, macName }).catch(() => {})
     },
     onState: (conn) => {
-      // Revocato dal Mac (o firma non più valida): l'abbinamento non vale più. Si dimentica tutto e si mostra la schermata che lo spiega.
+      // Revoked by the Mac (or signature no longer valid): the pairing no longer applies. Everything is forgotten and the screen explaining it is shown.
       if (conn.kind === 'revoked' && gen === generation) void forgetBecauseRevoked(pairing.macName)
     }
   })
@@ -201,25 +201,25 @@ async function forgetBecauseRevoked(macName: string): Promise<void> {
   store.setState({ conn: { kind: 'revoked' }, macName })
 }
 
-/** Esito di un tentativo di abbinamento, per la schermata che lo ha avviato. */
+/** Outcome of a pairing attempt, for the screen that started it. */
 export type PairOutcome =
   | { ok: true }
   | { ok: false; kind: 'denied'; code: RemoteAuthErrorCode; error: string }
   | { ok: false; kind: 'key-changed' | 'unreachable' | 'mac-offline'; reason?: string }
-  /** Il telefono non ha potuto leggere o salvare le sue chiavi (portachiavi). */
+  /** The phone could not read or save its keys (keychain). */
   | { ok: false; kind: 'storage' }
 
-/** Quanto si aspetta un Mac che non risponde, durante l'abbinamento, prima di arrendersi. */
+/** How long a Mac that does not answer is waited for, during pairing, before giving up. */
 const PAIR_GIVE_UP_MS = 20_000
 
-/** Il client dell'abbinamento in corso (uno solo alla volta) e il suo numero, per scartare gli esiti di uno vecchio. */
+/** The client of the pairing in progress (only one at a time) and its number, to discard the outcomes of an old one. */
 let pairingClient: RemoteClient | null = null
 let pairingRun = 0
 
 /**
- * Primo abbinamento: handshake, `pair` firmato con la chiave del dispositivo. Non tocca la connessione esistente né lo store
- * finché non riesce: se il Mac accetta, si salva l'abbinamento (e si aspetta che sia salvato davvero) e poi parte la connessione
- * normale con `auth` (`startRemote`), come a ogni avvio. Il codice monouso e la password restano in memoria, mai nei log.
+ * First pairing: handshake, `pair` signed with the device key. It touches neither the existing connection nor the store
+ * until it succeeds: if the Mac accepts, the pairing is saved (and we wait until it is really saved) and then the normal
+ * connection with `auth` starts (`startRemote`), as on every launch. The one-time code and the password stay in memory, never in logs.
  */
 export async function startPairing(payload: RemotePairingPayload, opts: { password?: string; deviceName: string }): Promise<PairOutcome> {
   const run = ++pairingRun
@@ -241,7 +241,7 @@ export async function startPairing(payload: RemotePairingPayload, opts: { passwo
       if (settled) return
       settled = true
       clearTimeout(giveUp)
-      // Il client dell'abbinamento ha fatto il suo (o ha fallito): si ferma sempre. Se è riuscito, il resto lo fa startRemote.
+      // The pairing client has done its job (or failed): it always stops. If it succeeded, startRemote does the rest.
       current?.stop()
       if (pairingClient === current) pairingClient = null
       resolve(outcome)
@@ -260,7 +260,7 @@ export async function startPairing(payload: RemotePairingPayload, opts: { passwo
           savePairing(pairing).then(
             () => {
               if (run !== pairingRun || settled) return
-              // Salvato: da qui è un abbinamento come gli altri, con la sua connessione `auth` (e la sua gestione di revoca e chiave cambiata).
+              // Saved: from here it is a pairing like any other, with its own `auth` connection (and its handling of revocation and changed key).
               void startRemote(pairing)
               finish({ ok: true })
             },
@@ -293,11 +293,11 @@ export function startDemo(): void {
 }
 
 /**
- * Esce dalla demo o dimentica il Mac: ferma tutto e cancella ciò che era del Mac, abbinamento e chiave del dispositivo
- * compresi (chiavi nel portachiavi), copia cifrata delle chat, bozze e sezioni aperte. Tema e lingua sono del telefono e restano.
+ * Leaves the demo or forgets the Mac: stops everything and deletes whatever belonged to the Mac, pairing and device key
+ * included (keys in the keychain), encrypted copy of chats, drafts and open sections. Theme and language belong to the phone and stay.
  */
 export async function disconnect(): Promise<void> {
-  // Prima di fermare il client: se il collegamento c'è ancora, il Mac riceve il token nullo e smette di notificare questo telefono.
+  // Before stopping the client: if the connection is still there, the Mac receives the null token and stops notifying this phone.
   await stopPush(true)
   stopAll()
   store.getState().reset()
@@ -306,7 +306,7 @@ export async function disconnect(): Promise<void> {
   await Promise.all([clearPairing().catch(() => {}), clearDeviceKey().catch(() => {}), clearSecureCache()])
 }
 
-/** Solo sviluppo: porta i limiti d'uso della demo a uno scenario (screenshot e prove). */
+/** Development only: sets the demo's usage limits to a scenario (screenshots and tests). */
 export function devUsage(scenario: Parameters<FakeHost['setUsage']>[0]): void {
   demo?.setUsage(scenario)
 }
@@ -315,7 +315,7 @@ export function retryNow(): void {
   client?.reconnectNow()
 }
 
-// ── Comandi ──
+// ── Commands ──
 
 export async function request<T = unknown>(command: RemoteCommand): Promise<T> {
   if (demo) return (await demo.handle(command)) as T
@@ -323,13 +323,13 @@ export async function request<T = unknown>(command: RemoteCommand): Promise<T> {
   return client.request<T>(command)
 }
 
-/** Le azioni dell'utente sono permesse solo a collegamento pieno (anche nella demo). */
+/** User actions are only allowed with a full connection (also in the demo). */
 export const canAct = (conn: ConnState = store.getState().conn): boolean => conn.kind === 'connected'
 
-/** Si può già parlare con il Mac (anche durante "Updating messages"): serve a seguire le sessioni. */
+/** The Mac can already be talked to (also during "Updating messages"): needed to follow sessions. */
 const isReady = (): boolean => !!demo || !!client?.isReady
 
-// ── Sessioni seguite ──
+// ── Followed sessions ──
 
 async function followNow(sessionId: string): Promise<void> {
   await request({ type: 'session.watch', sessionId, on: true })
@@ -341,8 +341,8 @@ async function followNow(sessionId: string): Promise<void> {
 }
 
 /**
- * Segue la sessione (chat in diretta) e carica l'ultima pagina; fino a 8 insieme, la meno recente smette.
- * Se il canale non è ancora pronto l'iscrizione resta in lista e la fa `onHello` appena il Mac risponde.
+ * Follows the session (live chat) and loads the last page; up to 8 together, the least recent stops.
+ * If the channel is not ready yet the subscription stays in the list and `onHello` performs it as soon as the Mac answers.
  */
 export async function follow(sessionId: string): Promise<void> {
   const at = watched.indexOf(sessionId)
@@ -350,7 +350,7 @@ export async function follow(sessionId: string): Promise<void> {
   watched.push(sessionId)
   if (watched.length > MAX_WATCHED) watched.shift()
   if (!isReady()) {
-    // Offline: la chat resta quella della copia locale.
+    // Offline: the chat stays the one from the local copy.
     store.setState((st) => ({ loaded: { ...st.loaded, [sessionId]: true } }))
     return
   }
@@ -366,8 +366,8 @@ export async function loadOlder(sessionId: string): Promise<void> {
 }
 
 /**
- * App in primo piano: senza collegamento si riprova subito; con un collegamento che tace da un po' lo si controlla
- * (un socket morto in silenzio non deve restare "Connected").
+ * App in the foreground: without a connection it retries immediately; with a connection that has been silent for a while it is checked
+ * (a silently dead socket must not stay "Connected").
  */
 export function installForegroundHook(): () => void {
   const sub = RNAppState.addEventListener('change', (state) => {

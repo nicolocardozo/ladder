@@ -1,12 +1,12 @@
-// Dettatura sul telefono con SpeechAnalyzer + SpeechTranscriber (iOS 26). Tutto resta sul dispositivo: il modello della lingua si scarica
-// da Apple con AssetInventory (una volta, al primo uso) e il riconoscimento gira sul telefono. Nessun audio va a un server.
+// On-device dictation with SpeechAnalyzer + SpeechTranscriber (iOS 26). Everything stays on the device: the language model is downloaded
+// from Apple with AssetInventory (once, on first use) and recognition runs on the phone. No audio goes to a server.
 import AVFoundation
 import ExpoModulesCore
 import Foundation
 import Speech
 
 public class LadderSpeechModule: Module {
-  // Il motore vive finché si ascolta (iOS 26+); tenuto come Any per non legare la classe a #available.
+  // The engine lives while listening (iOS 26+); held as Any so the class isn't tied to #available.
   private var engineBox: Any?
 
   public func definition() -> ModuleDefinition {
@@ -47,7 +47,7 @@ public class LadderSpeechModule: Module {
     AsyncFunction("start") { [weak self] (locale: String, contextual: [String]) async throws in
       guard #available(iOS 26, *) else { throw LadderSpeechFailure.unavailable }
       guard let self else { return }
-      // L'ascolto precedente si chiude in silenzio: il suo `end` non deve arrivare al JS del nuovo tentativo.
+      // The previous listening closes silently: its `end` must not reach the new attempt's JS.
       if let old = self.engineBox as? LadderSpeechEngine { await old.abort(silent: true) }
       let engine = LadderSpeechEngine(
         onResult: { text, final in self.sendEvent("result", ["text": text, "isFinal": final]) },
@@ -98,7 +98,7 @@ actor LadderSpeechEngine {
   private var input: AsyncStream<AnalyzerInput>.Continuation?
   private var collector: Task<Void, Never>?
   private var finished = false
-  // Annullato (stop o abort) mentre l'avvio è ancora in corso, o sostituito da un nuovo ascolto: niente più eventi per il JS.
+  // Cancelled (stop or abort) while startup is still in progress, or replaced by a new listening: no more events for JS.
   private var cancelled = false
   private var muted = false
   private let gate = SpeechGate()
@@ -114,7 +114,7 @@ actor LadderSpeechEngine {
   private func emitError(_ message: String) { if !muted { onError(message) } }
   private func ensureLive() throws { if cancelled { throw CancellationError() } }
 
-  // MARK: modello della lingua
+  // MARK: language model
 
   private static func transcriber(for locale: Locale) -> SpeechTranscriber {
     SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults], attributeOptions: [])
@@ -138,7 +138,7 @@ actor LadderSpeechEngine {
     case .downloading:
       return ["status": "downloading", "bytes": nil]
     case .supported:
-      // Il sistema può dire quanto pesa il download: lo si mostra solo se lo dice davvero.
+      // The system may say how large the download is: show it only if it really does.
       var bytes: Double? = nil
       if let request = try? await AssetInventory.assetInstallationRequest(supporting: [module]) {
         let total = request.progress.totalUnitCount
@@ -177,17 +177,17 @@ actor LadderSpeechEngine {
     try? await AssetInventory.reserve(locale: locale)
   }
 
-  // MARK: ascolto
+  // MARK: listening
 
   func start(locale identifier: String, contextual: [String]) async throws {
     do {
       try await startSession(locale: identifier, contextual: contextual)
     } catch is CancellationError {
-      // stop o abort durante l'avvio: tutto spento, nessun errore per il JS.
+      // stop or abort during startup: everything off, no error for JS.
       await teardown()
       didFinish(error: nil)
     } catch {
-      // Un avvio fallito non lascia il microfono acceso né il trascrittore a metà.
+      // A failed startup leaves neither the microphone on nor the transcriber half-started.
       await teardown()
       throw error
     }
@@ -218,7 +218,7 @@ actor LadderSpeechEngine {
     let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
     self.input = continuation
 
-    // Le trascrizioni arrivano dal trascrittore mentre l'audio entra.
+    // Transcriptions arrive from the transcriber while audio comes in.
     let gate = self.gate
     collector = Task { [onResult, weak self] in
       do {
@@ -266,7 +266,7 @@ actor LadderSpeechEngine {
     try ensureLive()
   }
 
-  /// Volume del buffer (RMS) portato a 0..1.
+  /// Buffer volume (RMS) mapped to 0..1.
   private static func level(of buffer: AVAudioPCMBuffer) -> Double {
     guard let data = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
     var sum: Float = 0
@@ -285,7 +285,7 @@ actor LadderSpeechEngine {
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
   }
 
-  /// Spegne microfono, collector e analizzatore (usato da un avvio fallito o annullato, e da abort).
+  /// Turns off microphone, collector and analyzer (used by a failed or cancelled startup, and by abort).
   private func teardown() async {
     stopAudio()
     collector?.cancel()
@@ -295,7 +295,7 @@ actor LadderSpeechEngine {
     transcriber = nil
   }
 
-  /// Chiude l'ascolto e lascia al trascrittore il tempo di concludere la frase. Se l'avvio non è finito, lo annulla.
+  /// Closes listening and gives the transcriber time to finish the sentence. If startup hasn't finished, cancels it.
   func stop() async {
     cancelled = true
     guard let analyzer else { return }
@@ -303,7 +303,7 @@ actor LadderSpeechEngine {
     do { try await analyzer.finalizeAndFinishThroughEndOfInput() } catch { await analyzer.cancelAndFinishNow() }
   }
 
-  /// `silent`: l'ascolto è sostituito da un altro, il suo `end` non deve arrivare al JS.
+  /// `silent`: listening is replaced by another, its `end` must not reach JS.
   func abort(silent: Bool) async {
     cancelled = true
     if silent {
@@ -328,7 +328,7 @@ actor LadderSpeechEngine {
   }
 }
 
-/// Interruttore letto dal thread audio e dal collector: spento, l'ascolto non manda più nulla al JS.
+/// Switch read by the audio thread and the collector: off, listening sends nothing more to JS.
 final class SpeechGate: @unchecked Sendable {
   private let lock = NSLock()
   private var value = true

@@ -131,7 +131,7 @@ export function ConnectionsPreview() {
         <button
           type="button"
           aria-pressed={Boolean(userName)}
-          onClick={() => useApp.setState((s) => (s.prefs ? { prefs: { ...s.prefs, userName: userName ? null : 'Nicolò Cardozo' } } : {}))}
+          onClick={() => useApp.setState((s) => (s.prefs ? { prefs: { ...s.prefs, userName: userName ? null : 'Ada Lovelace' } } : {}))}
           className={cn(btn, userName && 'border-ring/60 bg-accent text-foreground')}
         >
           {userName ? 'Con nome' : 'Senza nome'}
@@ -172,12 +172,12 @@ export function ConnectionsPreview() {
               </SettingsBlock>
             </div>
             <div className="flex max-w-[640px] flex-col gap-2">
-              <p className="text-xs text-muted-foreground">Sopra il composer, con l’agente non collegato</p>
+              <p className="text-xs text-muted-foreground">Above the composer, with the agent not connected</p>
               <SignInNotice agent="claude-code" />
               <SignInNotice agent="codex" />
             </div>
             <div className="flex max-w-[264px] flex-col gap-2">
-              <p className="text-xs text-muted-foreground">Pulsante dell’account nella sidebar</p>
+              <p className="text-xs text-muted-foreground">Account button in the sidebar</p>
               <div className="flex rounded-lg bg-sidebar p-2">
                 <AccountButton />
               </div>

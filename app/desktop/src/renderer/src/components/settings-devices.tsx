@@ -1,4 +1,4 @@
-// Impostazioni → Devices (LAD-51): accesso dal telefono, abbinamento con QR, telefoni abbinati, password, "Allow Full", avanzate e attività.
+// Settings → Devices: access from the phone, QR pairing, paired phones, password, "Allow Full", advanced and activity.
 import { useEffect, useRef, useState } from 'react'
 import { Smartphone } from 'lucide-react'
 import { t } from '@shared/i18n'
@@ -16,7 +16,7 @@ import { REMOTE_PASSWORD_MAX, REMOTE_PASSWORD_MIN, remoteCommands, useRemoteStat
 export function DevicesSection() {
   const [prefs] = usePrefs()
   const status = useRemoteStatus()
-  // In sviluppo il canale può essere acceso da variabili d'ambiente: lo stato dell'host vale quanto la preferenza.
+  // In development the channel can be turned on by environment variables: the host's state counts as much as the preference.
   const on = Boolean(prefs?.remote?.enabled || status?.enabled)
   return (
     <>
@@ -24,7 +24,7 @@ export function DevicesSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('Follow your sessions and answer requests from your phone. Agents keep running on this Mac.')}
       </DialogDescription>
-      {/* Da 820 px: accesso e telefoni a sinistra, attività e avanzate a destra. */}
+      {/* From 820 px: access and phones on the left, activity and advanced on the right. */}
       <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
         <div className="min-w-0">
           <AccessBlock on={on} />

@@ -1,5 +1,5 @@
-// Una riga per telefono abbinato (come le righe dei collegamenti): segno della piattaforma, nome che si rinomina sul posto, "Connected" o
-// "Last seen …", e "Revoke" con il riquadro di conferma nella riga.
+// One row per paired phone (like the connection rows): platform mark, name that is renamed in place, "Connected" or
+// "Last seen …", and "Revoke" with the confirmation pane in the row.
 import { useEffect, useRef, useState } from 'react'
 import { Check, CircleDashed, Pencil, Smartphone } from 'lucide-react'
 import appleIcon from '@lobehub/icons-static-svg/icons/apple.svg?url'
@@ -33,7 +33,7 @@ export function DeviceRow({ device }: { device: RemoteDeviceInfo }) {
   const [error, setError] = useState<string | null>(null)
   const mounted = useRef(true)
   const renameButton = useRef<HTMLButtonElement>(null)
-  /** Il nome è già stato salvato o scartato: la sfocatura che segue lo smontaggio del campo non lo salva una seconda volta. */
+  /** The name has already been saved or discarded: the blur that follows the field unmounting does not save it a second time. */
   const settled = useRef(false)
   useEffect(() => {
     mounted.current = true
@@ -58,7 +58,7 @@ export function DeviceRow({ device }: { device: RemoteDeviceInfo }) {
     setError(null)
     remoteCommands
       .revoke(device.id)
-      // La riga sparisce con lo stato nuovo: il focus passa a "Connect a phone", l'azione che prende il suo posto.
+      // The row disappears with the new state: focus moves to "Connect a phone", the action that takes its place.
       .then(() => requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-connect-phone]')?.focus()))
       .catch((e: Error) => {
         if (!mounted.current) return
@@ -91,7 +91,7 @@ export function DeviceRow({ device }: { device: RemoteDeviceInfo }) {
                   e.preventDefault()
                   finishRename(true, true)
                 } else if (e.key === 'Escape') {
-                  // Esc annulla solo il nome, non le Impostazioni.
+                  // Esc cancels only the name, not Settings.
                   e.stopPropagation()
                   finishRename(false, true)
                 }

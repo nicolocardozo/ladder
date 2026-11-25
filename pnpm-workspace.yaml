@@ -3,15 +3,15 @@ packages:
   - "app/mobile"
   - "app/relay"
   - "website"
-# Installa anche i pacchetti per Mac Intel (binario di Claude dell'Agent SDK), così da qui si costruiscono entrambi i DMG.
+# Also install the packages for Intel Macs (Claude binary of the Agent SDK), so both DMGs can be built from here.
 supportedArchitectures:
   os: [current]
   cpu: [current, x64]
 allowBuilds:
   electron-winstaller: false
-  # Il prebuild N-API incluso basta: niente node-gyp. Lo spawn-helper diventa eseguibile nel postinstall.
+  # The bundled N-API prebuild is enough: no node-gyp. The spawn-helper becomes executable in postinstall.
   node-pty: false
-  # Il relay (wrangler) usa il binario di workerd per `wrangler dev` e di esbuild per il bundle.
+  # The relay (wrangler) uses the workerd binary for `wrangler dev` and the esbuild one for the bundle.
   esbuild: true
   workerd: true
 minimumReleaseAgeExclude:

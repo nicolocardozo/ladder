@@ -1,14 +1,14 @@
-// Preferenze delle notifiche del telefono: forma salvata, validazione, conversione verso il Mac (`device.notify.set`) e
-// da/verso gli orari dei selettori. Solo logica pura (niente React Native), così si prova con i test.
+// Phone notification preferences: saved shape, validation, conversion to the Mac (`device.notify.set`) and
+// to/from the picker times. Pure logic only (no React Native), so it can be tested.
 import type { PushKind, RemoteNotifyPrefs } from '../../../desktop/src/shared/protocol.ts'
 
 export const PUSH_KINDS: readonly PushKind[] = ['request', 'turn', 'error', 'agents']
 
 export interface NotifyPrefs {
   events: Record<PushKind, boolean>
-  /** Fascia silenziosa: `enabled` la accende, `from`/`to` restano ricordati anche da spenta. Orari "HH:MM" del telefono. */
+  /** Quiet hours: `enabled` turns them on, `from`/`to` are remembered even when off. Phone "HH:MM" times. */
   quiet: { enabled: boolean; from: string; to: string }
-  /** Richieste e domande passano anche nella fascia silenziosa. */
+  /** Requests and questions come through even during quiet hours. */
   quietAllowsRequests: boolean
 }
 
@@ -22,7 +22,7 @@ const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/
 
 export const isTime = (value: unknown): value is string => typeof value === 'string' && TIME.test(value)
 
-/** Fuso IANA valido per questo motore JS (come lo valida il Mac). */
+/** Valid IANA time zone for this JS engine (as the Mac validates it). */
 export function isTimeZone(value: unknown): value is string {
   if (typeof value !== 'string' || !value || value.length > 64) return false
   try {
@@ -33,7 +33,7 @@ export function isTimeZone(value: unknown): value is string {
   }
 }
 
-/** Fuso del telefono; se il motore non lo sa, UTC (il Mac accetta solo fusi validi). */
+/** The phone's time zone; if the engine does not know it, UTC (the Mac only accepts valid time zones). */
 export function phoneTimeZone(): string {
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -43,7 +43,7 @@ export function phoneTimeZone(): string {
   }
 }
 
-/** Rilegge ciò che era salvato: ogni campo non valido torna al predefinito, il resto si conserva. */
+/** Re-reads what was saved: each invalid field goes back to the default, the rest is kept. */
 export function normalizeNotifyPrefs(raw: unknown): NotifyPrefs {
   const d = DEFAULT_NOTIFY_PREFS
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
@@ -65,7 +65,7 @@ export function normalizeNotifyPrefs(raw: unknown): NotifyPrefs {
   }
 }
 
-/** Quello che si manda al Mac: la fascia c'è solo se accesa, nel fuso del telefono. */
+/** What is sent to the Mac: quiet hours are present only if on, in the phone's time zone. */
 export function toWirePrefs(prefs: NotifyPrefs, tz: string = phoneTimeZone()): RemoteNotifyPrefs {
   const p = normalizeNotifyPrefs(prefs)
   return {
@@ -75,7 +75,7 @@ export function toWirePrefs(prefs: NotifyPrefs, tz: string = phoneTimeZone()): R
   }
 }
 
-// ── Orari dei selettori ──
+// ── Picker times ──
 
 export function timeToMinutes(time: string): number {
   const m = TIME.exec(time)
@@ -87,7 +87,7 @@ export function minutesToTime(minutes: number): string {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
-/** "HH:MM" → data di oggi a quell'ora locale (il valore del selettore). */
+/** "HH:MM" → today's date at that local time (the picker's value). */
 export function timeToDate(time: string, base: Date = new Date()): Date {
   const minutes = timeToMinutes(time)
   const d = new Date(base)
@@ -95,12 +95,12 @@ export function timeToDate(time: string, base: Date = new Date()): Date {
   return d
 }
 
-/** Data del selettore → "HH:MM" locale. */
+/** Picker date → local "HH:MM". */
 export function dateToTime(date: Date): string {
   return minutesToTime(date.getHours() * 60 + date.getMinutes())
 }
 
-/** Orario da mostrare, nel formato del telefono (12 o 24 ore). */
+/** Time to show, in the phone's format (12 or 24 hours). */
 export function displayTime(time: string): string {
   try {
     return timeToDate(time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -109,5 +109,5 @@ export function displayTime(time: string): string {
   }
 }
 
-/** La fascia attraversa la mezzanotte (22:00 a 07:00). */
+/** The range crosses midnight (22:00 to 07:00). */
 export const crossesMidnight = (from: string, to: string): boolean => timeToMinutes(from) > timeToMinutes(to)

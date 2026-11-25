@@ -1,4 +1,4 @@
-// Icona del provider accanto al modello: Claude, Codex; per gli agenti ACP l'iniziale in un tondo.
+// Provider icon next to the model: Claude, Codex; for ACP agents the initial in a circle.
 import Svg, { Path } from 'react-native-svg'
 import { View } from 'react-native'
 import type { AgentId } from '@shared/protocol'
@@ -31,7 +31,7 @@ export function AgentMark({ agent, size = 14, color }: { agent: AgentId; size?: 
   )
 }
 
-/** Etichetta leggibile del modello: "Opus 4.7". */
+/** Readable model label: "Opus 4.7". */
 export function useModelLabel(agent: AgentId, model: string | null): string {
   const label = useApp((s) => s.agents.find((a) => a.agent === agent)?.models.find((m) => m.id === model)?.label)
   const fallback = useApp((s) => s.agents.find((a) => a.agent === agent)?.models.find((m) => m.isDefault)?.label)

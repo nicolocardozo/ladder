@@ -1,16 +1,16 @@
-// `data` di una notifica push di Ladder (RemotePushData): lettura, controllo e scelta di dove portare l'utente al tocco.
-// Solo logica pura. Quello che arriva da fuori non è fidato: versione, tipo e forma si controllano, e il Mac deve essere il nostro.
-// Import relativi: l'alias @shared non esiste fuori da Metro e questo file gira anche sotto `node`.
+// `data` of a Ladder push notification (RemotePushData): reading, validation and choice of where to take the user on tap.
+// Pure logic only. What comes from outside is not trusted: version, type and shape are checked, and the Mac must be ours.
+// Relative imports: the @shared alias does not exist outside Metro and this file also runs under `node`.
 import type { PushKind, RemotePushData } from '../../../desktop/src/shared/protocol.ts'
 import { pushMacId } from '../../../desktop/src/shared/remote/pairing.ts'
 
 const KINDS: readonly PushKind[] = ['request', 'turn', 'error', 'agents']
-/** Id di sessione e di richiesta sono brevi; un valore enorme non è nostro. */
+/** Session and request ids are short; a huge value is not ours. */
 const MAX_ID = 200
 
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_ID
 
-/** Legge `data` come RemotePushData; null se non lo è (versione diversa, campi mancanti o di tipo sbagliato). */
+/** Reads `data` as RemotePushData; null if it is not one (different version, missing or wrongly typed fields). */
 export function parsePushData(data: unknown): RemotePushData | null {
   if (!data || typeof data !== 'object') return null
   const d = data as Record<string, unknown>
@@ -23,11 +23,11 @@ export function parsePushData(data: unknown): RemotePushData | null {
 
 export interface TapTarget {
   sessionId: string
-  /** Richiesta da aprire (solo `kind: 'request'`). */
+  /** Request to open (only `kind: 'request'`). */
   requestId: string | null
 }
 
-/** Dove portare l'utente al tocco; null se la notifica non è nostra o è di un altro Mac (nessun Mac abbinato: sempre null). */
+/** Where to take the user on tap; null if the notification is not ours or is from another Mac (no paired Mac: always null). */
 export function tapTarget(data: unknown, macKey: string | null): TapTarget | null {
   if (!macKey) return null
   const parsed = parsePushData(data)

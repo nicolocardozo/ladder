@@ -1,4 +1,4 @@
-# Nessun account né segreto qui: `wrangler deploy` usa l'account con cui hai fatto login.
+# No account or secret here: `wrangler deploy` uses the account you logged in with.
 name = "ladder-relay"
 main = "src/index.ts"
 compatibility_date = "2026-10-20"
@@ -10,7 +10,7 @@ enabled = false
 name = "RELAY"
 class_name = "RelayDurableObject"
 
-# Durable Object con storage SQLite: l'unico tipo disponibile nel piano gratuito.
+# Durable Object with SQLite storage: the only kind available on the free plan.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RelayDurableObject"]

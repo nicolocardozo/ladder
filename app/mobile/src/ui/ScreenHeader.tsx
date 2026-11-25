@@ -7,7 +7,7 @@ import { useTheme } from '@/theme/theme'
 import { IconButton } from './Button'
 import { Text } from './Text'
 
-/** Intestazione delle schermate: indietro, titolo, azioni. Il gesto indietro nativo funziona comunque. */
+/** Screen header: back, title, actions. The native back gesture still works. */
 export function ScreenHeader({ title, subtitle, right, children }: { title?: string; subtitle?: string; right?: ReactNode; children?: ReactNode }) {
   const router = useRouter()
   const insets = useSafeAreaInsets()

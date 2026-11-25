@@ -4,8 +4,8 @@ import { usePairFlow } from '@/store/pair-flow'
 import { useTheme } from '@/theme/theme'
 
 /**
- * Il flusso di abbinamento è una pila sua. Quando si esce (indietro, annulla, errore abbandonato, fine) il codice e la password
- * si cancellano dalla memoria: un abbinamento non completato non lascia nulla, e un link non si riusa.
+ * The pairing flow is its own stack. When it is left (back, cancel, abandoned error, end) the code and the password
+ * are wiped from memory: an incomplete pairing leaves nothing behind, and a link is not reused.
  */
 export default function PairLayout() {
   const { c } = useTheme()

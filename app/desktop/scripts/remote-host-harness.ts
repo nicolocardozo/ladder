@@ -1,12 +1,12 @@
-// Host finto per provare il relay a mano (LAD-50): RemoteGateway vero + RelayClient vero + Host finto con una sessione e una richiesta aperta.
+// Fake host to try the relay by hand: real RemoteGateway + real RelayClient + a fake Host with one session and one open request.
 //
 //   node scripts/remote-host-harness.ts [--relay ws://127.0.0.1:8787] [--port 7777] [--data <cartella>]
 //
-// Almeno uno tra --relay e --port (WebSocket locale). Stampa il link di abbinamento `ladder://pair#…` (LAD-51): si passa a
-// `scripts/remote-client.ts pair <link>`. Comandi da stdin: "pair [password]" (nuovo link, con password opzionale), "devices" (anche token push, preferenze, primo piano), "revoke <id>",
-// "log", "regen" (rigenera la chiave), "sleep" / "wake".
-// Stampa anche l'id del Mac e il file di identità da passare a scripts/remote-client.ts (--id, --identity). La cartella dati conserva le chiavi:
-// con la stessa cartella l'id resta uguale tra un avvio e l'altro. Ctrl+C / SIGTERM: avvisa il relay ("quit") ed esce.
+// At least one of --relay and --port (local WebSocket). Prints the pairing link `ladder://pair#…`: pass it to
+// `scripts/remote-client.ts pair <link>`. Commands from stdin: "pair [password]" (new link, with an optional password), "devices" (also push token, preferences, foreground state), "revoke <id>",
+// "log", "regen" (regenerates the key), "sleep" / "wake".
+// Also prints the Mac id and the identity file to pass to scripts/remote-client.ts (--id, --identity). The data folder keeps the keys:
+// with the same folder the id stays the same across runs. Ctrl+C / SIGTERM: notifies the relay ("quit") and exits.
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,7 +23,7 @@ const flag = (name: string): string | undefined => (args.includes(name) ? args[a
 const relayUrl = flag('--relay')
 const portFlag = flag('--port')
 if (!relayUrl && !portFlag) {
-  console.error('Uso: remote-host-harness.ts [--relay <url>] [--port <n>] [--data <cartella>]')
+  console.error('Usage: remote-host-harness.ts [--relay <url>] [--port <n>] [--data <folder>]')
   process.exit(1)
 }
 const dataDir = flag('--data') ?? mkdtempSync(join(tmpdir(), 'ladder-harness-'))
@@ -50,7 +50,7 @@ const snapshot = {
 } as unknown as Extract<HostEvent, { type: 'snapshot' }>
 
 let created_n = 1
-// LAD-92: comandi della sessione e file del progetto finti, per provare `/` e `@` dal telefono.
+// Fake session commands and project files, to try `/` and `@` from the phone.
 const slashCommands: SlashCommand[] = [
   { name: 'compact', description: 'Compact the conversation', hint: null, source: 'builtin' },
   { name: 'review', description: 'Review the uncommitted changes', hint: '[instructions]', source: 'builtin' },
@@ -129,7 +129,7 @@ const local = portFlag ? await startLocalWsServer(gateway, Number(portFlag)) : n
 if (local) console.log(`local: ws://127.0.0.1:${local.port}`)
 console.log(`identity: ${join(dataDir, IDENTITY_FILE)}`)
 
-/** Link di abbinamento nuovo, stampato; la password (se c'è) va chiesta dal client con --password. */
+/** New pairing link, printed; the password (if any) must be asked by the client with --password. */
 const pair = async (password?: string) => {
   if (password !== undefined) await access.setPassword(password || null)
   const start = access.startPairing({ macName: 'Harness Mac', key: identity.publicKey, ...(relayUrl && client ? { relay: relayUrl, id: client.id } : {}), ...(local ? { ws: `ws://127.0.0.1:${local.port}` } : {}) })
@@ -143,14 +143,14 @@ const stop = () => {
 }
 process.on('SIGINT', stop)
 process.on('SIGTERM', stop)
-// Comandi da stdin per le prove.
+// Commands from stdin for manual tests.
 process.stdin.on('data', (data) => {
   const [word, arg] = data.toString().trim().split(/\s+/)
   if (word === 'sleep') void client?.setMacState('asleep')
   else if (word === 'wake') void client?.setMacState('awake')
   else if (word === 'pair') void pair(arg)
   else if (word === 'devices')
-    // Token push mai per intero (solo se c'è e il prefisso), preferenze e lingua come le ha mandate il telefono, stato in primo piano.
+    // Push token never in full (only whether it exists and its prefix), preferences and language as the phone sent them, foreground state.
     for (const d of access.devices())
       console.log(`[harness] device ${d.id} ${d.name} connected=${gateway.connectedDevices().has(d.id)} foreground=${gateway.foregroundDevices().has(d.id)} platform=${d.platform} locale=${d.locale} push=${d.pushToken ? `${d.pushToken.slice(0, 18)}…` : 'none'} notify=${JSON.stringify(d.notify)}`)
   else if (word === 'revoke' && arg) {
@@ -161,7 +161,7 @@ process.stdin.on('data', (data) => {
     access.cancelPairing()
     access.revokeAll()
     gateway.disconnectAll()
-    // Come ChannelHost.regenerateKey: il relay ricorda sul vecchio id che la chiave è cambiata ('rekeyed'), al meglio.
+    // Like ChannelHost.regenerateKey: the relay remembers on the old id that the key changed ('rekeyed'), best effort.
     void (client ? Promise.race([client.setMacState('rekeyed'), new Promise<void>((r) => setTimeout(r, 1_500))]).then(() => client!.stop()) : Promise.resolve()).then(() => {
       identity = regenerateIdentity(dataDir)
       key = regenerateRelayKey(dataDir)

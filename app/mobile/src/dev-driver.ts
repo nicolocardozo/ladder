@@ -1,4 +1,4 @@
-// Solo sviluppo: esegue i comandi di scripts/dev-driver.mjs (demo, tema, lingua, schermata, sheet, azioni, notifiche).
+// Development only: runs the commands of scripts/dev-driver.mjs (demo, theme, language, screen, sheet, actions, notifications).
 import { router } from 'expo-router'
 import { Platform } from 'react-native'
 import { applyLocale } from '@/i18n'
@@ -19,7 +19,7 @@ import type { ThemeId } from '@/theme/theme'
 
 interface Cmd {
   id: number
-  /** Solo questa piattaforma esegue il comando (i due telefoni leggono lo stesso driver). */
+  /** Only this platform runs the command (both phones read the same driver). */
   target?: 'ios' | 'android'
   demo?: boolean
   reset?: boolean
@@ -27,62 +27,62 @@ interface Cmd {
   system?: { light: string; dark: string } | false
   lang?: 'en' | 'it'
   route?: string
-  /** Come `route`, ma impila la schermata (router.push): prova il tasto indietro nativo. */
+  /** Like `route`, but stacks the screen (router.push): tests the native back button. */
   push?: string
-  /** Apre il flusso di abbinamento con un link `ladder://pair#…` (come un deep link). */
+  /** Opens the pairing flow with a `ladder://pair#…` link (like a deep link). */
   link?: string
-  /** Con `link`: password già inserita e collegamento automatico al passo del nome. */
+  /** With `link`: password already entered and automatic connection to the name step. */
   password?: string
   auto?: boolean
   sheet?: DevSheet
-  /** Con `sheet: request`: apre il campo di testo (motivo del rifiuto o "Altro…") con la tastiera. */
+  /** With `sheet: request`: opens the text field (rejection reason or "Other…") with the keyboard. */
   reasonField?: boolean
-  /** Fa scorrere lo sheet nativo aperto a questa distanza dall'alto (pt). */
+  /** Scrolls the open native sheet to this distance from the top (pt). */
   scrollSheet?: number
-  /** Porta il focus nella ricerca della Home (tastiera su). */
+  /** Moves focus to the Home search (keyboard up). */
   focusSearch?: boolean
-  /** Lascia nello store solo questo progetto (prova della Home con un progetto solo). */
+  /** Leaves only this project in the store (test of the Home with a single project). */
   onlyProject?: string
-  /** Apre lo sheet del Mac (come il tocco sul pill della Home). */
+  /** Opens the Mac sheet (like tapping the Home pill). */
   mac?: boolean
-  /** Apre lo sheet "Nuova sessione" (come il tocco sul "+"). */
+  /** Opens the "New session" sheet (like tapping the "+"). */
   newSession?: boolean
-  /** Con `newSession`: testo già scritto nel messaggio (la bozza del modulo). */
+  /** With `newSession`: text already written in the message (the form draft). */
   draft?: string
-  /** Con `newSession`: porta il focus nel messaggio (tastiera su). */
+  /** With `newSession`: moves focus to the message (keyboard up). */
   focus?: boolean
-  /** Con `newSession`: opzioni aperte, una scelta aperta (project|agent|account|model|effort|permission), progetto/agente, invio subito. */
+  /** With `newSession`: options open, a choice open (project|agent|account|model|effort|permission), project/agent, send right away. */
   form?: { expand?: boolean; step?: string; send?: boolean; project?: string; agent?: string }
-  /** Limiti d'uso della demo: normal | near (82%) | banner (96%) | limited | empty. */
+  /** Demo usage limits: normal | near (82%) | banner (96%) | limited | empty. */
   usage?: Parameters<typeof devUsage>[0]
-  /** Notifica locale con i `data` di un push vero (prova del tocco): kind, sessione, richiesta e ritardo in secondi. `mac` forza un Mac diverso. */
-  /** Chiede il permesso delle notifiche come "Turn on notifications" (la finestra di sistema si conferma a mano o con adb / AppleScript). */
+  /** Local notification with the `data` of a real push (tap test): kind, session, request and delay in seconds. `mac` forces a different Mac. */
+  /** Asks for notification permission like "Turn on notifications" (the system dialog is confirmed by hand or with adb / AppleScript). */
   askPush?: boolean
-  /** Cambia le preferenze delle notifiche (come i toggle di Impostazioni). */
+  /** Changes the notification preferences (like the Settings toggles). */
   notifyPrefs?: Parameters<ReturnType<typeof usePrefs.getState>['setNotify']>[0]
   notify?: { kind: 'request' | 'turn' | 'error' | 'agents'; sessionId: string; itemId?: string | null; delayS?: number; mac?: string }
-  /** Segue una sessione sulla schermata di blocco come il pulsante dell'header (LAD-93). */
+  /** Follows a session on the lock screen like the header button. */
   liveActivity?: { sessionId: string; on?: boolean }
-  /** Composer aperto: testo da scrivere e immagini (file locali) da allegare; `dictation` forza lo stato della dettatura. */
+  /** Composer open: text to type and images (local files) to attach; `dictate` forces the dictation state. */
   composer?: { text?: string; images?: string[]; send?: boolean; focus?: boolean; dictate?: boolean }
   welcome?: 'chips' | 'caption'
   dictation?: 'listening' | 'downloading' | 'denied' | 'not-installed' | 'unsupported' | 'off'
-  /** Torna indietro di una schermata (il tasto indietro). */
+  /** Goes back one screen (the back button). */
   back?: boolean
-  /** Apre una sessione come il tocco su una notifica (anche con uno sheet aperto sopra una chat). */
+  /** Opens a session like tapping a notification (even with a sheet open above a chat). */
   tap?: { sessionId: string; requestId?: string }
-  /** Scorre la chat aperta a questa distanza dal fondo (px). */
+  /** Scrolls the open chat to this distance from the bottom (px). */
   scroll?: number
-  /** Azione come l'utente: approve | deny | send | steer | stop | perm | answer. */
+  /** Action as the user: approve | deny | send | steer | stop | perm | answer. */
   act?: { type: string; sessionId: string; text?: string; level?: string }
 }
 
 export function startDevDriver(): () => void {
   if (!__DEV__) return () => {}
-  // La porta si può cambiare (EXPO_PUBLIC_DEV_DRIVER_PORT) quando più sessioni di lavoro usano il driver insieme.
+  // The port can be changed (EXPO_PUBLIC_DEV_DRIVER_PORT) when several work sessions use the driver together.
   const port = process.env.EXPO_PUBLIC_DEV_DRIVER_PORT ?? '8099'
   const base = Platform.OS === 'android' ? `http://10.0.2.2:${port}` : `http://127.0.0.1:${port}`
-  // Alla prima lettura si prende nota dell'ultimo comando senza eseguirlo: un ricaricamento dell'app non lo ripete.
+  // On the first read the latest command is noted without running it: an app reload doesn't repeat it.
   let last: number | null = null
   let stopped = false
   const tick = async () => {
@@ -94,7 +94,7 @@ export function startDevDriver(): () => void {
         run(cmd)
       }
     } catch {
-      // il driver non c'è: niente
+      // the driver isn't there: nothing
     }
     if (!stopped) setTimeout(tick, 1000)
   }
@@ -161,7 +161,7 @@ function run(cmd: Cmd) {
     setTimeout(() => useApp.setState((st) => ({ projects: st.projects.filter((p) => p.id === keep), sessions: Object.fromEntries(Object.entries(st.sessions).filter(([, x]) => x.projectId === keep)) })), 1500)
   }
   if (cmd.link) {
-    // Equivale ad aprire il link: lo legge e va alla conferma (la vera apertura da deep link si prova con simctl/adb).
+    // Equivalent to opening the link: reads it and goes to the confirmation (real deep link opening is tested with simctl/adb).
     const r = readPairingLink(cmd.link, Date.now(), { allowDirect: true })
     if (r.ok) {
       usePairFlow.getState().set({ payload: r.payload, password: cmd.password ?? '', confirmed: !!cmd.auto, deviceName: '', failure: null, autoConnect: !!cmd.auto })
@@ -179,7 +179,7 @@ function run(cmd: Cmd) {
   if (cmd.push) router.push(cmd.push as never)
   if (cmd.route || cmd.push) useSheets.getState().close()
   if (cmd.route) {
-    // Un eventuale sheet nativo aperto si chiude prima, altrimenti la rotta nuova finirebbe dentro lo sheet.
+    // A native sheet that may be open is closed first, otherwise the new route would end up inside the sheet.
     if (router.canDismiss()) router.dismissAll()
     router.replace(cmd.route as never)
   }
@@ -188,6 +188,6 @@ function run(cmd: Cmd) {
   useDev.setState({ focusNewSession: !!cmd.focus, newSession: cmd.newSession ? (cmd.form ?? null) : null })
   if (cmd.mac) setTimeout(() => openSheet(router, { kind: 'mac' }), 1800)
   if (cmd.newSession) setTimeout(() => openSheet(router, { kind: 'new-session' }), 1800)
-  // Lo sheet si apre a schermata già montata (la vecchia non deve consumarlo).
+  // The sheet opens once the screen is already mounted (the old one must not consume it).
   if (cmd.sheet) setTimeout(() => useDev.getState().setSheet(cmd.sheet ?? null), 1800)
 }

@@ -11,7 +11,7 @@ import { useTheme } from '@/theme/theme'
 import { TabHeader, useTabHeaderPad } from '@/ui/TabHeader'
 import { Text } from '@/ui/Text'
 
-/** Richieste: le richieste aperte di tutte le sessioni, dalla più vecchia. */
+/** Requests: the open requests of all sessions, oldest first. */
 export default function Waiting() {
   const { c } = useTheme()
   const router = useRouter()

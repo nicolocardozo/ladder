@@ -1,6 +1,6 @@
-// Dalla lista piatta di item della chat alle righe della schermata Session: i turni conclusi si chiudono in una riga
-// ("Edited 2 files and ran 3 commands") con la risposta finale in chiaro; il turno in corso resta aperto con il passaggio attuale.
-// Riscrittura pensata per il telefono (vedi, per l'idea, il collasso dei turni di Paseo e la chat del desktop). Solo logica pura.
+// From the flat list of chat items to the rows of the Session screen: finished turns collapse into one row
+// ("Edited 2 files and ran 3 commands") with the final answer in plain view; the ongoing turn stays open with the current step.
+// Rewrite designed for the phone (for the idea, see Paseo's turn collapsing and the desktop chat). Pure logic only.
 import type { ChatItem, FileChange, RunState } from '@shared/protocol'
 
 export type ToolItem = Extract<ChatItem, { kind: 'tool' }>
@@ -17,15 +17,15 @@ export interface TurnCounts {
 
 export interface TurnSummary {
   turnId: string
-  /** Strumenti, richieste e testi intermedi del turno, in ordine: per lo sheet dei passaggi. */
+  /** Tools, requests and intermediate texts of the turn, in order: for the steps sheet. */
   steps: ChatItem[]
   counts: TurnCounts
   files: FileChange[]
   end: TurnEndItem | null
   running: boolean
-  /** Il turno aspetta te (richiesta aperta): niente anello che gira. */
+  /** The turn is waiting for you (open request): no spinning ring. */
   waiting: boolean
-  /** Passaggio attuale del turno in corso: lo strumento che sta girando. */
+  /** Current step of the ongoing turn: the tool that is running. */
   current: ToolItem | null
   startedAt: number
 }
@@ -50,7 +50,7 @@ export function countTools(items: ChatItem[]): TurnCounts {
   return c
 }
 
-/** Richieste aperte (anche di più sessioni di turno): le sta in primo piano sopra il composer, non nella lista. */
+/** Open requests (even from several turn sessions): shown in the foreground above the composer, not in the list. */
 export function openRequests(items: ChatItem[]): RequestItem[] {
   return items.filter((i): i is RequestItem => i.kind === 'request' && i.state === 'open')
 }
@@ -71,8 +71,8 @@ export function buildChatRows(items: ChatItem[], run: RunState = 'running'): Cha
     const list = byTurn.get(turnId)!
     const end = list.find((i): i is TurnEndItem => i.kind === 'turn-end') ?? null
     const isLast = index === turnOrder.length - 1
-    // Un turno senza turn-end è in corso solo se è l'ultimo (e ha ancora qualcosa di aperto).
-    // Con la sessione ferma o in errore un turno senza turn-end è finito (riavvio dell'host, interruzione).
+    // A turn without turn-end is in progress only if it is the last one (and still has something open).
+    // With the session idle or in error a turn without turn-end is over (host restart, interruption).
     const running = !end && isLast && run !== 'idle' && run !== 'error'
     for (const item of list) if (item.kind === 'user') rows.push({ kind: 'user', key: item.id, item })
     for (const item of list) {
@@ -86,7 +86,7 @@ export function buildChatRows(items: ChatItem[], run: RunState = 'running'): Cha
     const counts = countTools(list)
     const summary: TurnSummary = {
       turnId,
-      // Passaggi: strumenti, richieste e, a turno concluso, i testi intermedi (la risposta finale sta fuori).
+      // Steps: tools, requests and, once the turn is over, the intermediate texts (the final answer stays outside).
       steps: list.filter((i) => i.kind === 'tool' || i.kind === 'request' || (i.kind === 'assistant' && (running || i !== final))),
       counts,
       files: end?.files ?? [],
@@ -97,7 +97,7 @@ export function buildChatRows(items: ChatItem[], run: RunState = 'running'): Cha
       startedAt: list[0]?.at ?? 0
     }
     if (running) {
-      // Il turno in corso resta aperto: testi dell'agente in chiaro, poi la riga del passaggio attuale.
+      // The ongoing turn stays open: agent texts in plain view, then the current step row.
       for (const a of assistants) rows.push({ kind: 'assistant', key: a.id, item: a })
       if (hasSteps || assistants.length === 0) rows.push({ kind: 'turn', key: `turn-${turnId}`, turn: summary })
     } else {
@@ -114,7 +114,7 @@ export interface SummaryPart {
   n: number
 }
 
-/** Le parti della frase riassuntiva, in ordine di importanza. Il testo lo compone la UI (i18n). */
+/** The parts of the summary sentence, in order of importance. The UI (i18n) composes the text. */
 export function summaryParts(counts: TurnCounts, files: FileChange[]): SummaryPart[] {
   const parts: SummaryPart[] = []
   const edits = files.length > 0 ? files.length : counts.edits

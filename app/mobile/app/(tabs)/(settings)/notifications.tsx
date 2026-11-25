@@ -1,5 +1,5 @@
-// Impostazioni → Notifiche: stato del permesso, quali eventi notificare, fascia silenziosa. Le preferenze stanno sul telefono e
-// arrivano al Mac con `device.notify.set` (push.ts le manda a ogni cambio).
+// Settings → Notifications: permission status, which events to notify, quiet hours. Preferences live on the phone and
+// reach the Mac with `device.notify.set` (push.ts sends them on every change).
 import { useEffect } from 'react'
 import { AppState, ScrollView } from 'react-native'
 import { t } from '@shared/i18n'
@@ -25,7 +25,7 @@ export default function NotificationSettings() {
   const setWidgetTitles = usePrefs((s) => s.setWidgetTitles)
   const { permission, canAsk, tokenFailed } = usePush()
   const mode = useApp((s) => s.mode)
-  // Tornando dalle impostazioni di sistema il permesso può essere cambiato.
+  // Coming back from system settings the permission may have changed.
   useEffect(() => {
     void refreshPermission()
     const sub = AppState.addEventListener('change', (state) => state === 'active' && void refreshPermission())

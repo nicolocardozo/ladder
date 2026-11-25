@@ -4,7 +4,7 @@ import { useEffect } from "react"
 import { Moon, Sun } from "lucide-react"
 import { followSystem, setTheme, useTheme } from "@/lib/theme"
 
-// Interruttore chiaro/scuro nella nav
+// Light/dark toggle in the nav
 export function ThemeToggle({ className }: { className?: string }) {
   const theme = useTheme()
   useEffect(followSystem, [])

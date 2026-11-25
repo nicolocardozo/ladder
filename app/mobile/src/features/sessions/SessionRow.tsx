@@ -1,4 +1,4 @@
-// Riga di sessione a due livelli: stato, titolo ed età; sotto, progetto, Agent Mark, modello e attività.
+// Two-level session row: status, title and age; below, project, Agent Mark, model and activity.
 import { memo } from 'react'
 import { Pressable, View } from 'react-native'
 import { t } from '@shared/i18n'

@@ -1,10 +1,10 @@
-// Testo in streaming mostrato a ritmo costante: i pezzi arrivano a scatti, l'occhio vede scorrere. Idea da Paseo
-// (packages/app/src/agent-stream/text-reveal.ts), riscritta: velocità base fissa, più alta solo se si accumula ritardo.
+// Streaming text shown at a steady pace: chunks arrive in bursts, the eye sees a smooth flow. Idea from Paseo
+// (packages/app/src/agent-stream/text-reveal.ts), rewritten: fixed base speed, higher only if lag builds up.
 const BASE_CPS = 70
-/** Se il ritardo supera questo numero di caratteri si accelera, per non restare indietro di pagine. */
+/** If the lag exceeds this number of characters it speeds up, so as not to fall behind by pages. */
 const CATCH_UP_AT = 120
 
-/** Quanti caratteri mostrare dopo `dtMs`, dato quanti ne sono già visibili e il testo disponibile. */
+/** How many characters to show after `dtMs`, given how many are already visible and the available text. */
 export function nextRevealLength(shown: number, available: number, dtMs: number): number {
   if (shown >= available) return available
   const backlog = available - shown
@@ -13,7 +13,7 @@ export function nextRevealLength(shown: number, available: number, dtMs: number)
   return Math.min(available, shown + step)
 }
 
-/** Taglia su un confine di parola/carattere intero (evita di spezzare una coppia surrogata). */
+/** Cuts on a whole word/character boundary (avoids splitting a surrogate pair). */
 export function sliceReveal(text: string, length: number): string {
   if (length >= text.length) return text
   const code = text.charCodeAt(length - 1)

@@ -1,11 +1,11 @@
-// Tema del workspace e finestra delle impostazioni.
-// Il tema vale per tutta l'app: lo salva il processo main, che lo applica anche prima del primo paint.
+// Workspace theme and settings window.
+// The theme applies to the whole app: the main process saves it and also applies it before the first paint.
 import { create } from 'zustand'
 import { THEMES, themeById, type ThemeId, type ThemeInfo } from '@shared/themes.generated'
 
 const PREVIEW_KEY = 'ladder.preview-theme'
 
-/** Applica il tema a <html>: attributo per le variabili, classe `dark` per le varianti di shadcn. */
+/** Applies the theme to <html>: attribute for the variables, `dark` class for shadcn variants. */
 export function applyTheme(id: string): ThemeInfo {
   const theme = themeById(id)
   document.documentElement.dataset.theme = theme.id
@@ -15,7 +15,7 @@ export function applyTheme(id: string): ThemeInfo {
 
 function initialTheme(): ThemeId {
   if (window.ladder) return themeById(window.ladder.theme.initial).id
-  // Pagine di anteprima nel browser: il tema resta solo in questo browser.
+  // Preview pages in the browser: the theme stays only in this browser.
   try {
     return themeById(localStorage.getItem(PREVIEW_KEY)).id
   } catch {
@@ -29,11 +29,11 @@ interface SettingsState {
   theme: ThemeId
   settingsOpen: boolean
   section: SettingsSection
-  /** Apre le impostazioni su una sezione. */
+  /** Opens settings on a section. */
   openSection: (section: SettingsSection) => void
   setSection: (section: SettingsSection) => void
   setTheme: (id: ThemeId) => void
-  /** Aggiorna lo stato quando il tema cambia da un'altra finestra. */
+  /** Updates the state when the theme changes from another window. */
   receiveTheme: (id: string) => void
   setSettingsOpen: (open: boolean) => void
 }
@@ -52,7 +52,7 @@ export const useSettings = create<SettingsState>((set) => ({
       try {
         localStorage.setItem(PREVIEW_KEY, theme.id)
       } catch {
-        // Solo una comodità dell'anteprima.
+        // Just a preview convenience.
       }
     }
   },

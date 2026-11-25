@@ -1,36 +1,36 @@
-// Limiti d'uso del piano sul telefono (LAD-90). Stessa logica del desktop (composer/usage-button.tsx, lib/usage-accounts.ts),
-// ridotta: soglie di avviso, finestra da segnalare, elenco degli abbonamenti, testi di orario e di età del dato.
-// Solo logica pura (niente React Native): si prova con node --test.
+// Plan usage limits on the phone. Same logic as the desktop (composer/usage-button.tsx, lib/usage-accounts.ts),
+// reduced: warning thresholds, window to flag, list of subscriptions, time and data-age texts.
+// Pure logic only (no React Native): tested with node --test.
 import type { AgentId, RemoteAgentStatus, RemoteProfile, UsageWindow } from '../../../desktop/src/shared/protocol.ts'
 import { localeTag, t } from '../../../desktop/src/shared/i18n.ts'
 
-/** Da quanto una finestra merita un avviso (icona nell'header); il bannerino sopra il composer parte più in alto. Come il desktop. */
+/** From what level a window deserves a warning (icon in the header); the small banner above the composer starts higher. Same as the desktop. */
 export const USAGE_WARN_AT = 80
 export const USAGE_BANNER_AT = 95
-/** Dati più vecchi di così si rileggono quando si apre la schermata (l'host fa comunque al massimo una lettura vera al minuto). */
+/** Data older than this is re-read when the screen opens (the host does at most one real read per minute anyway). */
 export const USAGE_STALE_MS = 60_000
 
 export const isProfileAgent = (agent: AgentId): boolean => agent === 'claude-code' || agent === 'codex'
 export const isDefaultProfileId = (id: string | null | undefined): boolean => !id || id.startsWith('default:')
 
-/** Chiave stabile di un account: l'agente e, per Claude e Codex, il profilo (il predefinito è sempre `default:<agente>`). */
+/** Stable key of an account: the agent and, for Claude and Codex, the profile (the default is always `default:<agent>`). */
 export function accountKey(agent: AgentId, profileId?: string | null): string {
   return isProfileAgent(agent) ? `${agent}:${isDefaultProfileId(profileId) ? `default:${agent}` : profileId}` : agent
 }
 
-/** Gravità di una finestra: 0 niente, 1 vicina al limite, 2 limite esaurito. */
+/** Severity of a window: 0 nothing, 1 near the limit, 2 limit exhausted. */
 function severity(usage: UsageWindow, threshold: number): 0 | 1 | 2 {
   if (usage.state === 'limited') return 2
   if (threshold === USAGE_BANNER_AT) return usage.percent !== null && usage.percent >= threshold ? 1 : 0
   return usage.percent === null ? (usage.state === 'warning' ? 1 : 0) : usage.percent >= threshold ? 1 : 0
 }
 
-/** Uso extra e simili: spesa opzionale senza reset, non è un limite del piano che si azzera. */
+/** Extra usage and the like: optional spend with no reset, not a plan limit that resets. */
 export function isSpend(usage: UsageWindow): boolean {
   return usage.key === 'extra_usage' || (usage.resetsAt === null && !!usage.label)
 }
 
-/** Una finestra già azzerata non dice più niente: si aspetta il dato nuovo. `now` in secondi Unix. */
+/** A window that has already reset says nothing anymore: wait for the new data. `now` in Unix seconds. */
 export const liveWindows = (windows: UsageWindow[] | undefined, now: number): UsageWindow[] => (windows ?? []).filter((w) => w.resetsAt === null || w.resetsAt > now)
 
 export interface UsageAlert {
@@ -38,7 +38,7 @@ export interface UsageAlert {
   limited: boolean
 }
 
-/** La finestra più vicina al limite fra quelle sopra soglia, o null: sotto soglia non c'è niente da dire. */
+/** The window closest to the limit among those above the threshold, or null: below the threshold there is nothing to say. */
 export function usageAlert(windows: UsageWindow[], threshold = USAGE_WARN_AT): UsageAlert | null {
   let best: UsageWindow | null = null
   let bestScore = 0
@@ -54,17 +54,17 @@ export function usageAlert(windows: UsageWindow[], threshold = USAGE_WARN_AT): U
 
 export const clampPercent = (percent: number | null): number | null => (percent === null ? null : Math.min(100, Math.max(0, percent)))
 
-/** Nome di una finestra: "5-hour window", "Weekly", o l'etichetta già pronta dell'host. */
+/** Name of a window: "5-hour window", "Weekly", or the host's ready-made label. */
 export function windowName(usage: UsageWindow): string {
   if (usage.label) return usage.label
   const base = usage.minutes >= 7 * 24 * 60 ? t('Weekly') : usage.minutes >= 60 ? t('{hours}-hour window', { hours: Math.round(usage.minutes / 60) }) : t('{minutes}-minute window', { minutes: usage.minutes })
   return usage.model ? `${base} · ${usage.model}` : base
 }
 
-/** Il nome corto di un agente nei testi stretti: "Claude", "Codex", o il nome dello stato. */
+/** The short name of an agent in tight texts: "Claude", "Codex", or the state's name. */
 export const agentShortName = (agent: AgentId, status?: Pick<RemoteAgentStatus, 'name'> | null): string => (agent === 'claude-code' ? 'Claude' : agent === 'codex' ? 'Codex' : (status?.name ?? agent))
 
-/** Riga della finestra peggiore (Impostazioni): "Claude · 82% of 5h", "Codex · limit reached". */
+/** Row for the worst window (Settings): "Claude · 82% of 5h", "Codex · limit reached". */
 export function worstText(worst: { account: Pick<UsageAccount, 'agent' | 'status'>; usage: UsageWindow }): string {
   const agent = agentShortName(worst.account.agent, worst.account.status)
   const { usage } = worst
@@ -85,7 +85,7 @@ export function durationText(seconds: number): string {
   return t('{d} d {h} h', { d: Math.floor(hours / 24), h: hours % 24 })
 }
 
-/** Ora locale del reset: solo l'ora se è oggi, altrimenti anche il giorno della settimana. Secondi Unix. */
+/** Local time of the reset: only the time if it is today, otherwise also the weekday. Unix seconds. */
 export function resetsWhen(resetsAt: number, now: number): { when: string; today: boolean } {
   const date = new Date(resetsAt * 1000)
   const today = date.toDateString() === new Date(now * 1000).toDateString()
@@ -93,14 +93,14 @@ export function resetsWhen(resetsAt: number, now: number): { when: string; today
   return { when: today ? time : `${date.toLocaleDateString(localeTag(), { weekday: 'short' })} ${time}`, today }
 }
 
-/** "Resets at 18:40 · in 2 h 5 min" (oggi) oppure "Resets Mon 09:00 · in 2 d 3 h". */
+/** "Resets at 18:40 · in 2 h 5 min" (today) or "Resets Mon 09:00 · in 2 d 3 h". */
 export function resetsLabel(resetsAt: number, now: number): string {
   const { when, today } = resetsWhen(resetsAt, now)
   const left = durationText(resetsAt - now)
   return today ? t('Resets at {when} · in {left}', { when, left }) : t('Resets {when} · in {left}', { when, left })
 }
 
-/** "Updated 3 min ago". `at` in millisecondi, `now` in secondi come nel resto del file. */
+/** "Updated 3 min ago". `at` in milliseconds, `now` in seconds as in the rest of the file. */
 export function updatedLabel(at: number | null | undefined, now: number): string {
   if (!at) return t('Not read yet')
   const seconds = now - at / 1000
@@ -113,7 +113,7 @@ function resetsSentence(resetsAt: number, now: number): string {
   return today ? t('Resets at {when}.', { when }) : t('Resets {when}.', { when })
 }
 
-/** "Weekly: close to the limit (88% used)." / "Weekly: limit reached.", e quando si azzera. */
+/** "Weekly: close to the limit (88% used)." / "Weekly: limit reached.", and when it resets. */
 export function usageAlertText(alert: UsageAlert, now: number): { what: string; reset: string | null } {
   const { usage, limited } = alert
   const window = windowName(usage)
@@ -122,23 +122,23 @@ export function usageAlertText(alert: UsageAlert, now: number): { what: string; 
   return { what, reset: usage.resetsAt === null ? null : resetsSentence(usage.resetsAt, now) }
 }
 
-// ── Abbonamenti ──
+// ── Subscriptions ──
 
 export interface UsageAccount {
   key: string
   agent: AgentId
-  /** Profilo da passare all'host: assente per il predefinito e per gli agenti senza profili. */
+  /** Profile to pass to the host: absent for the default and for agents without profiles. */
   profileId: string | undefined
-  /** Nome del profilo, solo se l'agente ne ha più di uno. */
+  /** Profile name, only if the agent has more than one. */
   profileName: string | null
   status: RemoteAgentStatus | null
-  /** Solo gli agenti nativi espongono i limiti e si possono rileggere. */
+  /** Only native agents expose limits and can be re-read. */
   native: boolean
-  /** È l'account della sessione da cui si è arrivati. */
+  /** It is the account of the session we came from. */
   current: boolean
 }
 
-/** Stato dell'agente per un profilo: il predefinito è quello senza `profileId` (o `default:…`), gli altri portano il loro id. */
+/** Agent state for a profile: the default is the one without `profileId` (or `default:…`), the others carry their id. */
 export function statusFor(agents: RemoteAgentStatus[], agent: AgentId, profileId?: string | null): RemoteAgentStatus | null {
   if (isDefaultProfileId(profileId)) return agents.find((a) => a.agent === agent && isDefaultProfileId(a.profileId)) ?? null
   return agents.find((a) => a.agent === agent && a.profileId === profileId) ?? null
@@ -146,7 +146,7 @@ export function statusFor(agents: RemoteAgentStatus[], agent: AgentId, profileId
 
 const PROFILE_AGENTS: AgentId[] = ['claude-code', 'codex']
 
-/** Profili di un agente, predefinito per primo; se il predefinito manca nell'elenco lo si sintetizza. */
+/** An agent's profiles, default first; if the default is missing from the list it is synthesized. */
 export function profilesOf(profiles: RemoteProfile[], agent: AgentId): RemoteProfile[] {
   const own = profiles.filter((p) => p.agent === agent).sort((a, b) => Number(b.isDefault) - Number(a.isDefault))
   if (!isProfileAgent(agent) || own.some((p) => p.isDefault)) return own
@@ -154,9 +154,9 @@ export function profilesOf(profiles: RemoteProfile[], agent: AgentId): RemotePro
 }
 
 /**
- * Abbonamenti da mostrare: uno per profilo collegato di Claude e Codex (collegato = l'agente c'è e ha un account),
- * più l'account della sessione di provenienza, che c'è sempre (anche per un agente ACP, che dirà "non disponibile").
- * L'account corrente per primo, gli altri nell'ordine di Claude, Codex, profilo per profilo.
+ * Subscriptions to show: one per connected Claude and Codex profile (connected = the agent exists and has an account),
+ * plus the account of the originating session, which is always there (even for an ACP agent, which will say "not available").
+ * The current account first, the others in Claude, Codex order, profile by profile.
  */
 export function buildUsageAccounts(agents: RemoteAgentStatus[], profiles: RemoteProfile[], current?: { agent: AgentId; profileId?: string | null } | null): UsageAccount[] {
   const currentKey = current ? accountKey(current.agent, current.profileId) : null
@@ -184,22 +184,22 @@ export function buildUsageAccounts(agents: RemoteAgentStatus[], profiles: Remote
   return list.sort((a, b) => Number(b.current) - Number(a.current))
 }
 
-/** Nome di un abbonamento: il piano dell'account ("Claude Max") e, se l'agente ha più profili, il profilo. */
+/** Name of a subscription: the account's plan ("Claude Max") and, if the agent has several profiles, the profile. */
 export function accountName(account: Pick<UsageAccount, 'agent' | 'status' | 'profileName'>): string {
   const base = account.status?.account ?? account.status?.name ?? (account.agent === 'claude-code' ? 'Claude' : account.agent === 'codex' ? 'Codex' : account.agent)
   return [base, account.profileName].filter(Boolean).join(' · ')
 }
 
 /**
- * La finestra peggiore fra tutti gli abbonamenti, per la riga di Impostazioni ("Claude · 82% of 5h"). Solo finestre vere del piano
- * (con percentuale o esaurite, senza spesa extra). Null se non ce n'è nessuna.
+ * The worst window across all subscriptions, for the Settings row ("Claude · 82% of 5h"). Only real plan windows
+ * (with a percentage or exhausted, without extra spend). Null if there are none.
  */
 export function worstWindow(accounts: UsageAccount[], now: number): { account: UsageAccount; usage: UsageWindow } | null {
   let best: { account: UsageAccount; usage: UsageWindow } | null = null
   let score = -1
   for (const account of accounts) {
     for (const usage of liveWindows(account.status?.usage, now)) {
-      // Una finestra esaurita conta anche senza percentuale; una senza percentuale e non esaurita non dice niente.
+      // An exhausted window counts even without a percentage; one without a percentage that is not exhausted says nothing.
       if (isSpend(usage) || (usage.percent === null && usage.state !== 'limited')) continue
       const s = (usage.state === 'limited' ? 1000 : 0) + (usage.percent ?? 100)
       if (s > score) [best, score] = [{ account, usage }, s]
@@ -208,28 +208,28 @@ export function worstWindow(accounts: UsageAccount[], now: number): { account: U
   return best
 }
 
-/** La finestra da segnalare per l'account di una sessione, o null. `threshold` come usageAlert. */
+/** The window to flag for a session's account, or null. `threshold` as in usageAlert. */
 export function sessionAlert(agents: RemoteAgentStatus[], agent: AgentId, profileId: string | null | undefined, now: number, threshold = USAGE_WARN_AT): UsageAlert | null {
   return usageAlert(liveWindows(statusFor(agents, agent, profileId)?.usage, now), threshold)
 }
 
-/** Il dato di un account va riletto: mai letto o più vecchio di USAGE_STALE_MS (`ms` = orologio in millisecondi). */
+/** An account's data should be re-read: never read or older than USAGE_STALE_MS (`ms` = clock in milliseconds). */
 export function isStale(usageAt: number | null | undefined, lastRead: number | undefined, ms: number): boolean {
   const last = Math.max(usageAt ?? 0, lastRead ?? 0)
   return !last || ms - last > USAGE_STALE_MS
 }
 
-// ── Bannerino chiuso ──
+// ── Dismissed banner ──
 
-/** Tolleranza sul momento del reset: l'host lo ricalcola a ogni lettura e può spostarlo di qualche secondo o minuto. */
+/** Tolerance on the reset time: the host recomputes it on every read and may shift it by a few seconds or minutes. */
 const RESET_JITTER_S = 10 * 60
 
-/** Chiave di una finestra per il bannerino chiuso: account e finestra, mai il reset (che balla). */
+/** Key of a window for the dismissed banner: account and window, never the reset (which jitters). */
 export const dismissKey = (agent: AgentId, profileId: string | null | undefined, windowKey: string): string => `${accountKey(agent, profileId)}:${windowKey}`
 
 /**
- * Il bannerino di questa finestra è stato chiuso per questo reset? Si ricorda il reset visto alla chiusura: lo stesso (entro la
- * tolleranza) = ancora chiuso; un reset diverso = la finestra si è azzerata e l'avviso può tornare. Senza reset vale finché non si azzera la memoria.
+ * Was this window's banner dismissed for this reset? The reset seen at dismissal is remembered: the same one (within the
+ * tolerance) = still dismissed; a different reset = the window has reset and the warning may return. Without a reset it holds until memory is cleared.
  */
 export function isDismissed(closed: ReadonlyMap<string, number | null>, key: string, resetsAt: number | null): boolean {
   if (!closed.has(key)) return false

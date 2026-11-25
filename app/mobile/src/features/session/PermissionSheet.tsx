@@ -1,5 +1,5 @@
-// Permesso della sessione: Plan, Ask, Edit, Full. I livelli sopra il massimo del progetto sono spenti, con il motivo;
-// Full chiede conferma e avvisa che le richieste aperte si approvano da sole; con Codex il cambio può valere dal prossimo turno.
+// Session permission: Plan, Ask, Edit, Full. Levels above the project's maximum are disabled, with the reason;
+// Full asks for confirmation and warns that open requests will be approved automatically; with Codex the change may apply from the next turn.
 import { useEffect, useState } from 'react'
 import { Pressable, View } from 'react-native'
 import { plural, t } from '@shared/i18n'
@@ -27,7 +27,7 @@ const levelHelp = (level: PermissionLevel): string =>
     full: t('Runs everything without asking.')
   })[level]
 
-/** Contenuto dello sheet del permesso, uguale nello sheet nativo (iOS) e in quello nostro (Android, schermi larghi). */
+/** Content of the permission sheet, the same in the native sheet (iOS) and in our own (Android, wide screens). */
 export function PermissionContent({ sessionId, onClose: onCloseRaw }: { sessionId: string; onClose: () => void }) {
   const onClose = useOnce(onCloseRaw)
   const { c } = useTheme()
@@ -37,7 +37,7 @@ export function PermissionContent({ sessionId, onClose: onCloseRaw }: { sessionI
   const online = useApp((s) => canAct(s.conn))
   const [confirmFull, setConfirmFull] = useState(false)
   const [busy, setBusy] = useState(false)
-  // La sessione sparisce (archiviata sul Mac, scollegamento): lo sheet non ha più nulla da mostrare e si chiude.
+  // The session disappears (archived on the Mac, disconnection): the sheet has nothing left to show and closes.
   useEffect(() => {
     if (!session) onClose()
   }, [session, onClose])
@@ -92,7 +92,7 @@ export function PermissionContent({ sessionId, onClose: onCloseRaw }: { sessionI
       <View style={{ paddingHorizontal: 16, gap: 8 }}>
         {PERMISSION_LEVELS.map((level) => {
           const aboveMax = !allowedLevel(level, max)
-          // Full può essere spento dal Mac ("Allow Full access from phone"), a prescindere dal tetto del progetto.
+          // Full can be turned off from the Mac ("Allow Full access from phone"), regardless of the project cap.
           const fullOff = level === 'full' && !allowFull
           const allowed = !aboveMax && !fullOff
           const current = session.permission === level

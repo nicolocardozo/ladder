@@ -1,4 +1,4 @@
-// Prove del formato di abbinamento: QR, impronta, base64url e firme legate al canale.
+// Tests of the pairing format: QR, fingerprint, base64url and signatures bound to the channel.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { RemotePairingPayload } from '../protocol.ts'
@@ -17,7 +17,7 @@ const payload = (over: Partial<RemotePairingPayload> = {}): RemotePairingPayload
   ...over
 })
 
-test('base64url: coincide con Buffer per ogni lunghezza e rifiuta il resto', () => {
+test('base64url: matches Buffer for every length and rejects the rest', () => {
   for (let n = 0; n < 70; n++) {
     const bytes = Uint8Array.from({ length: n }, (_, i) => (i * 37 + n) & 255)
     const text = toBase64Url(bytes)
@@ -28,7 +28,7 @@ test('base64url: coincide con Buffer per ogni lunghezza e rifiuta il resto', () 
   assert.throws(() => fromBase64Url('a'))
 })
 
-test('QR: codifica e lettura tornano uguali, anche con ws e spazi attorno', () => {
+test('QR: encoding and reading round-trip, even with ws and surrounding spaces', () => {
   const p = payload({ ws: 'ws://127.0.0.1:7777' })
   const url = encodePairingUrl(p)
   assert.ok(url.startsWith(PAIRING_URL_PREFIX))
@@ -38,7 +38,7 @@ test('QR: codifica e lettura tornano uguali, anche con ws e spazi attorno', () =
   assert.equal(onlyWs.ws, 'ws://127.0.0.1:1')
 })
 
-test('QR: forme non valide respinte', () => {
+test('QR: invalid forms rejected', () => {
   const enc = (o: unknown) => PAIRING_URL_PREFIX + toBase64Url(new TextEncoder().encode(JSON.stringify(o)))
   const good = payload()
   const bad: string[] = [
@@ -60,7 +60,7 @@ test('QR: forme non valide respinte', () => {
   for (const url of bad) assert.throws(() => decodePairingUrl(url), /Invalid pairing code/, url.slice(0, 50))
 })
 
-test('impronta: formato "7F3A 91C2 · E04B 5D18", stabile e diversa per chiavi diverse', () => {
+test('fingerprint: format "7F3A 91C2 · E04B 5D18", stable and different for different keys', () => {
   const a = generateKeyPair().publicKey
   const f = keyFingerprint(a)
   assert.match(f, /^[0-9A-F]{4} [0-9A-F]{4} · [0-9A-F]{4} [0-9A-F]{4}$/)
@@ -68,7 +68,7 @@ test('impronta: formato "7F3A 91C2 · E04B 5D18", stabile e diversa per chiavi d
   assert.notEqual(f, keyFingerprint(generateKeyPair().publicKey))
 })
 
-test('firme: legate all’hash dell’handshake e al tipo', () => {
+test('signatures: bound to the handshake hash and to the type', () => {
   const key = generateDeviceKey()
   const hash = new Uint8Array(32).fill(1)
   const other = new Uint8Array(32).fill(2)

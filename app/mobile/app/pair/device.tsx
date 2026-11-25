@@ -23,7 +23,7 @@ function failureText(f: PairFailure): string {
   return reasonKind(f.reason) === 'timeout' ? t('Your Mac did not answer. Make sure it is awake and Ladder is open, then try again.') : t('Could not reach your Mac. Check that Ladder is open on it, then try again.')
 }
 
-/** Nome del dispositivo, poi `pair`. Gli errori restano qui, con l'azione giusta (codice nuovo, password, riprova). */
+/** Device name, then `pair`. Errors stay here, with the right action (new code, password, retry). */
 export default function Device() {
   const { c } = useTheme()
   const router = useRouter()
@@ -32,7 +32,7 @@ export default function Device() {
   useEffect(() => {
     if (!deviceName) set({ deviceName: defaultDeviceName() })
   }, [deviceName, set])
-  // Solo sviluppo: il driver di prova preme "Connect" al posto nostro (una volta).
+  // Development only: the test driver presses "Connect" for us (once).
   const auto = useRef(false)
   useEffect(() => {
     if (__DEV__ && autoConnect && payload && confirmed && deviceName && !auto.current) {
@@ -41,7 +41,7 @@ export default function Device() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoConnect, payload, deviceName])
-  // Senza conferma (per esempio da un link diretto) non si va oltre: si riparte dall'inizio.
+  // Without confirmation (for example from a direct link) we go no further: start over from the beginning.
   if (!payload || !confirmed) return <Redirect href="/" />
 
   const needsNewCode = !!failure && ((failure.code && authNext(failure.code) === 'new-code') || failure.kind === 'key-changed')

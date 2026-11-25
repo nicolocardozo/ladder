@@ -1,5 +1,5 @@
-// Sessioni aperte o scritte da questo telefono in questa esecuzione (LAD-93): per loro l'avvio automatico della Live Activity vale.
-// In memoria e osservabile: il pulsante dell'header della chat si ridisegna quando la sessione viene segnata. Si svuota a "Forget Mac".
+// Sessions opened or written from this phone during this run: auto-start of the Live Activity applies to them.
+// In memory and observable: the chat header button redraws when the session gets marked. Cleared on "Forget Mac".
 import { create } from 'zustand'
 
 interface LiveState {

@@ -1,7 +1,7 @@
-// Client del relay (LAD-50): una connessione in uscita verso il relay, identificata dall'id del Mac, che porta tutti i telefoni.
-// Ogni telefono diventa un RemoteLink dato al gateway: il gateway non sa se i byte arrivano dal WebSocket locale o da qui.
-// Si riconnette da solo (backoff esponenziale con jitter); formato dei messaggi: shared/remote/relay-protocol.ts.
-// Import relativi (niente alias @shared): il file è provato in-process con `node --test`.
+// Relay client: one outbound connection to the relay, identified by the Mac's id, carrying all the phones.
+// Each phone becomes a RemoteLink handed to the gateway: the gateway does not know whether the bytes come from the local WebSocket or from here.
+// It reconnects on its own (exponential backoff with jitter); message format: shared/remote/relay-protocol.ts.
+// Relative imports (no @shared alias): the file is tested in-process with `node --test`.
 import {
   decodeFrame,
   encodeFrame,
@@ -25,30 +25,30 @@ import type { RelayKeyPair } from './identity.ts'
 export type RelayStatus = 'stopped' | 'connecting' | 'connected' | 'paused'
 
 export interface RelayClientOptions {
-  /** Quello che il client usa del gateway. */
+  /** What the client uses of the gateway. */
   gateway: { accept(link: RemoteLink): void }
-  /** Indirizzo del relay (wss://…). */
+  /** Relay address (wss://…). */
   relayUrl: string
   key: RelayKeyPair
   log?: (message: string) => void
-  /** Solo per le prove. */
+  /** Tests only. */
   minBackoffMs?: number
   maxBackoffMs?: number
   pingMs?: number
-  /** Silenzio massimo dal relay prima di considerare la connessione morta. */
+  /** Maximum silence from the relay before the connection is considered dead. */
   deadMs?: number
   random?: () => number
-  /** Parte in pausa (come dopo setMacState('asleep')): niente connessione finché non arriva 'awake'. */
+  /** Starts paused (as after setMacState('asleep')): no connection until 'awake' arrives. */
   paused?: boolean
 }
 
 const AUTH_TIMEOUT_MS = 10_000
-/** Una connessione durata meno di così non azzera il backoff (evita il ciclo rapido quando il relay ci scarta subito). */
+/** A connection that lasted less than this does not reset the backoff (avoids a rapid loop when the relay drops us right away). */
 const STABLE_MS = 5_000
-/** Chiusura 4001: un altro Mac con la stessa chiave ha preso il posto; si riprova con calma. */
+/** Close 4001: another Mac with the same key took over; retry calmly. */
 const CLOSE_REPLACED = 4001
 
-/** Il telefono visto dal Mac: un frame DATA per ogni messaggio Noise. */
+/** The phone as seen by the Mac: one DATA frame per Noise message. */
 class PhoneLink implements RemoteLink {
   private bytesHandler: ((bytes: Uint8Array) => void) | null = null
   private closeHandler: (() => void) | null = null
@@ -57,7 +57,7 @@ class PhoneLink implements RemoteLink {
   readonly connId: number
   private readonly client: RelayClient
 
-  // Niente parameter properties: il file gira con `node --test` (solo sintassi TypeScript cancellabile).
+  // No parameter properties: the file runs with `node --test` (erasable TypeScript syntax only).
   constructor(connId: number, client: RelayClient) {
     this.connId = connId
     this.client = client
@@ -67,7 +67,7 @@ class PhoneLink implements RemoteLink {
     if (!this.closed) this.client.sendFrame(RELAY_FRAME_DATA, this.connId, bytes)
   }
 
-  /** Chiusura decisa dal gateway: il relay chiude il telefono. Non richiama onClose (il gateway ha già chiuso). */
+  /** Close decided by the gateway: the relay closes the phone. Does not call onClose (the gateway already closed). */
   close(): void {
     if (this.closed) return
     this.closed = true
@@ -91,7 +91,7 @@ class PhoneLink implements RemoteLink {
     return this.client.buffered()
   }
 
-  // Dal relay
+  // From the relay
   receive(bytes: Uint8Array): void {
     if (!this.closed) this.bytesHandler?.(bytes)
   }
@@ -100,7 +100,7 @@ class PhoneLink implements RemoteLink {
     if (!this.closed) this.aliveHandler?.()
   }
 
-  /** Il telefono se n'è andato, o il relay è caduto. */
+  /** The phone left, or the relay dropped. */
   remoteClosed(): void {
     if (this.closed) return
     this.closed = true
@@ -109,7 +109,7 @@ class PhoneLink implements RemoteLink {
 }
 
 export class RelayClient {
-  /** Id del Mac sul relay: derivato dalla chiave pubblica. */
+  /** Mac id on the relay: derived from the public key. */
   readonly id: string
   private readonly options: RelayClientOptions
   private readonly endpoint: string
@@ -127,7 +127,7 @@ export class RelayClient {
   private authTimer: ReturnType<typeof setTimeout> | null = null
   private replaced = false
 
-  /** Lancia se l'indirizzo non è valido (schema diverso da wss://, o ws:// non locale). */
+  /** Throws if the address is invalid (scheme other than wss://, or non-local ws://). */
   constructor(options: RelayClientOptions) {
     this.options = options
     this.id = relayIdFromPublicKey(options.key.publicKey)
@@ -148,7 +148,7 @@ export class RelayClient {
     if (!this.paused) this.connect()
   }
 
-  /** Spegnimento pulito: chiude il socket e i collegamenti dei telefoni, niente riconnessione. */
+  /** Clean shutdown: closes the socket and the phone links, no reconnection. */
   async stop(): Promise<void> {
     if (!this.started) return
     this.started = false
@@ -157,8 +157,8 @@ export class RelayClient {
   }
 
   /**
-   * Avvisa il relay di cosa sta per succedere al Mac (i telefoni lo vedono come stato): 'asleep', 'quit' e 'rekeyed' (la chiave sta per
-   * essere rigenerata: da questo id il Mac non tornerà) chiudono il collegamento e sospendono la riconnessione, 'awake' la riprende subito. Chi chiama (LAD-54) la collega a powerMonitor e all'uscita dell'app.
+   * Tells the relay what is about to happen to the Mac (phones see it as a state): 'asleep', 'quit' and 'rekeyed' (the key is about to
+   * be regenerated: the Mac will not come back under this id) close the link and suspend reconnection, 'awake' resumes it at once. The caller wires it to powerMonitor and to app exit.
    */
   async setMacState(state: MacLiveState): Promise<void> {
     if (!this.started) return
@@ -176,14 +176,14 @@ export class RelayClient {
     await this.shutSocket(1000, state)
   }
 
-  // ── Interno, usato anche da PhoneLink ────────────────────────────────────
+  // ── Internal, also used by PhoneLink ─────────────────────────────────────
 
   sendFrame(type: number, connId: number, payload?: Uint8Array): void {
     if (!this.ws || !this.ready) return
     try {
       this.ws.send(encodeFrame(type, connId, payload))
     } catch {
-      // socket in chiusura: la riconnessione ripulisce
+      // socket closing: the reconnection cleans up
     }
   }
 
@@ -195,7 +195,7 @@ export class RelayClient {
     return this.ws?.bufferedAmount ?? 0
   }
 
-  // ── Connessione ──────────────────────────────────────────────────────────
+  // ── Connection ───────────────────────────────────────────────────────────
 
   private connect(): void {
     if (!this.started || this.paused || this.ws) return
@@ -223,7 +223,7 @@ export class RelayClient {
       this.down(ws, event.code === 1000 ? undefined : `closed (${event.code})`)
     })
     ws.addEventListener('error', () => {
-      // Dopo un errore segue sempre un close; qui non c'è altro da fare.
+      // After an error a close always follows; nothing else to do here.
     })
   }
 
@@ -273,11 +273,11 @@ export class RelayClient {
     try {
       this.ws?.send(JSON.stringify(message))
     } catch {
-      // vedi sendFrame
+      // see sendFrame
     }
   }
 
-  /** Keepalive: un ping di testo, a cui il relay risponde da solo; se non arriva più nulla, la connessione è morta. */
+  /** Keepalive: a text ping, which the relay answers by itself; if nothing arrives any more, the connection is dead. */
   private ping(ws: WebSocket): void {
     if (this.ws !== ws) return
     if (Date.now() - this.lastRx > (this.options.deadMs ?? RELAY_PING_INTERVAL_MS * 2.5)) return this.abandon(ws, 'relay silent')
@@ -288,18 +288,18 @@ export class RelayClient {
     }
   }
 
-  /** Connessione morta senza che il close arrivi (rete sparita): la si molla senza aspettare l'handshake di chiusura. */
+  /** Connection dead without the close arriving (network vanished): it is dropped without waiting for the closing handshake. */
   private abandon(ws: WebSocket, reason: string): void {
     if (this.ws !== ws) return
     try {
       ws.close()
     } catch {
-      // già chiuso
+      // already closed
     }
     this.down(ws, reason)
   }
 
-  /** Il socket non c'è più: i telefoni cadono (il gateway li chiude) e, salvo pausa o stop, si riprova. */
+  /** The socket is gone: phones drop (the gateway closes them) and, unless paused or stopped, it retries. */
   private down(ws: WebSocket, reason?: string): void {
     if (this.ws !== ws) return
     this.ws = null
@@ -320,7 +320,7 @@ export class RelayClient {
     if (this.reconnectTimer || !this.started || this.paused) return
     const min = this.options.minBackoffMs ?? 250
     const max = this.options.maxBackoffMs ?? 30_000
-    // Esponenziale con tetto; jitter tra metà e il tutto, così più Mac non si ripresentano insieme.
+    // Exponential with a cap; jitter between half and the whole, so several Macs do not show up together.
     const base = this.replaced ? max : Math.min(max, min * 2 ** this.attempts)
     const delay = Math.round(base * (0.5 + 0.5 * (this.options.random ?? Math.random)()))
     this.attempts++
@@ -335,7 +335,7 @@ export class RelayClient {
     this.reconnectTimer = null
   }
 
-  /** Chiude il socket (se c'è) e aspetta la chiusura, al massimo un secondo. */
+  /** Closes the socket (if any) and waits for the close, at most one second. */
   private async shutSocket(code: number, reason: string): Promise<void> {
     const ws = this.ws
     if (!ws) return
@@ -346,7 +346,7 @@ export class RelayClient {
     try {
       ws.close(code, reason)
     } catch {
-      // già chiuso
+      // already closed
     }
     await closed
     this.down(ws)

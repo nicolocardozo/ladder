@@ -7,7 +7,7 @@ const project = (id: string): Project => ({ id, name: id, path: `/${id}`, branch
 const session = (id: string, projectId: string, patch: Partial<SessionSummary> = {}): SessionSummary =>
   ({ id, projectId, title: id, run: 'idle', unread: false, queue: [], archived: false, openRequests: 0, waitingSince: null, activityAt: 1, createdAt: 1, ...patch }) as unknown as SessionSummary
 
-test('Now ordina per urgenza e nasconde le sessioni ferme', () => {
+test('Now sorts by urgency and hides idle sessions', () => {
   const m = buildHome({
     projects: [project('a'), project('b')],
     sessions: [session('s1', 'a', { unread: true }), session('s2', 'a', { run: 'running' }), session('s3', 'b', { run: 'waiting', waitingSince: 5, openRequests: 1 }), session('s4', 'b')],
@@ -18,7 +18,7 @@ test('Now ordina per urgenza e nasconde le sessioni ferme', () => {
   assert.equal(m.waitingCount, 1)
 })
 
-test('sezioni: aperte quelle vive, progetti senza sessioni in fondo', () => {
+test('sections: live ones open, projects without sessions at the bottom', () => {
   const m = buildHome({
     projects: [project('a'), project('b'), project('c')],
     sessions: [session('s1', 'c', { run: 'running' })],
@@ -31,7 +31,7 @@ test('sezioni: aperte quelle vive, progetti senza sessioni in fondo', () => {
   assert.equal(m.sections[1].expanded, false)
 })
 
-test('un solo progetto e preferenza salvata', () => {
+test('a single project and a saved preference', () => {
   const one = buildHome({ projects: [project('a')], sessions: [], projectGroups: null, collapsed: {} })
   assert.equal(one.singleProject?.project.id, 'a')
   const m = buildHome({
@@ -43,7 +43,7 @@ test('un solo progetto e preferenza salvata', () => {
   assert.equal(m.sections[0].expanded, false)
 })
 
-test('gruppi di sessioni del progetto', () => {
+test('session groups of the project', () => {
   const g = groupProjectSessions([session('s1', 'a'), session('s2', 'a')], { groups: [{ id: 'x', name: 'X' }], groupOf: { s2: 'x' } })
   assert.deepEqual(g.map((x) => [x.name, x.sessions.map((s) => s.id)]), [[null, ['s1']], ['X', ['s2']]])
 })

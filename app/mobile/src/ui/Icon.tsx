@@ -1,4 +1,4 @@
-// Icone a tratto (viewBox 24, 1.75 px), disegnate qui: poche e coerenti, senza una libreria in più.
+// Stroke icons (viewBox 24, 1.75 px), drawn here: few and consistent, without an extra library.
 import Svg, { Circle, Path, Rect } from 'react-native-svg'
 
 export type IconName =
@@ -127,7 +127,7 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.75 }: Props) {
     case 'shield':
       body = <Path d="M12 4l7 2.5v5.2c0 4-2.7 6.7-7 8.3-4.3-1.6-7-4.3-7-8.3V6.5L12 4z" {...p} />
       break
-    // Triangolo d'avviso a tratto: non è il triangolo pieno dello stato "ti aspetta".
+    // Stroked warning triangle: not the filled triangle of the "waiting for you" state.
     case 'alert':
       body = (
         <>
@@ -184,7 +184,7 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.75 }: Props) {
       body = <Path d="M12 4.5l1.9 5.6 5.6 1.9-5.6 1.9L12 19.5l-1.9-5.6-5.6-1.9 5.6-1.9L12 4.5z" {...p} />
       break
     case 'live':
-      // Onde che escono da un punto: "in diretta".
+      // Waves coming out of a point: "live".
       body = (
         <>
           <Circle cx="12" cy="12" r="2.2" {...p} />

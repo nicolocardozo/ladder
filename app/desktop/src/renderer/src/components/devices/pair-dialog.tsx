@@ -1,5 +1,5 @@
-// "Connect a phone": il QR di abbinamento con nome del Mac, impronta della chiave e conto alla rovescia. Il codice è monouso e vale 5 minuti.
-// L'indirizzo del QR è un segreto: sta solo in memoria di questo componente, va solo al disegno del QR e non si copia né si scrive nei log.
+// "Connect a phone": the pairing QR with the Mac's name, key fingerprint and a countdown. The code is single-use and valid for 5 minutes.
+// The QR address is a secret: it lives only in this component's memory, goes only to the QR drawing and is never copied or written to logs.
 import { useEffect, useRef, useState } from 'react'
 import { Check, CircleAlert, Loader2, Lock } from 'lucide-react'
 import type { RemoteDeviceInfo, RemotePairStart } from '@shared/protocol'
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { onHostEvent } from '@/lib/host-client'
 import { countdown, remoteCommands, useRemoteStatus } from '@/lib/remote'
 
-/** Quanto resta aperto il dialogo dopo l'abbinamento, il tempo di leggere "is connected". */
+/** How long the dialog stays open after pairing, enough time to read "is connected". */
 const PAIRED_CLOSE_MS = 1800
 
 export function PairDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -27,7 +27,7 @@ function PairContent({ onClose }: { onClose: () => void }) {
   const status = useRemoteStatus()
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' })
   const [now, setNow] = useState(() => Date.now())
-  /** Il codice non vale più prima della scadenza (troppi tentativi, sostituito): l'host lo dice con un `remote.status` senza QR. */
+  /** The code stops being valid before expiry (too many attempts, replaced): the host says so with a `remote.status` without a QR. */
   const [burned, setBurned] = useState(false)
   const seenActive = useRef(false)
   const attempt = useRef(0)
@@ -43,9 +43,9 @@ function PairContent({ onClose }: { onClose: () => void }) {
     remoteCommands
       .pairStart()
       .then((result) => {
-        // Una richiesta superata da una più recente (rimontaggio, "Refresh code") non conta: il suo codice è già stato sostituito.
+        // A request superseded by a more recent one (remount, "Refresh code") does not count: its code has already been replaced.
         if (mine !== attempt.current) return
-        // Chiuso mentre l'host rispondeva: il codice appena creato si annulla subito.
+        // Closed while the host was answering: the code just created is cancelled right away.
         if (!mounted.current) return void remoteCommands.pairCancel().catch(() => undefined)
         setNow(Date.now())
         setBurned(false)
@@ -60,7 +60,7 @@ function PairContent({ onClose }: { onClose: () => void }) {
     start()
     return () => {
       mounted.current = false
-      // Chiudere il dialogo annulla il codice, a meno che non sia già stato usato.
+      // Closing the dialog cancels the code, unless it has already been used.
       if (!paired.current) remoteCommands.pairCancel().catch(() => undefined)
     }
   }, [])
@@ -81,7 +81,7 @@ function PairContent({ onClose }: { onClose: () => void }) {
     return () => window.clearTimeout(timer)
   }, [phase.kind])
 
-  // Un `remote.status` senza QR dopo che ce n'era uno: il codice è stato bruciato o sostituito.
+  // A `remote.status` without a QR after there was one: the code was burned or replaced.
   const active = status?.pairing ?? null
   useEffect(() => {
     if (phase.kind !== 'ready') return
@@ -98,7 +98,7 @@ function PairContent({ onClose }: { onClose: () => void }) {
   const remaining = expiresAt - now
   const expired = phase.kind === 'ready' && (remaining <= 0 || burned)
 
-  // Il focus parte sul bottone in fondo: un Invio per sbaglio non fa niente di pericoloso e Esc annulla.
+  // Focus starts on the bottom button: an accidental Enter does nothing dangerous and Esc cancels.
   useEffect(() => {
     if (phase.kind === 'ready' && expired) primary.current?.focus()
   }, [phase.kind, expired])

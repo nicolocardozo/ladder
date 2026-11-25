@@ -1,6 +1,6 @@
-// Il marchio di Ladder: le tre barre del simbolo, nel colore d'accento del tema (DESIGN.md: nella UI il logo prende l'accento),
-// da solo o con la parola sotto (colore del testo del tema). Ogni barra è un Svg a sé, sovrapposto agli altri con lo stesso
-// riquadro, così si possono animare una alla volta con trasformazioni native (niente prop animate di react-native-svg).
+// The Ladder mark: the symbol's three bars, in the theme accent color (DESIGN.md: in the UI the logo takes the accent),
+// alone or with the word below (theme text color). Each bar is its own Svg, stacked on the others with the same
+// box, so they can be animated one at a time with native transforms (no animated props of react-native-svg).
 import { useEffect } from 'react'
 import { View, type StyleProp, type ViewStyle } from 'react-native'
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming } from 'react-native-reanimated'
@@ -9,7 +9,7 @@ import { useReduceMotion } from '@/lib/use-reduce-motion'
 import { useTheme } from '@/theme/theme'
 import { GLYPH_BARS, GLYPH_H, GLYPH_W, STACKED_GLYPH_X, STACKED_H, STACKED_W, STACKED_WORD_Y, WORDMARK_PATH, WORDMARK_SCALE } from './logo-paths'
 
-/** Ritardo tra una barra e la successiva, durata di ciascuna e della parola: l'ingresso dura STEP*2 + BAR = 500 ms. */
+/** Delay between one bar and the next, duration of each and of the word: the entrance lasts STEP*2 + BAR = 500 ms. */
 const STEP_MS = 110
 const BAR_MS = 280
 const WORD_DELAY_MS = 330
@@ -19,17 +19,17 @@ export const LOGO_ENTER_WITH_WORD_MS = WORD_DELAY_MS + WORD_MS
 const IDLE_MS = 1800
 
 export interface LogoProps {
-  /** Larghezza in punti del simbolo (o dell'intera composizione con la parola). */
+  /** Width in points of the symbol (or of the whole composition with the word). */
   size?: number
-  /** `mark` = solo il simbolo, `stacked` = simbolo con la parola sotto. */
+  /** `mark` = symbol only, `stacked` = symbol with the word below. */
   variant?: 'mark' | 'stacked'
-  /** Di default l'accento del tema. */
+  /** Defaults to the theme accent. */
   color?: string
-  /** Colore della parola: di default il testo del tema. */
+  /** Word color: defaults to the theme text. */
   wordColor?: string
-  /** Le barre entrano una dopo l'altra, dal basso, come gradini che si salgono. */
+  /** The bars enter one after another, from the bottom, like steps being climbed. */
   enter?: boolean
-  /** Dopo l'ingresso (o subito), un'onda lenta di luminosità sale lungo le barre. */
+  /** After the entrance (or immediately), a slow wave of brightness rises along the bars. */
   idle?: boolean
   style?: StyleProp<ViewStyle>
 }
@@ -45,7 +45,7 @@ export function Logo({ size = 96, variant = 'mark', color, wordColor, enter = fa
   const height = (size * boxH) / boxW
   const glyphX = stacked ? STACKED_GLYPH_X : 0
 
-  // Avanzamento di ogni barra (0 = fuori, 1 = al suo posto), dalla più bassa (indice 2) alla più alta (indice 0).
+  // Progress of each bar (0 = out, 1 = in place), from the lowest (index 2) to the highest (index 0).
   const p0 = useSharedValue(enter ? 0 : 1)
   const p1 = useSharedValue(enter ? 0 : 1)
   const p2 = useSharedValue(enter ? 0 : 1)
@@ -54,12 +54,12 @@ export function Logo({ size = 96, variant = 'mark', color, wordColor, enter = fa
   const bars = [p0, p1, p2]
 
   useEffect(() => {
-    // Finché non si sa se il movimento è ridotto non si parte: pochi ms, e il simbolo resta invisibile.
+    // Until we know whether motion is reduced we don't start: a few ms, and the symbol stays invisible.
     if (reduce === null) return
     if (!enter) return
     const easing = Easing.out(Easing.cubic)
     bars.forEach((p, i) => {
-      // Con movimento ridotto le barre compaiono insieme, con una semplice dissolvenza.
+      // With reduced motion the bars appear together, with a simple fade.
       const delay = reduce ? 0 : (2 - i) * STEP_MS
       p.value = withDelay(delay, withTiming(1, { duration: reduce ? 200 : BAR_MS, easing }))
     })
@@ -82,7 +82,7 @@ export function Logo({ size = 96, variant = 'mark', color, wordColor, enter = fa
     // eslint-disable-next-line react-hooks/rules-of-hooks
     useAnimatedStyle(() => {
       const p = bars[i].value
-      // Onda di luminosità: sale dalla barra più bassa alla più alta; la barra "accesa" è piena, le altre scendono a 0.55.
+      // Brightness wave: rises from the lowest bar to the highest; the "lit" bar is full, the others drop to 0.55.
       const phase = ((2 - i) / 3) % 1
       const w = idle && reduce === false ? 0.775 + 0.225 * Math.cos(2 * Math.PI * (wave.value - phase)) : 1
       return { opacity: p * w, transform: [{ translateY: (1 - p) * rise }] }

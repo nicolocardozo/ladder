@@ -1,4 +1,4 @@
-// Immagini allegate al messaggio: lettura, limiti e anteprime sopra la textarea.
+// Images attached to the message: reading, limits and previews above the textarea.
 import { X } from 'lucide-react'
 import type { Attachment } from '@shared/protocol'
 import { localeTag, t } from '@shared/i18n'
@@ -8,7 +8,7 @@ export const IMAGE_ACCEPT = IMAGE_TYPES.join(',')
 export const MAX_IMAGES = 5
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-// Il testo segnaposto sta in un modulo condiviso (lo usa anche il gateway del telefono).
+// The placeholder text lives in a shared module (the phone gateway uses it too).
 export { imagePlaceholder, isImagePlaceholder } from '@shared/image-placeholder'
 
 export interface PendingImage {
@@ -16,7 +16,7 @@ export interface PendingImage {
   name: string
   mediaType: string
   size: number
-  /** Data URL: serve sia all'anteprima sia all'invio. La CSP non ammette blob: in img-src. */
+  /** Data URL: used for both the preview and sending. The CSP does not allow blob: in img-src. */
   url: string
 }
 
@@ -39,8 +39,8 @@ const formatSize = (bytes: number) =>
     : `${Math.max(1, Math.round(bytes / 1024))} KB`
 
 /**
- * Controlla tipo, dimensione e numero, poi legge i file accettati.
- * `pasted`: le immagini incollate arrivano come "image.png" e prendono un nome numerato.
+ * Checks type, size and count, then reads the accepted files.
+ * `pasted`: pasted images arrive as "image.png" and get a numbered name.
  */
 export async function acceptImages(files: File[], current: number, pasted = false): Promise<{ images: PendingImage[]; error: string | null }> {
   const errors: string[] = []
@@ -68,8 +68,8 @@ export async function acceptImages(files: File[], current: number, pasted = fals
 }
 
 /**
- * Immagini che arrivano già pronte (screenshot del browser integrato): stessi limiti dei file incollati.
- * `current` è il numero di immagini già nel messaggio.
+ * Images that arrive already prepared (screenshots from the built-in browser): same limits as pasted files.
+ * `current` is the number of images already in the message.
  */
 export function acceptAttachments(list: Attachment[], current: number): { images: PendingImage[]; error: string | null } {
   const images: PendingImage[] = []
@@ -84,7 +84,7 @@ export function acceptAttachments(list: Attachment[], current: number): { images
   return { images, error: errors[0] ?? null }
 }
 
-/** Formato del protocollo: base64 senza il prefisso del data URL. */
+/** Protocol format: base64 without the data URL prefix. */
 export function toAttachment(image: PendingImage): Attachment {
   return { name: image.name, mediaType: image.mediaType, data: image.url.slice(image.url.indexOf(',') + 1) }
 }

@@ -1,4 +1,4 @@
-// Mac e connessione: stato, da quanto, motivo, riprova. Sta nello sheet che apre il pill della Home e nella schermata delle Impostazioni.
+// Mac and connection: status, since when, reason, retry. It lives in the sheet opened by the Home pill and in the Settings screen.
 import { useRouter } from 'expo-router'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ScrollView, View } from 'react-native'
@@ -13,7 +13,7 @@ import { Button } from '@/ui/Button'
 import { useConnectionText } from '@/ui/ConnectionPill'
 import { Group, Row } from '@/ui/List'
 
-/** Da quanto un Mac è offline prima di offrire "Pair again". */
+/** How long a Mac is offline before offering "Pair again". */
 const LONG_OFFLINE_MS = 10 * 60_000
 
 export function MacContent({ sheet }: { sheet?: boolean }) {
@@ -23,13 +23,13 @@ export function MacContent({ sheet }: { sheet?: boolean }) {
   const conn = useApp((s) => s.conn)
   const mode = useApp((s) => s.mode)
   const macName = useApp((s) => s.macName)
-  // Un Mac offline da molto può aver cambiato chiave (o essere stato reinstallato) senza poterlo dire: si offre di abbinare di nuovo.
+  // A Mac offline for a long time may have changed key (or been reinstalled) without being able to say so: offer to pair again.
   const [, tick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 30_000)
     return () => clearInterval(id)
   }, [])
-  // Dal foglio si chiude prima il foglio e poi si apre l'abbinamento: sopra il foglio la schermata finirebbe dentro di esso.
+  // From the sheet, the sheet closes first and then pairing opens: above the sheet the screen would end up inside it.
   const pairAgain = () => {
     if (!sheet) return router.push('/pair/camera')
     if (nativeSheets() && router.canDismiss()) router.dismiss()
@@ -70,7 +70,7 @@ export function MacContent({ sheet }: { sheet?: boolean }) {
   )
 }
 
-/** Nello sheet il contenuto è alto quanto serve (lo scorrimento lo mette lo sheet); nella schermata scorre da sé. */
+/** In the sheet the content is as tall as needed (the sheet provides scrolling); in the screen it scrolls on its own. */
 function Wrap({ sheet, background, children }: { sheet?: boolean; background: string; children: ReactNode }) {
   if (sheet) return <View>{children}</View>
   return (

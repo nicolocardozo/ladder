@@ -1,14 +1,14 @@
-// Italiano per le stringhe del telefono. La chiave è il testo inglese esatto; una voce mancante resta in inglese.
-// Le stringhe condivise con il Mac stanno in app/desktop/src/shared/locales/it (registrate prima, queste vincono).
+// Italian strings for the phone app. The key is the exact English text; a missing entry stays in English.
+// Strings shared with the Mac live in app/desktop/src/shared/locales/it (registered first, these win).
 import { registerCatalog } from '@shared/i18n'
 
 registerCatalog('it', {
-  // Dettatura: download del modello sul telefono
+  // Dictation: model download on the phone
   'Downloading {language} dictation ({size})': 'Scarico la dettatura in {language} ({size})',
   'Downloading {language} dictation…': 'Scarico la dettatura in {language}…',
   'Once, on this phone. Your voice never leaves it.': 'Una volta sola, sul telefono. La voce non ne esce mai.',
   'Could not download the {language} dictation. Check your connection and try again.': 'Impossibile scaricare la dettatura in {language}. Controlla la connessione e riprova.',
-  // Nuova sessione (LAD-89)
+  // New session
   'Add a project in Ladder on your Mac first, then start a session here.': 'Aggiungi prima un progetto in Ladder sul Mac, poi avvia qui una sessione.',
   'Default ({effort})': 'Predefinito ({effort})',
   'Default ({model})': 'Predefinito ({model})',
@@ -19,7 +19,7 @@ registerCatalog('it', {
   'Reconnect to your Mac to send.': 'Riconnettiti al Mac per inviare.',
   'Search projects': 'Cerca progetti',
   'What should the agent do?': 'Cosa deve fare l’agente?',
-  // Limiti del piano (LAD-90)
+  // Plan limits
   'Reconnect to your Mac to update the limits.': 'Riconnettiti al Mac per aggiornare i limiti.',
   'Resets at {when} · in {left}': 'Si azzera alle {when} · tra {left}',
   'Resets at {when}.': 'Si azzera alle {when}.',
@@ -296,7 +296,7 @@ registerCatalog('it', {
   'Switch session': 'Cambia sessione',
   '1 agent running': '1 agente al lavoro',
   '{n} agents running': '{n} agenti al lavoro',
-  // Notifiche push (LAD-53)
+  // Push notifications
   'A session needs you.': 'Una sessione ti cerca.',
   'Not set up': 'Non configurate',
   On: 'Attive',
@@ -320,7 +320,7 @@ registerCatalog('it', {
   From: 'Dalle',
   To: 'Alle',
   'Allow requests during quiet hours': 'Consenti le richieste nelle ore silenziose',
-  // Allegati, dettatura, comandi e file nel composer (LAD-92)
+  // Attachments, dictation, commands and files in the composer
   'Attach images': 'Allega immagini',
   'End-to-end encrypted': 'Cifrato end-to-end',
   'No account': 'Nessun account',
@@ -354,7 +354,7 @@ registerCatalog('it', {
   'No commands match.': 'Nessun comando corrisponde.',
   'No files match.': 'Nessun file corrisponde.',
   'Type to search the project’s files.': 'Scrivi per cercare tra i file del progetto.',
-  // Schermata di blocco e widget (LAD-93)
+  // Lock screen and widget
   'Out of date': 'Non aggiornato',
   working: 'al lavoro',
   'All quiet': 'Tutto tranquillo',

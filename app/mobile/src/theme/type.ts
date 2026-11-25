@@ -1,5 +1,5 @@
-// Scala tipografica del telefono: salita di un passo per il tocco rispetto al desktop (DESIGN.md).
-// 13 / 15 / 17 / 17 semibold / 22 / 28. Mona Sans per l'interfaccia, font di sistema per la chat, Monaspace Neon per il codice.
+// Phone type scale: one step up for touch compared to the desktop (DESIGN.md).
+// 13 / 15 / 17 / 17 semibold / 22 / 28. Mona Sans for the interface, system font for the chat, Monaspace Neon for code.
 export const FONT = {
   regular: 'MonaSans-Regular',
   medium: 'MonaSans-Medium',
@@ -28,11 +28,11 @@ export const TYPE: Record<Variant, TypeStyle> = {
   code: { fontFamily: FONT.monoRegular, fontSize: 13, lineHeight: 20 }
 }
 
-/** Limite alla crescita con Dynamic Type / dimensione del testo di Android, perché la UI non si rompa. */
+/** Cap on growth with Dynamic Type / Android font size, so the UI does not break. */
 export const MAX_FONT_SCALE = 1.5
 
 export const SPACE = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32 } as const
 export const RADIUS = { sm: 6, md: 8, lg: 12, xl: 16 } as const
 export const HAIRLINE = 1
-/** Bersaglio minimo: 44 pt su iOS, 48 dp su Android. */
+/** Minimum target: 44 pt on iOS, 48 dp on Android. */
 export const TOUCH = { ios: 44, android: 48 }

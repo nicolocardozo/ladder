@@ -9,7 +9,7 @@ import { Button } from '@/ui/Button'
 import { Group, Row } from '@/ui/List'
 import { Text } from '@/ui/Text'
 
-/** Conferma prima di collegarsi: nome del Mac, impronta della chiave (la stessa che mostra il Mac) e relay. */
+/** Confirmation before connecting: Mac name, key fingerprint (the same one the Mac shows) and relay. */
 export default function Confirm() {
   const router = useRouter()
   const payload = usePairFlow((s) => s.payload)
@@ -30,7 +30,7 @@ export default function Confirm() {
             label={t('Pair')}
             variant="primary"
             onPress={() => {
-              // Solo da qui password e nome del dispositivo diventano raggiungibili.
+              // Only from here do the password and device name become reachable.
               set({ confirmed: true })
               router.push(payload.pw ? '/pair/password' : '/pair/device')
             }}

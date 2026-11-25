@@ -1,7 +1,7 @@
-// Client del canale remoto (protocollo 2): handshake Noise NK (iniziatore, chiave pubblica del Mac), poi il primo messaggio firmato
-// (`pair` la prima volta, `auth` le volte dopo), poi `hello` e i comandi con rid, gli eventi, la riconnessione con backoff.
-// Non conosce lo store: parla con chi lo usa tramite callback. Limiti dell'host rispettati: 20 comandi/s (qui 15/s),
-// 1 MiB per comando, silenzio massimo 120 s (ci pensano i ping di relay e server).
+// Remote channel client (protocol 2): Noise NK handshake (initiator, the Mac's public key), then the first signed message
+// (`pair` the first time, `auth` afterwards), then `hello` and the commands with rid, events, reconnection with backoff.
+// It does not know the store: it talks to its user through callbacks. Host limits respected: 20 commands/s (here 15/s),
+// 1 MiB per command, max silence 120 s (relay and server pings take care of it).
 import { t, type Locale } from '@shared/i18n'
 import type { FromRemoteHost, RemoteAuthErrorCode, RemoteAuthResult, RemoteCommand, RemoteEvent, RemoteFirstMessage, RemoteMacStatus, RemoteOfflineReason, RemotePlatform, RemoteServerHello, RemoteSnapshot, ToRemoteHost } from '@shared/protocol'
 import { toBase64Url } from '@shared/remote/pairing'
@@ -13,22 +13,22 @@ export type ConnState =
   | { kind: 'connecting'; since: number }
   | { kind: 'connected'; since: number }
   | { kind: 'reconnecting'; since: number; reason?: string }
-  /** Collegato, ma sta rileggendo le chat dopo la riconnessione. */
+  /** Connected, but re-reading the chats after reconnecting. */
   | { kind: 'syncing'; since: number }
   | { kind: 'unreachable'; since: number; reason?: string }
-  /** Il relay è raggiungibile ma il Mac no: `reason` e `since` (ultima volta che il relay l'ha visto) li dà il relay. */
-  | { kind: 'mac-offline'; since: number | null; reason: RemoteOfflineReason; /** Da quando il telefono lo vede offline (orologio del telefono). */ at: number }
-  /** "Access from your phone" è spento sul Mac: si riprova con calma. */
+  /** The relay is reachable but the Mac is not: `reason` and `since` (last time the relay saw it) come from the relay. */
+  | { kind: 'mac-offline'; since: number | null; reason: RemoteOfflineReason; /** Since when the phone has seen it offline (phone clock). */ at: number }
+  /** "Access from your phone" is off on the Mac: retried calmly. */
   | { kind: 'disabled'; since: number }
-  // Stati finali: il client si ferma e chi lo usa mostra una schermata.
-  /** Il Mac ha revocato questo telefono (o non lo conosce più). */
+  // Final states: the client stops and its user shows a screen.
+  /** The Mac revoked this phone (or no longer knows it). */
   | { kind: 'revoked' }
-  /** La chiave del Mac non è più quella dell'abbinamento. */
+  /** The Mac's key is no longer the one from pairing. */
   | { kind: 'key-changed' }
-  /** L'abbinamento è stato rifiutato (codice scaduto, password sbagliata…). */
+  /** Pairing was rejected (expired code, wrong password…). */
   | { kind: 'denied'; code: RemoteAuthErrorCode; error: string }
 
-/** Come il telefono si presenta dopo l'handshake. */
+/** How the phone introduces itself after the handshake. */
 export type FirstMessage =
   | { mode: 'auth'; deviceId: string }
   | { mode: 'pair'; token: string; password?: string; device: { name: string; platform: RemotePlatform } }
@@ -36,15 +36,15 @@ export type FirstMessage =
 export interface ClientOptions {
   createLink: LinkFactory
   macPublicKey: Uint8Array
-  /** Chiave Ed25519 del telefono (la privata non esce da qui: serve solo a firmare). */
+  /** The phone's Ed25519 key (the private part never leaves here: it is only used to sign). */
   deviceKey: { secretKey: Uint8Array; publicKey: Uint8Array }
-  /** Nome del dispositivo per l'hello dell'handshake (solo diagnostica sul Mac). */
+  /** Device name for the handshake hello (diagnostics only on the Mac). */
   deviceLabel: string
   locale: Locale
   onEvent(event: RemoteEvent): void
-  /** Il Mac ha accettato `pair`/`auth`. */
+  /** The Mac accepted `pair`/`auth`. */
   onAuthenticated(result: Extract<RemoteAuthResult, { ok: true }>, hello: RemoteServerHello): void
-  /** Dopo ogni hello riuscito (anche dopo una riconnessione): chi usa il client rilegge ciò che segue. Il client resta in 'syncing' finché non risolve. */
+  /** After every successful hello (also after a reconnection): the client's user re-reads what follows. The client stays in 'syncing' until it resolves. */
   onHello(snapshot: RemoteSnapshot, hello: RemoteServerHello, reconnect: boolean): Promise<void>
   onState(state: ConnState): void
 }
@@ -52,29 +52,29 @@ export interface ClientOptions {
 const BACKOFF_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000]
 const CONNECT_TIMEOUT_MS = 8_000
 const REQUEST_TIMEOUT_MS = 25_000
-/** Un comando con immagini porta fino a ~3 MB: su una rete lenta ci vuole più tempo. */
+/** A command with images carries up to ~3 MB: on a slow network it takes longer. */
 const ATTACH_TIMEOUT_MS = 90_000
-/** Dopo tanto tempo (o tentativi) senza collegamento si passa da "Reconnecting" a "Mac unreachable". */
+/** After this much time (or attempts) without a connection it goes from "Reconnecting" to "Mac unreachable". */
 const UNREACHABLE_AFTER_MS = 20_000
 const UNREACHABLE_AFTER_ATTEMPTS = 3
 const RATE_PER_SECOND = 15
-/** Con il collegamento in primo piano e silenzio da tanto, si controlla che il Mac risponda. */
+/** With the connection in the foreground and long silence, check that the Mac responds. */
 const LIVENESS_EVERY_MS = 30_000
 const SILENT_AFTER_MS = 60_000
 const PROBE_TIMEOUT_MS = 6_000
 /**
- * Handshake falliti di fila prima di dire che la chiave del Mac è cambiata (uno solo può essere un messaggio rovinato o un Mac
- * che si riavvia). Con una chiave sbagliata il Mac non riesce a decifrare il primo messaggio e ci chiude senza rispondere: conta
- * solo una chiusura decisa dal Mac (`rejected`) dopo il nostro primo messaggio e prima della sua risposta; un guasto di rete
- * o un Mac che sparisce non contano.
+ * Consecutive failed handshakes before saying the Mac's key changed (a single one may be a corrupted message or a Mac
+ * restarting). With a wrong key the Mac cannot decrypt the first message and closes on us without replying: only a
+ * close decided by the Mac (`rejected`) after our first message and before its reply counts; a network failure
+ * or a Mac that disappears do not count.
  */
 const HANDSHAKE_FAILURES_FOR_KEY_CHANGE = 3
-/** Il relay dice "mai visto" per un Mac con cui ci eravamo già collegati: dopo questa attesa si conclude che la chiave (e l'id) sono cambiati. */
+/** The relay says "never seen" for a Mac we had already connected to: after this wait we conclude that the key (and the id) changed. */
 const NEVER_SEEN_GRACE_MS = 3_000
 
 export class RemoteClient {
   private readonly o: ClientOptions
-  /** Come ci presentiamo alla prossima connessione: dopo un `pair` riuscito diventa `auth` (il codice monouso non vale più). */
+  /** How we introduce ourselves on the next connection: after a successful `pair` it becomes `auth` (the one-time code is no longer valid). */
   private first: FirstMessage
   private link: RemoteLink | null = null
   private session: RemoteSession | null = null
@@ -86,7 +86,7 @@ export class RemoteClient {
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private neverSeenTimer: ReturnType<typeof setTimeout> | null = null
-  /** Da quando manca il collegamento (null = c'è). */
+  /** Since when the connection has been missing (null = present). */
   private downSince: number | null = null
   private state: ConnState = { kind: 'connecting', since: Date.now() }
   private tokens = RATE_PER_SECOND
@@ -94,14 +94,14 @@ export class RemoteClient {
   private ready = false
   private authenticated = false
   private handshakeFailures = 0
-  /** Serve a scartare le risposte di un collegamento vecchio. */
+  /** Used to discard responses from an old connection. */
   private generation = 0
   hello: RemoteServerHello | null = null
-  /** Ultimo byte ricevuto dal Mac (messaggi o risposte). */
+  /** Last byte received from the Mac (messages or responses). */
   lastRx = Date.now()
   private liveness: ReturnType<typeof setInterval> | null = null
 
-  /** `first` resta solo qui: dopo un `pair` riuscito viene sostituito da `auth`, così il codice monouso e la password non restano in memoria. */
+  /** `first` stays only here: after a successful `pair` it is replaced by `auth`, so the one-time code and the password do not stay in memory. */
   constructor(options: ClientOptions, first: FirstMessage) {
     this.o = options
     this.first = first
@@ -132,7 +132,7 @@ export class RemoteClient {
     this.retryTimer = null
   }
 
-  /** L'app torna in primo piano o l'utente tocca "Retry": niente attesa del backoff. */
+  /** The app returns to the foreground or the user taps "Retry": no waiting for the backoff. */
   reconnectNow(): void {
     if (this.stopped || this.ready) return
     if (this.retryTimer) clearTimeout(this.retryTimer)
@@ -148,8 +148,8 @@ export class RemoteClient {
   }
 
   /**
-   * Controlla che il Mac risponda (rilegge lo snapshot, che serve anche a riallinearsi). Se non risponde il collegamento
-   * si considera perso e riparte la riconnessione. Risolve con lo snapshot, o null se non c'è collegamento.
+   * Checks that the Mac responds (re-reads the snapshot, which also serves to realign). If it does not respond the connection
+   * is considered lost and reconnection restarts. Resolves with the snapshot, or null if there is no connection.
    */
   async probe(): Promise<RemoteSnapshot | null> {
     if (!this.ready) {
@@ -203,14 +203,14 @@ export class RemoteClient {
     })
   }
 
-  // ── Connessione ──
+  // ── Connection ──
 
   private set(state: ConnState): void {
     this.state = state
     this.o.onState(state)
   }
 
-  /** Stato finale: si ferma tutto e non si riprova. */
+  /** Final state: everything stops and no retry. */
   private finalState(state: ConnState): void {
     this.stop()
     this.set(state)
@@ -224,13 +224,13 @@ export class RemoteClient {
     this.link = link
     this.session = null
     let handshake = this.newHandshake()
-    /** Falso finché non è arrivata la risposta del Mac al primo messaggio dell'handshake. */
+    /** False until the Mac's response to the handshake's first message has arrived. */
     let helloDone = false
-    /** Abbiamo mandato il primo messaggio dell'handshake e aspettiamo la risposta del Mac. */
+    /** We sent the handshake's first message and are waiting for the Mac's response. */
     let awaitingHello = false
     link.onReady(() => {
       if (generation !== this.generation) return
-      // Ogni "pronto" (anche un Mac tornato sullo stesso relay) riparte da capo: stato di nuovo "in connessione" e nuovo limite di tempo.
+      // Every "ready" (also a Mac back on the same relay) starts over: state back to "connecting" and a new time limit.
       this.resetSession()
       handshake = this.newHandshake()
       helloDone = false
@@ -246,7 +246,7 @@ export class RemoteClient {
     })
     link.onMacStatus?.((status) => {
       if (generation !== this.generation) return
-      // Il Mac è sparito: la sessione cifrata non c'è più e non si aspetta più nessuna risposta dell'handshake.
+      // The Mac disappeared: the encrypted session is gone and no handshake response is awaited anymore.
       if (!status.online) awaitingHello = false
       this.onMacStatus(generation, status)
     })
@@ -259,7 +259,7 @@ export class RemoteClient {
           try {
             done = handshake.finish(bytes)
           } catch (error) {
-            // Il Mac c'è ma non ha la chiave che conosciamo: dopo due volte di fila non è un messaggio rovinato.
+            // The Mac is there but does not have the key we know: after two in a row it is not a corrupted message.
             if (++this.handshakeFailures >= HANDSHAKE_FAILURES_FOR_KEY_CHANGE) return this.finalState({ kind: 'key-changed' })
             throw error
           }
@@ -276,13 +276,13 @@ export class RemoteClient {
         const message = this.session!.open<FromRemoteHost>(bytes)
         if (message) this.dispatch(generation, message)
       } catch (error) {
-        // Decifratura o protocollo: il collegamento non si recupera, si richiude e si riprova.
+        // Decryption or protocol: the connection cannot be recovered, it is closed again and retried.
         this.lost(generation, error instanceof Error ? error.message : String(error))
       }
     })
     link.onClose((reason, rejected) => {
       if (generation !== this.generation) return
-      // Il Mac ci ha chiusi dopo il nostro primo messaggio e senza rispondere: tipico di una chiave che non è più la sua.
+      // The Mac closed on us after our first message and without replying: typical of a key that is no longer its own.
       if (awaitingHello && rejected && ++this.handshakeFailures >= HANDSHAKE_FAILURES_FOR_KEY_CHANGE) return this.finalState({ kind: 'key-changed' })
       this.lost(generation, reason)
     })
@@ -301,7 +301,7 @@ export class RemoteClient {
     return clientHandshake({ macPublicKey: this.o.macPublicKey, hello: { device: this.o.deviceLabel, locale: this.o.locale } })
   }
 
-  /** Dopo l'handshake la connessione non è autenticata: il primo messaggio è `pair` o `auth`, firmato sull'hash dell'handshake. */
+  /** After the handshake the connection is not authenticated: the first message is `pair` or `auth`, signed over the handshake hash. */
   private sendFirst(session: RemoteSession, link: RemoteLink): void {
     const hash = session.handshakeHash
     const { deviceKey } = this.o
@@ -319,16 +319,16 @@ export class RemoteClient {
     for (const bytes of session.seal(message)) link.send(bytes)
   }
 
-  /** Stato del Mac dal relay. Offline: si aspetta (il collegamento al relay resta aperto); online: arriva `onReady`. */
+  /** The Mac's state from the relay. Offline: wait (the relay connection stays open); online: `onReady` arrives. */
   private onMacStatus(generation: number, status: RemoteMacStatus): void {
     if (status.online) return
     this.resetSession()
     if (this.connectTimer) clearTimeout(this.connectTimer)
     this.connectTimer = null
-    // Il Mac ha rigenerato la chiave: da questo id non tornerà più.
+    // The Mac regenerated its key: it will not come back from this id.
     if (status.reason === 'rekeyed') return this.finalState({ kind: 'key-changed' })
     this.set({ kind: 'mac-offline', since: status.since, reason: status.reason, at: this.state.kind === 'mac-offline' ? this.state.at : Date.now() })
-    // Un Mac con cui eravamo già collegati e che il relay non ha mai visto: l'id non è più il suo, cioè la chiave è cambiata.
+    // A Mac we had already connected to and that the relay has never seen: the id is no longer its own, i.e. the key changed.
     this.clearNeverSeen()
     if (status.since === null && this.first.mode === 'auth' && this.everConnected) {
       this.neverSeenTimer = setTimeout(() => {
@@ -342,7 +342,7 @@ export class RemoteClient {
     this.neverSeenTimer = null
   }
 
-  /** Dimentica la sessione cifrata (non il collegamento): serve quando il Mac sparisce o torna sullo stesso relay. */
+  /** Forgets the encrypted session (not the connection): needed when the Mac disappears or returns on the same relay. */
   private resetSession(): void {
     this.ready = false
     this.authenticated = false
@@ -363,7 +363,7 @@ export class RemoteClient {
       this.attempts = 0
       this.downSince = null
       this.set({ kind: 'syncing', since: Date.now() })
-      // Il comando hello è l'unico che passa prima di `ready`; il resto (watch, page) usa `request`.
+      // The hello command is the only one that passes before `ready`; the rest (watch, page) uses `request`.
       await this.o.onHello(snapshot, this.hello!, reconnect)
       if (generation !== this.generation) return
       this.everConnected = true
@@ -387,7 +387,7 @@ export class RemoteClient {
     else waiter.reject(new Error(message.error))
   }
 
-  /** Esito di pair/auth, o avviso di revoca a connessione aperta. */
+  /** Outcome of pair/auth, or revocation notice with an open connection. */
   private onAuth(generation: number, result: RemoteAuthResult): void {
     if (result.ok) {
       if (this.authenticated) return
@@ -397,10 +397,10 @@ export class RemoteClient {
       void this.afterAuth(generation)
       return
     }
-    // Durante l'abbinamento ogni rifiuto (anche "revocato" o "sconosciuto") è un abbinamento non riuscito, non una revoca di
-    // un telefono già abbinato: non si ritenta e non si tocca nient'altro.
+    // During pairing every rejection (even "revoked" or "unknown") is a failed pairing, not a revocation of
+    // an already-paired phone: no retry and nothing else is touched.
     if (this.first.mode === 'pair') return this.finalState({ kind: 'denied', code: result.code, error: result.error })
-    // Telefono già abbinato: revocato o sconosciuto, oppure la firma non vale più (chiave del dispositivo diversa): l'abbinamento è finito.
+    // Already-paired phone: revoked or unknown, or the signature is no longer valid (different device key): the pairing is over.
     if (result.code === 'device-revoked' || result.code === 'unknown-device' || result.code === 'bad-signature') return this.finalState({ kind: 'revoked' })
     if (result.code === 'remote-disabled') {
       this.teardown(new Error('disabled'))
@@ -429,7 +429,7 @@ export class RemoteClient {
     try {
       link?.close()
     } catch {
-      // già chiuso
+      // already closed
     }
   }
 

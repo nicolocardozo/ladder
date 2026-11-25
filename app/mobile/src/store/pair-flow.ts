@@ -1,11 +1,11 @@
-// Stato in memoria dell'abbinamento in corso (QR → conferma → password → nome del dispositivo). Il codice monouso e la
-// password vivono solo qui e nella connessione: non finiscono mai nei log, nel portachiavi né nella cache.
+// In-memory state of the pairing in progress (QR → confirm → password → device name). The one-time code and the
+// password live only here and in the connection: they never end up in logs, the keychain or the cache.
 import { create } from 'zustand'
 import type { RemoteAuthErrorCode, RemotePairingPayload } from '@shared/protocol'
 
 export interface PairFailure {
   code?: RemoteAuthErrorCode
-  /** Categoria quando non c'è un codice dell'host. */
+  /** Category when the host sent no code. */
   kind?: 'key-changed' | 'unreachable' | 'mac-offline' | 'storage'
   reason?: string
   hostError?: string
@@ -14,12 +14,12 @@ export interface PairFailure {
 interface PairFlow {
   payload: RemotePairingPayload | null
   password: string
-  /** L'utente ha premuto "Pair" nella conferma: senza, password e nome del dispositivo non si aprono (un deep link non salta la conferma). */
+  /** The user pressed "Pair" in the confirmation: without it, password and device name stay closed (a deep link does not skip the confirmation). */
   confirmed: boolean
   deviceName: string
-  /** Ultimo errore, da mostrare nel passo giusto. */
+  /** Last error, to show in the right step. */
   failure: PairFailure | null
-  /** Solo sviluppo: il passo "nome del dispositivo" si collega da solo (lo imposta dev-driver). */
+  /** Development only: the "device name" step connects on its own (set by dev-driver). */
   autoConnect: boolean
   set: (patch: Partial<Omit<PairFlow, 'set' | 'reset'>>) => void
   reset: () => void

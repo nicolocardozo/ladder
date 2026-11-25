@@ -1,4 +1,4 @@
-// Home: "adesso" (cosa succede) e "sfoglia" (la mappa del Mac). Non è una copia della sidebar del desktop.
+// Home: "now" (what is happening) and "browse" (the Mac's map). It is not a copy of the desktop sidebar.
 import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
 import { FlatList, Pressable, View } from 'react-native'
@@ -59,8 +59,8 @@ export function SignalsInline({ signals, size = 12 }: { signals: Signals; size?:
 }
 
 /**
- * La ricerca è il primo elemento dell'elenco. Nel pannello fisso a sinistra (`docked`, da 600 pt) non c'è l'intestazione dei tab:
- * lì sopra il campo stanno anche il pill del Mac e il "+".
+ * Search is the first item of the list. In the docked panel on the left (`docked`, from 600 pt) there is no tab header:
+ * there, above the field, also sit the Mac pill and the "+".
  */
 export function HomeContent({ docked }: { docked?: boolean }) {
   const { c } = useTheme()
@@ -80,7 +80,7 @@ export function HomeContent({ docked }: { docked?: boolean }) {
   const q = query.trim().toLowerCase()
   const searching = q.length > 0
 
-  // Con un solo progetto la Home mostra le sue sessioni al posto delle sezioni: stessa lista, così la ricerca non rimonta il campo.
+  // With a single project the Home shows its sessions in place of the sections: same list, so search doesn't remount the field.
   const single = model.singleProject?.project.id ?? ''
   const projectItems = useProjectItems(single)
 
@@ -201,7 +201,7 @@ export function HomeContent({ docked }: { docked?: boolean }) {
     }
   }
 
-  // In cima all'elenco: la ricerca (nel pannello fisso, con il pill del Mac e il "+", che altrove stanno nell'intestazione).
+  // At the top of the list: search (in the docked panel, with the Mac pill and the "+", which elsewhere sit in the header).
   const top = (
     <View style={{ paddingHorizontal: 16, paddingTop: docked ? 4 : 0, paddingBottom: 10, alignItems: 'flex-start', gap: 8 }}>
       <View style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -226,13 +226,13 @@ export function HomeContent({ docked }: { docked?: boolean }) {
       style={docked ? undefined : { backgroundColor: c.background }}
       contentContainerStyle={{ paddingTop: docked ? 0 : headerPad, paddingBottom: docked ? insets.bottom + 24 : 24 }}
       scrollIndicatorInsets={{ top: docked ? 0 : headerPad }}
-      // La barra dei tab nativa sposta il contenuto da sola (e su iOS 26 ci scorre sotto, sul vetro).
+      // The native tab bar moves the content on its own (and on iOS 26 it scrolls underneath, over the glass).
       contentInsetAdjustmentBehavior={docked ? 'never' : 'automatic'}
       showsVerticalScrollIndicator={false}
     />
   )
-  // Nel telefono la lista è l'unico figlio diretto della schermata: è lo scroll view principale che UIKit osserva per ridurre la barra
-  // dei tab scorrendo (avvolta in un contenitore la barra non si riduce). Il pannello fisso invece ha il suo contenitore.
+  // On the phone the list is the screen's only direct child: it is the main scroll view that UIKit observes to shrink the tab
+  // bar on scroll (wrapped in a container the bar doesn't shrink). The docked panel instead has its own container.
   if (!docked) return list
   return (
     <View style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}>
@@ -242,11 +242,11 @@ export function HomeContent({ docked }: { docked?: boolean }) {
   )
 }
 
-/** Campo di ricerca: primo elemento della lista (e, nel pannello fisso, accanto al "+"). */
+/** Search field: first item of the list (and, in the docked panel, next to the "+"). */
 function DockedSearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const { c } = useTheme()
   const input = useRef<ComponentRef<typeof TextInput>>(null)
-  // Solo sviluppo: il driver porta il focus nel campo (tastiera su) senza un tocco.
+  // Development only: the driver focuses the field (keyboard up) without a tap.
   const devFocus = useDev((d) => d.focusSearch)
   useEffect(() => {
     if (__DEV__ && devFocus) setTimeout(() => input.current?.focus(), 400)

@@ -1,17 +1,17 @@
-// Client di prova per il canale remoto (LAD-49, LAD-51): fa da telefono da riga di comando. Node 24 lo esegue direttamente.
+// Test client for the remote channel: acts as a phone from the command line. Node 24 runs it directly.
 //
-// Abbinamento (una volta): il link `ladder://pair#…` lo stampa l'host di prova (remote-host-harness) o lo dà il Mac (QR).
+// Pairing (once): the `ladder://pair#…` link is printed by the test host (remote-host-harness) or given by the Mac (QR).
 //   node scripts/remote-client.ts pair 'ladder://pair#…' [--password <password>]
-// Salva la chiave del dispositivo, la chiave del Mac e l'indirizzo nel file --device (o LADDER_REMOTE_DEVICE, o ~/.ladder-remote-client.json, 0600).
-// Poi i comandi si autenticano da soli con quel file (nessun'altra impostazione serve):
+// Saves the device key, the Mac key and the address in the --device file (or LADDER_REMOTE_DEVICE, or ~/.ladder-remote-client.json, 0600).
+// After that the commands authenticate by themselves with that file (no other setting is needed):
 //   node scripts/remote-client.ts [list]
-//   node scripts/remote-client.ts watch <sessionId>      pagina finale + item dal vivo
-//   node scripts/remote-client.ts approve <sessionId>    approva la prima richiesta aperta (anche una che arriva dopo)
-//   node scripts/remote-client.ts create <projectId> "<testo>" [--agent <id>] [--permission <livello>]   nuova sessione (LAD-89), poi la segue
-//   node scripts/remote-client.ts usage [agentId] [profileId]   limiti del piano (LAD-90); due volte di fila: la seconda dalla cache
-//   node scripts/remote-client.ts defaults               predefiniti della nuova sessione per progetto e account (LAD-89/90)
-// Il percorso si sceglie con quello che c'era nel link: `ws` (WebSocket locale, sviluppo) se presente, altrimenti il relay.
-// Si può forzare: LADDER_REMOTE_PORT=7777 oppure --relay ws://127.0.0.1:8787 --id <id del Mac>. Con --wait, se il Mac è offline il client aspetta che torni (altrimenti esce).
+//   node scripts/remote-client.ts watch <sessionId>      last page + live items
+//   node scripts/remote-client.ts approve <sessionId>    approves the first open request (even one that arrives later)
+//   node scripts/remote-client.ts create <projectId> "<text>" [--agent <id>] [--permission <level>]   new session, then follows it
+//   node scripts/remote-client.ts usage [agentId] [profileId]   plan limits; twice in a row: the second one comes from the cache
+//   node scripts/remote-client.ts defaults               new-session defaults per project and account
+// The route is chosen from what the link contained: `ws` (local WebSocket, development) if present, otherwise the relay.
+// It can be forced: LADDER_REMOTE_PORT=7777 or --relay ws://127.0.0.1:8787 --id <Mac id>. With --wait, if the Mac is offline the client waits for it to come back (otherwise it exits).
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -41,11 +41,11 @@ function fail(message: string): never {
   process.exit(1)
 }
 
-/** Dispositivo abbinato: la chiave Ed25519 del "telefono" (solo per le prove) e come raggiungere il Mac. */
+/** Paired device: the Ed25519 key of the "phone" (for tests only) and how to reach the Mac. */
 interface DeviceFile {
   v: 1
   mac: string
-  /** Chiave pubblica X25519 del Mac, base64url. */
+  /** X25519 public key of the Mac, base64url. */
   macKey: string
   relay?: string
   id?: string
@@ -61,15 +61,15 @@ const agentFlag = flag('--agent')
 const permissionFlag = flag('--permission')
 const [cmd = 'list', target, extraArg] = args
 const pairing = cmd === 'pair'
-if (!pairing && ((cmd === 'watch' || cmd === 'approve') && !target)) fail(`Uso: remote-client.ts ${cmd} <sessionId>`)
-if (cmd === 'create' && (!target || !extraArg)) fail('Uso: remote-client.ts create <projectId> "<testo>" [--agent <id>] [--permission <livello>]')
-if (!['list', 'watch', 'approve', 'pair', 'create', 'usage', 'defaults'].includes(cmd)) fail('Comandi: pair <link> | list | watch <sessionId> | approve <sessionId> | create <projectId> "<testo>" | usage [agentId] [profileId] | defaults')
+if (!pairing && ((cmd === 'watch' || cmd === 'approve') && !target)) fail(`Usage: remote-client.ts ${cmd} <sessionId>`)
+if (cmd === 'create' && (!target || !extraArg)) fail('Usage: remote-client.ts create <projectId> "<text>" [--agent <id>] [--permission <level>]')
+if (!['list', 'watch', 'approve', 'pair', 'create', 'usage', 'defaults'].includes(cmd)) fail('Commands: pair <link> | list | watch <sessionId> | approve <sessionId> | create <projectId> "<text>" | usage [agentId] [profileId] | defaults')
 
-// Con `pair` il percorso e la chiave del Mac vengono dal link; negli altri casi dal file del dispositivo.
+// With `pair` the route and the Mac key come from the link; otherwise from the device file.
 let payload: RemotePairingPayload | null = null
 let device: DeviceFile | null = null
 if (pairing) {
-  if (!target) fail('Uso: remote-client.ts pair <ladder://pair#…> [--password <password>]')
+  if (!target) fail('Usage: remote-client.ts pair <ladder://pair#…> [--password <password>]')
   try {
     payload = decodePairingUrl(target)
   } catch (error) {
@@ -80,7 +80,7 @@ if (pairing) {
   if (payload.pw && !passwordFlag) fail('This Mac asks for a password: add --password <password>.')
 } else {
   device = loadDevice()
-  if (!device) fail(`Nessun dispositivo abbinato (${devicePath}): prima "pair <link>".`)
+  if (!device) fail(`No paired device (${devicePath}): run "pair <link>" first.`)
 }
 const route = payload ?? device!
 const useLocal = !relayFlag && !process.env.LADDER_REMOTE_PORT ? Boolean(route.ws) : false
@@ -90,14 +90,14 @@ if (!useLocal && !process.env.LADDER_REMOTE_PORT && !relayFlag) {
 }
 const port = process.env.LADDER_REMOTE_PORT ? Number(process.env.LADDER_REMOTE_PORT) : useLocal ? Number(new URL(route.ws!).port) : 0
 if (relayFlag) {
-  if (!idFlag) fail('Con --relay serve anche --id <id del Mac>.')
-} else if (!Number.isInteger(port) || port <= 0) fail('Nessuna strada per il Mac: serve un link con ws o relay (oppure LADDER_REMOTE_PORT, o --relay e --id).')
+  if (!idFlag) fail('--relay also needs --id <Mac id>.')
+} else if (!Number.isInteger(port) || port <= 0) fail('No route to the Mac: a link with ws or relay is needed (or LADDER_REMOTE_PORT, or --relay and --id).')
 
 const macKey = fromBase64Url(payload?.key ?? device!.macKey)
 const deviceKey = device ? { secretKey: fromBase64Url(device.secretKey), publicKey: fromBase64Url(device.publicKey) } : generateDeviceKey()
 const newHandshake = () => clientHandshake({ macPublicKey: macKey, hello: { device: 'ladder remote-client (test)', locale: 'en' } })
 let handshake = newHandshake()
-// Un solo trasporto per volta: WebSocket locale o relay; il resto del client usa solo ws.send / ws.close.
+// One transport at a time: local WebSocket or relay; the rest of the client only uses ws.send / ws.close.
 const ws: { send(bytes: Uint8Array): void; close(): void } = relayFlag ? relayLink() : localLink()
 let session: RemoteSession | null = null
 let nextRid = 0
@@ -137,7 +137,7 @@ function printItems(items: ChatItem[]): void {
   for (const item of items) console.log(`  #${item.seq} ${describe(item)}`)
 }
 
-/** Approva la prima richiesta aperta che non ha opzione di rifiuto come unica scelta: prima 'allow', poi 'allow-always'. */
+/** Approves the first open request that does not have refusal as its only option: first 'allow', then 'allow-always'. */
 async function approveOpen(items: ChatItem[]): Promise<void> {
   if (approved) return
   for (const item of items) {
@@ -189,7 +189,7 @@ async function run(): Promise<void> {
     return
   }
   if (cmd === 'usage') {
-    // Per ogni agente (o quello chiesto): due letture di fila, la seconda deve arrivare dalla cache.
+    // For each agent (or the requested one): two reads in a row, the second must come from the cache.
     const targets = snapshot.agents.filter((a) => (!target || a.agent === target) && (!extraArg || a.profileId === extraArg))
     for (const a of targets) {
       for (const round of [1, 2]) {
@@ -203,13 +203,13 @@ async function run(): Promise<void> {
   }
   if (cmd === 'create') {
     const project = snapshot.projects.find((p) => p.id === target)
-    if (!project) fail(`Progetto ${target} non trovato (prova "list").`)
+    if (!project) fail(`Project ${target} not found (try "list").`)
     const d = snapshot.defaults[project.id]
     const agent = (agentFlag ?? d?.agent ?? 'claude-code') as AgentId
     const launch = d?.launch[agent]
     const permission = (permissionFlag ?? d?.permission ?? 'edit') as PermissionLevel
     console.log(`create in "${project.name}": ${agent} model=${launch?.model ?? 'default'} effort=${launch?.effort ?? 'default'} permission=${permission}`)
-    // Si segue la sessione appena nata dall'evento session.upsert (arriva prima del risultato), poi si legge la prima pagina.
+    // Follows the session just created through the session.upsert event (it arrives before the result), then reads the first page.
     const created = await request<SessionSummary>({ type: 'session.create', projectId: project.id, agent, text: extraArg!, model: launch?.model ?? null, effort: launch?.effort ?? null, permission })
     console.log(`created ${created.id} "${created.title}" (${created.run})`)
     await request({ type: 'session.watch', sessionId: created.id, on: true })
@@ -219,9 +219,9 @@ async function run(): Promise<void> {
     return
   }
   const known = currentSnapshot.sessions.find((s) => s.id === target)
-  if (!known) fail(`Sessione ${target} non trovata (prova "list").`)
+  if (!known) fail(`Session ${target} not found (try "list").`)
   console.log(`${cmd} "${known.title}" (${known.run})`)
-  // Prima si segue (così non si perde nulla), poi si legge l'ultima pagina.
+  // Follow first (so nothing is missed), then read the last page.
   await request({ type: 'session.watch', sessionId: target!, on: true })
   const page = await request<RemotePage>({ type: 'session.page', sessionId: target!, limit: 20 })
   for (const i of page.items) seen.add(`${i.id}:${i.kind}:${JSON.stringify(i).length}`)
@@ -241,7 +241,7 @@ function onBytes(bytes: Uint8Array): void {
       const done = handshake.finish(bytes)
       session = done.session
       console.log(`connected to ${done.hello.mac} (Ladder ${done.hello.app || 'dev'}), authenticating`)
-      // Dopo l'handshake la connessione non è autenticata: il primo messaggio è `pair` o `auth`, firmato sull'hash dell'handshake.
+      // After the handshake the connection is not authenticated: the first message is `pair` or `auth`, signed over the handshake hash.
       const hash = session.handshakeHash
       const first: RemoteFirstMessage = device
         ? { type: 'auth', deviceId: device.deviceId, sig: signChannelBinding(deviceKey.secretKey, 'auth', hash) }
@@ -268,7 +268,7 @@ function onBytes(bytes: Uint8Array): void {
   }
 }
 
-/** Esito di pair/auth, o avviso di revoca a connessione aperta. */
+/** Outcome of pair/auth, or a revocation notice on an open connection. */
 function onAuth(message: Extract<FromRemoteHost, { kind: 'auth' }>): void {
   if (!message.ok) {
     console.error(`authentication refused (${message.code}): ${message.error}`)
@@ -311,7 +311,7 @@ function relayLink() {
   const when = (since: number | null) => (since ? new Date(since).toISOString() : 'never seen')
   transport.onStatus((status) => {
     if (status.online) {
-      // Ogni "online" è un collegamento nuovo con il Mac: sessione e handshake da capo.
+      // Each "online" is a new link with the Mac: session and handshake start over.
       console.log(first ? 'relay: Mac online' : 'relay: Mac back online, new handshake')
       first = false
       session = null

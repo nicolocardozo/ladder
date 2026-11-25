@@ -1,5 +1,5 @@
-// Solo sviluppo: incolla un link di abbinamento (`ladder://pair#…`, lo stampa remote-host-harness) e prosegue con lo stesso
-// percorso del QR (conferma → password → nome → connessione). Raggiungibile solo nelle build di sviluppo.
+// Development only: paste a pairing link (`ladder://pair#…`, printed by remote-host-harness) and continue along the same
+// path as the QR (confirm → password → name → connect). Reachable only in development builds.
 import { Redirect, useRouter } from 'expo-router'
 import { useState } from 'react'
 import { ScrollView } from 'react-native'
@@ -23,7 +23,7 @@ export default function ConnectManual() {
   const set = usePairFlow((s) => s.set)
   const [link, setLink] = useState('')
   const [error, setError] = useState<string | null>(null)
-  // Solo sviluppo: in produzione un link diretto non deve poter aprire questa schermata.
+  // Development only: in production a direct link must not be able to open this screen.
   if (!__DEV__) return <Redirect href="/welcome" />
   const go = () => {
     const result = readPairingLink(link, Date.now(), { allowDirect: true })

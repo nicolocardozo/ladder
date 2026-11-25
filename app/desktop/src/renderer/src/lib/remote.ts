@@ -1,4 +1,4 @@
-// Telefoni (LAD-51): comandi verso l'host, controlli sui campi e testi di tempo per Impostazioni → Devices e per la barra in alto.
+// Phones: commands to the host, field checks and time texts for Settings → Devices and the top bar.
 import type { RemoteLogPage, RemotePairStart, RemoteStatus } from '@shared/protocol'
 import { REMOTE_PASSWORD_MAX, REMOTE_PASSWORD_MIN } from '@shared/protocol'
 import { localeTag, t } from '@shared/i18n'
@@ -8,7 +8,7 @@ import { useApp } from '@/store/app-store'
 export { REMOTE_PASSWORD_MAX, REMOTE_PASSWORD_MIN }
 
 export const remoteCommands = {
-  /** L'indirizzo `url` del risultato contiene il codice monouso: va solo nel QR, mai in un log né in un attributo. */
+  /** The result's `url` address contains the single-use code: it goes only into the QR, never into a log or an attribute. */
   pairStart: () => request<RemotePairStart>({ type: 'remote.pair.start' }),
   pairCancel: () => request<null>({ type: 'remote.pair.cancel' }),
   setPassword: (password: string | null) => request<null>({ type: 'remote.password.set', password }),
@@ -18,12 +18,12 @@ export const remoteCommands = {
   logList: (before?: number) => request<RemoteLogPage>({ type: 'remote.log.list', ...(before !== undefined ? { before } : {}), limit: 10 })
 }
 
-/** Stato del canale remoto, come lo ha mandato l'host. */
+/** Remote channel state, as sent by the host. */
 export function useRemoteStatus(): RemoteStatus | null {
   return useApp((s) => s.remote)
 }
 
-/** Indirizzo del relay: vuoto = quello predefinito. Solo wss://, o ws:// verso questo Mac (sviluppo). Torna il messaggio d'errore, o null. */
+/** Relay address: empty = the default one. Only wss://, or ws:// to this Mac (development). Returns the error message, or null. */
 export function relayUrlError(value: string): string | null {
   const text = value.trim()
   if (!text) return null
@@ -38,7 +38,7 @@ export function relayUrlError(value: string): string | null {
   return t('The address must start with wss://.')
 }
 
-/** Tempo trascorso in forma breve ("5 minutes ago"), nella lingua dell'interfaccia. */
+/** Elapsed time in short form ("5 minutes ago"), in the interface language. */
 export function relativeTime(at: number, now = Date.now()): string {
   const rtf = new Intl.RelativeTimeFormat(localeTag(), { numeric: 'auto' })
   const seconds = Math.round((at - now) / 1000)
@@ -50,20 +50,20 @@ export function relativeTime(at: number, now = Date.now()): string {
   return new Date(at).toLocaleDateString(localeTag(), { dateStyle: 'medium' })
 }
 
-/** Ora di una voce del log: solo l'ora se è di oggi, altrimenti anche il giorno. */
+/** Time of a log entry: just the time if it is today, otherwise also the day. */
 export function logTime(at: number, now = new Date()): string {
   const date = new Date(at)
   const today = date.toDateString() === now.toDateString()
   return today ? date.toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' }) : date.toLocaleString(localeTag(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-/** "4:32": tempo che manca alla scadenza del codice. */
+/** "4:32": time left until the code expires. */
 export function countdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000))
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
-/** "Phone connected" / "2 phones connected": nome del segno nella barra in alto. */
+/** "Phone connected" / "2 phones connected": name of the mark in the top bar. */
 export function connectedLabel(count: number): string {
   return count === 1 ? t('Phone connected') : t('{n} phones connected', { n: count })
 }

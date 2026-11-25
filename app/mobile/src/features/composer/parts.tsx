@@ -1,5 +1,5 @@
-// Pezzi del composer di LAD-92, condivisi tra la chat e lo sheet "Nuova sessione": miniature degli allegati, menu "+", microfono con onda,
-// elenco dei suggerimenti ("/" e "@") e avviso della dettatura.
+// Composer pieces, shared between the chat and the "New session" sheet: attachment thumbnails, "+" menu, microphone with waveform,
+// suggestions list ("/" and "@") and the dictation notice.
 import { useEffect, useState } from 'react'
 import { ActionSheetIOS, ActivityIndicator, Image, Platform, Pressable, ScrollView, View } from 'react-native'
 import { t } from '@shared/i18n'
@@ -18,7 +18,7 @@ import { languageName, useMeter, type DictationDownload, type DictationProblem, 
 
 const THUMB = 64
 
-/** Miniature sopra il campo: tocca la x per togliere; mentre l'immagine si prepara c'è un indicatore. */
+/** Thumbnails above the field: tap the x to remove; while the image is being prepared there is an indicator. */
 export function AttachmentStrip({ items, onRemove, disabled }: { items: Draft[]; onRemove: (id: string) => void; disabled?: boolean }) {
   const { c } = useTheme()
   if (items.length === 0) return null
@@ -48,7 +48,7 @@ export function AttachmentStrip({ items, onRemove, disabled }: { items: Draft[];
   )
 }
 
-/** Il "+" del composer: su iOS il menu nativo (action sheet), su Android un foglio con tre righe. */
+/** The composer's "+": on iOS the native menu (action sheet), on Android a sheet with three rows. */
 export function AttachButton({ onPick, hasClipboardImage, disabled, full }: { onPick: (source: AttachSource) => void; hasClipboardImage: () => Promise<boolean>; disabled?: boolean; full?: boolean }) {
   const { c } = useTheme()
   const [open, setOpen] = useState(false)
@@ -68,7 +68,7 @@ export function AttachButton({ onPick, hasClipboardImage, disabled, full }: { on
   }
   const choose = (source: AttachSource) => {
     setOpen(false)
-    // Il foglio si chiude prima che parta il selettore di sistema.
+    // The sheet closes before the system picker starts.
     setTimeout(() => onPick(source), 260)
   }
   return (
@@ -99,7 +99,7 @@ export function AttachButton({ onPick, hasClipboardImage, disabled, full }: { on
   )
 }
 
-/** Onda del microfono: le ultime ~1,5 secondi di livello, a barre che scorrono. */
+/** Microphone waveform: the last ~1.5 seconds of level, as scrolling bars. */
 export function Waveform({ color, bars = 14 }: { color: string; bars?: number }) {
   const reduce = useReduceMotion()
   const [levels, setLevels] = useState<number[]>(() => Array(bars).fill(0))
@@ -117,7 +117,7 @@ export function Waveform({ color, bars = 14 }: { color: string; bars?: number })
   )
 }
 
-/** Il microfono: avvia o ferma la dettatura. In ascolto è pieno e ferma al tocco. */
+/** The microphone: starts or stops dictation. While listening it is filled and stops on tap. */
 export function MicButton({ state, onStart, onStop, disabled }: { state: DictationState; onStart: () => void; onStop: () => void; disabled?: boolean }) {
   const { c } = useTheme()
   const listening = state === 'listening'
@@ -136,12 +136,12 @@ export function MicButton({ state, onStart, onStop, disabled }: { state: Dictati
   )
 }
 
-/** Peso del download in MB per il messaggio ("142 MB"). */
+/** Download size in MB for the message ("142 MB"). */
 const megabytes = (bytes: number): string => `${Math.max(1, Math.round(bytes / 1_000_000))} MB`
 
 /**
- * L'avviso della dettatura: il download del modello della lingua (con avanzamento) o perché non parte e cosa fare. Si chiude con la x in
- * alto a destra. Mai un ripiego sul riconoscimento in rete.
+ * The dictation notice: the language model download (with progress) or why it doesn't start and what to do. It closes with the x at the
+ * top right. Never a fallback to network recognition.
  */
 export function DictationNotice({ problem, download, onDismiss, onSettings, onRetry }: { problem: DictationProblem | null; download: DictationDownload | null; onDismiss: () => void; onSettings: () => void; onRetry: () => void }) {
   const { c } = useTheme()
@@ -194,7 +194,7 @@ export function DictationNotice({ problem, download, onDismiss, onSettings, onRe
   )
 }
 
-/** Elenco sopra il campo con i comandi ("/") o i file ("@"). Resta nel flusso: sopra la tastiera, sotto la chat. */
+/** List above the field with commands ("/") or files ("@"). It stays in the flow: above the keyboard, below the chat. */
 export function SuggestList({ kind, commands, files, loading, failed, query, onCommand, onFile }: { kind: 'command' | 'file'; commands: SlashCommand[]; files: string[]; loading: boolean; failed: boolean; query: string; onCommand: (name: string) => void; onFile: (path: string) => void }) {
   const { c } = useTheme()
   const empty = kind === 'command' ? commands.length === 0 : files.length === 0

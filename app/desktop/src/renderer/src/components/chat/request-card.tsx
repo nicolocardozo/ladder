@@ -1,4 +1,4 @@
-// Richieste dell'agente: card di approvazione e di domanda quando sono aperte, riga compatta quando sono chiuse.
+// Agent requests: approval and question cards when open, a compact row when closed.
 import { ArrowUpRight, Check, CircleAlert, CircleQuestionMark, Clock, File, Smartphone, X } from 'lucide-react'
 import { memo, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import type { RequestOption } from '@shared/protocol'
@@ -25,7 +25,7 @@ interface FrameProps {
   children: ReactNode
 }
 
-/** Cornice comune: bordo neutro, barretta ambra interna dritta, etichetta esplicita. */
+/** Shared frame: neutral border, straight inner amber bar, explicit label. */
 function CardFrame({ item, label, icon, frameRef, onKeyDown, children }: FrameProps) {
   const now = useNow(15_000)
   return (
@@ -48,10 +48,10 @@ function CardFrame({ item, label, icon, frameRef, onKeyDown, children }: FramePr
   )
 }
 
-/** Oltre queste righe una modifica si legge nel diff: da "In attesa" resta solo "Apri". */
+/** Beyond this many lines an edit is read in the diff: from "Waiting" only "Open" remains. */
 export const INLINE_PREVIEW_LINES = 40
 
-/** Modifica proposta, righe con - e +. Nella chat oltre 40 righe si apre su richiesta. */
+/** Proposed edit, lines with - and +. In the chat, beyond 40 lines it opens on request. */
 function EditPreview({ preview }: { preview: NonNullable<RequestItem['preview']> }) {
   const [all, setAll] = useState(false)
   const rows = preview.text.split('\n')
@@ -110,7 +110,7 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
 
   useEffect(() => {
     if (canTakeFocus()) (primaryRef.current ?? frameRef.current)?.focus({ preventScroll: true })
-    // Solo alla comparsa della card.
+    // Only when the card appears.
   }, [])
 
   useEffect(() => {
@@ -163,7 +163,7 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
 
   const shortcutFor = (option: RequestOption) =>
     option === primary ? '↵' : option === always ? '⌥↵' : option === deny ? '⌘⌫' : null
-  // Da "In attesa" una modifica lunga si approva solo dopo averla letta nel diff della sessione.
+  // From "Waiting", a long edit is approved only after reading it in the session's diff.
   const tooLong = surface === 'inbox' && (item.preview?.lines ?? 0) > INLINE_PREVIEW_LINES
 
   return (
@@ -174,7 +174,7 @@ const PermissionCard = memo(function PermissionCard({ item }: { item: RequestIte
       frameRef={frameRef}
       onKeyDown={onKeyDown}
     >
-      {/* "Runs <comando…>" ripete il comando che segue: il titolo si mostra solo se dice altro. */}
+      {/* "Runs <command…>" repeats the command that follows: the title is shown only when it says something else. */}
       {item.title && !(item.command && item.title.replace(/…$/, '').includes(item.command.slice(0, 24))) ? (
         <p className="text-sm leading-[1.45] font-medium [overflow-wrap:anywhere] text-foreground">{item.title}</p>
       ) : null}
@@ -439,7 +439,7 @@ export function RequestCard({ item }: { item: RequestItem }) {
   return item.requestType === 'question' ? <QuestionCard item={item} /> : <PermissionCard item={item} />
 }
 
-/** Richiesta chiusa: "Approvato · pnpm add -D msw", "Rifiutato: usa pnpm · …", "Scaduta · …". */
+/** Closed request: "Approved · pnpm add -D msw", "Denied: use pnpm · …", "Expired · …". */
 export const ResolvedRequest = memo(function ResolvedRequest({ item }: { item: RequestItem }) {
   const expired = item.state === 'expired'
   const resolution = item.resolution ?? ''
@@ -465,7 +465,7 @@ export const ResolvedRequest = memo(function ResolvedRequest({ item }: { item: R
           </>
         ) : null}
       </span>
-      {/* Risposta data dal telefono (LAD-51): sta dopo il comando e non si accorcia, così si legge anche con un comando lungo. */}
+      {/* Answer given from the phone: it comes after the command and is not shortened, so it reads even with a long command. */}
       {item.via === 'phone' && (
         <span className="inline-flex max-w-[45%] shrink-0 items-center gap-1 text-xs text-faint">
           <Smartphone aria-hidden className="size-3 shrink-0" strokeWidth={2} />

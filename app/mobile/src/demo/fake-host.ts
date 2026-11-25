@@ -1,14 +1,14 @@
-// Host finto: parla il protocollo del canale remoto (RemoteCommand → risultati ed eventi) su dati locali.
-// Due usi: la modalità demo dell'app (nessuna rete, anche in produzione: sarà la demo per App Review, LAD-55) e l'harness
-// e2e in Node (scripts/e2e-host.ts), che lo mette dietro il vero RemoteGateway dell'host. Niente API di React Native né
-// alias: solo import di tipi, così gira con `node` direttamente. Ogni azione cambia lo stato locale ed emette gli stessi eventi del Mac.
+// Fake host: speaks the remote channel protocol (RemoteCommand → results and events) on local data.
+// Two uses: the app's demo mode (no network, also in production: it is the demo for App Review) and the e2e harness
+// in Node (scripts/e2e-host.ts), which puts it behind the host's real RemoteGateway. No React Native APIs or
+// aliases: type imports only, so it runs with `node` directly. Every action changes the local state and emits the same events as the Mac.
 import type { AgentId, AgentStatus, Attachment, ChatItem, SlashCommand, PermissionLevel, QueuedMessage, RemoteAgentStatus, RemoteCommand, RemoteEvent, RemotePage, RemoteSessionCreate, RemoteSnapshot, SessionSummary, SubagentInfo, UsageWindow } from '@shared/protocol'
 import { buildFixture, type Fixture } from './fixtures.ts'
 
 type RequestItem = Extract<ChatItem, { kind: 'request' }>
 const LEVELS: PermissionLevel[] = ['plan', 'ask', 'edit', 'full']
 
-/** Comandi della sessione, come li manda Claude Code (demo). */
+/** Session commands, as sent by Claude Code (demo). */
 const DEMO_COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Summarize the conversation to free up context', hint: '[instructions]', source: 'builtin' },
   { name: 'review', description: 'Review the uncommitted changes', hint: null, source: 'builtin' },
@@ -20,7 +20,7 @@ const DEMO_COMMANDS: SlashCommand[] = [
   { name: 'simplify', description: 'Review changed code for reuse and clarity', hint: null, source: 'skill' }
 ]
 
-/** File del progetto (demo): abbastanza da provare la ricerca. */
+/** Project files (demo): enough to test search. */
 const DEMO_FILES = [
   'README.md',
   'package.json',
@@ -45,9 +45,9 @@ const DEMO_FILES = [
 
 export interface FakeHostOptions {
   fixture?: Fixture
-  /** Moltiplicatore dei tempi della simulazione: 1 = naturale, 0.1 = dieci volte più veloce (prove). */
+  /** Simulation time multiplier: 1 = natural, 0.1 = ten times faster (tests). */
   speed?: number
-  /** Fa partire da sola la sessione "in corso" della fixture (demo): termina dopo qualche secondo. */
+  /** Automatically starts the fixture's "running" session (demo): it ends after a few seconds. */
   autoplay?: boolean
 }
 
@@ -61,7 +61,7 @@ export class FakeHost {
   private readonly sessions = new Map<string, SessionSummary>()
   private readonly items = new Map<string, ChatItem[]>()
   private disposed = false
-  /** Turni simulati in corso per sessione (si annullano con Stop). */
+  /** Simulated turns in progress per session (cancelled with Stop). */
   private running = new Map<string, number>()
   private runToken = 0
 
@@ -114,7 +114,7 @@ export class FakeHost {
     return { sessionId, items: structuredClone(page), hasMore: pool.length > page.length }
   }
 
-  /** Esegue un comando come farebbe l'host: stesso risultato, stessi eventi. */
+  /** Runs a command as the host would: same result, same events. */
   async handle(command: RemoteCommand): Promise<unknown> {
     switch (command.type) {
       case 'hello':
@@ -138,7 +138,7 @@ export class FakeHost {
       case 'session.send':
         return this.send(command.sessionId, command.text, command.busy ?? 'queue', command.attachments)
       case 'session.command':
-        // Demo: il comando compare come messaggio (il Mac vero aggiunge una riga "comando").
+        // Demo: the command shows up as a message (the real Mac adds a "command" row).
         return this.send(command.sessionId, `/${command.name} ${command.args}`.trim(), 'queue')
       case 'session.commands':
         this.need(command.sessionId)
@@ -174,7 +174,7 @@ export class FakeHost {
     }
   }
 
-  /** Sessioni archiviate di un progetto, dalla più recente per `updatedAt`; meno di `limit` risultati = finite. */
+  /** Archived sessions of a project, most recent first by `updatedAt`; fewer than `limit` results = finished. */
   private archived(projectId: string, before?: number, limit = 30) {
     if (!this.fixture.projects.some((p) => p.id === projectId)) throw new Error('Project not found.')
     return [...this.sessions.values()]
@@ -184,7 +184,7 @@ export class FakeHost {
       .map((s) => structuredClone(s))
   }
 
-  // ── Stato ──
+  // ── State ──
 
   private need(id: string): SessionSummary {
     const s = this.sessions.get(id)
@@ -233,9 +233,9 @@ export class FakeHost {
     return list.length ? list[list.length - 1].turnId : `${sessionId}-turn-0`
   }
 
-  // ── Nuova sessione e limiti d'uso ──
+  // ── New session and usage limits ──
 
-  /** Come il Mac: stessi controlli (errori in inglese, nessuna sessione se qualcosa non va), poi la sessione parte in chat. */
+  /** Like the Mac: same checks (errors in English, no session if something is wrong), then the session starts in chat. */
   private async create(command: RemoteSessionCreate): Promise<SessionSummary> {
     const project = this.fixture.projects.find((p) => p.id === command.projectId)
     if (!project) throw new Error('Project not found.')
@@ -247,10 +247,10 @@ export class FakeHost {
     if (!status || (allowed.length > 0 && !allowed.includes(command.agent))) throw new Error(`${command.agent} is not allowed in this project.`)
     if (command.model && !status.models.some((m) => m.id === command.model)) throw new Error('Unknown model.')
     if (!LEVELS.includes(command.permission)) throw new Error('Unknown permission level.')
-    // Sopra il tetto del progetto si riduce al tetto, come per la finestra.
+    // Above the project ceiling it is reduced to the ceiling, like for the window.
     const max = this.fixture.permissionMax[project.id]
     const permission = max && LEVELS.indexOf(command.permission) > LEVELS.indexOf(max) ? max : command.permission
-    // Il Mac ci mette un attimo: il telefono mostra lo stato di invio.
+    // The Mac takes a moment: the phone shows the sending state.
     await new Promise<void>((resolve) => this.after(900, resolve))
     if (this.disposed) throw new Error('Disconnected')
     const now = Date.now()
@@ -298,7 +298,7 @@ export class FakeHost {
     return structuredClone(session)
   }
 
-  /** `agents.usage`: una lettura "vera" (qui: rimette l'ora) e il valore anche come `agent.status`; ACP senza limiti = null. */
+  /** `agents.usage`: a "real" read (here: resets the time) and the value also as `agent.status`; ACP without limits = null. */
   private readUsage(agent: AgentId, profileId?: string): RemoteAgentStatus | null {
     const status = this.fixture.agents.find((a) => a.agent === agent && (profileId ? a.profileId === profileId : !a.profileId))
     if (!status) throw new Error('Agent not found.')
@@ -308,7 +308,7 @@ export class FakeHost {
     return structuredClone(status)
   }
 
-  /** Solo prove e screenshot: porta i limiti di Claude (account predefinito) a uno scenario. */
+  /** Tests and screenshots only: sets Claude's limits (default account) to a scenario. */
   setUsage(scenario: 'normal' | 'near' | 'banner' | 'limited' | 'empty'): void {
     const status = this.fixture.agents.find((a): a is AgentStatus => a.agent === 'claude-code' && !a.profileId)
     if (!status) return
@@ -325,9 +325,9 @@ export class FakeHost {
     this.emit({ type: 'agent.status', status: structuredClone(status) })
   }
 
-  // ── Azioni ──
+  // ── Actions ──
 
-  /** Come `project.files.search` del Mac, in piccolo: sottostringa senza maiuscole, nome del file prima del percorso. */
+  /** Like the Mac's `project.files.search`, in small: case-insensitive substring, file name before path. */
   private searchFiles(projectId: string, query: string, limit = 20): string[] {
     if (!this.fixture.projects.some((p) => p.id === projectId)) throw new Error('Project not found.')
     const q = query.trim().toLowerCase()
@@ -361,7 +361,7 @@ export class FakeHost {
     this.simulate(sessionId, turnId, text)
   }
 
-  /** Un turno finto: legge, esegue un comando, risponde a pezzi e chiude. */
+  /** A fake turn: reads, runs a command, replies in chunks and finishes. */
   private simulate(sessionId: string, turnId: string, prompt: string): void {
     const token = ++this.runToken
     this.running.set(sessionId, token)
@@ -393,7 +393,7 @@ export class FakeHost {
 
   private streamText(sessionId: string, msg: Extract<ChatItem, { kind: 'assistant' }>, full: string, alive: () => boolean, done: () => void): void {
     const words = full.split(/(?<=\s)/)
-    // `full` è solo il testo da aggiungere a quello già presente.
+    // `full` is only the text to append to what is already there.
     const base = msg.text
     let at = 0
     const tick = () => {
@@ -431,7 +431,7 @@ export class FakeHost {
     }
   }
 
-  /** La sessione "in corso" delle fixture chiude il suo turno (autoplay). */
+  /** The fixtures' "running" session finishes its turn (autoplay). */
   private finishRunning(sessionId: string): void {
     const s = this.need(sessionId)
     if (s.run !== 'running') return

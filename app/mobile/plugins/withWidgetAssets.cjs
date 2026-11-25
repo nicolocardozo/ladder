@@ -1,9 +1,9 @@
 'use strict'
-// Marchi per l'estensione dei widget (LAD-93): Claude, Codex e Ladder come immagini "template" in un catalogo di asset del target
-// ExpoWidgetsTarget (il layout li chiama con `assetName`). Il target non legge le risorse dell'app: il catalogo si compila con una
-// fase di script, perché xcodebuild ignora le fasi Resources dei target di expo-widgets. Va elencato PRIMA di "expo-widgets" in
-// `plugins`: le modifiche girano in ordine inverso, e il target deve esistere (ed essere stato svuotato) prima che qui si aggiungano i file.
-// Idea e fase di script adattate da T3 Code (MIT, apps/mobile/plugins/withWidgetLogoAsset.cjs).
+// Marks for the widgets extension: Claude, Codex and Ladder as "template" images in an asset catalog of the
+// ExpoWidgetsTarget target (the layout calls them with `assetName`). The target does not read the app's resources: the catalog is compiled with a
+// script phase, because xcodebuild ignores the Resources phases of expo-widgets targets. It must be listed BEFORE "expo-widgets" in
+// `plugins`: the mods run in reverse order, and the target must exist (and have been emptied) before the files are added here.
+// Idea and script phase adapted from T3 Code (MIT, apps/mobile/plugins/withWidgetLogoAsset.cjs).
 const fs = require('node:fs')
 const path = require('node:path')
 const { withDangerousMod, withXcodeProject } = require('expo/config-plugins')

@@ -1,5 +1,5 @@
-// Identità del Mac per il canale remoto: una chiave Curve25519 creata una volta sola, nella cartella dati dell'app.
-// La chiave privata non si logga e non esce da questo file; fuori va solo quella pubblica (per l'abbinamento, LAD-51).
+// Mac identity for the remote channel: a Curve25519 key created once, in the app's data folder.
+// The private key is never logged and never leaves this file; only the public one goes out (for pairing).
 import { chmodSync, closeSync, linkSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
@@ -26,7 +26,7 @@ function read(path: string): NoiseKeyPair | null {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw error
   }
-  // Il messaggio di un SyntaxError può citare un pezzo del testo (la chiave): si sostituisce con uno generico.
+  // A SyntaxError message may quote part of the text (the key): it is replaced with a generic one.
   let file: Partial<IdentityFile>
   try {
     file = JSON.parse(raw) as Partial<IdentityFile>
@@ -38,12 +38,12 @@ function read(path: string): NoiseKeyPair | null {
   if (secretKey.length !== 32) throw new Error('Remote identity file is not valid.')
   const pair = keyPairFromSecret(secretKey)
   if (toBase64Url(pair.publicKey) !== file.publicKey) throw new Error('Remote identity file is not valid.')
-  // Un file con permessi larghi (copiato a mano) si stringe a 0600.
+  // A file with loose permissions (copied by hand) is tightened to 0600.
   if ((statSync(path).mode & 0o077) !== 0) chmodSync(path, 0o600)
   return pair
 }
 
-/** Legge l'identità o la crea. Creazione atomica: file temporaneo 0600 + link senza sovrascrivere, così due processi non si calpestano. */
+/** Reads the identity or creates it. Atomic creation: temporary 0600 file + link without overwriting, so two processes do not trample each other. */
 export function loadOrCreateIdentity(dataDir: string): NoiseKeyPair {
   const path = join(dataDir, IDENTITY_FILE)
   const existing = read(path)
@@ -54,12 +54,12 @@ export function loadOrCreateIdentity(dataDir: string): NoiseKeyPair {
   return pair
 }
 
-/** Chiave pubblica del Mac se l'identità esiste già; non la crea (serve a mostrare l'impronta a canale spento). */
+/** The Mac's public key if the identity already exists; does not create it (used to show the fingerprint while the channel is off). */
 export function peekIdentityKey(dataDir: string): Uint8Array | null {
   return read(join(dataDir, IDENTITY_FILE))?.publicKey ?? null
 }
 
-/** Sostituisce un file con uno nuovo 0600 (file temporaneo + rename: o il vecchio o il nuovo, mai a metà). */
+/** Replaces a file with a new 0600 one (temporary file + rename: either the old or the new, never half of it). */
 function replaceFile(path: string, content: string): void {
   const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
   const fd = openSync(tmp, 'wx', 0o600)
@@ -71,7 +71,7 @@ function replaceFile(path: string, content: string): void {
   renameSync(tmp, path)
 }
 
-/** LAD-51, "rigenera chiave": nuova identità del Mac al posto della vecchia. I telefoni abbinati con la chiave vecchia non si collegano più. */
+/** "Regenerate key": a new Mac identity in place of the old one. Phones paired with the old key can no longer connect. */
 export function regenerateIdentity(dataDir: string): NoiseKeyPair {
   const pair = generateKeyPair()
   const file: IdentityFile = { v: 1, publicKey: toBase64Url(pair.publicKey), secretKey: toBase64Url(pair.secretKey) }
@@ -79,7 +79,7 @@ export function regenerateIdentity(dataDir: string): NoiseKeyPair {
   return pair
 }
 
-/** Scrive un file 0600 senza sovrascrivere: file temporaneo + link. False se esiste già (l'ha creato un altro processo un istante prima). */
+/** Writes a 0600 file without overwriting: temporary file + link. False if it already exists (another process created it an instant earlier). */
 function createExclusive(path: string, content: string): boolean {
   const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
   const fd = openSync(tmp, 'wx', 0o600)
@@ -99,8 +99,8 @@ function createExclusive(path: string, content: string): boolean {
   }
 }
 
-// ── Chiave del relay (LAD-50) ────────────────────────────────────────────────
-// Una chiave Ed25519 a parte, per dimostrare al relay di essere il Mac di quell'id. Non entra nell'handshake Noise.
+// ── Relay key ────────────────────────────────────────────────────────────────
+// A separate Ed25519 key, to prove to the relay that this is the Mac with that id. It does not enter the Noise handshake.
 export const RELAY_KEY_FILE = 'remote-relay-key.json'
 
 export interface RelayKeyPair {
@@ -131,7 +131,7 @@ function readRelayKey(path: string): RelayKeyPair | null {
   return { secretKey, publicKey }
 }
 
-/** Legge la chiave del relay o la crea (stessa cartella e stessi permessi dell'identità). */
+/** Reads the relay key or creates it (same folder and permissions as the identity). */
 export function loadOrCreateRelayKey(dataDir: string): RelayKeyPair {
   const path = join(dataDir, RELAY_KEY_FILE)
   const existing = readRelayKey(path)
@@ -143,7 +143,7 @@ export function loadOrCreateRelayKey(dataDir: string): RelayKeyPair {
   return { secretKey, publicKey }
 }
 
-/** LAD-51, "rigenera chiave": nuova chiave del relay, quindi nuovo id del Mac sul relay. */
+/** "Regenerate key": a new relay key, hence a new Mac id on the relay. */
 export function regenerateRelayKey(dataDir: string): RelayKeyPair {
   const secretKey = ed25519.utils.randomSecretKey()
   const publicKey = ed25519.getPublicKey(secretKey)

@@ -1,13 +1,13 @@
-// Suggerimenti del composer (LAD-92): "/" per i comandi della sessione, "@" per i file del progetto. Solo logica pura,
-// provata con node --test. Le regole sono quelle del composer della finestra (file-index.ts: findMention / mentionToken).
+// Composer suggestions: "/" for session commands, "@" for project files. Pure logic only,
+// tested with node --test. The rules are those of the window composer (file-index.ts: findMention / mentionToken).
 import type { SlashCommand } from '../../../desktop/src/shared/protocol.ts'
 
 export type TriggerKind = 'command' | 'file'
 export interface Trigger {
   kind: TriggerKind
-  /** Testo dopo il simbolo, fino al cursore. */
+  /** Text after the symbol, up to the cursor. */
   query: string
-  /** Posizione del simbolo e fine del pezzo (il cursore). */
+  /** Position of the symbol and end of the piece (the cursor). */
   start: number
   end: number
 }
@@ -15,8 +15,8 @@ export interface Trigger {
 const SPACE = /\s/
 
 /**
- * Il pezzo di testo prima del cursore, senza spazi, che inizia con "@" (in qualunque punto) o con "/" (solo come primo carattere
- * del messaggio, a meno di spazi iniziali). `allow` spegne un tipo: la nuova sessione non ha ancora comandi.
+ * The piece of text before the cursor, without spaces, that starts with "@" (anywhere) or "/" (only as the first character
+ * of the message, ignoring leading spaces). `allow` turns off a kind: a new session has no commands yet.
  */
 export function findTrigger(text: string, cursor: number, allow: { command: boolean; file: boolean } = { command: true, file: true }): Trigger | null {
   const end = Math.max(0, Math.min(cursor, text.length))
@@ -30,11 +30,11 @@ export function findTrigger(text: string, cursor: number, allow: { command: bool
   return null
 }
 
-/** Testo da inserire per un file: i percorsi con spazi vanno tra virgolette. */
+/** Text to insert for a file: paths with spaces go in quotes. */
 export const fileToken = (path: string): string => (SPACE.test(path) ? `@"${path}"` : `@${path}`)
 export const commandToken = (name: string): string => `/${name}`
 
-/** Sostituisce il pezzo con il suggerimento e uno spazio (senza raddoppiarlo). Restituisce il testo nuovo e dove va il cursore. */
+/** Replaces the piece with the suggestion and a space (without doubling it). Returns the new text and where the cursor goes. */
 export function applySuggestion(text: string, trigger: Trigger, token: string): { text: string; cursor: number } {
   const after = text.slice(trigger.end)
   const spaced = after.startsWith(' ')
@@ -44,7 +44,7 @@ export function applySuggestion(text: string, trigger: Trigger, token: string): 
 
 const norm = (s: string): string => s.toLowerCase()
 
-/** Comandi che corrispondono alla ricerca: prima nome uguale, poi che inizia, alias, nome che contiene, descrizione. Stesso rango: ordine alfabetico. */
+/** Commands matching the search: exact name first, then starts with, alias, name contains, description. Same rank: alphabetical order. */
 export function filterCommands(commands: readonly SlashCommand[], query: string, limit = 40): SlashCommand[] {
   const q = norm(query.trim().replace(/^\//, ''))
   if (!q) return [...commands].sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit)
@@ -62,15 +62,15 @@ export function filterCommands(commands: readonly SlashCommand[], query: string,
   return scored.sort((a, b) => a.rank - b.rank || a.c.name.localeCompare(b.c.name)).slice(0, limit).map((s) => s.c)
 }
 
-/** Nome del file e cartella di un percorso, per mostrarli su due livelli. */
+/** File name and folder of a path, to show them on two levels. */
 export function splitPath(path: string): { name: string; dir: string } {
   const at = path.lastIndexOf('/')
   return at < 0 ? { name: path, dir: '' } : { name: path.slice(at + 1), dir: path.slice(0, at) }
 }
 
 /**
- * Il testo è un comando della sessione ("/review qualcosa")? Restituisce nome e argomenti se il nome è nell'elenco dei comandi
- * (maiuscole comprese: i nomi sono esatti), altrimenti null e il testo va come messaggio normale.
+ * Is the text a session command ("/review something")? Returns name and arguments if the name is in the command list
+ * (case-sensitive: names are exact), otherwise null and the text goes as a normal message.
  */
 export function parseCommandInput(text: string, names: readonly string[]): { name: string; args: string } | null {
   const m = /^\s*\/(\S+)(?:\s+([\s\S]*))?$/.exec(text)

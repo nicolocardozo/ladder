@@ -1,5 +1,5 @@
-// Ingresso da link: `ladder://pair#…` aperto da fuori (la fotocamera del telefono, un messaggio) porta qui. Si legge il link e si
-// va alla conferma, senza passare dalla scansione. Il link non si logga e non si salva.
+// Entry from a link: `ladder://pair#…` opened from outside (the phone camera, a message) lands here. The link is read and we
+// go to the confirmation, without going through the scan. The link is never logged or saved.
 import * as Linking from 'expo-linking'
 import { Redirect, useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
@@ -18,9 +18,9 @@ export default function PairEntry() {
   const [error, setError] = useState<string | null>(null)
   const [waited, setWaited] = useState(false)
 
-  // Il link può essere già arrivato (parcheggiato da +native-intent) o arrivare dopo (useURL).
+  // The link may have already arrived (parked by +native-intent) or arrive later (useURL).
   const [parked] = useState(() => takePendingPairLink())
-  // `useURL` dà anche il link con cui l'app si è aperta: se è già stato usato (o scartato) non si rilegge.
+  // `useURL` also returns the link the app was opened with: if it has already been used (or discarded) it isn't read again.
   const link = parked ?? (url && isPairingLink(url) && !wasConsumed(url) ? url : null)
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function PairEntry() {
     } else setError(linkErrorText(result.reason))
   }, [link, router, set])
 
-  // Se il link non arriva (si è aperta la rotta a mano), si riparte dalla fotocamera.
+  // If the link doesn't arrive (the route was opened by hand), start over from the camera.
   useEffect(() => {
     const id = setTimeout(() => setWaited(true), 1_500)
     return () => clearTimeout(id)

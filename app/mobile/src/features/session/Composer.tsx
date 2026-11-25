@@ -1,6 +1,6 @@
-// Composer: il tasto fa ciò che dice la preferenza (di default accoda), la pressione lunga fa l'altra azione con una vibrazione;
-// coda sopra il campo con righe modificabili e "Send now"; Stop al posto di Invia con il campo vuoto e la sessione al lavoro.
-// Con una richiesta aperta il composer diventa la risposta: l'invio vale Deny con quel testo.
+// Composer: the button does what the preference says (queues by default), a long press does the other action with a haptic;
+// queue above the field with editable rows and "Send now"; Stop in place of Send when the field is empty and the session is working.
+// With an open request the composer becomes the answer: sending means Deny with that text.
 import * as Haptics from 'expo-haptics'
 import * as Clipboard from 'expo-clipboard'
 import { useEffect, useRef, useState, type ComponentRef } from 'react'
@@ -59,9 +59,9 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
   const att = useAttachments()
   const [sending, setSending] = useState(false)
   const [sel, setSel] = useState<Selection>({ start: text.length, end: text.length })
-  // Dopo aver scelto un suggerimento il cursore va a fine inserimento (prop `selection` una volta sola).
+  // After picking a suggestion the cursor moves to the end of the insertion (`selection` prop, set only once).
   const [forced, setForced] = useState<Selection | null>(null)
-  // Il testo resta come bozza (anche senza connessione): si salva a ogni modifica.
+  // The text stays as a draft (even offline): saved on every change.
   const change = (v: string) => {
     setText(v)
     setDraft(sessionId, v)
@@ -72,15 +72,15 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
   const hasImages = !answering && att.count > 0
   const showStop = working && empty && !hasImages && !answering
   const canSteer = session.canSteer
-  // Cosa fa il tasto è la preferenza del Mac (RemotePrefs.busySend); la pressione lunga fa l'altra azione. Un agente che non
-  // accetta messaggi nel turno accoda sempre.
+  // What the button does is the Mac's preference (RemotePrefs.busySend); a long press does the other action. An agent that does not
+  // accept messages mid-turn always queues.
   const prefersSteer = useApp((s) => s.prefs.busySend) === 'steer' && canSteer
   const tapHow: 'queue' | 'steer' = prefersSteer ? 'steer' : 'queue'
   const holdHow: 'queue' | 'steer' = prefersSteer ? 'queue' : 'steer'
   const disabled = !online
   const canSend = !disabled && !sending && !att.busy && (!empty || (hasImages && att.ready.length > 0))
 
-  // Se l'invio fallisce il testo torna nel campo, purché nel frattempo non se ne sia scritto altro.
+  // If sending fails the text returns to the field, unless something else was typed in the meantime.
   const textRef = useRef(text)
   textRef.current = text
   const restore = (body: string) => {
@@ -89,7 +89,7 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
 
   const suggest = useSuggest({ sessionId, projectId: session.projectId, text, selection: sel, setText: change, enabled: online && !sending })
   const dict = useDictation({ getText: () => textRef.current, setText: change })
-  // Scrivere a mano mentre si detta ferma la dettatura: il testo dettato non deve sovrascrivere le modifiche.
+  // Typing by hand while dictating stops dictation: the dictated text must not overwrite the edits.
   const typed = (v: string) => {
     if (dict.state === 'listening') dict.stop()
     change(v)
@@ -108,7 +108,7 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
     if ((!body && files.length === 0) || disabled || att.busy || sending) return
     if (listening) dict.stop()
     if (files.length > 0) {
-      // Con le immagini il testo resta nel campo finché il Mac non ha risposto: "Sending…" e miniature ferme.
+      // With images the text stays in the field until the Mac has answered: "Sending…" and frozen thumbnails.
       if (!commandFits(body, files)) return setTooBig(true)
       setTooBig(false)
       setSending(true)
@@ -126,7 +126,7 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
       }
       return
     }
-    // "/comando args" con un comando della sessione, a sessione ferma: parte come comando (Claude e Codex lo eseguono per davvero), non come testo.
+    // "/command args" with a session command, while the session is idle: it goes as a command (Claude and Codex really run it), not as text.
     const cmd = !answering && !working ? parseCommandInput(body, cachedCommandNames(sessionId)) : null
     if (cmd) {
       change('')
@@ -156,7 +156,7 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
   const inputRef = useRef<ComponentRef<typeof TextInput>>(null)
   const sendRef = useRef(send)
   sendRef.current = send
-  // Solo sviluppo: il driver scrive nel campo e allega file locali (prove senza toccare lo schermo).
+  // Development only: the driver types into the field and attaches local files (tests without touching the screen).
   useEffect(() => {
     if (!__DEV__) return
     useDev.getState().setComposer((cmd) => {

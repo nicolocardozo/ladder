@@ -15,14 +15,14 @@ function pair(): { client: RemoteSession; server: RemoteSession } {
   return { client, server }
 }
 
-test('un JSON corto è un solo frame END', () => {
+test('a short JSON is a single END frame', () => {
   const frames = splitFrames('{"a":1}')
   assert.equal(frames.length, 1)
   assert.equal(frames[0][0], REMOTE_FRAME_END)
 })
 
-test('un JSON lungo si spezza in frame da al massimo 65519 byte e si ricompone', () => {
-  const json = JSON.stringify({ text: 'è'.repeat(200_000) }) // UTF-8 a più byte: il taglio cade anche dentro un carattere
+test('a long JSON is split into frames of at most 65519 bytes and reassembled', () => {
+  const json = JSON.stringify({ text: 'è'.repeat(200_000) }) // multi-byte UTF-8: the cut also falls inside a character
   const frames = splitFrames(json)
   assert.ok(frames.length > 4)
   for (const f of frames) assert.ok(f.length <= REMOTE_MAX_FRAME)
@@ -33,7 +33,7 @@ test('un JSON lungo si spezza in frame da al massimo 65519 byte e si ricompone',
   assert.deepEqual(out, [json])
 })
 
-test('frame esattamente al limite', () => {
+test('frame exactly at the limit', () => {
   const json = 'x'.repeat(REMOTE_MAX_FRAME - 1)
   const frames = splitFrames(json)
   assert.equal(frames.length, 1)
@@ -41,26 +41,26 @@ test('frame esattamente al limite', () => {
   assert.equal(splitFrames(json + 'x').length, 2)
 })
 
-test('messaggi consecutivi si ricompongono separatamente', () => {
+test('consecutive messages are reassembled separately', () => {
   const r = new FrameReassembler()
   assert.equal(r.push(splitFrames('"uno"')[0]), '"uno"')
   assert.equal(r.push(splitFrames('"due"')[0]), '"due"')
 })
 
-test('un messaggio oltre il limite fa lanciare il reassembler', () => {
+test('a message over the limit makes the reassembler throw', () => {
   const r = new FrameReassembler(100_000)
   const frames = splitFrames('"' + 'a'.repeat(150_000) + '"')
   assert.equal(r.push(frames[0]), null)
   assert.throws(() => r.push(frames[1]))
 })
 
-test('flag non valido, frame vuoto e UTF-8 rotto sono rifiutati', () => {
+test('invalid flag, empty frame and broken UTF-8 are rejected', () => {
   assert.throws(() => new FrameReassembler().push(Uint8Array.of(7, 65)))
   assert.throws(() => new FrameReassembler().push(new Uint8Array(0)))
   assert.throws(() => new FrameReassembler().push(Uint8Array.of(REMOTE_FRAME_END, 0xff, 0xfe)))
 })
 
-test('RemoteSession: JSON oltre 65519 byte arriva intero su più messaggi Noise', () => {
+test('RemoteSession: JSON over 65519 bytes arrives whole across several Noise messages', () => {
   const { client, server } = pair()
   const message = { kind: 'event', blob: 'z'.repeat(300_000) }
   const sealed = client.seal(message)
@@ -71,20 +71,20 @@ test('RemoteSession: JSON oltre 65519 byte arriva intero su più messaggi Noise'
   assert.deepEqual(results.at(-1), message)
 })
 
-test('RemoteSession: un messaggio sopra REMOTE_MAX_MESSAGE chiude (lancia) in ricezione', () => {
+test('RemoteSession: a message above REMOTE_MAX_MESSAGE closes (throws) on receive', () => {
   const identity = generateKeyPair()
   const c = clientHandshake({ macPublicKey: identity.publicKey, hello: { device: 'test' } })
   const s = serverHandshake({ identity, hello: { mac: 'mac', app: '0' } })
   const { reply, session: server } = s.accept(c.start())
   const { session: client } = c.finish(reply)
-  // 16 MiB + 1 byte di JSON: il limite è sui byte ricomposti.
+  // 16 MiB + 1 byte of JSON: the limit is on the reassembled bytes.
   const sealed = client.seal('a'.repeat(16 * 1024 * 1024))
   assert.throws(() => {
     for (const m of sealed) server.open(m)
   })
 })
 
-test('RemoteSession: replay, riordino e riflessione chiudono', () => {
+test('RemoteSession: replay, reordering and reflection close', () => {
   const a = pair()
   const [m1] = a.client.seal({ n: 1 })
   assert.deepEqual(a.server.open(m1), { n: 1 })
@@ -99,15 +99,15 @@ test('RemoteSession: replay, riordino e riflessione chiudono', () => {
   assert.throws(() => c.client.open(c.client.seal({ n: 1 })[0]))
 })
 
-test('handshake: versione diversa rifiutata dal Mac', () => {
+test('handshake: different version rejected by the Mac', () => {
   const identity = generateKeyPair()
   const s = serverHandshake({ identity, hello: { mac: 'mac', app: '0' } })
-  // Un client del futuro: stesso handshake ma v diversa. Si ottiene sostituendo l'hello a mano.
+  // A future client: same handshake but a different v. Obtained by replacing the hello by hand.
   const bad = clientHandshake({ macPublicKey: identity.publicKey, hello: { device: 'x', v: REMOTE_PROTOCOL_VERSION + 1 } as never })
   assert.throws(() => s.accept(bad.start()), /versione/)
 })
 
-test('un frame MORE non pieno (vuoto o corto) è rifiutato: niente memoria consumata a costo zero', () => {
+test('a MORE frame that is not full (empty or short) is rejected: no memory consumed for free', () => {
   const r = new FrameReassembler()
   assert.throws(() => r.push(Uint8Array.of(REMOTE_FRAME_MORE)))
   assert.throws(() => new FrameReassembler().push(Uint8Array.of(REMOTE_FRAME_MORE, 65, 66)))
@@ -116,7 +116,7 @@ test('un frame MORE non pieno (vuoto o corto) è rifiutato: niente memoria consu
   assert.equal(new FrameReassembler().push(full), null)
 })
 
-test('milioni di frame MORE pieni si fermano al limite del messaggio', () => {
+test('millions of full MORE frames stop at the message limit', () => {
   const r = new FrameReassembler(1024 * 1024)
   const full = new Uint8Array(REMOTE_MAX_FRAME)
   full[0] = REMOTE_FRAME_MORE
@@ -130,7 +130,7 @@ test('milioni di frame MORE pieni si fermano al limite del messaggio', () => {
   assert.ok(pushed <= 17)
 })
 
-test('l’host accetta comandi fino a REMOTE_MAX_COMMAND, il client fino a REMOTE_MAX_MESSAGE', () => {
+test('the host accepts commands up to REMOTE_MAX_COMMAND, the client up to REMOTE_MAX_MESSAGE', () => {
   const identity = generateKeyPair()
   const c = clientHandshake({ macPublicKey: identity.publicKey, hello: { device: 't' } })
   const s = serverHandshake({ identity, hello: { mac: 'm', app: '0' } })
@@ -140,13 +140,13 @@ test('l’host accetta comandi fino a REMOTE_MAX_COMMAND, il client fino a REMOT
   assert.throws(() => {
     for (const m of client.seal(big)) server.open(m)
   })
-  // Nel verso opposto (snapshot) lo stesso messaggio è ammesso.
+  // In the opposite direction (snapshot) the same message is allowed.
   const pair2 = pair()
   const sealed = pair2.server.seal(big)
   assert.equal(sealed.map((m) => pair2.client.open<string>(m)).at(-1), big)
 })
 
-test('LAD-92: lastSize è la dimensione UTF-8 del messaggio ricomposto, senza ricodificarlo', () => {
+test('lastSize is the UTF-8 size of the reassembled message, without re-encoding it', () => {
   const r = new FrameReassembler()
   const json = JSON.stringify({ text: 'è'.repeat(100_000) })
   let out: string | null = null

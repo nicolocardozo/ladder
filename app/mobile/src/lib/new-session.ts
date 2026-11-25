@@ -1,14 +1,14 @@
-// Modulo "Nuova sessione" (LAD-89): risolve i valori del modulo dai predefiniti che il Mac manda per progetto, e le scelte
-// dell'utente sopra. Solo logica pura (niente React Native), provata con node --test.
+// "New session" form: resolves the form values from the defaults the Mac sends per project, and the user's choices
+// on top. Pure logic only (no React Native), tested with node --test.
 //
-// Regole:
-// - progetto: quello in cui si è (schermata sessione o progetto), poi l'ultimo usato, poi il primo nell'ordine del Mac;
-// - agente: `defaults.agent`, poi `lastAgent`, poi il primo ammesso; ammessi = `allowed` (vuoto = tutti) fra i disponibili;
-// - profilo (account): quello assegnato al progetto per l'agente, altrimenti il predefinito; solo se l'agente ne ha più d'uno si sceglie,
-//   ma si manda sempre (il Mac, senza, userebbe l'account del progetto);
-// - modello ed effort: `launch[agente]` com'è (null = predefinito dell'agente, e si mostra il modello `isDefault`); se l'utente cambia
-//   agente o account, un modello che il nuovo stato non ha torna a null;
-// - permesso: `defaults.permission` (già ridotto dal Mac); sopra il tetto del progetto o Full con l'accesso spento = livello spento con il motivo.
+// Rules:
+// - project: the one you are in (session or project screen), then the last used, then the first in the Mac's order;
+// - agent: `defaults.agent`, then `lastAgent`, then the first allowed; allowed = `allowed` (empty = all) among the available ones;
+// - profile (account): the one assigned to the project for the agent, otherwise the default; it is chosen only if the agent has more than one,
+//   but it is always sent (without it the Mac would use the project's account);
+// - model and effort: `launch[agent]` as is (null = the agent's default, and the `isDefault` model is shown); if the user changes
+//   agent or account, a model that the new state does not have goes back to null;
+// - permission: `defaults.permission` (already reduced by the Mac); above the project's ceiling or Full with access off = level off with the reason.
 import type { AgentId, Attachment, Effort, PermissionLevel, Project, ProjectGroupsState, RemoteAgentStatus, RemoteProfile, RemoteProjectDefaults, SessionSummary } from '../../../desktop/src/shared/protocol.ts'
 import { t } from '../../../desktop/src/shared/i18n.ts'
 import { buildHome, type SectionModel } from './home-model.ts'
@@ -25,13 +25,13 @@ export interface FormInput {
   profiles: RemoteProfile[]
   permissionsMax: Record<string, PermissionLevel | null>
   allowFull: boolean
-  /** Il progetto in cui l'utente si trova adesso, se c'è. */
+  /** The project the user is in right now, if any. */
   contextProjectId?: string | null
-  /** L'ultimo progetto in cui ha avviato una sessione dal telefono. */
+  /** The last project in which a session was started from the phone. */
   lastProjectId?: string | null
 }
 
-/** Scelte dell'utente: ciò che manca segue i predefiniti. `profileId`: null = account predefinito. */
+/** User choices: what is missing follows the defaults. `profileId`: null = default account. */
 export interface Picks {
   projectId?: string | null
   agent?: AgentId
@@ -44,7 +44,7 @@ export interface Picks {
 export interface LevelOption {
   level: PermissionLevel
   allowed: boolean
-  /** Perché è spento: sopra il tetto del progetto, o Full spento sul Mac. */
+  /** Why it is off: above the project's ceiling, or Full off on the Mac. */
   reason: 'max' | 'full-off' | null
 }
 
@@ -56,38 +56,38 @@ export interface ModelOption {
 export interface FormValues {
   projectId: string | null
   agent: AgentId | null
-  /** Agenti fra cui scegliere (ammessi e disponibili). */
+  /** Agents to choose from (allowed and available). */
   agentOptions: AgentId[]
-  /** Account fra cui scegliere; vuoto per gli agenti senza account. Con un solo elemento non si chiede. */
+  /** Accounts to choose from; empty for agents without accounts. With a single element it is not asked. */
   profileOptions: RemoteProfile[]
-  /** Account scelto (id vero, anche il predefinito) o null senza account. */
+  /** Chosen account (real id, the default too) or null without accounts. */
   profile: RemoteProfile | null
-  /** Id da mandare a `session.create`: sempre quello dell'account scelto (anche `default:<agente>`) quando l'agente ne ha; senza, il Mac userebbe l'account assegnato al progetto e vaglierebbe il modello su quello. */
+  /** Id to send to `session.create`: always that of the chosen account (also `default:<agent>`) when the agent has any; without it, the Mac would use the account assigned to the project and validate the model against that. */
   profileId: string | undefined
   status: RemoteAgentStatus | null
   modelOptions: ModelOption[]
-  /** Modello da mandare (null = predefinito dell'agente). */
+  /** Model to send (null = the agent's default). */
   model: string | null
-  /** Etichetta del modello che parte davvero (quello scelto o, con null, il predefinito dell'agente); null se non noto. */
+  /** Label of the model that actually starts (the chosen one or, with null, the agent's default); null if unknown. */
   effectiveModelLabel: string | null
-  /** Nome del modello con cui parte l'agente quando non se ne sceglie uno (`isDefault`); null se non noto. */
+  /** Name of the model the agent starts with when none is chosen (`isDefault`); null if unknown. */
   defaultModelLabel: string | null
-  /** Livelli di effort fra cui scegliere per il modello effettivo; vuoto = l'agente non ne ha. */
+  /** Effort levels to choose from for the effective model; empty = the agent has none. */
   effortOptions: Effort[]
   effort: Effort | null
-  /** Effort con cui parte l'agente quando non se ne sceglie uno, se noto. */
+  /** Effort the agent starts with when none is chosen, if known. */
   defaultEffort: Effort | null
   permission: PermissionLevel
   levels: LevelOption[]
 }
 
-/** Le sezioni del Mac con i loro progetti (stessa logica della Home), per scegliere il progetto. */
+/** The Mac's sections with their projects (same logic as the Home), to choose the project. */
 export function projectSections(projects: Project[], groups: ProjectGroupsState | null | undefined): { id: string; name: string | null; projects: Project[] }[] {
   const home = buildHome({ projects, sessions: [], projectGroups: groups, collapsed: {} })
   return home.sections.map((s: SectionModel) => ({ id: s.id, name: s.titled ? s.name : null, projects: s.projects.map((r) => r.project) }))
 }
 
-/** Progetto iniziale: dove si è, poi l'ultimo usato, poi il primo nell'ordine del Mac. */
+/** Initial project: where you are, then the last used, then the first in the Mac's order. */
 export function pickProject(input: Pick<FormInput, 'projects' | 'projectGroups' | 'contextProjectId' | 'lastProjectId'>): string | null {
   const exists = (id: string | null | undefined): id is string => !!id && input.projects.some((p) => p.id === id)
   if (exists(input.contextProjectId)) return input.contextProjectId
@@ -95,7 +95,7 @@ export function pickProject(input: Pick<FormInput, 'projects' | 'projectGroups' 
   return projectSections(input.projects, input.projectGroups)[0]?.projects[0]?.id ?? null
 }
 
-/** Agenti disponibili e ammessi dal progetto, senza doppioni (un agente con più account compare una volta). */
+/** Agents available and allowed by the project, without duplicates (an agent with several accounts appears once). */
 export function usableAgents(agents: RemoteAgentStatus[], def: RemoteProjectDefaults | undefined): AgentId[] {
   const out: AgentId[] = []
   for (const a of agents) {
@@ -106,7 +106,7 @@ export function usableAgents(agents: RemoteAgentStatus[], def: RemoteProjectDefa
   return out
 }
 
-/** Livelli di permesso con quelli spenti e il motivo. */
+/** Permission levels with the disabled ones and the reason. */
 export function permissionLevels(max: PermissionLevel | null | undefined, allowFull: boolean): LevelOption[] {
   return PERMISSION_LEVELS.map((level) => {
     if (!allowedLevel(level, max)) return { level, allowed: false, reason: 'max' as const }
@@ -125,7 +125,7 @@ export function resolveForm(input: FormInput, picks: Picks = {}): FormValues {
   const first = [picks.agent, def?.agent, def?.lastAgent].find((a): a is AgentId => !!a && agentOptions.includes(a))
   const agent = first ?? agentOptions[0] ?? null
 
-  // Account: scelto, altrimenti quello assegnato al progetto, altrimenti il predefinito.
+  // Account: chosen, otherwise the one assigned to the project, otherwise the default.
   const profileOptions = agent && isProfileAgent(agent) ? profilesOf(input.profiles, agent) : []
   const assigned = agent && isProfileAgent(agent) ? project?.profiles?.[agent as 'claude-code' | 'codex'] : undefined
   const wanted = picks.profileId !== undefined ? picks.profileId : assigned
@@ -133,18 +133,18 @@ export function resolveForm(input: FormInput, picks: Picks = {}): FormValues {
   const profileId = profile?.id
   const status = agent ? statusFor(input.agents, agent, profile?.isDefault ? null : profile?.id) : null
 
-  // Modello: scelto, altrimenti quello di Ladder (launch); uno che questo account non ha torna al predefinito dell'agente.
+  // Model: chosen, otherwise Ladder's (launch); one that this account does not have goes back to the agent's default.
   const modelOptions = (status?.models ?? []).map((m) => ({ id: m.id, label: m.label }))
   const launch = agent ? def?.launch[agent] : undefined
   const valid = (id: string | null | undefined): id is string => !!id && modelOptions.some((m) => m.id === id)
   const model = picks.model !== undefined ? (valid(picks.model) ? picks.model : null) : valid(launch?.model) ? launch!.model : null
   const modelInfo = status?.models.find((m) => (model ? m.id === model : m.isDefault))
-  // Effort: solo quelli del modello effettivo (senza `efforts` l'agente non ne ha); uno non accettato torna al predefinito.
+  // Effort: only those of the effective model (without `efforts` the agent has none); one not accepted goes back to the default.
   const effortOptions = modelInfo?.efforts ?? []
   const okEffort = (e: Effort | null | undefined): e is Effort => !!e && effortOptions.includes(e)
   const effort = picks.effort !== undefined ? (okEffort(picks.effort) ? picks.effort : null) : okEffort(launch?.effort) ? launch!.effort : null
 
-  // Permesso: scelto, altrimenti quello proposto dal Mac; se spento, il più alto consentito.
+  // Permission: chosen, otherwise the one proposed by the Mac; if off, the highest allowed.
   const levels = permissionLevels(projectId ? input.permissionsMax[projectId] : null, input.allowFull)
   const wantedLevel = picks.permission ?? def?.permission ?? 'edit'
   const allowedNow = levels.filter((l) => l.allowed)
@@ -170,10 +170,10 @@ export function resolveForm(input: FormInput, picks: Picks = {}): FormValues {
   }
 }
 
-/** Il testo si può mandare: non vuoto (dopo trim; con almeno un'immagine può esserlo) e non oltre il limite dell'host. */
+/** The text can be sent: non-empty (after trim; with at least one image it may be empty) and within the host's limit. */
 export const messageError = (text: string, images = 0): 'empty' | 'long' | null => (text.length > MAX_MESSAGE ? 'long' : text.trim().length === 0 && images === 0 ? 'empty' : null)
 
-/** Comando `session.create` dal modulo risolto; null se manca qualcosa (progetto, agente). */
+/** `session.create` command from the resolved form; null if something is missing (project, agent). */
 export function createCommand(values: FormValues, text: string, attachments: Attachment[] = []) {
   if (!values.projectId || !values.agent) return null
   return {
@@ -190,13 +190,13 @@ export function createCommand(values: FormValues, text: string, attachments: Att
   }
 }
 
-/** Etichetta di un livello di effort ("Extra high"). */
+/** Label of an effort level ("Extra high"). */
 export const effortName = (effort: Effort): string => ({ low: t('Low'), medium: t('Medium'), high: t('High'), xhigh: t('Extra high'), max: t('Max') })[effort]
 
 /**
- * Una sessione nata da questa richiesta ma di cui non è arrivato il risultato (timeout, collegamento caduto dopo l'invio): il Mac manda
- * `session.upsert` di solito prima del risultato, quindi se c'è una sessione nuova (id non presente prima) dello stesso progetto, agente e
- * account, con il primo messaggio come titolo (o creata dopo l'invio), la richiesta è andata a buon fine e non va rimandata.
+ * A session born from this request but whose result never arrived (timeout, connection dropped after sending): the Mac usually sends
+ * `session.upsert` before the result, so if there is a new session (id not present before) with the same project, agent and
+ * account, with the first message as title (or created after sending), the request succeeded and must not be sent again.
  */
 export function findCreated(sessions: SessionSummary[], knownIds: ReadonlySet<string>, command: { projectId: string; agent: AgentId; text: string; profileId?: string }, startedAt: number): SessionSummary | null {
   const first = command.text.trim().split('\n')[0].slice(0, 48)
@@ -210,7 +210,7 @@ export function findCreated(sessions: SessionSummary[], knownIds: ReadonlySet<st
       (command.profileId === undefined || isDefaultProfileId(command.profileId) === isDefaultProfileId(s.profileId)) &&
       s.createdAt >= startedAt - 5_000
   )
-  // Più di una candidata: quella col titolo uguale al primo messaggio; senza titolo uguale, la prima solo se è l'unica.
+  // More than one candidate: the one whose title equals the first message; without a matching title, the first only if it is the only one.
   const alike = (title: string) => {
     const n = Math.min(title.length, first.length, 20)
     return n > 0 && title.slice(0, n).toLowerCase() === first.slice(0, n).toLowerCase()

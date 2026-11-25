@@ -1,6 +1,6 @@
-// Collegamento al Mac attraverso il relay (LAD-50): RelayTransport di shared/remote/relay-transport.ts dietro l'interfaccia RemoteLink.
-// Il relay non autentica nulla: chi parla davvero con il Mac lo stabilisce l'handshake Noise. Qui si passano i byte e si inoltra
-// lo stato del Mac ("online", oppure "offline/asleep/quit" con da quando).
+// Link to the Mac through the relay: `RelayTransport` from shared/remote/relay-transport.ts behind the `RemoteLink` interface.
+// The relay authenticates nothing: the Noise handshake establishes who is really talking to the Mac. Here we just pass bytes along
+// and forward the Mac's state ("online", or "offline/asleep/quit" with since when).
 import { RELAY_CLOSE } from '@shared/remote/relay-protocol'
 import { RelayTransport } from '@shared/remote/relay-transport'
 import type { RemoteMacStatus } from '@shared/protocol'
@@ -22,8 +22,8 @@ export function relayLinkFactory(relayUrl: string, macId: string): LinkFactory {
     const link: RemoteLink = {
       open() {
         try {
-          // Niente 10.0.2.2 per il relay: shared/relay-protocol accetta ws:// in chiaro solo verso localhost. L'emulatore Android
-          // lo raggiunge con `adb reverse tcp:8787 tcp:8787`.
+          // No 10.0.2.2 for the relay: shared/relay-protocol only accepts plain ws:// to localhost. The Android emulator
+          // reaches it with `adb reverse tcp:8787 tcp:8787`.
           transport = new RelayTransport({ relayUrl, macId })
         } catch (error) {
           finish(error instanceof Error ? error.message : String(error))
@@ -34,7 +34,7 @@ export function relayLinkFactory(relayUrl: string, macId: string): LinkFactory {
           onStatus(status)
           if (status.online) onReady()
         })
-        // 4005: il Mac ha chiuso proprio questo telefono (per esempio perché non ha decifrato il suo handshake).
+        // 4005: the Mac closed this very phone (for example because it could not decrypt its handshake).
         transport.onClose((code, reason) => finish(reason || `Relay closed (${code})`, code === RELAY_CLOSE.macClosed))
       },
       send: (bytes) => transport?.send(bytes),

@@ -1,4 +1,4 @@
-// Il Mac ha tolto questo telefono (revoca, "rigenera chiave") o la sua chiave è cambiata: si spiega e si offre di abbinare di nuovo.
+// The Mac removed this phone (revocation, "regenerate key") or its key changed: explain it and offer to pair again.
 import { Redirect, useRouter } from 'expo-router'
 import { t } from '@shared/i18n'
 import { PairStep } from '@/features/pair/PairStep'
@@ -11,10 +11,10 @@ export default function Disconnected() {
   const conn = useApp((s) => s.conn)
   const mac = useApp((s) => s.macName)
   const keyChanged = conn.kind === 'key-changed'
-  // Solo per i due stati finali: da un link diretto o dopo un nuovo abbinamento non si resta qui.
+  // Only for the two final states: from a direct link or after a new pairing we don't stay here.
   if (conn.kind !== 'revoked' && !keyChanged) return <Redirect href="/" />
   const again = async () => {
-    // Si dimentica tutto (abbinamento e chiave del dispositivo) e si riparte dalla fotocamera, con la schermata di benvenuto sotto.
+    // Everything is forgotten (pairing and device key) and we start again from the camera, with the welcome screen underneath.
     await disconnect()
     router.dismissAll()
     router.replace('/welcome')

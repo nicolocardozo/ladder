@@ -1,5 +1,5 @@
-// Righe della chat: messaggio dell'utente, risposta dell'agente (markdown, testo rivelato a ritmo costante),
-// riga del turno ("Edited 2 files and ran 3 commands"), note.
+// Chat rows: user message, agent reply (markdown, text revealed at a steady pace),
+// turn row ("Edited 2 files and ran 3 commands"), notes.
 import { memo, useEffect, useRef, useState } from 'react'
 import { AccessibilityInfo, Image, Pressable, View } from 'react-native'
 import { plural, t } from '@shared/i18n'
@@ -15,7 +15,7 @@ import { StateGlyph } from '@/ui/StateGlyph'
 import { Text } from '@/ui/Text'
 import { CHAT_FONT_SIZE, CHAT_LINE_HEIGHT, Markdown } from './Markdown'
 
-/** Testo in streaming rivelato a ritmo costante (vedi lib/text-reveal). Aggiorna ~12 volte al secondo. */
+/** Streaming text revealed at a steady pace (see lib/text-reveal). Updates ~12 times per second. */
 function useRevealed(text: string, streaming: boolean): string {
   const [shown, setShown] = useState(() => (streaming ? Math.max(0, text.length - 80) : text.length))
   const target = useRef(text.length)
@@ -37,7 +37,7 @@ function useRevealed(text: string, streaming: boolean): string {
 
 export const AssistantText = memo(function AssistantText({ text, streaming }: { text: string; streaming: boolean }) {
   const shown = useRevealed(text, streaming)
-  // Niente regione "live" mentre il testo scorre (lo screen reader ripeterebbe ogni pezzo): si annuncia la risposta a fine turno.
+  // No "live" region while the text scrolls (a screen reader would repeat every chunk): the reply is announced at the end of the turn.
   const was = useRef(streaming)
   useEffect(() => {
     if (was.current && !streaming && text) AccessibilityInfo.announceForAccessibility(text.slice(0, 300))
@@ -88,7 +88,7 @@ export const UserBubble = memo(function UserBubble({ text, steered, attachments 
   )
 })
 
-/** "Edited 2 files and ran 3 commands": la frase che dice cosa è successo, dai conteggi degli strumenti. */
+/** "Edited 2 files and ran 3 commands": the sentence saying what happened, from the tool counts. */
 export function summaryText(turn: TurnSummary): string {
   const parts = summaryParts(turn.counts, turn.files).map((p) => {
     switch (p.key) {

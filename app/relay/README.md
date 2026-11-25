@@ -20,7 +20,7 @@ The relay does not see chats, commands, file names, session names or anything el
 
 ## What protects what
 
-- **The Noise handshake is the only authentication between phone and Mac.** The phone knows the Mac's public key (from the pairing QR, LAD-51) and refuses anyone who cannot prove they hold the matching private key.
+- **The Noise handshake is the only authentication between phone and Mac.** The phone knows the Mac's public key (from the pairing QR) and refuses anyone who cannot prove they hold the matching private key.
 - **The relay URL is not authenticated by that handshake.** A malicious or wrong relay cannot read or forge messages, but it can drop them, delay them, tell the phone the Mac is offline, or collect the metadata listed above. Only point Ladder at a relay you trust to stay available.
 - **Nobody can take your Mac's place on the relay.** The Mac id is derived from a separate Ed25519 key that only that Mac holds (`remote-relay-key.json`). To connect as the Mac, a client has to sign a fresh challenge from the relay with that key. A new authenticated Mac connection replaces the old one. Phones do not authenticate to the relay.
 - **A signature only works on the relay it was made for.** The signed text includes the relay origin (`https://host[:port]`, as the Worker sees it), so one relay cannot replay a challenge it got from another. If you put the relay behind a proxy that rewrites the host, the Mac and the relay see different origins and sign-in fails.

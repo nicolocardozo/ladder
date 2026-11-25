@@ -1,5 +1,5 @@
-// Lista della chat: agganciata in fondo (FlatList invertita: il fondo è l'origine, quindi il testo in arrivo non sposta nulla),
-// bottone a freccia per tornare giù se si scorre, scorrere chiude la tastiera, pagine più vecchie caricate in testa.
+// Chat list: anchored to the bottom (inverted FlatList: the bottom is the origin, so incoming text shifts nothing),
+// arrow button to jump back down when scrolled up, scrolling dismisses the keyboard, older pages load at the top.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
@@ -15,9 +15,9 @@ import { Text } from '@/ui/Text'
 import { AssistantText, NoteRow, StoppedRow, TurnLine, UserBubble } from './rows'
 
 const EMPTY: ChatItem[] = []
-/** Oltre questa distanza dal fondo compare il bottone a freccia e il contenuto nuovo non sposta più ciò che leggi. */
+/** Beyond this distance from the bottom the arrow button appears and new content no longer shifts what you are reading. */
 const AWAY_PX = 320
-/** Entro questa distanza si considera "in fondo": il testo in arrivo resta in vista. */
+/** Within this distance counts as "at the bottom": incoming text stays in view. */
 const STICKY_PX = 40
 
 export function ChatList({ sessionId, onTurn, bottomInset }: { sessionId: string; onTurn: (turn: TurnSummary) => void; bottomInset: number }) {
@@ -32,17 +32,17 @@ export function ChatList({ sessionId, onTurn, bottomInset }: { sessionId: string
   const run = useApp((s) => s.sessions[sessionId]?.run ?? 'idle')
   const rows = useMemo(() => buildChatRows(items, run).reverse(), [items, run])
 
-  // Solo sviluppo: il driver può scorrere la chat per provare l'ancoraggio.
+  // Development only: the driver can scroll the chat to test anchoring.
   useEffect(() => {
     if (!__DEV__) return
     useDev.getState().setScrollChat((offset) => ref.current?.scrollToOffset({ offset, animated: false }))
     return () => useDev.getState().setScrollChat(null)
   }, [])
 
-  // Ancoraggio. Lista invertita: l'offset 0 è il fondo, quindi il testo che arriva resta in vista da solo. Se stai leggendo più su
-  // (offset > AWAY_PX) il contenuto nuovo spingerebbe via quello che guardi: si compensa la crescita. Le pagine più vecchie
-  // si aggiungono dall'altra parte e non spostano nulla, quindi in quel caso non si compensa. (maintainVisibleContentPosition
-  // ancora all'indice 0, il messaggio più recente: dopo una risposta lasciava la lista lontana dal fondo.)
+  // Anchoring. Inverted list: offset 0 is the bottom, so incoming text stays in view on its own. If you are reading further up
+  // (offset > AWAY_PX) new content would push away what you are looking at: the growth is compensated. Older pages
+  // are added on the other side and shift nothing, so no compensation in that case. (maintainVisibleContentPosition
+  // anchored at index 0, the newest message, left the list far from the bottom after a reply.)
   const offsetRef = useRef(0)
   const heightRef = useRef(0)
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -61,7 +61,7 @@ export function ChatList({ sessionId, onTurn, bottomInset }: { sessionId: string
     void loadOlder(sessionId)
       .catch(() => {})
       .finally(() => {
-        // Il layout nuovo arriva dopo: si smette di ignorare la crescita solo a cose assestate.
+        // The new layout arrives later: growth stops being ignored only once things have settled.
         setTimeout(() => (olderRef.current = false), 400)
         setLoadingOlder(false)
       })

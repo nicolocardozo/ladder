@@ -1,5 +1,5 @@
-// Apertura degli sheet. Su iOS (telefono) sono rotte `formSheet` native (app/sheet/*, dati nei parametri e in questo store);
-// su Android e da 600 pt in su restano gli sheet nostri (ui/Sheet.tsx), montati da SheetHost.
+// Opening of sheets. On iOS (phone) they are native `formSheet` routes (app/sheet/*, data in the params and in this store);
+// on Android and from 600 pt up our own sheets stay (ui/Sheet.tsx), mounted by SheetHost.
 import type { useRouter } from 'expo-router'
 import { Dimensions } from 'react-native'
 import { create } from 'zustand'
@@ -18,23 +18,23 @@ export type SheetSpec =
   | { kind: 'mac' }
 
 interface SheetsState {
-  /** Lo sheet aperto con le implementazioni nostre (Android, schermi larghi). */
+  /** The sheet opened with our own implementations (Android, wide screens). */
   current: SheetSpec | null
-  /** Il turno mostrato: troppo grosso per i parametri di una rotta, resta qui. */
+  /** The turn shown: too big for a route's params, it stays here. */
   turn: TurnSummary | null
-  /** Il progetto in cui si era quando si è aperto "Nuova sessione" (schermata del progetto o di una sua sessione). */
+  /** The project we were in when "New session" was opened (project screen or one of its sessions). */
   newSessionProject: string | null
   close: () => void
 }
 
 export const useSheets = create<SheetsState>((set) => ({ current: null, turn: null, newSessionProject: null, close: () => set((st) => (st.current ? { current: null } : st)) }))
 
-/** I sheet sono rotte native? Solo su iOS e sotto i 600 pt. */
+/** Are sheets native routes? Only on iOS and below 600 pt. */
 export const nativeSheets = (): boolean => IOS && Dimensions.get('window').width < WIDE
 
 type Router = ReturnType<typeof useRouter>
 
-/** Il progetto della schermata in primo piano: quello aperto, o quello della sessione aperta. */
+/** The project of the foreground screen: the open one, or that of the open session. */
 function projectInView(): string | null {
   const route = focusedRoute()
   const id = typeof route?.params?.id === 'string' ? route.params.id : null
@@ -52,7 +52,7 @@ export function openSheet(router: Router, spec: SheetSpec): void {
   }
   switch (spec.kind) {
     case 'request': {
-      // Un permesso semplice (niente domande né anteprima) sta in uno sheet alto quanto il contenuto; il resto scorre.
+      // A simple permission (no questions or preview) goes in a sheet as tall as its content; the rest scrolls.
       const st = useApp.getState()
       const r: RequestItem | null | undefined = st.items[spec.sessionId]?.find((i): i is RequestItem => i.kind === 'request' && i.requestId === spec.requestId) ?? st.sessions[spec.sessionId]?.request
       const fit = !!r && r.requestType !== 'question' && !r.preview

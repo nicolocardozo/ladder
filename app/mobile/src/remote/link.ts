@@ -1,27 +1,27 @@
-// Il seam del trasporto: un canale di byte, un messaggio Noise per messaggio di trasporto.
-// Due implementazioni: il WebSocket diretto verso l'host locale (ws-link.ts, sviluppo) e il relay (relay-link.ts, su
-// RelayTransport di shared/remote/relay-transport.ts). Il resto dell'app non sa quale sia in uso.
+// The transport seam: a byte channel, one Noise message per transport message.
+// Two implementations: the direct WebSocket to the local host (ws-link.ts, development) and the relay (relay-link.ts, over
+// RelayTransport in shared/remote/relay-transport.ts). The rest of the app does not know which one is in use.
 import type { RemoteMacStatus } from '@shared/protocol'
 
 export interface RemoteLink {
-  /** Apre la connessione; gli eventi arrivano dai callback registrati prima. */
+  /** Opens the connection; events arrive from the callbacks registered earlier. */
   open(): void
   send(bytes: Uint8Array): void
   close(): void
   /**
-   * Il Mac è raggiungibile: si può mandare il primo messaggio Noise. Per il WebSocket diretto è l'apertura del socket; per
-   * il relay è `online: true` del Mac, e può ripetersi (Mac tornato dopo un'assenza): l'handshake riparte da capo.
+   * The Mac is reachable: the first Noise message can be sent. For the direct WebSocket it is the socket opening; for
+   * the relay it is the Mac's `online: true`, and it can repeat (Mac back after an absence): the handshake starts over.
    */
   onReady(handler: () => void): void
   onBytes(handler: (bytes: Uint8Array) => void): void
-  /** Solo il relay: stato del Mac (alla connessione e a ogni cambio). Con `online: false` il collegamento resta aperto, in attesa. */
+  /** Relay only: the Mac's state (on connection and on every change). With `online: false` the connection stays open, waiting. */
   onMacStatus?(handler: (status: RemoteMacStatus) => void): void
   /**
-   * Chiusa o fallita (una sola volta). `reason` se noto, per "Mac unreachable". `rejected`: la chiusura è una decisione del Mac
-   * (il relay dice che il Mac ha chiuso quel telefono, o il socket diretto si chiude in modo ordinato), non un guasto di rete.
+   * Closed or failed (only once). `reason` if known, for "Mac unreachable". `rejected`: the closure is a decision by the Mac
+   * (the relay says the Mac closed that phone, or the direct socket closes cleanly), not a network failure.
    */
   onClose(handler: (reason?: string, rejected?: boolean) => void): void
 }
 
-/** Crea un collegamento nuovo a ogni tentativo di connessione. */
+/** Creates a new link on every connection attempt. */
 export type LinkFactory = () => RemoteLink

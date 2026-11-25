@@ -1,11 +1,11 @@
-// Lingua dell'app: inglese predefinito, italiano come il Mac. Stesso i18n condiviso (shared/i18n.ts + locales/it),
-// più il catalogo delle stringhe del telefono (src/locales/it.ts).
+// App language: English by default, Italian like the Mac. Same shared i18n (shared/i18n.ts + locales/it),
+// plus the phone's string catalog (src/locales/it.ts).
 import { getLocales } from 'expo-localization'
 import { setLocale, type Locale } from '@shared/i18n'
 import '@shared/locales/it'
 import './locales/it'
 
-/** Lingua del sistema se supportata, altrimenti inglese. */
+/** System language if supported, otherwise English. */
 export function systemLocale(): Locale {
   const code = getLocales()[0]?.languageCode
   return code === 'it' ? 'it' : 'en'

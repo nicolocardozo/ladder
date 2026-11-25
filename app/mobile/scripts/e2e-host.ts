@@ -1,9 +1,9 @@
-// Harness e2e: il vero RemoteGateway dell'host (Noise, frame, allowlist, limiti) con un host finto alimentato dalle fixture
-// dell'app, su un WebSocket locale. Il simulatore si collega come a un Mac vero, senza toccare l'app Ladder dell'utente.
+// E2E harness: the host's real RemoteGateway (Noise, frames, allowlist, limits) with a fake host fed by the app's fixtures,
+// on a local WebSocket. The simulator connects as to a real Mac, without touching the user's Ladder app.
 //
-//   node scripts/e2e-host.ts [porta]          # porta predefinita 7788; stampa l'indirizzo e la chiave pubblica
+//   node scripts/e2e-host.ts [port]          # default port 7788; prints the address and the public key
 //
-// L'identità è in un file temporaneo (/tmp), così sopravvive a un riavvio dell'harness. Con `--speed 0.3` la simulazione degli agenti è più veloce.
+// The identity is in a temporary file (/tmp), so it survives a harness restart. With `--speed 0.3` the agent simulation is faster.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { generateKeyPair, keyPairFromSecret } from '../../desktop/src/shared/remote/noise.ts'
 import { RemoteGateway, type RemoteHostApi } from '../../desktop/src/host/remote/gateway.ts'
@@ -18,7 +18,7 @@ const speed = speedAt >= 0 ? Number(args.splice(speedAt, 2)[1]) : 1
 const port = Number(args[0] ?? 7788)
 
 const fake = new FakeHost({ speed, autoplay: true })
-// Identità stabile tra un riavvio e l'altro (file temporaneo, mai quella dell'utente): serve a provare la riconnessione.
+// Stable identity across restarts (temporary file, never the user's): used to test reconnection.
 const IDENTITY_FILE = '/tmp/ladder-harness-identity.txt'
 const identity = existsSync(IDENTITY_FILE)
   ? keyPairFromSecret(new Uint8Array(Buffer.from(readFileSync(IDENTITY_FILE, 'utf8').trim(), 'base64url')))
@@ -34,7 +34,7 @@ const api: RemoteHostApi = {
     return { type: 'snapshot', projects: s.projects, sessions: s.sessions, drafts: {}, ui: s.ui as never, projectGroups: s.projectGroups, agents: s.agents, profiles: s.profiles.map((p) => ({ ...p, configDir: null, addedAt: 1 })), terminals: [] } as unknown as Extract<HostEvent, { type: 'snapshot' }>
   },
   handle: (command) => fake.handle(command as never),
-  // Predefiniti della nuova sessione, tetti di permesso e preferenze: come li manda il Mac (LAD-89).
+  // New-session defaults, permission ceilings and preferences: as the Mac sends them.
   remoteExtras: async () => ({ permissionsMax: fake.snapshot().permissionsMax, busySend: 'queue' as const, defaults: fake.snapshot().defaults }),
   pageItems: (sessionId, before, limit) => fake.pageItems(sessionId, before, limit),
   connectionClosed: () => {}
@@ -43,8 +43,8 @@ const api: RemoteHostApi = {
 const gateway = new RemoteGateway({ host: api, identity, macName: "Zoë's MacBook Pro (harness)", appVersion: 'harness', log: (m) => console.log(`[harness] ${m}`) })
 fake.onEvent((event) => gateway.broadcast(event as unknown as HostEvent))
 
-// Server WebSocket del harness. Come host/remote/ws-server.ts, ma accetta anche un Origin uguale all'indirizzo del server:
-// il WebSocket di React Native (iOS e Android) manda sempre `Origin: http://<host>:<porta>`, e ws-server.ts rifiuta ogni Origin.
+// The harness WebSocket server. Like host/remote/ws-server.ts, but it also accepts an Origin equal to the server's address:
+// React Native's WebSocket (iOS and Android) always sends `Origin: http://<host>:<port>`, and ws-server.ts rejects every Origin.
 const wss = new WebSocketServer({
   host: '127.0.0.1',
   port,
@@ -68,7 +68,7 @@ wss.on('connection', (ws: any) => {
   }
   gateway.accept(link)
 })
-// Ping ogni 15 s, come il server dell'host (30 s).
+// Ping every 15 s, like the host's server (30 s).
 setInterval(() => wss.clients.forEach((c: any) => c.ping()), 15_000).unref()
 const server = { port, stop: () => wss.close() }
 const key = Buffer.from(identity.publicKey).toString('base64url')

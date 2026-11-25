@@ -1,7 +1,7 @@
-// Un solo componente per gli sheet: sul telefono sale dal basso (con maniglia e swipe per chiudere), da 600 pt in su è una card
-// centrata. Costruito su Modal nativo + Reanimated. Si era provato @gorhom/bottom-sheet (come in Paseo): con Expo SDK 58
-// (gesture-handler 3.3, Reanimated 4.7) il modale veniva "presentato" ma non compariva; per ora un componente nostro,
-// con la stessa interfaccia, così si può tornare a gorhom cambiando solo questo file.
+// A single component for sheets: on the phone it rises from the bottom (with handle and swipe to dismiss), from 600 pt up it is a centered
+// card. Built on native Modal + Reanimated. We tried @gorhom/bottom-sheet (as in Paseo): with Expo SDK 58
+// (gesture-handler 3.3, Reanimated 4.7) the modal was "presented" but never appeared; for now a component of our own,
+// with the same interface, so we can go back to gorhom by changing only this file.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Modal, PanResponder, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
@@ -20,7 +20,7 @@ interface Props {
   onClose: () => void
   title?: string
   children: ReactNode
-  /** Altezza massima come frazione dello schermo. */
+  /** Maximum height as a fraction of the screen. */
   maxHeight?: number
 }
 
@@ -29,7 +29,7 @@ export function Sheet({ visible, onClose, title, children, maxHeight = 0.9 }: Pr
   const insets = useSafeAreaInsets()
   const { c } = useTheme()
   const wide = width >= WIDE
-  // Resta montato durante l'animazione di chiusura.
+  // Stays mounted during the closing animation.
   const [mounted, setMounted] = useState(visible)
   const progress = useSharedValue(visible ? 1 : 0)
   const drag = useSharedValue(0)

@@ -1,6 +1,6 @@
-// Modello della Home: "adesso" (sessioni vive di tutti i progetti) e "sfoglia" (le sezioni del Mac).
-// Solo logica pura, provata con node --test. L'ordine di sezioni e progetti è quello del Mac (projectGroups);
-// layoutProjects/normalizeProjectGroups sono la stessa logica di app/desktop/src/renderer/src/lib/project-groups.ts, ridotta.
+// Home model: "now" (live sessions of all projects) and "browse" (the Mac's sections).
+// Pure logic only, tested with node --test. The order of sections and projects is the Mac's (projectGroups);
+// layoutProjects/normalizeProjectGroups are the same logic as app/desktop/src/renderer/src/lib/project-groups.ts, reduced.
 import type { Project, ProjectGroupsState, SessionSummary } from '@shared/protocol'
 import { byUrgency, hasSignals, isLive, sessionState, signalsOf, type Signals } from './session-state.ts'
 
@@ -10,15 +10,15 @@ export interface ProjectRow {
   project: Project
   sessions: SessionSummary[]
   signals: Signals
-  /** Ultima attività tra le sessioni; null senza sessioni. */
+  /** Latest activity across the sessions; null with no sessions. */
   lastActivity: number | null
 }
 
 export interface SectionModel {
-  /** Id del gruppo del Mac, o UNGROUPED_ID. */
+  /** Id of the Mac's group, or UNGROUPED_ID. */
   id: string
   name: string
-  /** Solo le sezioni vere hanno un titolo; i progetti fuori da ogni sezione stanno in cima, senza intestazione. */
+  /** Only real sections have a title; projects outside any section go on top, with no heading. */
   titled: boolean
   projects: ProjectRow[]
   signals: Signals
@@ -26,13 +26,13 @@ export interface SectionModel {
 }
 
 export interface HomeModel {
-  /** Richieste aperte, dalla più vecchia. */
+  /** Open requests, oldest first. */
   waiting: SessionSummary[]
   waitingCount: number
   now: SessionSummary[]
-  /** Con un solo progetto la Home mostra direttamente le sue sessioni. */
+  /** With a single project the Home shows its sessions directly. */
   singleProject: ProjectRow | null
-  /** Senza sezioni: una lista piatta (un'unica sezione senza titolo). */
+  /** Without sections: a flat list (a single section with no title). */
   sections: SectionModel[]
 }
 
@@ -66,7 +66,7 @@ export function buildHome(input: {
   projects: Project[]
   sessions: SessionSummary[]
   projectGroups: ProjectGroupsState | null | undefined
-  /** Preferenza salvata sul telefono: sezione → chiusa o aperta. Assente = decide "ha qualcosa di vivo". */
+  /** Preference saved on the phone: section → collapsed or open. Absent = decided by "has something live". */
   collapsed: Record<string, boolean>
 }): HomeModel {
   const live = input.sessions.filter((s) => !s.archived)
@@ -83,7 +83,7 @@ export function buildHome(input: {
     ids
       .flatMap((id) => byId.get(id) ?? [])
       .map(rowOf)
-      // Progetti senza sessioni in fondo alla loro sezione; a parità l'ordine del Mac (sort stabile).
+      // Projects without sessions go at the bottom of their section; ties keep the Mac's order (stable sort).
       .sort((a, b) => Number(a.sessions.length === 0) - Number(b.sessions.length === 0))
 
   const sections: SectionModel[] = []
@@ -118,7 +118,7 @@ export interface SessionGroupModel {
   sessions: SessionSummary[]
 }
 
-/** Sessioni di un progetto divise per i gruppi del Mac, più le senza gruppo in cima e le archiviate (a parte). */
+/** Sessions of a project split by the Mac's groups, plus the ungrouped ones on top and the archived ones (separate). */
 export function groupProjectSessions(
   sessions: SessionSummary[],
   ui: { groups?: { id: string; name: string }[]; groupOf?: Record<string, string> } | undefined

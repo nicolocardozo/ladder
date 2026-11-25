@@ -1,44 +1,44 @@
-// Solo sviluppo: pilota le schermate per gli screenshot e le prove (deep link ladder://dev?...), senza toccare lo schermo.
+// Development only: drives the screens for screenshots and tests (deep link ladder://dev?...), without touching the screen.
 import { create } from 'zustand'
 
-/** Solo sviluppo: comandi del driver per il composer (testo, immagini da file, cursore). */
+/** Development only: driver commands for the composer (text, images from file, cursor). */
 export interface DevComposerCmd {
   text?: string
-  /** File immagine locali da allegare come se fossero scelti dalla libreria. */
+  /** Local image files to attach as if picked from the library. */
   images?: string[]
-  /** Invia il messaggio come con il tasto Invia. */
+  /** Sends the message like the Send button. */
   send?: boolean
-  /** Porta il focus nel campo (tastiera su). */
+  /** Puts focus in the field (keyboard up). */
   focus?: boolean
-  /** Avvia la dettatura come il tocco sul microfono. */
+  /** Starts dictation like a tap on the microphone. */
   dictate?: boolean
 }
 
-/** Solo sviluppo: stato forzato della dettatura, per vederne l'interfaccia dove il microfono non c'è (simulatore). */
+/** Development only: forced dictation state, to see its interface where there is no microphone (simulator). */
 export type DevDictation = 'listening' | 'downloading' | 'denied' | 'not-installed' | 'unsupported' | null
 
 export type DevSheet = 'request' | 'permission' | 'turn' | 'switch' | 'full' | null
 
 interface DevState {
   sheet: DevSheet
-  /** Solo sviluppo: lo sheet della richiesta si apre con il campo di testo aperto (motivo del rifiuto o "Altro…"). */
+  /** Development only: the request sheet opens with the text field open (rejection reason or "Other…"). */
   reasonField: boolean
-  /** Solo sviluppo: il campo di ricerca della Home prende il focus. */
+  /** Development only: the Home search field takes focus. */
   focusSearch: boolean
-  /** Solo sviluppo: lo sheet nativo aperto si registra qui per lasciarsi scorrere dal driver. */
+  /** Development only: the open native sheet registers itself here so the driver can scroll it. */
   scrollSheet: ((y: number) => void) | null
-  /** Solo sviluppo: il campo del messaggio di "Nuova sessione" prende il focus (tastiera su) senza un tocco. */
+  /** Development only: the message field of "New session" takes focus (keyboard up) without a tap. */
   focusNewSession: boolean
-  /** Solo sviluppo: stato iniziale del modulo "Nuova sessione" (opzioni aperte, scelta aperta, invio subito). */
+  /** Development only: initial state of the "New session" form (options open, choice open, send immediately). */
   newSession: { expand?: boolean; step?: string; send?: boolean; project?: string; agent?: string } | null
   setSheet: (s: DevSheet) => void
-  /** Il composer aperto (chat o nuova sessione) si registra qui per i comandi del driver (solo sviluppo). */
+  /** The open composer (chat or new session) registers itself here for the driver's commands (development only). */
   composer: ((cmd: DevComposerCmd) => void) | null
   setComposer: (fn: ((cmd: DevComposerCmd) => void) | null) => void
   dictation: DevDictation
-  /** Solo sviluppo: variante della schermata Welcome (capsule o riga sola). */
+  /** Development only: variant of the Welcome screen (capsule or single row). */
   welcome: 'chips' | 'caption'
-  /** La chat aperta si registra qui per lasciarsi scorrere dal driver (solo sviluppo). */
+  /** The open chat registers itself here so the driver can scroll it (development only). */
   scrollChat: ((offset: number) => void) | null
   setScrollChat: (fn: ((offset: number) => void) | null) => void
 }

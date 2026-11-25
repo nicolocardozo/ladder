@@ -1,8 +1,8 @@
-// Stato visivo di una sessione sul telefono. Riscrittura ridotta di app/desktop/src/renderer/src/lib/session-state.ts:
-// il desktop distingue anche gli avvisi dei sotto-agenti, qui diventano "running" o "unread". Se cambia l'una, controlla l'altra.
+// Visual state of a session on the phone. Reduced rewrite of app/desktop/src/renderer/src/lib/session-state.ts:
+// the desktop also distinguishes sub-agent notices, here they become "running" or "unread". If one changes, check the other.
 import type { SessionSummary } from '@shared/protocol'
 
-/** Ordine di urgenza: dal più urgente al meno. */
+/** Urgency order: from most to least urgent. */
 export type SessionState = 'waiting' | 'error' | 'running' | 'unread' | 'queued' | 'idle'
 
 export const URGENCY: Record<SessionState, number> = { waiting: 0, error: 1, running: 2, unread: 3, queued: 4, idle: 5 }
@@ -20,7 +20,7 @@ export function sessionState(s: SessionSummary): SessionState {
 
 export const isLive = (state: SessionState) => state !== 'idle'
 
-/** Ordina per urgenza; a pari urgenza i più vecchi in attesa prima, gli altri dal più recente. */
+/** Sorts by urgency; at equal urgency the ones waiting longest first, the others most recent first. */
 export function byUrgency(a: SessionSummary, b: SessionSummary): number {
   const sa = sessionState(a)
   const sb = sessionState(b)

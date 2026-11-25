@@ -1,14 +1,14 @@
-// Live Activity e widget "Agent activity" sul telefono (LAD-93): il pezzo nativo (iOS). Ascolta il negozio e, con le preferenze,
-// avvia, aggiorna e chiude le Live Activity (lib/live-activity.ts decide cosa) e scrive i dati del widget (lib/widget-snapshot.ts).
+// Live Activity and "Agent activity" widget on the phone: the native (iOS) piece. It listens to the store and, with the preferences,
+// starts, updates and ends Live Activities (lib/live-activity.ts decides what) and writes the widget data (lib/widget-snapshot.ts).
 //
-// Perché locale: Expo non sa mandare push ActivityKit (servono APNs e una chiave .p8, che il Mac non ha), e per principio nulla di una
-// sessione passa da Expo, Apple o Google in chiaro. Quindi l'app avvia e aggiorna da sola, finché è viva. Con l'app sospesa iOS non le
-// dà tempo: la Live Activity resta all'ultimo stato e, dopo `STALE_AFTER_MS` senza rinnovi, iOS la marca "non aggiornata"
-// (isStale) senza bisogno dell'app. Stessa cosa per il widget (timeline a più voci). Nessun comando nuovo verso il Mac.
+// Why local: Expo cannot send ActivityKit pushes (they need APNs and a .p8 key, which the Mac does not have), and as a rule nothing about a
+// session goes through Expo, Apple or Google in the clear. So the app starts and updates by itself, while it is alive. With the app suspended iOS does not
+// give it time: the Live Activity stays at its last state and, after `STALE_AFTER_MS` without renewals, iOS marks it "out of date"
+// (isStale) without needing the app. Same for the widget (multi-entry timeline). No new command towards the Mac.
 //
-// Privacy: il widget scrive solo i numeri (al lavoro / in attesa); i titoli solo se l'utente lo accende (`widgetTitles`), e allora
-// stanno fuori dalla cache cifrata. Gli attributi di una Live Activity stanno nell'archivio di sistema (ActivityKit): ci va il titolo
-// della sessione che l'utente ha scelto di seguire.
+// Privacy: the widget only writes the numbers (working / waiting); titles only if the user turns them on (`widgetTitles`), and then
+// they stay out of the encrypted cache. The attributes of a Live Activity live in the system store (ActivityKit): the title
+// of the session the user chose to follow goes there.
 import { requireOptionalNativeModule } from 'expo'
 import { AppState, Platform } from 'react-native'
 import { plural, t } from '@shared/i18n'
@@ -34,15 +34,15 @@ import { useApp } from '@/store/app'
 import { useLive } from '@/store/live'
 import { usePrefs } from '@/store/prefs'
 
-/** Questa build ha l'estensione (expo-widgets compilato nel target nativo): su Android, web e Expo Go no. */
+/** This build has the extension (expo-widgets compiled into the native target): Android, web and Expo Go do not. */
 export const liveActivitySupported = (): boolean => Platform.OS === 'ios' && !!requireOptionalNativeModule('ExpoWidgets')
 
 const activityText = (): ActivityText => ({ running: t('Working'), waiting: t('Open request'), done: t('Finished'), error: t('Error'), stale: t('Out of date') })
 const widgetText = (): WidgetText => ({ working: t('working'), waiting: t('to review'), quiet: t('All quiet'), updated: t('Updated'), open: t('Open Ladder'), offline: t('Offline') })
-/** "Updated 12 min ago" / "Aggiornato 12 min fa", scritto qui: la timeline del widget porta già l'etichetta di ogni voce. */
+/** "Updated 12 min ago" / "Aggiornato 12 min fa", written here: the widget timeline already carries each entry's label. */
 const updatedAgo = (minutes: number): string => (minutes < 60 ? t('Updated {n} min ago', { n: minutes }) : t('Updated {n} h ago', { n: Math.floor(minutes / 60) }))
 
-// ── Sessioni toccate da questo telefono ──
+// ── Sessions touched by this phone ──
 
 export function markOpened(sessionId: string): void {
   useLive.getState().mark(sessionId)
@@ -57,16 +57,16 @@ type Instance = {
   end(policy?: 'default' | 'immediate' | { after: Date }, props?: ActivityProps, contentDate?: Date): Promise<void>
 }
 const instances = new Map<string, Instance>()
-/** Finite ma ancora sullo schermo (restano qualche minuto): un turno nuovo della stessa sessione le toglie. */
+/** Finished but still on screen (they stay a few minutes): a new turn of the same session removes them. */
 const lingering = new Map<string, Instance>()
 let tracks: Tracks = {}
-/** Fase in cui è stata avviata ogni Live Activity: serve a ricordare la fase se l'utente la toglie. */
+/** Phase each Live Activity was started with: used to remember the phase if the user dismisses it. */
 const phases = new Map<string, ActivityPhase>()
-/** Da quando si è vista viva ogni sessione (cronometro se la chat non è in memoria). */
+/** Since when each session was seen alive (stopwatch if the chat is not in memory). */
 const liveSince = new Map<string, number>()
-/** Ultimi passaggi e inizio noti: la chat può sparire dalla memoria un attimo, e il cronometro non deve saltare né i passaggi lampeggiare. */
+/** Last known steps and start: the chat may vanish from memory for a moment, and the stopwatch must not jump nor the steps flicker. */
 const lastTurn = new Map<string, { steps: string | null; startedAt: number }>()
-/** Avvio fallito (Live Activity spente in iOS, troppe): non si riprova a ogni cambio del negozio, ma al primo piano o a un cambio di preferenze. */
+/** Start failed (Live Activities off in iOS, too many): not retried on every store change, but on foreground or a preferences change. */
 const failedStart = new Set<string>()
 let chain: Promise<unknown> = Promise.resolve()
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -80,7 +80,7 @@ async function loadActivity() {
   return (await import('@/widgets/SessionActivity')).default
 }
 
-/** L'utente o iOS hanno tolto la Live Activity: il posto si libera e la sessione non riparte finché il turno non finisce. */
+/** The user or iOS dismissed the Live Activity: the slot is freed and the session does not restart until the turn ends. */
 function dismissed(sessionId: string): void {
   instances.delete(sessionId)
   tracks = markDismissed(tracks, sessionId, phases.get(sessionId) ?? 'running', Date.now())
@@ -90,7 +90,7 @@ async function runOp(op: Op): Promise<void> {
   const activity = await loadActivity()
   const staleDate = new Date(Date.now() + STALE_AFTER_MS)
   if (op.type === 'start') {
-    // Una Live Activity già lì per questa sessione (turno nuovo dopo la fine): via subito, ne parte una nuova.
+    // A Live Activity already there for this session (new turn after the end): remove it right away, a new one starts.
     const old = lingering.get(op.sessionId) ?? instances.get(op.sessionId)
     lingering.delete(op.sessionId)
     if (old) await old.end('immediate').catch(() => {})
@@ -98,7 +98,7 @@ async function runOp(op: Op): Promise<void> {
       instances.set(op.sessionId, activity.start(op.props, op.props.link, staleDate) as unknown as Instance)
       phases.set(op.sessionId, op.props.phase)
     } catch {
-      // Live Activity spente nelle impostazioni di iOS, o troppe: nessun danno; si riprova al primo piano o a un cambio di preferenze.
+      // Live Activities off in iOS settings, or too many: no harm; retried on foreground or a preferences change.
       instances.delete(op.sessionId)
       delete tracks[op.sessionId]
       failedStart.add(op.sessionId)
@@ -108,7 +108,7 @@ async function runOp(op: Op): Promise<void> {
     try {
       await instances.get(op.sessionId)?.update(op.props, staleDate)
     } catch {
-      // LiveActivityNotFound: tolta dall'utente o da iOS.
+      // LiveActivityNotFound: dismissed by the user or by iOS.
       dismissed(op.sessionId)
     }
   } else {
@@ -125,7 +125,7 @@ async function runOp(op: Op): Promise<void> {
   }
 }
 
-/** Primo piano: ciò che iOS o l'utente hanno tolto dallo schermo si dà per finito (posti liberi, niente riavvio immediato). */
+/** Foreground: whatever iOS or the user removed from the screen is considered finished (free slots, no immediate restart). */
 async function syncInstances(): Promise<void> {
   const activity = await loadActivity()
   const alive = new Set(activity.getInstances().map((i: { getId(): string }) => i.getId()))
@@ -133,7 +133,7 @@ async function syncInstances(): Promise<void> {
   for (const [id, instance] of [...lingering]) if (!alive.has(instance.getId())) lingering.delete(id)
 }
 
-/** Niente Mac (uscita dalla demo, "Forget", abbinamento revocato): ogni Live Activity, anche quella che resta qualche minuto, via subito. */
+/** No Mac (leaving the demo, "Forget", revoked pairing): every Live Activity, even the one that stays a few minutes, goes away right away. */
 function endEverything(): void {
   const all = [...instances.values(), ...lingering.values()]
   instances.clear()
@@ -173,18 +173,18 @@ function runActivities(): void {
         durationLabel: duration,
         seenSince: lastTurn.get(s.id)?.startedAt ?? liveSince.get(s.id) ?? now
       })
-      // Con la chat in memoria si impara; senza, si riusa l'ultimo valore noto.
+      // With the chat in memory it is learned; without, the last known value is reused.
       if (app.items[s.id]?.length) lastTurn.set(s.id, { steps: built.steps, startedAt: built.startedAt })
       else if (built.steps === null && lastTurn.get(s.id)?.steps) built.steps = lastTurn.get(s.id)!.steps
       items.push({ id: s.id, phase, wants: true, props: built })
     }
-    // Solo dopo aver composto le proprietà (la durata di un turno finito legge l'inizio): a sessione ferma si dimentica.
+    // Only after composing the properties (the duration of a finished turn reads the start): when the session stops it is forgotten.
     if (phase === 'idle') {
       liveSince.delete(s.id)
       lastTurn.delete(s.id)
     }
   }
-  // Si avvia solo con dati veri (Mac collegato, o demo che si finge connessa): mai da una copia in cache.
+  // Starts only with real data (Mac connected, or demo pretending to be connected): never from a cached copy.
   const connected = app.conn.kind === 'connected'
   const out = reconcile(tracks, items, { now, connected, canStart: connected, blocked: failedStart })
   tracks = out.tracks
@@ -194,9 +194,9 @@ function runActivities(): void {
 // ── Widget ──
 
 let lastSnapshot: { key: string; at: number } | null = null
-/** Ultima volta che il Mac rispondeva (dati veri): "Updated N min ago" parte da qui, non dall'ultima scrittura. */
+/** Last time the Mac answered (real data): "Updated N min ago" starts from here, not from the last write. */
 let lastConnectedAt: number | null = null
-/** Anche senza novità, con il Mac collegato si riscrive ogni tanto: "aggiornato" resta vero finché l'app è viva. */
+/** Even without news, with the Mac connected it is rewritten every so often: "updated" stays true while the app is alive. */
 const WIDGET_REWRITE_MS = 4 * 60_000
 
 async function writeWidget(timeline: unknown): Promise<void> {
@@ -209,7 +209,7 @@ function runWidget(force = false): void {
   const prefs = usePrefs.getState()
   const now = Date.now()
   if (app.mode === 'none' || !prefs.widget) {
-    // Senza Mac (o con il widget spento) niente dati né titoli nel gruppo condiviso: il widget dice di aprire l'app.
+    // Without a Mac (or with the widget off) no data or titles in the shared group: the widget says to open the app.
     if (lastSnapshot?.key === 'cleared' && !force) return
     lastSnapshot = { key: 'cleared', at: now }
     lastConnectedAt = null
@@ -218,18 +218,18 @@ function runWidget(force = false): void {
   }
   const connected = app.conn.kind === 'connected'
   if (connected) lastConnectedAt = now
-  // Offline e mai collegati in questa esecuzione: si lascia ciò che c'era, senza fingere un'ora.
+  // Offline and never connected in this run: what was there is left, without faking a time.
   if (!connected && lastConnectedAt === null) return
   const snap = buildSnapshot(Object.values(app.sessions), app.projects, now, connected, { showTitles: prefs.widgetTitles, updatedAt: lastConnectedAt ?? now })
   const key = snapshotKey(snap) + (prefs.widgetTitles ? 't' : '')
   const unchanged = lastSnapshot?.key === key
-  // Offline non si riscrive per "ringiovanire": l'ora resta quella dell'ultima cosa vera.
+  // Offline it is not rewritten to "rejuvenate": the time stays that of the last true thing.
   if (unchanged && !force && (!connected || now - lastSnapshot!.at < WIDGET_REWRITE_MS)) return
   lastSnapshot = { key, at: now }
   enqueue(() => writeWidget(widgetTimeline(snap, widgetText(), now, updatedAgo)))
 }
 
-// ── Ciclo ──
+// ── Cycle ──
 
 function run(): void {
   timer = null
@@ -238,13 +238,13 @@ function run(): void {
   runWidget()
 }
 
-/** Un solo passaggio dopo una raffica di eventi (il testo dell'agente arriva a pezzi): ogni update costa batteria e budget. */
+/** A single pass after a burst of events (the agent's text arrives in chunks): every update costs battery and budget. */
 function schedule(): void {
   if (timer || !started) return
   timer = setTimeout(run, 400)
 }
 
-/** "Forget" o nuovo Mac: le scelte per sessione e le sessioni "aperte" erano di quel Mac. */
+/** "Forget" or new Mac: per-session choices and "open" sessions belonged to that Mac. */
 onWorldReset(() => {
   useLive.getState().clear()
   const prefs = usePrefs.getState()
@@ -252,13 +252,13 @@ onWorldReset(() => {
 })
 
 /**
- * Parte con l'app (layout radice) e ascolta negozio, preferenze, lingua e AppState. Su Android o senza estensione non fa nulla.
- * Restituisce la funzione che smette.
+ * Starts with the app (root layout) and listens to store, preferences, language and AppState. On Android or without the extension it does nothing.
+ * Returns the function that stops it.
  */
 export function startLiveActivities(): () => void {
   if (!liveActivitySupported()) return () => {}
   started = true
-  // Residui di un'esecuzione precedente (app chiusa con una Live Activity ancora sullo schermo): non sono più seguite da nessuno.
+  // Leftovers from a previous run (app closed with a Live Activity still on screen): nobody follows them any more.
   enqueue(async () => {
     const activity = await loadActivity()
     for (const old of activity.getInstances()) await old.end('immediate').catch(() => {})
@@ -273,7 +273,7 @@ export function startLiveActivities(): () => void {
         failedStart.clear()
         schedule()
       }
-      // Cambio lingua: i testi del widget e delle Live Activity vivono nell'estensione, si riscrivono.
+      // Language change: widget and Live Activity texts live in the extension, they are rewritten.
       if (s.language !== prev.language) {
         lastSnapshot = null
         schedule()
@@ -287,7 +287,7 @@ export function startLiveActivities(): () => void {
       enqueue(async () => run())
     })
   ]
-  // Con l'app viva e il Mac collegato si rinnovano scadenza e widget ogni minuto (reconcile e runWidget decidono se serve).
+  // With the app alive and the Mac connected, expiry and widget are renewed every minute (reconcile and runWidget decide whether it is needed).
   const tick = setInterval(() => AppState.currentState === 'active' && schedule(), 30_000)
   schedule()
   return () => {
@@ -299,7 +299,7 @@ export function startLiveActivities(): () => void {
   }
 }
 
-/** Solo sviluppo: avvia subito una Live Activity per una sessione (demo), senza aspettare un turno. */
+/** Development only: starts a Live Activity for a session right away (demo), without waiting for a turn. */
 export function devStartActivity(sessionId: string, on = true): void {
   if (!__DEV__ || !liveActivitySupported()) return
   usePrefs.getState().setSessionFollow(sessionId, on ? 'on' : 'off')

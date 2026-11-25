@@ -1,5 +1,5 @@
-// Pezzi dei limiti d'uso (LAD-90): barra, riga di una finestra, segno d'avviso. Colori dal tema; la regola dei tre segnali vale
-// anche qui: ambra solo vicino al limite, rosa solo a limite esaurito, e sempre insieme a una forma (triangolo) e a un'etichetta.
+// Pieces of the usage limits: bar, window row, warning mark. Colors from the theme; the three-signal rule applies
+// here too: amber only near the limit, pink only when the limit is exhausted, and always together with a shape (triangle) and a label.
 import { View } from 'react-native'
 import { t } from '@shared/i18n'
 import type { UsageWindow } from '@shared/protocol'
@@ -9,7 +9,7 @@ import { RADIUS } from '@/theme/type'
 import { Icon } from '@/ui/Icon'
 import { Text } from '@/ui/Text'
 
-/** Barra: iris sotto soglia, ambra vicino al limite, rosa a limite esaurito. */
+/** Bar: iris below the threshold, amber near the limit, pink when the limit is exhausted. */
 export function UsageBar({ percent, state }: { percent: number; state: UsageWindow['state'] }) {
   const { c } = useTheme()
   const tone = state === 'limited' ? c.error : state === 'warning' || percent >= USAGE_WARN_AT ? c.waiting : c.accent
@@ -20,13 +20,13 @@ export function UsageBar({ percent, state }: { percent: number; state: UsageWind
   )
 }
 
-/** Cosa dice la finestra a parole: "62% used", oppure lo stato quando la percentuale manca. */
+/** What the window says in words: "62% used", or the state when the percentage is missing. */
 function valueText(usage: UsageWindow, percent: number | null): string {
   if (percent !== null) return t('{percent}% used', { percent: Math.round(percent) })
   return usage.state === 'limited' ? t('Limit reached') : usage.state === 'warning' ? t('Near the limit') : t('OK')
 }
 
-/** Una finestra: nome e percentuale, barra, quando si azzera (ora locale) oppure il dettaglio dell'host. `now` in secondi Unix. */
+/** A window: name and percentage, bar, when it resets (local time) or the host's detail. `now` in Unix seconds. */
 export function UsageRow({ usage, now }: { usage: UsageWindow; now: number }) {
   const { c } = useTheme()
   const percent = clampPercent(usage.percent)
@@ -58,13 +58,13 @@ export function UsageRow({ usage, now }: { usage: UsageWindow; now: number }) {
   )
 }
 
-/** Triangolo d'avviso: ambra, rosa se il limite è esaurito. */
+/** Warning triangle: amber, pink if the limit is exhausted. */
 export function AlertGlyph({ limited, size = 16 }: { limited: boolean; size?: number }) {
   const { c } = useTheme()
   return <Icon name="alert" size={size} color={limited ? c.error : c.waiting} strokeWidth={2} />
 }
 
-/** Riga tenue sotto il nome dell'account: quale finestra è vicina al limite e quando si azzera. */
+/** Muted row below the account name: which window is near the limit and when it resets. */
 export function AlertNote({ alert, text }: { alert: UsageAlert; text: { what: string; reset: string | null } }) {
   const { c } = useTheme()
   const tone = alert.limited ? c.error : c.waiting

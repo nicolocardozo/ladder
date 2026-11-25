@@ -1,5 +1,5 @@
-// QR di abbinamento. Sempre moduli scuri su tessera bianca con margine di 4 moduli, in ogni tema: i telefoni lo leggono solo così.
-// Si disegna a mano dalla matrice di `qrcode` (un solo <path>, bordi netti) invece di iniettare un SVG come testo.
+// Pairing QR. Always dark modules on a white tile with a 4-module margin, in every theme: phones only read it that way.
+// Drawn by hand from the `qrcode` matrix (a single <path>, crisp edges) instead of injecting an SVG as text.
 import { useMemo } from 'react'
 import QRCode from 'qrcode'
 
@@ -17,7 +17,7 @@ export function QrCode({ value, label, maxSize = 264, className }: { value: stri
             col++
             continue
           }
-          // Una striscia di moduli scuri vicini è un solo rettangolo.
+          // A run of adjacent dark modules is a single rectangle.
           const start = col
           while (col < modules.size && modules.get(row, col)) col++
           path += `M${start + QUIET_ZONE} ${row + QUIET_ZONE}h${col - start}v1h-${col - start}z`
@@ -29,7 +29,7 @@ export function QrCode({ value, label, maxSize = 264, className }: { value: stri
     }
   }, [value])
   if (!drawn) return null
-  // Un numero intero di pixel per modulo: i bordi restano netti e il telefono non deve interpolare.
+  // A whole number of pixels per module: edges stay crisp and the phone does not have to interpolate.
   const pixels = drawn.span * Math.max(2, Math.floor(maxSize / drawn.span))
   return (
     <svg role="img" aria-label={label} viewBox={`0 0 ${drawn.span} ${drawn.span}`} width={pixels} height={pixels} shapeRendering="crispEdges" className={className} style={{ background: '#fff' }}>

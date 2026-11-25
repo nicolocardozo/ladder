@@ -6,9 +6,9 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Temi di Ladder. Le variabili --ladder-* arrivano da themes.generated.css (fonte: brand/themes.json)
- * e cambiano con l'attributo data-theme su <html>. Qui diventano i token di shadcn/ui e quelli di Ladder:
- * le viste usano solo questi nomi, mai colori diretti.
+ * Ladder themes. The --ladder-* variables come from themes.generated.css (source: brand/themes.json)
+ * and change with the data-theme attribute on <html>. Here they become the shadcn/ui and Ladder tokens:
+ * views use only these names, never direct colors.
  */
 :root {
   --background: var(--ladder-background);
@@ -43,7 +43,7 @@
   --sidebar-accent-foreground: var(--ladder-on-selection);
   --sidebar-border: var(--ladder-border);
   --sidebar-ring: var(--ladder-focus-ring);
-  /* Stati: richiede te, in corso, da leggere, riuscito. Il colore accompagna sempre forma e testo. */
+  /* Statuses: needs you, running, to read, succeeded. Color always comes with a shape and text. */
   --attention: var(--ladder-waiting);
   --attention-foreground: var(--ladder-on-waiting);
   --running: var(--ladder-running);
@@ -51,16 +51,16 @@
   --success: var(--ladder-success);
   --composer: var(--ladder-surface);
   --code-bg: var(--ladder-code-background);
-  /* Testo secondario minore: uguale al muted del tema, verificato per il contrasto. */
+  /* Minor secondary text: same as the theme muted color, checked for contrast. */
   --faint: var(--ladder-text-muted);
 }
 
 @theme inline {
-  /* Mona Sans per tutta l'interfaccia, Monaspace Neon per codice, diff e terminale (DESIGN.md, sezione 3). */
+  /* Mona Sans for the whole interface, Monaspace Neon for code, diffs and the terminal (DESIGN.md, section 3). */
   --font-sans: "Mona Sans Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   --font-heading: var(--font-sans);
   --font-mono: "Monaspace Neon", ui-monospace, "SF Mono", Menlo, monospace;
-  /* Scala in sei passi, niente sotto i 12 px: caption, label, body, title, headline, display. */
+  /* Six-step scale, nothing below 12 px: caption, label, body, title, headline, display. */
   --text-xs: 12px;
   --text-xs--line-height: 16px;
   --text-sm: 13px;
@@ -126,11 +126,11 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Font della chat (impostazioni, Aspetto): data-chat-font, su <html> o su un elemento, sceglie la pila; senza attributo vale quella di sistema monospazio.
-   Provato in Electron: né "SF Mono" né ui-monospace né @font-face con local("SF Mono" / "SFMono-Regular" / "SF NS Mono" / ".SF NS Mono") risolvono
-   (SF NS Mono è un font di sistema nascosto a Chromium), mentre local("Menlo-Regular") sì. "SF Mono" resta in testa per chi l'ha installato; altrimenti è Menlo.
-   La dimensione del testo (data-chat-size, prefs.chatTextSize) sposta --chat-step e si somma al corpo del font: il --chat-size di ogni font
-   è dichiarato nella stessa regola, così un elemento con data-chat-font e data-chat-size propri (le anteprime) calcola il suo. */
+/* Chat font (settings, Appearance): data-chat-font, on <html> or on an element, picks the stack; without the attribute the system monospace one applies.
+   Tested in Electron: neither "SF Mono" nor ui-monospace nor @font-face with local("SF Mono" / "SFMono-Regular" / "SF NS Mono" / ".SF NS Mono") resolve
+   (SF NS Mono is a system font hidden from Chromium), while local("Menlo-Regular") does. "SF Mono" stays first for those who have it installed; otherwise it is Menlo.
+   The text size (data-chat-size, prefs.chatTextSize) shifts --chat-step and adds to the font body size: the --chat-size of each font
+   is declared in the same rule, so an element with its own data-chat-font and data-chat-size (the previews) computes its own. */
 :root {
   --chat-step: 0px;
 }
@@ -148,7 +148,7 @@
   --chat-size: calc(14px + var(--chat-step));
   --chat-leading: 1.65;
 }
-/* Predefinito: sans di sistema (SF Pro su macOS), 15 px. Le altre voci sono scelte in Impostazioni, Aspetto. */
+/* Default: system sans (SF Pro on macOS), 15 px. The other options are chosen in Settings, Appearance. */
 :root,
 [data-chat-font='system-sans'] {
   --font-chat: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
@@ -166,8 +166,8 @@
   --chat-leading: 1.65;
 }
 
-/* Font del codice (impostazioni, Aspetto): data-code-font su <html>. Vale per l'editor dei file e i blocchi di codice della chat;
-   --editor-size (px) vale solo per l'editor dei file (i blocchi di codice della chat hanno la loro dimensione); lo scrive use-chat-font dalle preferenze. Diff e terminale restano in --font-mono. */
+/* Code font (settings, Appearance): data-code-font on <html>. It applies to the file editor and the chat code blocks;
+   --editor-size (px) applies only to the file editor (chat code blocks have their own size); use-chat-font writes it from the preferences. Diffs and the terminal stay on --font-mono. */
 :root {
   --font-code: var(--font-mono);
   --editor-size: 12px;
@@ -179,7 +179,7 @@
   --font-code: var(--font-mono);
 }
 
-/* Spazio per i semafori di macOS: 82px in finestra, il margine normale a schermo intero (il preload imposta data-fullscreen su <html>). */
+/* Space for the macOS traffic lights: 82px in a window, the normal margin in full screen (the preload sets data-fullscreen on <html>). */
 :root {
   --traffic-light-inset: 82px;
 }
@@ -190,7 +190,7 @@
   padding-left: var(--traffic-light-inset);
 }
 
-/* Zone trascinabili della finestra (barra del titolo nascosta di macOS). */
+/* Draggable window areas (hidden macOS title bar). */
 @utility drag {
   -webkit-app-region: drag;
 }
@@ -221,11 +221,11 @@
 }
 
 /*
- * Barra di scorrimento minimale per tutta l'app. Un solo approccio: ::-webkit-scrollbar.
- * Da Chromium 121 scrollbar-color e scrollbar-width disattivano ::-webkit-scrollbar sull'elemento,
- * quindi nessun'altra regola dell'app li imposta (tranne no-scrollbar, che nasconde la barra).
- * Binario trasparente; il pollice è un filo di 6 px (bordo trasparente + background-clip), nel colore del testo.
- * La ScrollArea della sidebar nasconde la barra nativa con una regola più specifica (.base-ui-disable-scrollbar).
+ * Minimal scrollbar for the whole app. A single approach: ::-webkit-scrollbar.
+ * Since Chromium 121, scrollbar-color and scrollbar-width disable ::-webkit-scrollbar on the element,
+ * so no other rule in the app sets them (except no-scrollbar, which hides the bar).
+ * Transparent track; the thumb is a thin 6 px line (transparent border + background-clip), in the text color.
+ * The sidebar ScrollArea hides the native bar with a more specific rule (.base-ui-disable-scrollbar).
  */
 ::-webkit-scrollbar {
   width: 10px;
@@ -251,7 +251,7 @@
   background-color: color-mix(in oklab, var(--foreground) 44%, transparent);
 }
 
-/* Scorre ma senza barra: elenchi con le proprie frecce, righe di tab. */
+/* Scrolls without a bar: lists with their own arrows, tab rows. */
 @utility no-scrollbar {
   scrollbar-width: none;
   &::-webkit-scrollbar {
@@ -259,7 +259,7 @@
   }
 }
 
-/* Logo inciso negli stati vuoti: tono su tono, ombra interna in alto e filo chiaro sotto. Tutto deriva dal fondo del tema. */
+/* Engraved logo in empty states: tone on tone, inner shadow on top and a light line below. Everything derives from the theme background. */
 .ladder-engraved {
   fill: color-mix(in oklab, var(--background) 91%, black);
   filter: drop-shadow(0 1px 0 color-mix(in oklab, var(--background) 91%, white));
@@ -275,12 +275,12 @@
   flood-color: color-mix(in oklab, var(--background) 82%, black);
 }
 
-/* Tasti delle scorciatoie: il carattere di sistema disegna ⌘ ⇧ ⌥ ⌃ alla loro grandezza. */
+/* Shortcut keys: the system font draws ⌘ ⇧ ⌥ ⌃ at their proper size. */
 .kbd-key {
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 
-/* Riga di caricamento del browser integrato: un tratto che scorre da sinistra a destra. */
+/* Loading line of the built-in browser: a stroke that slides from left to right. */
 @keyframes browser-load {
   from {
     transform: translateX(-100%);
@@ -290,7 +290,7 @@
   }
 }
 
-/* Pillola delle modifiche accesa per un momento quando l'agente tocca il primo file: solo opacity e transform. */
+/* Changes pill lit up briefly when the agent touches the first file: only opacity and transform. */
 @keyframes git-pill-flash {
   0% {
     opacity: 0;
@@ -314,7 +314,7 @@
   }
 }
 
-/* Titolo troppo lungo al passaggio del mouse: pausa, scorre fino alla fine, pausa e torna. */
+/* Title too long on hover: pause, scroll to the end, pause and come back. */
 @keyframes marquee-title {
   0%,
   14% {
@@ -335,8 +335,8 @@
 }
 
 /*
- * Menu, popover e dialoghi si aprono anche sopra le barre trascinabili della finestra: senza questa regola
- * macOS si prende il mouse lì sopra e le prime voci non reagiscono né al passaggio né al clic.
+ * Menus, popovers and dialogs also open above the draggable window bars: without this rule
+ * macOS captures the mouse there and the first items react neither to hover nor to click.
  */
 [data-slot$='-content'],
 [role='menu'],
@@ -345,7 +345,7 @@
   -webkit-app-region: no-drag;
 }
 
-/* LAD-75: durante un trascinamento (pointer-drag.ts) il testo sotto il puntatore non si seleziona. */
+/* During a drag (pointer-drag.ts) the text under the pointer is not selected. */
 html[data-dragging='true'] * {
   user-select: none !important;
 }

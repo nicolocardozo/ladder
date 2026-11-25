@@ -1,20 +1,20 @@
-/* Hero a riquadro. HeroScroll scrive --e (claim), --lift (finestra), --fade (testi di base) sulla sezione. */
+/* Boxed hero. HeroScroll writes --e (claim), --lift (window), --fade (base texts) on the section. */
 .hero {
-  --fs: clamp(34px, 6.2vw, 100px); /* corpo del claim */
-  --lines: 2; /* righe del claim a riposo */
+  --fs: clamp(34px, 6.2vw, 100px); /* claim font size */
+  --lines: 2; /* claim lines at rest */
   --s-end: 0.5;
-  --fs1: clamp(24px, 3.4vw, 52px); /* claim su una riga */
+  --fs1: clamp(24px, 3.4vw, 52px); /* claim on one line */
   --l1: 1;
-  /* raggio concentrico con la pillola della nav: 14px + distanza (16px) tra riquadro e pillola */
+  /* radius concentric with the nav pill: 14px + distance (16px) between box and pill */
   --hero-r: 30px;
   --gut: clamp(24px, 4.4vw, 64px);
   --e: 0;
   --lift: 0;
   --fade: 1;
-  --x: 0; /* 1 = riquadro a tutto schermo, senza margine */
+  --x: 0; /* 1 = box at full screen, no margin */
   position: relative;
-  /* il riquadro sticky occupa sempre tutto lo schermo; i 96px in più bastano per la soglia che fa
-     partire l'apertura (48px al massimo): dopo, il primo scroll porta già verso la sezione dopo */
+  /* the sticky box always fills the screen; the extra 96px are enough for the threshold that
+     starts the opening (48px at most): after that, the first scroll already moves toward the next section */
   height: calc(100vh + 96px);
   height: calc(100svh + 96px);
   padding: 12px max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
@@ -26,7 +26,7 @@
     --s-end: 0.56;
     --fs1: 24px;
     --l1: 2;
-    --hero-r: 22px; /* 14px + 8px di distanza su mobile */
+    --hero-r: 22px; /* 14px + 8px distance on mobile */
   }
 }
 .hero-frame {
@@ -54,7 +54,7 @@
   top: 30%;
   pointer-events: none;
 }
-/* Ogni parola va dalla posizione iniziale a quella del claim su una riga: --dx/--dy/--s li misura HeroScroll */
+/* Each word moves from its initial position to the one in the one-line claim: HeroScroll measures --dx/--dy/--s */
 .hw {
   display: inline-block;
   line-height: 1;
@@ -121,7 +121,7 @@
   .hero-foot-r { display: none; }
 }
 
-/* Contenitore della finestra: stesse dimensioni prima e dopo il caricamento del client */
+/* Window container: same size before and after the client loads */
 .hero-win {
   position: absolute;
   z-index: 2;
@@ -139,12 +139,12 @@
   box-shadow: 0 0 0 1px rgb(24 20 36 / 0.9), 0 2px 4px rgb(24 20 36 / 0.12), 0 40px 90px -20px rgb(60 30 160 / 0.45), 0 70px 140px -40px rgb(24 20 36 / 0.35);
 }
 
-/* Tema scuro: la finestra Circuit si stacca dal fondo con un bordo chiaro sottile */
+/* Dark theme: the Circuit window stands out from the background with a thin light border */
 .dark .hero-win {
   box-shadow: 0 0 0 1px rgb(255 255 255 / 0.09), 0 40px 90px -20px rgb(85 37 207 / 0.35), 0 70px 140px -40px rgb(0 0 0 / 0.6);
 }
 
-/* Movimento ridotto: stato finale, finestra al suo posto, nessuno scroll animato */
+/* Reduced motion: final state, window in place, no animated scroll */
 @media (prefers-reduced-motion: reduce) {
   .hero {
     --e: 1;
@@ -152,7 +152,7 @@
     --fade: 0;
     height: calc(100svh);
   }
-  /* finché il client non ha misurato le parole, mostra direttamente l'impaginazione finale */
+  /* until the client has measured the words, show the final layout directly */
   .hero:not([data-m]) .hero-claim { visibility: hidden; }
   .hero:not([data-m]) .hero-claim1 { visibility: visible; color: var(--color-ink, #181424); }
 }
@@ -165,9 +165,9 @@
   container: lw / inline-size;
 }
 
-/* ---------- Mobile: hero fermo, testo e bottone in alto, finestra intera in miniatura sotto ----------
-   Niente apertura animata né sticky: la finestra è disegnata a 1100x720 (layout desktop completo,
-   con la sidebar) e ridotta a tutta larghezza con --k, scritto da HeroScroll. */
+/* ---------- Mobile: static hero, text and button on top, the full window as a thumbnail below ----------
+   No animated opening or sticky: the window is drawn at 1100x720 (full desktop layout,
+   with the sidebar) and scaled to full width with --k, written by HeroScroll. */
 @media (max-width: 760px) {
   .hero {
     --e: 0;
@@ -234,7 +234,7 @@
   }
 }
 
-/* ---------- Finestra di Ladder (Circuit) ---------- */
+/* ---------- Ladder window (Circuit) ---------- */
 .lw {
   --c-bg: #181424; --c-side: #1a1427; --c-surf: #211a30; --c-ink: #f7f4ff; --c-mut: #a9a6b2;
   --c-line: #2c2440; --c-hair: #4a4357; --c-ctl: #6c6777; --c-acc: #ac97ff; --c-sel: #362d50; --c-code: #1b1628;
@@ -330,7 +330,7 @@
 .lw-sp { margin-left: auto; }
 .lw-use { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .lw-use svg { width: 13px; height: 13px; }
-/* Modello: pill piena e compatta (come modelPill nell'app); permessi: ghost, si colora solo al passaggio */
+/* Model: solid compact pill (like modelPill in the app); permissions: ghost, colored only on hover */
 .lw-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 99px; background: var(--c-surf); font-size: 12px; color: var(--c-ink); white-space: nowrap; }
 .lw-pill b { font-weight: 500; }
 .lw-pill span { color: var(--c-mut); }
@@ -340,7 +340,7 @@
 .lw-send.go { background: var(--c-acc); color: #000; }
 .lw-note { position: absolute; z-index: 5; top: 56px; right: 14px; width: 300px; display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border: 0; text-align: left; font: inherit; border-radius: 14px; background: rgb(255 255 255 / 0.88); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); color: #181424; box-shadow: 0 0 0 1px rgb(24 20 36 / 0.08), 0 16px 40px rgb(24 20 36 / 0.25); font-size: 12.5px; line-height: 1.35; transform: translateX(calc(100% + 30px)); opacity: 0; transition: transform 0.55s cubic-bezier(0.2, 0.9, 0.2, 1), opacity 0.3s; pointer-events: none; }
 .lw-note.on { transform: none; opacity: 1; pointer-events: auto; cursor: pointer; }
-/* icona reale dell'app (brand/app-icon/svg/ladder-app-circuit.svg): fondo #22123C, simbolo bianco, raggio 244/1024 */
+/* real app icon (brand/app-icon/svg/ladder-app-circuit.svg): #22123C background, white symbol, radius 244/1024 */
 .lw-appi { width: 30px; height: 30px; border-radius: 7px; background: #22123c; display: grid; place-items: center; color: #fff; flex: none; }
 .lw-appi svg { width: 21px; height: auto; }
 .lw-note b { font-weight: 600; }
@@ -352,7 +352,7 @@
   .lw-note { width: auto; left: 14px; }
   .lw-tab:not(.act) { display: none; }
 }
-/* Barra stretta: prima spariscono Affianca e Globo, poi tutto il gruppo a destra */
+/* Narrow bar: first Side by side and Globe disappear, then the whole group on the right */
 @container lw (max-width: 1060px) {
   .lw-opt { display: none; }
 }

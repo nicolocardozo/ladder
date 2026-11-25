@@ -1,4 +1,4 @@
-// Prove del client del relay in-process: un relay finto (ws, stesso formato dei messaggi) e il gateway vero.
+// Tests for the relay client, in-process: a fake relay (ws, same message format) and the real gateway.
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -31,7 +31,7 @@ import { RelayClient } from './relay-client.ts'
 const dirs: string[] = []
 after(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })))
 
-/** Relay finto: sfida il Mac, verifica la firma, e dà al test i socket autenticati e i frame ricevuti. */
+/** Fake relay: challenges the Mac, verifies the signature, and gives the test the authenticated sockets and the received frames. */
 async function fakeRelay(port = 0) {
   const server = new WebSocketServer({ host: '127.0.0.1', port })
   await new Promise<void>((resolve) => server.on('listening', () => resolve()))
@@ -122,7 +122,7 @@ const key = () => {
   return { dir, key: loadOrCreateRelayKey(dir) }
 }
 
-test('la chiave del relay si crea una volta, 0600, e cambia l\'id se si cambia la chiave', () => {
+test('the relay key is created once, 0600, and the id changes if the key changes', () => {
   const { dir, key: k } = key()
   assert.equal(statSync(join(dir, RELAY_KEY_FILE)).mode & 0o777, 0o600)
   assert.deepEqual(loadOrCreateRelayKey(dir), k)
@@ -130,7 +130,7 @@ test('la chiave del relay si crea una volta, 0600, e cambia l\'id se si cambia l
   assert.notEqual(relayIdFromPublicKey(key().key.publicKey), relayIdFromPublicKey(k.publicKey))
 })
 
-test('indirizzi: ws:// solo verso questo computer', () => {
+test('addresses: ws:// only towards this computer', () => {
   assert.equal(relayEndpoint('wss://relay.example.com', 'abc', 'mac'), 'wss://relay.example.com/v1/abc?role=mac')
   assert.equal(relayEndpoint('https://relay.example.com/base/', 'abc', 'phone'), 'wss://relay.example.com/base/v1/abc?role=phone')
   assert.equal(relayEndpoint('ws://localhost:8787', 'abc', 'mac'), 'ws://localhost:8787/v1/abc?role=mac')
@@ -138,7 +138,7 @@ test('indirizzi: ws:// solo verso questo computer', () => {
   assert.throws(() => relayEndpoint('ftp://x', 'abc', 'mac'))
 })
 
-test('si autentica, apre un link per telefono e inoltra i byte nei due versi', async () => {
+test('authenticates, opens a link per phone and forwards bytes in both directions', async () => {
   const relay = await fakeRelay()
   const { key: k } = key()
   const fake = fakeLink()
@@ -157,7 +157,7 @@ test('si autentica, apre un link per telefono e inoltra i byte nei due versi', a
   assert.equal(echoed.connId, 7)
   assert.deepEqual([...echoed.payload], [3, 2, 1])
 
-  // Il relay chiude un telefono: il gateway lo sa. Il gateway ne chiude un altro: il relay riceve CLOSE.
+  // The relay closes a phone: the gateway knows. The gateway closes another: the relay receives CLOSE.
   mac.send(encodeFrame(RELAY_FRAME_CLOSE, 7))
   await relay.until(() => fake.closedCount === 1)
   fake.accepted[1].close()
@@ -167,7 +167,7 @@ test('si autentica, apre un link per telefono e inoltra i byte nei due versi', a
   await relay.close()
 })
 
-test('un relay che rifiuta l\'autenticazione: il client riprova con il backoff', async () => {
+test('a relay that refuses authentication: the client retries with backoff', async () => {
   const relay = await fakeRelay()
   relay.state.reject = true
   const { key: k } = key()
@@ -181,7 +181,7 @@ test('un relay che rifiuta l\'autenticazione: il client riprova con il backoff',
   await relay.close()
 })
 
-test('si riconnette da solo quando il relay cade e quando cade la rete (silenzio)', async () => {
+test('reconnects on its own when the relay drops and when the network drops (silence)', async () => {
   const relay = await fakeRelay()
   const { key: k } = key()
   const fake = fakeLink()
@@ -192,7 +192,7 @@ test('si riconnette da solo quando il relay cade e quando cade la rete (silenzio
   relay.macs[0].send(encodeFrame(RELAY_FRAME_OPEN, 1))
   await relay.until(() => fake.accepted.length === 1)
 
-  // Il relay riparte (stessa porta): il link cade, il client si ripresenta.
+  // The relay restarts (same port): the link drops, the client shows up again.
   const port = relay.port
   await relay.close()
   await new Promise((r) => setTimeout(r, 150))
@@ -206,10 +206,10 @@ test('si riconnette da solo quando il relay cade e quando cade la rete (silenzio
   await again.close()
 })
 
-test('silenzio dal relay (nessun pong): il client lo dà per morto e rifà la connessione', async () => {
+test('silence from the relay (no pong): the client treats it as dead and reconnects', async () => {
   const relay = await fakeRelay()
   const logs: string[] = []
-  // Dopo l'autenticazione il relay non risponde più a niente, come quando la rete sparisce senza chiudere il socket.
+  // After authentication the relay stops answering anything, as when the network vanishes without closing the socket.
   relay.state.onMac = (ws) => ws.removeAllListeners('message')
   const client = new RelayClient({ gateway: fakeLink().gateway, relayUrl: relay.url, key: key().key, minBackoffMs: 20, maxBackoffMs: 50, pingMs: 30, deadMs: 120, log: (m) => logs.push(m) })
   client.start()
@@ -219,7 +219,7 @@ test('silenzio dal relay (nessun pong): il client lo dà per morto e rifà la co
   await relay.close()
 })
 
-test('setMacState: asleep avvisa il relay e sospende la riconnessione, awake la riprende', async () => {
+test('setMacState: asleep notifies the relay and suspends reconnection, awake resumes it', async () => {
   const relay = await fakeRelay()
   const { key: k } = key()
   const client = new RelayClient({ gateway: fakeLink().gateway, relayUrl: relay.url, key: k, minBackoffMs: 20, maxBackoffMs: 50 })
@@ -230,7 +230,7 @@ test('setMacState: asleep avvisa il relay e sospende la riconnessione, awake la 
   assert.equal(client.status, 'paused')
   const count = relay.ids.length
   await new Promise((r) => setTimeout(r, 200))
-  assert.equal(relay.ids.length, count, 'in pausa non si riconnette')
+  assert.equal(relay.ids.length, count, 'paused: does not reconnect')
   await client.setMacState('awake')
   await relay.until(() => client.status === 'connected')
   assert.equal(relay.ids.length, count + 1)
@@ -240,12 +240,12 @@ test('setMacState: asleep avvisa il relay e sospende la riconnessione, awake la 
   await relay.until(() => client.status === 'connected')
   await client.setMacState('rekeyed')
   assert.ok(relay.texts.some((t) => t.includes('"state":"rekeyed"')))
-  assert.equal(client.status, 'paused', 'dopo rekeyed non si riconnette da solo')
+  assert.equal(client.status, 'paused', 'after rekeyed it does not reconnect on its own')
   await client.stop()
   await relay.close()
 })
 
-test('parte in pausa se richiesto (Mac che dorme) e si connette solo con awake', async () => {
+test('starts paused when requested (sleeping Mac) and connects only on awake', async () => {
   const relay = await fakeRelay()
   const client = new RelayClient({ gateway: fakeLink().gateway, relayUrl: relay.url, key: key().key, paused: true })
   client.start()
@@ -258,8 +258,8 @@ test('parte in pausa se richiesto (Mac che dorme) e si connette solo con awake',
   await relay.close()
 })
 
-test('backoff: ritardi esponenziali con tetto e jitter', async () => {
-  // Nessun server in ascolto: ogni tentativo fallisce. Si misura la distanza tra i tentativi con random fisso a 1 (niente riduzione).
+test('backoff: exponential delays with a cap and jitter', async () => {
+  // No server listening: every attempt fails. The gap between attempts is measured with random fixed at 1 (no reduction).
   const { key: k } = key()
   const times: number[] = []
   const client = new RelayClient({ gateway: fakeLink().gateway, relayUrl: 'ws://127.0.0.1:9', key: k, minBackoffMs: 30, maxBackoffMs: 120, random: () => 1, log: () => times.push(Date.now()) })
@@ -269,10 +269,10 @@ test('backoff: ritardi esponenziali con tetto e jitter', async () => {
   const gaps = times.slice(1).map((t, i) => t - times[i])
   assert.ok(times.length >= 4, `tentativi: ${times.length}`)
   assert.ok(gaps[1] > gaps[0] * 1.4, `crescono: ${gaps}`)
-  assert.ok(gaps.every((g) => g < 120 + 60), `con tetto: ${gaps}`)
+  assert.ok(gaps.every((g) => g < 120 + 60), `with cap: ${gaps}`)
 })
 
-test('end to end con il gateway vero: handshake Noise, richiesta e risposta tra RelayTransport e host finto', async () => {
+test('end to end with the real gateway: Noise handshake, request and response between RelayTransport and a fake host', async () => {
   const relay = await fakeRelay()
   const { key: k } = key()
   const noise = generateKeyPair()
@@ -285,7 +285,7 @@ test('end to end con il gateway vero: handshake Noise, richiesta e risposta tra 
   client.start()
   const mac = await relay.until(() => relay.macs[0])
 
-  // Il "relay" fa da inoltro tra un telefono (RelayTransport su un secondo server) e il Mac: qui basta emulare un telefono con OPEN/DATA.
+  // The "relay" forwards between a phone (RelayTransport on a second server) and the Mac: here it is enough to emulate a phone with OPEN/DATA.
   const phoneId = 42
   mac.send(encodeFrame(RELAY_FRAME_OPEN, phoneId))
   const hs = clientHandshake({ macPublicKey: noise.publicKey, hello: { device: 'Phone' } })
@@ -294,7 +294,7 @@ test('end to end con il gateway vero: handshake Noise, richiesta e risposta tra 
   const done = hs.finish(reply.payload)
   assert.equal(done.hello.mac, 'Mac')
   relay.frames.length = 0
-  // Prima si autentica (LAD-51): abbinamento con il codice, firma legata a questo handshake.
+  // It authenticates first: pairing with the code, signature bound to this handshake.
   const device = generateDeviceKey()
   const { token } = access.startPairing({ macName: 'Mac', key: noise.publicKey, ws: 'ws://127.0.0.1:1' }).payload
   const pair = { type: 'pair', token, device: { publicKey: toBase64Url(device.publicKey), name: 'Phone', platform: 'ios' }, sig: signChannelBinding(device.secretKey, 'pair', done.session.handshakeHash) }
@@ -311,7 +311,7 @@ test('end to end con il gateway vero: handshake Noise, richiesta e risposta tra 
   await relay.close()
 })
 
-test('RelayTransport: stato del Mac, byte e chiusura', async () => {
+test('RelayTransport: Mac state, bytes and close', async () => {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   await new Promise<void>((resolve) => server.on('listening', () => resolve()))
   const port = (server.address() as { port: number }).port

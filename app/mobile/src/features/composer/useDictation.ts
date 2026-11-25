@@ -1,9 +1,9 @@
-// Dettatura sul telefono. Mai il riconoscimento di rete: l'audio non lascia il telefono.
-// - iOS 26: SpeechAnalyzer/SpeechTranscriber (modulo locale `ladder-speech`); il modello della lingua si scarica da Apple al primo uso,
-//   con l'avanzamento nell'avviso, e poi si parte da soli.
-// - iOS precedenti: expo-speech-recognition con `requiresOnDeviceRecognition` (SFSpeechRecognizer sul telefono).
-// - Android 13+: expo-speech-recognition; il modello offline si scarica da solo (it/en) e poi si parte.
-// Il testo arriva nel campo mentre si parla.
+// On-phone dictation. Never network recognition: the audio does not leave the phone.
+// - iOS 26: SpeechAnalyzer/SpeechTranscriber (local module `ladder-speech`); the language model is downloaded from Apple on first use,
+//   with progress in the notice, and then it starts on its own.
+// - Earlier iOS: expo-speech-recognition with `requiresOnDeviceRecognition` (SFSpeechRecognizer on the phone).
+// - Android 13+: expo-speech-recognition; the offline model downloads on its own (it/en) and then it starts.
+// The text reaches the field while speaking.
 import * as Haptics from 'expo-haptics'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -15,26 +15,26 @@ import { contextualStrings, dictationLocale, MAX_DICTATION_MS, mergeTranscript, 
 import { useApp } from '@/store/app'
 import { useDev } from '@/store/dev'
 
-/** Livello del microfono (0..1): fuori da React per non ridisegnare il composer ogni 100 ms. */
+/** Microphone level (0..1): outside React so the composer isn't redrawn every 100 ms. */
 export const useMeter = create<{ level: number }>(() => ({ level: 0 }))
 
 export type DictationState = 'idle' | 'starting' | 'downloading' | 'listening'
-/** Download del modello della lingua in corso: `fraction` è null quando il sistema non dice l'avanzamento (Android). */
+/** Language model download in progress: `fraction` is null when the system doesn't report progress (Android). */
 export interface DictationDownload {
   locale: string
   fraction: number | null
   bytes: number | null
 }
-/** Perché non si può dettare: permesso negato, lingua non supportata, modello non sul telefono, errore del riconoscitore (dettaglio solo nel log). */
+/** Why dictation can't run: permission denied, unsupported language, model not on the phone, recognizer error (detail only in the log). */
 export type DictationProblem = { kind: 'denied' } | { kind: 'unsupported'; locale: string } | { kind: 'not-installed'; locale: string } | { kind: 'error' }
 
-/** Nome della lingua per il messaggio ("italiano"), nella lingua dell'app. Hermes non ha Intl.DisplayNames: le due lingue dell'app bastano. */
+/** Language name for the message ("Italian"), in the app's language. Hermes has no Intl.DisplayNames: the app's two languages are enough. */
 export function languageName(locale: string): string {
   const base = locale.toLowerCase().split(/[-_]/)[0]
   return base === 'it' ? t('Italian') : base === 'en' ? t('English') : locale
 }
 
-/** iOS 26 con SpeechAnalyzer disponibile: il percorso senza limiti di lingua installata. */
+/** iOS 26 with SpeechAnalyzer available: the path with no installed-language limit. */
 const analyzerAvailable = (): boolean => Platform.OS === 'ios' && !!LadderSpeech && LadderSpeech.isAvailable()
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -44,25 +44,25 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
   const [problem, setProblem] = useState<DictationProblem | null>(null)
   const [download, setDownload] = useState<DictationDownload | null>(null)
   const projects = useApp((s) => s.projects)
-  // Testo del campo prima della dettatura e frasi già chiuse dal riconoscitore (Android le chiude una alla volta).
+  // Field text before dictation and the sentences already closed by the recognizer (Android closes them one at a time).
   const base = useRef('')
   const committed = useRef('')
   const lastVoice = useRef(0)
   const stateRef = useRef<DictationState>('idle')
-  // Generazione: ogni avvio, ogni chiusura dell'avviso e lo smontaggio la fanno salire. Dopo ogni attesa (permesso, download, avvio
-  // nativo) un avvio che trova una generazione diversa è stato superato o annullato e si ferma lì, senza toccare lo stato.
+  // Generation: every start, every notice dismissal and unmount bump it. After every wait (permission, download, native
+  // start) a start that finds a different generation has been superseded or cancelled and stops there, without touching state.
   const gen = useRef(0)
-  // Android: il download del modello si tenta una volta sola per avvio.
+  // Android: the model download is attempted only once per start.
   const triedDownload = useRef(false)
   const timers = useRef<{ silence?: ReturnType<typeof setInterval>; max?: ReturnType<typeof setTimeout> }>({})
 
-  /** Cambia lo stato anche per chi lo legge prima del prossimo rendering (gli eventi nativi arrivano a raffica). */
+  /** Changes the state also for whoever reads it before the next render (native events arrive in bursts). */
   const go = (next: DictationState) => {
     stateRef.current = next
     setState(next)
   }
-  // Gli eventi del riconoscitore contano solo se questo composer sta ascoltando (o sta per): con due composer montati, o a dettatura
-  // finita, il testo non arriva a chi non ha chiesto nulla.
+  // The recognizer's events count only if this composer is listening (or about to): with two composers mounted, or after dictation
+  // has ended, the text doesn't reach someone who asked for nothing.
   const live = () => stateRef.current === 'listening' || stateRef.current === 'starting'
 
   const clearTimers = () => {
@@ -97,7 +97,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** Errore del riconoscitore: all'utente un testo tradotto, il dettaglio solo nel log. */
+  /** Recognizer error: the user gets a translated text, the detail goes only to the log. */
   const fail = useCallback((detail: string) => {
     if (__DEV__ || detail) console.warn('[dictation]', detail)
     clearTimers()
@@ -107,7 +107,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // expo-speech-recognition (iOS prima della 26, Android).
+  // expo-speech-recognition (iOS before 26, Android).
   useSpeechRecognitionEvent('start', () => {
     if (!live()) return
     lastVoice.current = Date.now()
@@ -126,19 +126,19 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
     clearTimers()
     useMeter.setState({ level: 0 })
     go('idle')
-    // "Niente voce" non è un errore da mostrare: si è solo stati zitti.
+    // "No speech" is not an error to show: we were just silent.
     if (e.error === 'no-speech' || e.error === 'speech-timeout' || e.error === 'aborted') return
     const locale = dictationLocale(getLocale())
     if (e.error === 'not-allowed') setProblem({ kind: 'denied' })
     else if (e.error === 'language-not-supported') {
-      // Android: il modello della lingua non c'è. Se non si è ancora provato, si scarica e si riparte; solo dopo un tentativo fallito si dice.
+      // Android: the language model isn't there. If we haven't tried yet, it is downloaded and we restart; only after a failed attempt do we say so.
       if (Platform.OS === 'android' && !triedDownload.current) void downloadThenBegin(locale, ++gen.current)
       else setProblem({ kind: Platform.OS === 'android' ? 'not-installed' : 'unsupported', locale })
     } else if (e.error === 'service-not-allowed') setProblem({ kind: 'unsupported', locale })
     else fail(e.message || e.error)
   })
 
-  // SpeechAnalyzer (iOS 26): gli stessi eventi dal modulo locale.
+  // SpeechAnalyzer (iOS 26): the same events from the local module.
   useEffect(() => {
     if (!LadderSpeech) return
     const subs = [
@@ -158,14 +158,14 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finish, hear, fail])
 
-  /** Android: scarica da sé il modello offline della lingua e aspetta che sia installato. Niente avanzamento dal sistema. */
+  /** Android: downloads the offline language model itself and waits for it to be installed. No progress from the system. */
   const androidDownload = useCallback(async (locale: string, my: number): Promise<boolean> => {
     setDownload({ locale, fraction: null, bytes: null })
     go('downloading')
     try {
       const r = await ExpoSpeechRecognitionModule.androidTriggerOfflineModelDownload({ locale })
       if (r.status === 'download_success') return true
-      // Accodato (o finestra di sistema su Android 13): si aspetta che il modello compaia fra quelli installati.
+      // Queued (or a system dialog on Android 13): wait for the model to appear among the installed ones.
       const want = locale.toLowerCase().split('-')[0]
       for (let i = 0; i < 90 && gen.current === my; i++) {
         await sleep(2000)
@@ -190,12 +190,12 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
       if (analyzerAvailable()) {
         void LadderSpeech!.start(locale, ctx).then(
           () => {
-            // Annullata mentre partiva (x, nuovo avvio, smontaggio): il microfono si spegne.
+            // Cancelled while starting (x, new start, unmount): the microphone is turned off.
             if (gen.current !== my) {
               LadderSpeech?.abort()
               return
             }
-            // Già finita (stop durante l'avvio): non si torna in ascolto.
+            // Already finished (stop during start): we don't go back to listening.
             if (stateRef.current !== 'starting') return
             lastVoice.current = Date.now()
             go('listening')
@@ -218,7 +218,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
         })
       }
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-      // Silenzio prolungato o 5 minuti: si ferma da sola.
+      // Prolonged silence or 5 minutes: it stops on its own.
       timers.current.silence = setInterval(() => {
         if (Date.now() - lastVoice.current > SILENCE_MS) stop()
       }, 500)
@@ -228,7 +228,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
     [projects, stop, fail]
   )
 
-  /** Android: scarica il modello (una volta per avvio) e, se c'è, parte. */
+  /** Android: downloads the model (once per start) and, if it is there, starts. */
   const downloadThenBegin = useCallback(
     async (locale: string, my: number) => {
       triedDownload.current = true
@@ -254,7 +254,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
     const locale = dictationLocale(getLocale())
     try {
       if (analyzerAvailable()) {
-        // iOS 26: solo il microfono; il modello della lingua si scarica qui, senza passare da Impostazioni.
+        // iOS 26: only the microphone; the language model is downloaded here, without going through Settings.
         go('starting')
         let mic = await LadderSpeech!.micPermission()
         if (gen.current !== my) return
@@ -280,17 +280,17 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
         go('starting')
         return begin(locale, my)
       }
-      // Android prima della 13 (API 33) ignora `requiresOnDeviceRecognition` e può usare il riconoscitore di rete: lì non si detta mai.
+      // Android before 13 (API 33) ignores `requiresOnDeviceRecognition` and may use the network recognizer: dictation never runs there.
       if (Platform.OS === 'android' && Number(Platform.Version) < 33) return setProblem({ kind: 'unsupported', locale })
       go('starting')
-      // iOS vuole anche l'autorizzazione al riconoscimento (anche sul telefono); Android solo il microfono.
+      // iOS also wants the speech recognition authorization (also on the phone); Android only the microphone.
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync()
       if (gen.current !== my) return
       if (!perm.granted) {
         go('idle')
         return setProblem({ kind: 'denied' })
       }
-      // Solo sul telefono: senza il modello della lingua non si parte (e non si ripiega sulla rete).
+      // On the phone only: without the language model it doesn't start (and doesn't fall back to the network).
       let supported: string[] = []
       let installed: string[] = []
       try {
@@ -298,7 +298,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
         supported = l.locales
         installed = l.installedLocales
       } catch {
-        // Android 12 e precedenti: nessun elenco; decide supportsOnDeviceRecognition.
+        // Android 12 and earlier: no list; supportsOnDeviceRecognition decides.
       }
       if (gen.current !== my) return
       const status = onDeviceStatus(locale, supported, installed, ExpoSpeechRecognitionModule.supportsOnDeviceRecognition())
@@ -315,7 +315,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
     }
   }, [begin, downloadThenBegin, fail])
 
-  // Uscendo dalla schermata la dettatura si ferma (il microfono non resta acceso).
+  // Leaving the screen stops dictation (the microphone doesn't stay on).
   useEffect(
     () => () => {
       clearTimers()
@@ -325,7 +325,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
           if (analyzerAvailable()) LadderSpeech?.abort()
           else ExpoSpeechRecognitionModule.abort()
         } catch {
-          // già fermo
+          // already stopped
         }
       }
       stateRef.current = 'idle'
@@ -334,7 +334,7 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
     []
   )
 
-  /** La x dell'avviso: chiude il messaggio; durante un download o un avvio rinuncia a partire da sola. */
+  /** The notice's x: closes the message; during a download or a start it gives up starting on its own. */
   const dismiss = useCallback(() => {
     setProblem(null)
     if (stateRef.current === 'downloading' || stateRef.current === 'starting') {
@@ -345,13 +345,13 @@ export function useDictation(opts: { getText: () => string; setText: (text: stri
         if (analyzerAvailable()) LadderSpeech?.abort()
         else ExpoSpeechRecognitionModule.abort()
       } catch {
-        // già fermo
+        // already stopped
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Solo sviluppo: il driver forza uno stato per vedere l'interfaccia dove il microfono non c'è (simulatore).
+  // Development only: the driver forces a state to see the interface where there is no microphone (simulator).
   const forced = __DEV__ ? useDev((s) => s.dictation) : null
   if (forced === 'listening') return { state: 'listening' as DictationState, problem: null, download: null, dismiss: () => {}, start, stop: () => useDev.setState({ dictation: null }), openSettings: () => {} }
   if (forced === 'downloading') return { state: 'downloading' as DictationState, problem: null, download: { locale: dictationLocale(getLocale()), fraction: 0.42, bytes: 142_000_000 } as DictationDownload, dismiss: () => useDev.setState({ dictation: null }), start, stop, openSettings: () => {} }

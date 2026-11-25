@@ -1,4 +1,4 @@
-// Avanzate (chiuse per default): indirizzo del relay, impronta della chiave del Mac per il controllo e "Regenerate key".
+// Advanced (closed by default): relay address, the Mac's key fingerprint for verification and "Regenerate key".
 import { useEffect, useId, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { REMOTE_DEFAULT_RELAY_URL } from '@shared/protocol'
@@ -41,7 +41,7 @@ function RelayRow() {
   const saved = prefs?.remote?.relayUrl ?? ''
   const [draft, setDraft] = useState(saved)
   const [touched, setTouched] = useState(false)
-  // Un cambio che arriva da fuori (altra finestra, file delle preferenze) riscrive il campo, ma non mentre lo si sta scrivendo.
+  // A change coming from outside (another window, the preferences file) rewrites the field, but not while it is being typed in.
   const editing = useRef(false)
   useEffect(() => {
     if (!editing.current) setDraft(saved)
@@ -79,7 +79,7 @@ function RelayRow() {
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit()
           else if (e.key === 'Escape' && draft !== saved) {
-            // Esc rimette l'indirizzo salvato senza chiudere le Impostazioni.
+            // Esc restores the saved address without closing Settings.
             e.stopPropagation()
             setDraft(saved)
             setTouched(false)
@@ -127,7 +127,7 @@ function RegenerateRow() {
         if (!mounted.current) return
         setConfirming(false)
         setDone(true)
-        // Il riquadro di conferma sparisce: il focus torna al pulsante che l'ha aperto.
+        // The confirmation pane disappears: focus returns to the button that opened it.
         requestAnimationFrame(() => button.current?.focus())
       })
       .catch((e: Error) => mounted.current && setError(e.message))

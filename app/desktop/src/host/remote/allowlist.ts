@@ -1,12 +1,12 @@
-// Allowlist dei comandi del canale remoto. Import relativi e solo `import type` dal protocollo: il file gira anche sotto `node --test`.
+// Allowlist of remote channel commands. Relative imports and only `import type` from the protocol: the file also runs under `node --test`.
 import { REMOTE_MAX_ATTACHMENTS } from '../../shared/protocol.ts'
 import { cleanAttachments } from './attachments.ts'
 import { FILE_SEARCH_MAX_QUERY } from './file-search.ts'
 import { cleanNotifyPrefs } from './push-policy.ts'
 import type { Effort, PermissionLevel, RemoteAllowedType, RemoteCommand, RemoteEvent, ToRemoteHost } from '../../shared/protocol.ts'
 
-// `satisfies Record<…, true>` fa fallire il typecheck se un tipo viene aggiunto (o tolto) da una parte sola:
-// chiave mancante o chiave in più.
+// `satisfies Record<…, true>` makes the typecheck fail if a type is added (or removed) in only one place:
+// missing key or extra key.
 const HOST_COMMANDS = {
   hello: true,
   'session.read': true,
@@ -21,7 +21,7 @@ const HOST_COMMANDS = {
   'subagent.list': true
 } satisfies Record<RemoteAllowedType, true>
 
-/** Comandi propri del canale remoto, che non passano da Host.handle. */
+/** Commands specific to the remote channel, which do not go through Host.handle. */
 const REMOTE_ONLY = {
   'session.page': true,
   'session.watch': true,
@@ -34,7 +34,7 @@ const REMOTE_ONLY = {
   'agents.usage': true
 } satisfies Record<Exclude<RemoteCommand['type'], RemoteAllowedType>, true>
 
-/** Eventi dell'host inoltrati as-is; `snapshot` no: si ricostruisce come RemoteSnapshot. */
+/** Host events forwarded as-is; `snapshot` is not: it is rebuilt as RemoteSnapshot. */
 const EVENTS = {
   'remote.prefs': true,
   'remote.defaults': true,
@@ -52,14 +52,14 @@ const EVENTS = {
 
 const PERMISSIONS = { plan: true, ask: true, edit: true, full: true } satisfies Record<PermissionLevel, true>
 
-// Limiti dei campi di testo: i comandi del telefono sono piccoli, quello che li supera non è un'app che si comporta bene.
+// Limits on text fields: the phone's commands are small, and anything larger is not a well-behaved app.
 const MAX_ID = 256
 const MAX_TEXT = 200_000
 const MAX_QUEUE = 50
 const MAX_ANSWERS = 32
 const MAX_PUSH_TOKEN = 512
 const EFFORTS = { low: true, medium: true, high: true, xhigh: true, max: true } satisfies Record<Effort, true>
-/** LAD-89: le sole chiavi di `session.create` dal telefono; tutto il resto (worktree, comando…) fa rifiutare la richiesta. LAD-92: `attachments` sono immagini validate. */
+/** The only `session.create` keys accepted from the phone; anything else (worktree, command…) gets the request rejected. `attachments` are validated images. */
 const CREATE_KEYS = new Set(['type', 'projectId', 'agent', 'text', 'model', 'effort', 'permission', 'profileId', 'mode', 'attachments'])
 
 const has = (table: object, key: string): boolean => Object.prototype.hasOwnProperty.call(table, key)
@@ -73,9 +73,9 @@ export function isForwardedEventType(type: string): boolean {
 }
 
 export class RemoteCommandError extends Error {
-  /** Id della richiesta, se è stato possibile leggerlo: l'errore torna con quel rid. */
+  /** Id of the request, if it could be read: the error comes back with that rid. */
   readonly rid?: string
-  /** LAD-92: l'errore viene dagli allegati (il gateway lo conta: ripetuti, chiudono la connessione). */
+  /** The error comes from the attachments (the gateway counts it: repeated ones close the connection). */
   readonly attachments: boolean
   constructor(message: string, rid?: string, attachments = false) {
     super(message)
@@ -84,15 +84,15 @@ export class RemoteCommandError extends Error {
   }
 }
 
-/** Chiavi ammesse in `session.send` dal telefono (le sole che il comando ricostruito riporta). */
+/** Keys allowed in `session.send` from the phone (the only ones the rebuilt command carries over). */
 const SEND_KEYS = new Set(['type', 'sessionId', 'text', 'busy', 'attachments'])
 const ATTACHMENT_KEYS = new Set(['name', 'mediaType', 'data'])
-/** Commandi con argomenti: al massimo tanti caratteri. */
+/** Commands with arguments: at most this many characters. */
 const MAX_ARGS = 2000
 
 /**
- * LAD-92: il numero di allegati dichiarati da un messaggio grezzo, SOLO dalla forma (nessuna validazione né decodifica del contenuto):
- * serve a contare le immagini sui limiti prima di lavorare sui byte. 0 se non è un `session.send`/`session.create` con un array.
+ * The number of attachments declared by a raw message, from its shape ONLY (no validation or decoding of the content):
+ * used to count images against the limits before working on the bytes. 0 if it is not a `session.send`/`session.create` with an array.
  */
 export function declaredAttachments(message: unknown): number {
   if (!isObject(message) || !isObject(message.command)) return 0
@@ -101,8 +101,8 @@ export function declaredAttachments(message: unknown): number {
 }
 
 /**
- * LAD-92: solo questi messaggi possono superare REMOTE_MAX_COMMAND (1 MiB): `session.send`/`session.create` con soli campi noti e
- * un array di 1..REMOTE_MAX_ATTACHMENTS allegati fatti di sole chiavi note (il contenuto lo valida parseRemoteMessage subito dopo).
+ * Only these messages may exceed REMOTE_MAX_COMMAND (1 MiB): `session.send`/`session.create` with known fields only and
+ * an array of 1..REMOTE_MAX_ATTACHMENTS attachments made of known keys only (parseRemoteMessage validates the content right after).
  */
 export function carriesAttachmentsShape(message: unknown): boolean {
   if (!isObject(message) || !isObject(message.command) || !Object.keys(message).every((k) => k === 'rid' || k === 'command')) return false
@@ -117,7 +117,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const isCount = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v)
 const isId = (v: unknown): v is string => isString(v) && v.length > 0 && v.length <= MAX_ID
 
-/** {optionId, message?} oppure {answers}: nient'altro, con lunghezze limitate. */
+/** {optionId, message?} or {answers}: nothing else, with limited lengths. */
 function validResponse(response: unknown): boolean {
   if (!isObject(response)) return false
   const keys = Object.keys(response)
@@ -131,7 +131,7 @@ function validResponse(response: unknown): boolean {
   return response.message === undefined || (isString(response.message) && response.message.length <= MAX_TEXT)
 }
 
-/** Ogni elemento della coda conta solo per id e testo: altri campi (allegati) si scartano, quelli veri restano sul Mac. */
+/** Each queue item counts only for its id and text: other fields (attachments) are discarded, the real ones stay on the Mac. */
 function cleanQueue(queue: unknown): { id: string; text: string }[] | null {
   if (!Array.isArray(queue) || queue.length > MAX_QUEUE) return null
   const out: { id: string; text: string }[] = []
@@ -142,10 +142,10 @@ function cleanQueue(queue: unknown): { id: string; text: string }[] | null {
   return out
 }
 
-/** Controlla la forma di un messaggio del client remoto e che il comando sia in allowlist. `messages`: testi degli errori, già tradotti dal chiamante. */
+/** Checks the shape of a remote client message and that the command is in the allowlist. `messages`: error texts, already translated by the caller. */
 export function parseRemoteMessage(value: unknown, messages: { invalid: string; notAllowed: string; attachments?: string }): ToRemoteHost {
   if (!isObject(value)) throw new RemoteCommandError(messages.invalid)
-  // Un rid presente ma storto (non testo, vuoto, troppo lungo) è un client che non rispetta il protocollo: la connessione si chiude.
+  // A rid that is present but malformed (not text, empty, too long) is a client that does not follow the protocol: the connection is closed.
   if (value.rid !== undefined && !(isString(value.rid) && value.rid.length > 0 && value.rid.length <= 128)) throw new Error('invalid rid')
   const rid = value.rid as string | undefined
   const command = value.command
@@ -165,7 +165,7 @@ export function parseRemoteMessage(value: unknown, messages: { invalid: string; 
       return ok(valid, valid ? ({ type: 'session.send', sessionId: command.sessionId, text: command.text, ...(command.busy ? { busy: command.busy } : {}), ...(attachments.length ? { attachments } : {}) } as RemoteCommand) : undefined)
     }
     case 'session.respond':
-      // `via` non si legge: lo forza il gateway.
+      // `via` is not read: the gateway forces it.
       return ok(isId(command.sessionId) && isId(command.requestId) && validResponse(command.response))
     case 'session.queue.set': {
       const queue = cleanQueue(command.queue)
@@ -174,7 +174,7 @@ export function parseRemoteMessage(value: unknown, messages: { invalid: string; 
     case 'session.queue.deliver':
       return ok(isId(command.sessionId) && isId(command.id) && (command.how === 'steer' || command.how === 'now'))
     case 'session.command': {
-      // LAD-92: nome (senza "/" né spazi) e argomenti; che il comando esista lo controlla il gateway sull'elenco della sessione.
+      // Name (without "/" or spaces) and arguments; whether the command exists is checked by the gateway against the session's list.
       const valid = Object.keys(command).every((k) => k === 'type' || k === 'sessionId' || k === 'name' || k === 'args') && isId(command.sessionId) && isString(command.name) && /^[^\s/]{1,128}$/.test(command.name) && isString(command.args) && command.args.length <= MAX_ARGS
       return ok(valid, valid ? ({ type: 'session.command', sessionId: command.sessionId, name: command.name, args: command.args } as RemoteCommand) : undefined)
     }
@@ -187,7 +187,7 @@ export function parseRemoteMessage(value: unknown, messages: { invalid: string; 
     case 'project.sessions.archived':
       return ok(isId(command.projectId) && (command.before === undefined || isCount(command.before)) && (command.limit === undefined || isCount(command.limit)))
     case 'session.create': {
-      // Nessun campo in più (allegati, command, worktree, branch, source, title…): per il telefono non esistono. `mode`: solo 'chat'.
+      // No extra fields (attachments, command, worktree, branch, source, title…): they do not exist for the phone. `mode`: only 'chat'.
       const strict = Object.keys(command).every((k) => CREATE_KEYS.has(k)) && (command.mode === undefined || command.mode === 'chat')
       const attachments = command.attachments === undefined || command.attachments === null ? [] : cleanAttachments(command.attachments)
       if (strict && !attachments) throw new RemoteCommandError(messages.attachments ?? messages.invalid, rid, true)
@@ -218,7 +218,7 @@ export function parseRemoteMessage(value: unknown, messages: { invalid: string; 
     case 'device.state':
       return ok(typeof command.foreground === 'boolean')
     default:
-      // session.read, session.interrupt, subagent.list: solo sessionId.
+      // session.read, session.interrupt, subagent.list: sessionId only.
       return ok(isId(command.sessionId))
   }
 }

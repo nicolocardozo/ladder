@@ -1,14 +1,14 @@
-// Frame del canale remoto: il testo in chiaro di ogni messaggio Noise è 1 byte di flag (END/MORE) + un pezzo del JSON in UTF-8.
-// Solo Uint8Array e TextEncoder/TextDecoder: gira anche su React Native.
+// Remote channel frames: the plaintext of each Noise message is 1 flag byte (END/MORE) + a piece of UTF-8 JSON.
+// Only Uint8Array and TextEncoder/TextDecoder: it also runs on React Native.
 import { REMOTE_FRAME_END, REMOTE_FRAME_MORE, REMOTE_MAX_MESSAGE } from '../protocol.ts'
 import { NOISE_MAX_MESSAGE, NOISE_TAG_LEN } from './noise.ts'
 
-/** Testo in chiaro massimo di un messaggio Noise (65535 meno il tag), flag compreso. */
+/** Maximum plaintext of a Noise message (65535 minus the tag), flag included. */
 export const REMOTE_MAX_FRAME = NOISE_MAX_MESSAGE - NOISE_TAG_LEN
 
 const encoder = new TextEncoder()
 
-/** Spezza un JSON in frame da al massimo REMOTE_MAX_FRAME byte (flag compreso). Il taglio è sui byte: si ricompone prima di decodificare. */
+/** Splits a JSON into frames of at most REMOTE_MAX_FRAME bytes (flag included). The cut is on bytes: it is reassembled before decoding. */
 export function splitFrames(json: string): Uint8Array[] {
   const bytes = encoder.encode(json)
   const chunk = REMOTE_MAX_FRAME - 1
@@ -25,29 +25,29 @@ export function splitFrames(json: string): Uint8Array[] {
   return frames
 }
 
-/** Ricompone i frame in messaggi JSON; lancia se il flag è sbagliato, un frame MORE non è pieno o il messaggio supera `maxMessage`. */
+/** Reassembles frames into JSON messages; throws if the flag is wrong, a MORE frame is not full or the message exceeds `maxMessage`. */
 export class FrameReassembler {
   private parts: Uint8Array[] = []
   private size = 0
   private maxMessage: number
-  /** Byte dell'ultimo messaggio ricomposto (UTF-8, già noti: niente da ricodificare). */
+  /** Bytes of the last reassembled message (UTF-8, already known: nothing to re-encode). */
   lastSize = 0
 
   constructor(maxMessage: number = REMOTE_MAX_MESSAGE) {
     this.maxMessage = maxMessage
   }
 
-  /** Cambia il limite (LAD-92: più largo dopo l'autenticazione). Vale dal messaggio successivo. */
+  /** Changes the limit (wider after authentication). Applies from the next message. */
   setMax(maxMessage: number): void {
     this.maxMessage = maxMessage
   }
 
-  /** Restituisce il testo del messaggio quando arriva il frame END, altrimenti null. */
+  /** Returns the message text when the END frame arrives, otherwise null. */
   push(frame: Uint8Array): string | null {
     if (frame.length < 1) throw new Error('Remote: frame vuoto')
     const flag = frame[0]
     if (flag !== REMOTE_FRAME_END && flag !== REMOTE_FRAME_MORE) throw new Error('Remote: flag del frame non valido')
-    // Un frame MORE è sempre pieno: senza questo, milioni di frame vuoti riempirebbero la memoria senza toccare il limite.
+    // A MORE frame is always full: without this, millions of empty frames would fill memory without touching the limit.
     if (flag === REMOTE_FRAME_MORE && frame.length !== REMOTE_MAX_FRAME) throw new Error('Remote: frame MORE non pieno')
     this.size += frame.length - 1
     if (this.size > this.maxMessage || this.parts.length >= Math.ceil(this.maxMessage / (REMOTE_MAX_FRAME - 1)) + 1) throw new Error('Remote: messaggio troppo grande')
@@ -62,7 +62,7 @@ export class FrameReassembler {
     this.parts = []
     this.lastSize = this.size
     this.size = 0
-    // fatal: un UTF-8 non valido è un errore di protocollo, non un carattere sostitutivo.
+    // fatal: invalid UTF-8 is a protocol error, not a replacement character.
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   }
 }

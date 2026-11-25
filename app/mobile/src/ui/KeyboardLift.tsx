@@ -1,5 +1,5 @@
-// Alza il contenuto della schermata sopra la tastiera: il fondo (composer, pulsante Continua) segue la tastiera, animato con lei.
-// Nelle schermate vere e proprie (non negli sheet nativi, che UIKit alza da sé). `height` di react-native-keyboard-controller è negativo.
+// Lifts the screen content above the keyboard: the bottom (composer, Continue button) follows the keyboard, animated with it.
+// Used in full screens (not in native sheets, which UIKit lifts by itself). `height` from react-native-keyboard-controller is negative.
 import type { ReactNode } from 'react'
 import type { StyleProp, ViewStyle } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'

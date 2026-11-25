@@ -1,24 +1,24 @@
-// Abbinamento e chiave del dispositivo, nel portachiavi (expo-secure-store, solo su questo telefono e a telefono sbloccato).
-// La chiave Ed25519 del dispositivo si crea una volta sola e la privata non esce mai: serve a firmare `pair` e `auth`.
+// Pairing and device key, in the keychain (expo-secure-store, only on this phone and while unlocked).
+// The device's Ed25519 key is created once and the private half never leaves: it signs `pair` and `auth`.
 import { ed25519 } from '@noble/curves/ed25519.js'
 import * as SecureStore from 'expo-secure-store'
 import * as Device from 'expo-device'
 import { Platform } from 'react-native'
 import { fromBase64Url, generateDeviceKey, toBase64Url, type DeviceKeyPair } from '@shared/remote/pairing'
 
-/** Cosa serve per ritrovare il Mac e presentarsi: nessuna password, nessun codice monouso. */
+/** What is needed to find the Mac and introduce oneself: no password, no one-time code. */
 export interface Pairing {
-  /** Nome del Mac, noto dal QR e riconfermato a ogni hello. */
+  /** The Mac's name, known from the QR and reconfirmed on every hello. */
   macName: string
-  /** Chiave pubblica X25519 del Mac, base64url: la chiave statica dell'handshake Noise. */
+  /** The Mac's X25519 public key, base64url: the static key of the Noise handshake. */
   macKey: string
-  /** Relay e id del Mac su quel relay; con solo `ws` (sviluppo) si va direttamente al Mac. */
+  /** Relay and the Mac's id on that relay; with only `ws` (development) it connects directly to the Mac. */
   relay?: string
   id?: string
   ws?: string
-  /** Id del dispositivo, assegnato dal Mac all'abbinamento. */
+  /** Device id, assigned by the Mac at pairing. */
   deviceId: string
-  /** Nome con cui il Mac ci conosce. */
+  /** Name the Mac knows us by. */
   deviceName: string
 }
 
@@ -40,11 +40,11 @@ export async function loadPairing(): Promise<Pairing | null> {
 export const savePairing = (pairing: Pairing) => SecureStore.setItemAsync(PAIRING_KEY, JSON.stringify(pairing), OPTIONS)
 export const clearPairing = async () => {
   await SecureStore.deleteItemAsync(PAIRING_KEY)
-  // Abbinamento provvisorio della prima versione (chiave grezza): non serve più.
+  // Provisional pairing from the first version (raw key): no longer needed.
   await SecureStore.deleteItemAsync('ladder.pairing.v1').catch(() => {})
 }
 
-/** La chiave del dispositivo; se non c'è la si crea (solo con `create`). */
+/** The device key; if missing it is created (only with `create`). */
 export async function loadDeviceKey(create: boolean): Promise<DeviceKeyPair | null> {
   const existing = await SecureStore.getItemAsync(DEVICE_KEY)
   if (existing) {
@@ -59,7 +59,7 @@ export async function loadDeviceKey(create: boolean): Promise<DeviceKeyPair | nu
 
 export const clearDeviceKey = () => SecureStore.deleteItemAsync(DEVICE_KEY)
 
-/** Nome del telefono proposto all'abbinamento ("Zoë's iPhone"); senza nome di sistema, il modello o la piattaforma. */
+/** Phone name proposed at pairing ("Alex's iPhone"); without a system name, the model or the platform. */
 export function defaultDeviceName(): string {
   return Device.deviceName || Device.modelName || (Platform.OS === 'ios' ? 'iPhone' : 'Android phone')
 }

@@ -25,17 +25,17 @@ export function toneColor(c: Tokens, tone: Tone): string {
   }
 }
 
-/** Android aggiunge spazio sopra e sotto il testo (font padding): senza, il testo sta al centro della sua riga come su iOS. */
+/** Android adds space above and below the text (font padding): without it, the text sits in the middle of its line as on iOS. */
 const ANDROID: TextStyle = { includeFontPadding: false }
 
 interface Props extends RNTextProps {
   variant?: Variant
   tone?: Tone
-  /** Font di sistema (per il testo della chat). */
+  /** System font (for chat text). */
   system?: boolean
 }
 
-/** Testo dell'interfaccia: Mona Sans, scala 13/15/17/22/28, con Dynamic Type limitato. */
+/** Interface text: Mona Sans, 13/15/17/22/28 scale, with limited Dynamic Type. */
 export function Text({ variant = 'body', tone = 'default', system, style, ...rest }: Props) {
   const { c } = useTheme()
   const base = TYPE[variant]

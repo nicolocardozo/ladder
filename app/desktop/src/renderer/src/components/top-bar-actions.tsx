@@ -1,5 +1,5 @@
-// Azioni di vista nella barra in alto, a destra accanto a terminale e pannello: affiancare le chat e aprire la colonna browser.
-// Affianca è un menu esplicito (nuova chat accanto, oppure quale sessione); il browser è un interruttore.
+// View actions in the top bar, on the right next to terminal and panel: side-by-side chats and opening the browser column.
+// "Split" is an explicit menu (new chat alongside, or which session); the browser is a toggle.
 import { Columns2, Globe, Plus, Smartphone } from 'lucide-react'
 import { t } from '@shared/i18n'
 import { shortcutLabel } from '@shared/shortcuts'
@@ -20,8 +20,8 @@ const trigger =
   'no-drag grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent data-[popup-open]:text-foreground'
 
 /**
- * Affianca: una nuova chat accanto a quella aperta, oppure una delle chat già aperte nelle tab.
- * Le chat già in colonna non compaiono; con tre colonne il menu lo dice e non propone altro.
+ * Split: a new chat next to the open one, or one of the chats already open in tabs.
+ * Chats already in a column do not appear; with three columns the menu says so and offers nothing else.
  */
 export function SplitMenu({ projectId }: { projectId: string }) {
   const tabs = useApp((s) => s.ui[projectId]?.tabs ?? NO_TABS)
@@ -82,7 +82,7 @@ export function SplitMenu({ projectId }: { projectId: string }) {
   )
 }
 
-/** Browser del progetto: apre o chiude la colonna a destra delle chat. Senza pagine ne crea una. */
+/** Project browser: opens or closes the column to the right of the chats. Without pages it creates one. */
 export function BrowserToggle({ projectId }: { projectId: string }) {
   const open = useApp((s) => isBrowserColumnOpen(s, projectId))
   const label = open ? t('Hide browser') : t('Browser')
@@ -102,8 +102,8 @@ export function BrowserToggle({ projectId }: { projectId: string }) {
 }
 
 /**
- * Telefono collegato (LAD-51): c'è solo quando almeno un telefono è collegato adesso. Tono tenue, il numero solo da due in su;
- * un clic apre Impostazioni → Devices.
+ * Phone connected: only present when at least one phone is connected right now. Muted tone, the number only from two up;
+ * clicking opens Settings → Devices.
  */
 export function PhoneIndicator() {
   const count = useApp((s) => s.remote?.connectedCount ?? 0)

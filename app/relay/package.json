@@ -2,7 +2,7 @@
   "name": "@ladder/relay",
   "version": "0.1.0",
   "private": true,
-  "description": "Ladder relay: inoltra byte cifrati tra il Mac e il telefono (Cloudflare Workers + Durable Objects)",
+  "description": "Ladder relay: forwards encrypted bytes between the Mac and the phone (Cloudflare Workers + Durable Objects)",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

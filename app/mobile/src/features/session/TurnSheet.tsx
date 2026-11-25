@@ -1,4 +1,4 @@
-// Sheet del turno: passaggi (strumenti, richieste, testi intermedi) e file modificati.
+// Turn sheet: steps (tools, requests, intermediate texts) and changed files.
 import { View } from 'react-native'
 import { plural, t } from '@shared/i18n'
 import type { ChatItem } from '@shared/protocol'
@@ -64,7 +64,7 @@ function Step({ item }: { item: ChatItem }) {
   )
 }
 
-/** Contenuto dello sheet del turno, uguale nello sheet nativo (iOS) e in quello nostro. */
+/** Turn sheet content, the same in the native sheet (iOS) and in our own. */
 export function TurnContent({ turn }: { turn: TurnSummary }) {
   const { c } = useTheme()
   return (

@@ -2,11 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* dark: segue la classe .dark su <html> (scelta dell'utente), non il tema del sistema */
+/* dark: follows the .dark class on <html> (user choice), not the system theme */
 @custom-variant dark (&:where(.dark, .dark *));
 
 
-/* Token del brand: pagina chiara */
+/* Brand tokens: light page */
 @theme {
   --color-page: #ffffff;
   --color-ink: #181424;
@@ -15,10 +15,10 @@
   --color-frame: #f4f3f8;
   --color-iris: #5525cf;
   --color-iris-dot: #7b5cf0;
-  --color-surface: #ffffff; /* schede e tessere */
-  --color-dot: #dcd6e8; /* puntini delle schede */
+  --color-surface: #ffffff; /* cards and tiles */
+  --color-dot: #dcd6e8; /* card dots */
 
-  /* Palette Circuit (brand/themes.json) per le schermate dell'app */
+  /* Circuit palette (brand/themes.json) for the app screens */
   --color-c-bg: #181424;
   --color-c-sidebar: #1a1427;
   --color-c-surface: #211a30;
@@ -80,7 +80,7 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* opacità delle parole spente della frase */
+/* opacity of the dimmed words of the sentence */
 :root {
   --dim: 0.22;
   --background: var(--color-page);
@@ -118,7 +118,7 @@
 }
 
 
-/* Tema scuro: stessi token, valori notturni. Il viola Circuit resta il colore dell'app. */
+/* Dark theme: same tokens, night values. The Circuit purple stays the app color. */
 .dark {
   color-scheme: dark;
   --color-page: #0d0a14;
@@ -146,13 +146,13 @@
   }
 }
 
-/* Stato statico per chi preferisce meno movimento: le sezioni animate leggono questa regola */
+/* Static state for those who prefer reduced motion: the animated sections read this rule */
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
 }
 
-/* Nessuna scrollbar visibile: la pagina scorre comunque con rotella, trackpad e tastiera */
+/* No visible scrollbar: the page still scrolls with wheel, trackpad and keyboard */
 html { scrollbar-width: none; }
 html::-webkit-scrollbar { display: none; }

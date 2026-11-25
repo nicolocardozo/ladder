@@ -1,5 +1,5 @@
-// Sheet della richiesta: permesso con comando o percorso per intero, motivo, anteprima della modifica, Deny e Approve
-// (niente "Always allow" nella v1, niente swipe per approvare). Domande: opzioni singole o multiple e "Other…".
+// Request sheet: permission with the full command or path, reason, edit preview, Deny and Approve
+// (no "Always allow" in v1, no swipe to approve). Questions: single or multiple options and "Other…".
 import { useEffect, useMemo, useState } from 'react'
 import { Pressable, View } from 'react-native'
 import { t } from '@shared/i18n'
@@ -22,7 +22,7 @@ import { CodeBlock, EditPreview, subjectOf } from './parts'
 
 const OTHER = '__other__'
 
-/** La richiesta viva: dalla chat se c'è, altrimenti dal riepilogo della sessione. */
+/** The live request: from the chat if there, otherwise from the session summary. */
 export function useRequest(sessionId: string | null, requestId: string | null): RequestItem | null {
   return useApp((s) => {
     if (!sessionId || !requestId) return null
@@ -33,16 +33,16 @@ export function useRequest(sessionId: string | null, requestId: string | null): 
   })
 }
 
-/** Titolo dello sheet: la domanda o il titolo del permesso. */
+/** Sheet title: the question or the permission title. */
 const requestTitle = (request: RequestItem): string => (request.requestType === 'question' ? t('Question') : request.title)
 
-/** Contenuto dello sheet della richiesta, uguale nello sheet nativo (iOS) e in quello nostro (Android, schermi larghi). */
+/** Content of the request sheet, the same in the native sheet (iOS) and in ours (Android, wide screens). */
 export function RequestContent({ sessionId, requestId, onClose: onCloseRaw }: { sessionId: string; requestId: string; onClose: () => void }) {
   const request = useRequest(sessionId, requestId)
   const session = useApp((s) => s.sessions[sessionId])
-  // Una sola chiusura, qualunque strada la chieda: la risposta (onDone) e la richiesta che si chiude dopo, quasi insieme.
+  // A single close, whichever path asks for it: the answer (onDone) and the request that closes afterwards, almost together.
   const onClose = useOnce(onCloseRaw)
-  // Se la richiesta si chiude mentre lo sheet è aperto (risposta dal Mac o da qui), lo sheet si chiude.
+  // If the request closes while the sheet is open (answered from the Mac or from here), the sheet closes.
   useEffect(() => {
     if (!request || request.state !== 'open') onClose()
   }, [request, onClose])
@@ -90,7 +90,7 @@ function Body({ sessionId, request, onDone }: { sessionId: string; request: Requ
 }
 
 function PermissionForm({ sessionId, request, online, busy, setBusy, onDone, subject, c }: FormProps & { subject: ReturnType<typeof subjectOf>; c: ReturnType<typeof useTheme>['c'] }) {
-  // Solo sviluppo: il driver apre subito il campo del motivo (prova della tastiera).
+  // Development only: the driver immediately opens the reason field (keyboard test).
   const [reasonOpen, setReasonOpen] = useState(__DEV__ && useDev.getState().reasonField)
   const [reason, setReason] = useState('')
   const finish = async (fn: () => Promise<boolean>) => {
@@ -163,7 +163,7 @@ interface FormProps {
 function QuestionForm({ sessionId, request, online, busy, setBusy, onDone }: FormProps) {
   const { c } = useTheme()
   const questions = useMemo(() => request.questions ?? [], [request.questions])
-  // Solo sviluppo: il driver sceglie subito "Altro…" nella prima domanda.
+  // Development only: the driver immediately picks "Other…" in the first question.
   const [picked, setPicked] = useState<Record<number, string[]>>(() => {
     const start: Record<number, string[]> = {}
     if (__DEV__ && useDev.getState().reasonField) start[0] = [OTHER]

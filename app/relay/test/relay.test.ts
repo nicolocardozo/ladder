@@ -1,4 +1,4 @@
-// Prove del relay su wrangler dev locale: `pnpm --filter @ladder/relay test`.
+// Relay tests on a local wrangler dev: `pnpm --filter @ladder/relay test`.
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import { ed25519 } from '@noble/curves/ed25519.js'
@@ -18,7 +18,7 @@ const ready = (mac: TestSocket) => mac.nextJson<{ t: string; maxPhones: number }
 const status = (phone: TestSocket, from = 0) => phone.nextJson<RelayToPhone>((m) => m.t === 'mac', from)
 
 describe('relay', () => {
-  it('risponde al ping senza svegliare nessuno e rifiuta indirizzi sbagliati', async () => {
+  it('answers ping without waking anyone and rejects wrong addresses', async () => {
     assert.equal((await fetch(`${dev.url}/v1/nope?role=mac`)).status, 404)
     const key = newMacKey()
     assert.equal((await fetch(`${dev.url}/v1/${key.id}?role=boh`)).status, 400)
@@ -30,18 +30,18 @@ describe('relay', () => {
     phone.close()
   })
 
-  it('un telefono senza Mac riceve lo stato: sconosciuto, mai visto', async () => {
+  it('a phone without a Mac receives the status: unknown, never seen', async () => {
     const phone = await connectPhone(dev, newMacKey().id)
     assert.deepEqual(await status(phone), { t: 'mac', online: false, since: null, reason: 'unknown' })
     phone.close()
   })
 
-  it('rifiuta un Mac con firma sbagliata o con una chiave che non dà quell\'id', async () => {
+  it('rejects a Mac with a wrong signature or with a key that does not give that id', async () => {
     const key = newMacKey()
     const bad = await connectMac(dev, key, { tamper: true })
     assert.equal((await bad.until(() => bad.closed)).code, RELAY_CLOSE.authFailed)
 
-    // Chiave valida ma id di un altro: chi conosce l'id non può prendere il posto.
+    // Valid key but another's id: whoever knows the id cannot take the place.
     const victim = newMacKey()
     const attackerSecret = ed25519.utils.randomSecretKey()
     const mac = new TestSocket(relayEndpoint(dev.url, victim.id, 'mac'))
@@ -50,13 +50,13 @@ describe('relay', () => {
     assert.equal((await mac.until(() => mac.closed)).code, RELAY_CLOSE.authFailed)
   })
 
-  it('inoltra i byte nei due versi, senza mescolare i telefoni', async () => {
+  it('forwards bytes both ways, without mixing phones', async () => {
     const key = newMacKey()
     const mac = await connectMac(dev, key)
     assert.equal((await ready(mac)).maxPhones, RELAY_MAX_PHONES)
     const a = await connectPhone(dev, key.id)
     assert.deepEqual(await status(a), { t: 'mac', online: true })
-    // Si aspetta l'OPEN di a prima di collegare b: l'ordine dei frame è così certo.
+    // Wait for a's OPEN before connecting b: that way the frame order is certain.
     const idA = (await mac.until(() => mac.frames().find((f) => f.type === RELAY_FRAME_OPEN))).connId
     const b = await connectPhone(dev, key.id)
     await status(b)
@@ -74,7 +74,7 @@ describe('relay', () => {
     assert.deepEqual([...b.binaries[0]], [9, 9])
     assert.equal(a.binaries.length, 0)
 
-    // Un telefono che se ne va: il Mac riceve CLOSE. Il Mac che chiude un telefono: il telefono viene chiuso.
+    // A phone that leaves: the Mac receives CLOSE. A Mac that closes a phone: the phone is closed.
     a.close()
     await mac.until(() => mac.frames().find((f) => f.type === RELAY_FRAME_CLOSE && f.connId === idA))
     mac.ws.send(encodeFrame(RELAY_FRAME_CLOSE, idB))
@@ -82,13 +82,13 @@ describe('relay', () => {
     mac.close()
   })
 
-  it('con il Mac assente scarta i byte del telefono; quando il Mac sparisce avvisa con il motivo', async () => {
+  it('with the Mac absent drops the phone bytes; when the Mac disappears it notifies with the reason', async () => {
     const key = newMacKey()
     const mac = await connectMac(dev, key)
     const phone = await connectPhone(dev, key.id)
     await status(phone)
     await phone.opened()
-    // Sparizione senza preavviso: 'offline', con l'ora in cui è stato visto.
+    // Disappearance without notice: 'offline', with the time it was last seen.
     const before = Date.now()
     mac.ws.close()
     const off = (await phone.nextJson<Extract<RelayToPhone, { online: false }>>((m) => m.t === 'mac' && !m.online))
@@ -96,13 +96,13 @@ describe('relay', () => {
     assert.ok(off.since! >= before - 1000 && off.since! <= Date.now() + 1000)
     phone.ws.send(bytes(5))
     phone.close()
-    // Un telefono nuovo vede lo stesso stato.
+    // A new phone sees the same state.
     const late = await connectPhone(dev, key.id)
     assert.deepEqual(await status(late), { t: 'mac', online: false, since: off.since, reason: 'offline' })
     late.close()
   })
 
-  it('asleep e quit: i telefoni lo sanno subito; al ritorno del Mac riparte il collegamento', async () => {
+  it('asleep and quit: phones know right away; when the Mac returns the link resumes', async () => {
     const key = newMacKey()
     const mac = await connectMac(dev, key)
     await ready(mac)
@@ -118,7 +118,7 @@ describe('relay', () => {
 
     const mac2 = await connectMac(dev, key)
     await ready(mac2)
-    // Il telefono ancora connesso riceve di nuovo "online" e il Mac nuovo lo apre.
+    // The phone still connected receives "online" again and the new Mac opens it.
     await phone.nextJson<RelayToPhone>((m) => m.t === 'mac' && m.online, 1)
     await mac2.until(() => mac2.frames().find((f) => f.type === RELAY_FRAME_OPEN))
     mac2.ws.send(JSON.stringify({ t: 'state', state: 'quit' }))
@@ -127,7 +127,7 @@ describe('relay', () => {
     phone.close()
   })
 
-  it('rekeyed: il motivo resta sul vecchio id, per chi si collega dopo', async () => {
+  it('rekeyed: the reason stays on the old id, for those who connect later', async () => {
     const key = newMacKey()
     const mac = await connectMac(dev, key)
     await ready(mac)
@@ -138,13 +138,13 @@ describe('relay', () => {
     assert.equal(off.reason, 'rekeyed')
     assert.ok(off.since)
     phone.close()
-    // Un telefono che arriva più tardi, a Mac già sparito, lo sa lo stesso.
+    // A phone that arrives later, with the Mac already gone, knows anyway.
     const late = await connectPhone(dev, key.id)
     assert.deepEqual(await status(late), { t: 'mac', online: false, since: off.since, reason: 'rekeyed' })
     late.close()
   })
 
-  it('un Mac autenticato prende il posto del precedente senza far scattare "offline"', async () => {
+  it('an authenticated Mac takes the place of the previous one without triggering "offline"', async () => {
     const key = newMacKey()
     const first = await connectMac(dev, key)
     await ready(first)
@@ -159,9 +159,9 @@ describe('relay', () => {
     second.close()
   })
 
-  it(`al massimo ${RELAY_MAX_PHONES} telefoni per Mac`, async () => {
+  it(`at most ${RELAY_MAX_PHONES} phones per Mac`, async () => {
     const key = newMacKey()
-    // Con il Mac online i posti non si liberano cacciando nessuno: il nono viene rifiutato.
+    // With the Mac online the seats are not freed by kicking anyone out: the ninth is refused.
     const mac = await connectMac(dev, key)
     await ready(mac)
     const phones = await Promise.all(Array.from({ length: RELAY_MAX_PHONES }, () => connectPhone(dev, key.id)))
@@ -173,7 +173,7 @@ describe('relay', () => {
     mac.close()
   })
 
-  it('un posto liberato da un telefono uscito è subito riutilizzabile', async () => {
+  it('a seat freed by a phone that left is immediately reusable', async () => {
     const key = newMacKey()
     const mac = await connectMac(dev, key)
     await ready(mac)
@@ -188,7 +188,7 @@ describe('relay', () => {
     mac.close()
   })
 
-  it('Mac offline: il telefono in attesa da più tempo fa posto a uno nuovo', async () => {
+  it('Mac offline: the phone waiting longest makes room for a new one', async () => {
     const key = newMacKey()
     const phones: TestSocket[] = []
     for (let i = 0; i < RELAY_MAX_PHONES; i++) {
@@ -205,7 +205,7 @@ describe('relay', () => {
     for (const p of [...phones, fresh]) p.close()
   })
 
-  it('con troppe sfide in sospeso si chiude la più vecchia, e il Mac vero si autentica comunque', async () => {
+  it('with too many pending challenges the oldest is closed, and the real Mac still authenticates', async () => {
     const key = newMacKey()
     const pending: TestSocket[] = []
     for (let i = 0; i < 5; i++) {
@@ -222,23 +222,23 @@ describe('relay', () => {
     real.close()
   })
 
-  it('la firma del Mac vale solo per il relay a cui è destinata', async () => {
+  it('the Mac signature is valid only for the relay it is meant for', async () => {
     const key = newMacKey()
     const mac = await connectMac(dev, key, { origin: 'https://other-relay.example.com' })
     assert.equal((await mac.until(() => mac.closed)).code, RELAY_CLOSE.authFailed)
   })
 
-  it('un Mac senza autenticazione viene chiuso entro circa 10 secondi', async () => {
+  it('a Mac without authentication is closed within about 10 seconds', async () => {
     const mac = new TestSocket(relayEndpoint(dev.url, newMacKey().id, 'mac'))
     mac.ws.addEventListener('open', () => mac.ws.send('ping'))
     const started = Date.now()
     const closed = await mac.until(() => mac.closed, 15_000)
     const elapsed = Date.now() - started
     assert.equal(closed.code, RELAY_CLOSE.authFailed)
-    assert.ok(elapsed >= 9000 && elapsed < 13_000, `chiuso dopo ${elapsed} ms`)
+    assert.ok(elapsed >= 9000 && elapsed < 13_000, `closed after ${elapsed} ms`)
   })
 
-  it('un Mac che manda troppi messaggi non viene chiuso (cadrebbero tutti i telefoni): gli eccessi si scartano', async () => {
+  it('a Mac sending too many messages is not closed (all phones would drop): the excess is discarded', async () => {
     const key = newMacKey()
     const mac = await connectMac(dev, key)
     await ready(mac)
@@ -249,7 +249,7 @@ describe('relay', () => {
     await new Promise((r) => setTimeout(r, 500))
     assert.equal(mac.closed, null)
     assert.equal(phone.closed, null)
-    // Con il secchiello ancora quasi vuoto il traffico utile riprende appena si ricarica.
+    // With the bucket still almost empty, useful traffic resumes as soon as it refills.
     await new Promise((r) => setTimeout(r, 1500))
     mac.ws.send(encodeFrame(RELAY_FRAME_DATA, id, bytes(7)))
     await phone.until(() => phone.binaries.length === 1)
@@ -257,7 +257,7 @@ describe('relay', () => {
     mac.close()
   })
 
-  it('chiude chi manda un messaggio troppo grande o troppi messaggi', async () => {
+  it('closes whoever sends a message that is too large or too many messages', async () => {
     const key = newMacKey()
     const big = await connectPhone(dev, key.id)
     await big.opened()

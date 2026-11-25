@@ -1,6 +1,6 @@
-// Accesso dei telefoni (LAD-51): dispositivi abbinati, codice di abbinamento, password, log delle azioni remote.
-// Il codice sta solo in memoria e non si logga mai; i dispositivi e il log stanno nel database (tabelle devices e remote_log).
-// Import relativi: il file è provato con `node --test`.
+// Phone access: paired devices, pairing code, password, log of remote actions.
+// The code lives only in memory and is never logged; devices and the log live in the database (tables devices and remote_log).
+// Relative imports: the file is tested with `node --test`.
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import {
   REMOTE_MAX_PAIR_ATTEMPTS,
@@ -25,11 +25,11 @@ import { parseNotifyPrefs } from './push-policy.ts'
 
 const PASSWORD_KEY = 'remote.password'
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 }
-/** Log: al massimo tante voci e non più vecchie di tanti giorni. */
+/** Log: at most this many entries, and none older than this many days. */
 export const LOG_MAX_ENTRIES = 1000
 export const LOG_MAX_DAYS = 30
 const PRUNE_EVERY = 50
-/** Errori di autenticazione di fila da qualunque origine, in questa finestra: oltre, si rifiuta senza guardare. */
+/** Consecutive authentication errors from any origin within this window: beyond it, requests are refused without looking at them. */
 export const FAILURE_WINDOW_MS = 60_000
 export const FAILURE_LIMIT = 30
 const MAX_NAME = 80
@@ -40,7 +40,7 @@ export interface DeviceRow {
   platform: RemotePlatform
   publicKey: string
   pushToken: string | null
-  /** LAD-53: preferenze push (predefinite se il telefono non ne ha mandate) e lingua dell'app. */
+  /** Push preferences (defaults if the phone has not sent any) and the app language. */
   notify: RemoteNotifyPrefs
   locale: Locale
   createdAt: number
@@ -50,10 +50,10 @@ export interface DeviceRow {
 
 export type AuthOutcome = { ok: true; device: DeviceRow; paired: boolean } | { ok: false; code: RemoteAuthErrorCode }
 
-/** Dove si raggiunge il Mac: lo decide il canale, che sa cosa è acceso. */
+/** Where the Mac can be reached: decided by the channel, which knows what is on. */
 export interface PairingRoute {
   macName: string
-  /** Chiave pubblica X25519 del Mac. */
+  /** X25519 public key of the Mac. */
   key: Uint8Array
   relay?: string
   id?: string
@@ -61,9 +61,9 @@ export interface PairingRoute {
 }
 
 export interface RemoteAccessOptions {
-  /** Cambia qualcosa che lo stato mostra (QR scaduto, nuovo dispositivo). */
+  /** Something the state shows has changed (expired QR, new device). */
   onChange?: () => void
-  /** Un telefono si è appena abbinato. */
+  /** A phone has just paired. */
   onPaired?: (device: DeviceRow) => void
   now?: () => number
 }
@@ -78,14 +78,14 @@ interface PairingState {
 const sha = (text: string): Buffer => createHash('sha256').update(text).digest()
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-/** Nome del dispositivo senza caratteri di controllo, al massimo 80 caratteri; null se resta vuoto. */
+/** Device name without control characters, at most 80 characters; null if it ends up empty. */
 export function cleanDeviceName(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const name = value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, MAX_NAME)
   return name || null
 }
 
-/** Testo (già tradotto) per ogni codice d'errore dell'autenticazione. */
+/** Text (already translated) for each authentication error code. */
 export function authErrorText(code: RemoteAuthErrorCode): string {
   switch (code) {
     case 'bad-token':
@@ -117,12 +117,12 @@ export class RemoteAccess {
   private readonly db: Db
   private readonly options: RemoteAccessOptions
   private active: PairingState | null = null
-  /** Ultimo codice finito (scaduto o usato), per dire al telefono perché non vale più. */
+  /** Last finished code (expired or used), to tell the phone why it is no longer valid. */
   private spent: { hash: Buffer; reason: 'token-expired' | 'token-used' } | null = null
   private expiryTimer: ReturnType<typeof setTimeout> | null = null
   private failures: number[] = []
   private inserts = 0
-  /** Spento: nessuna autenticazione e nessun QR. Lo imposta il canale. */
+  /** Off: no authentication and no QR. Set by the channel. */
   enabled = false
   /** "Allow Full access from phone". */
   allowFull = true
@@ -131,7 +131,7 @@ export class RemoteAccess {
     this.db = db
     this.options = options
     this.prune()
-    // Il log si pota anche per età: un Mac che resta acceso per settimane senza azioni non tiene voci vecchie.
+    // The log is also pruned by age: a Mac that stays on for weeks without actions does not keep old entries.
     setInterval(() => this.prune(), 86_400_000).unref()
   }
 
@@ -139,9 +139,9 @@ export class RemoteAccess {
     return this.options.now?.() ?? Date.now()
   }
 
-  // ── Codice di abbinamento ────────────────────────────────────────────────
+  // ── Pairing code ─────────────────────────────────────────────────────────
 
-  /** Crea il codice (sostituisce quello attivo). Lancia se il canale è spento. */
+  /** Creates the code (replaces the active one). Throws if the channel is off. */
   startPairing(route: PairingRoute): RemotePairStart {
     if (!this.enabled) throw new Error(t('Access from your phone is turned off.'))
     this.retire(null)
@@ -175,13 +175,13 @@ export class RemoteAccess {
     this.options.onChange?.()
   }
 
-  /** Il codice attivo, se c'è ancora (uno scaduto non risulta). */
+  /** The active code, if it is still valid (an expired one does not count). */
   pairing(): { expiresAt: number } | null {
     if (this.active && this.now() >= this.active.expiresAt) this.retire('token-expired')
     return this.active ? { expiresAt: this.active.expiresAt } : null
   }
 
-  /** Toglie il codice attivo; `reason` lo ricorda come ultimo codice finito. */
+  /** Removes the active code; `reason` is remembered as the last finished code. */
   private retire(reason: 'token-expired' | 'token-used' | null): void {
     if (this.expiryTimer) clearTimeout(this.expiryTimer)
     this.expiryTimer = null
@@ -189,20 +189,20 @@ export class RemoteAccess {
     this.active = null
   }
 
-  // ── Autenticazione ───────────────────────────────────────────────────────
+  // ── Authentication ───────────────────────────────────────────────────────
 
   /**
-   * Il primo messaggio di una connessione. `handshakeHash`: quello della sessione Noise, a cui è legata la firma.
-   * Non lancia: ogni fallimento è un codice.
+   * The first message of a connection. `handshakeHash`: that of the Noise session, which the signature is bound to.
+   * Does not throw: every failure is a code.
    */
   async authenticate(message: unknown, handshakeHash: Uint8Array): Promise<AuthOutcome> {
     if (!this.enabled) return { ok: false, code: 'remote-disabled' }
     try {
-      // `auth`: solo la firma decide e non c'è un limite globale (costa poco): chi ha la chiave del Mac, o un telefono revocato che riprova
-      // in continuazione, non può chiudere fuori gli altri telefoni.
+      // `auth`: only the signature decides and there is no global limit (it is cheap): someone with the Mac's key, or a revoked phone retrying
+      // continuously, cannot lock the other phones out.
       if (isObject(message) && message.type === 'auth') return this.auth(message, handshakeHash)
       if (!isObject(message) || message.type !== 'pair') return { ok: false, code: 'invalid-request' }
-      // `pair`: limite globale di errori (protegge anche lo scrypt della password), oltre al limite per codice.
+      // `pair`: global error limit (also protects the password's scrypt), in addition to the per-code limit.
       const now = this.now()
       this.failures = this.failures.filter((at) => now - at < FAILURE_WINDOW_MS)
       if (this.failures.length >= FAILURE_LIMIT) return { ok: false, code: 'too-many-attempts' }
@@ -218,7 +218,7 @@ export class RemoteAccess {
     if (typeof message.deviceId !== 'string' || message.deviceId.length > 64 || typeof message.sig !== 'string' || message.sig.length > 200) return { ok: false, code: 'invalid-request' }
     const device = this.device(message.deviceId)
     if (!device) return { ok: false, code: 'unknown-device' }
-    // Prima la firma, poi la revoca: chi non ha la chiave del dispositivo non scopre se l'id è stato revocato.
+    // Signature first, then revocation: whoever lacks the device key cannot find out whether the id was revoked.
     if (!verifyChannelBinding(fromBase64Url(device.publicKey), 'auth', handshakeHash, message.sig)) return { ok: false, code: 'bad-signature' }
     if (device.revokedAt !== null) return { ok: false, code: 'device-revoked' }
     this.touch(device.id)
@@ -240,7 +240,7 @@ export class RemoteAccess {
     }
     if (publicKey.length !== 32) return { ok: false, code: 'invalid-request' }
 
-    // Codice: confronto a tempo costante sugli hash (stessa lunghezza).
+    // Code: constant-time comparison on the hashes (same length).
     if (this.active && this.now() >= this.active.expiresAt) this.retire('token-expired')
     const state = this.active
     const hash = sha(token)
@@ -248,7 +248,7 @@ export class RemoteAccess {
       if (this.spent && timingSafeEqual(hash, this.spent.hash)) return { ok: false, code: this.spent.reason }
       return { ok: false, code: 'bad-token' }
     }
-    // Ogni tentativo su un codice vero conta; al limite il codice è bruciato.
+    // Every attempt on a real code counts; at the limit the code is burned.
     state.attempts++
     const fail = (code: RemoteAuthErrorCode): AuthOutcome => {
       if (state.attempts >= REMOTE_MAX_PAIR_ATTEMPTS && this.active === state) {
@@ -263,7 +263,7 @@ export class RemoteAccess {
       if (password === undefined || password === '') return fail('password-required')
       if (!(await this.checkPassword(password))) return fail('wrong-password')
     }
-    // Durante la verifica della password il codice può essere stato usato da un'altra connessione o annullato.
+    // During password verification the code may have been used by another connection or cancelled.
     if (this.active !== state) return { ok: false, code: 'token-used' }
     this.retire('token-used')
     const device = this.insertDevice(info.publicKey, name, platform)
@@ -278,7 +278,7 @@ export class RemoteAccess {
     return this.db.prepare('select 1 as x from kv where key = ?').get(PASSWORD_KEY) !== undefined
   }
 
-  /** null toglie la password. Lancia (messaggio tradotto) se la lunghezza non va. */
+  /** null removes the password. Throws (translated message) if the length is not valid. */
   async setPassword(password: string | null): Promise<void> {
     if (password === null) {
       this.db.prepare('delete from kv where key = ?').run(PASSWORD_KEY)
@@ -301,7 +301,7 @@ export class RemoteAccess {
     return expected.length === actual.length && timingSafeEqual(expected, actual)
   }
 
-  // ── Dispositivi ──────────────────────────────────────────────────────────
+  // ── Devices ──────────────────────────────────────────────────────────────
 
   private rowOf(r: Record<string, unknown>): DeviceRow {
     return {
@@ -323,7 +323,7 @@ export class RemoteAccess {
     return row ? this.rowOf(row) : null
   }
 
-  /** Dispositivi non revocati, dal più recente. */
+  /** Non-revoked devices, most recent first. */
   devices(): DeviceRow[] {
     return this.db
       .prepare('select * from devices where revoked_at is null order by created_at desc, rowid desc')
@@ -331,7 +331,7 @@ export class RemoteAccess {
       .map((r) => this.rowOf(r))
   }
 
-  /** Per lo stato della finestra. `connected`: id con una connessione autenticata. */
+  /** For the window state. `connected`: ids with an authenticated connection. */
   info(connected: ReadonlySet<string>): RemoteDeviceInfo[] {
     return this.devices().map((d) => this.infoOf(d, connected.has(d.id)))
   }
@@ -340,7 +340,7 @@ export class RemoteAccess {
     return { id: d.id, name: d.name, platform: d.platform, createdAt: d.createdAt, lastSeenAt: connected ? this.now() : d.lastSeenAt, connected, pushEnabled: d.pushToken !== null }
   }
 
-  /** Un telefono con la stessa chiave già abbinato (e non revocato) mantiene il suo id: riabbinare è idempotente. */
+  /** A phone with the same key that is already paired (and not revoked) keeps its id: pairing again is idempotent. */
   private insertDevice(publicKey: string, name: string, platform: RemotePlatform): DeviceRow {
     const now = this.now()
     const existing = this.db.prepare('select * from devices where public_key = ? and revoked_at is null').get(publicKey)
@@ -357,7 +357,7 @@ export class RemoteAccess {
     this.db.prepare('update devices set last_seen_at = ? where id = ?').run(this.now(), id)
   }
 
-  /** False se il dispositivo non c'è o era già revocato. */
+  /** False if the device does not exist or was already revoked. */
   revoke(id: string): boolean {
     return Number(this.db.prepare('update devices set revoked_at = ?, push_token = null where id = ? and revoked_at is null').run(this.now(), id).changes) > 0
   }
@@ -366,7 +366,7 @@ export class RemoteAccess {
     this.db.prepare('update devices set revoked_at = ?, push_token = null where revoked_at is null').run(this.now())
   }
 
-  /** Restituisce il nome pulito. */
+  /** Returns the cleaned name. */
   rename(id: string, name: unknown): string {
     const clean = cleanDeviceName(name)
     if (!clean) throw new Error(t('Enter a name for the device.'))
@@ -374,30 +374,30 @@ export class RemoteAccess {
     return clean
   }
 
-  /** Token delle notifiche push (LAD-53); null lo toglie. */
+  /** Push notification token; null removes it. */
   setPushToken(id: string, token: string | null, platform: RemotePlatform): void {
-    // Lo stesso token su un'altra riga (telefono riabbinato): si toglie, così non arrivano push doppi.
+    // The same token on another row (re-paired phone): it is removed, so duplicate pushes do not arrive.
     if (token) this.db.prepare('update devices set push_token = null where push_token = ? and id != ? and revoked_at is null').run(token, id)
     this.db.prepare('update devices set push_token = ?, platform = ? where id = ? and revoked_at is null').run(token, platform, id)
   }
 
-  /** Toglie un token che Expo dice non più valido (DeviceNotRegistered); solo se è ancora quello salvato. */
+  /** Removes a token that Expo says is no longer valid (DeviceNotRegistered); only if it is still the saved one. */
   clearPushToken(token: string): void {
     const changed = Number(this.db.prepare('update devices set push_token = null where push_token = ?').run(token).changes) > 0
     if (changed) this.options.onChange?.()
   }
 
-  /** LAD-53: preferenze push del dispositivo (già validate dall'allowlist). */
+  /** Push preferences of the device (already validated by the allowlist). */
   setNotifyPrefs(id: string, prefs: RemoteNotifyPrefs): void {
     this.db.prepare('update devices set notify = ? where id = ? and revoked_at is null').run(JSON.stringify(prefs), id)
   }
 
-  /** Lingua dichiarata dal telefono nell'handshake; si salva solo se cambia. */
+  /** Language declared by the phone in the handshake; saved only if it changes. */
   setLocale(id: string, locale: Locale): void {
     this.db.prepare('update devices set locale = ? where id = ? and revoked_at is null and (locale is null or locale != ?)').run(locale, id, locale)
   }
 
-  /** Dispositivi che possono ricevere un push: non revocati e con un token. */
+  /** Devices that can receive a push: not revoked and with a token. */
   pushTargets(): DeviceRow[] {
     return this.db
       .prepare('select * from devices where revoked_at is null and push_token is not null')
@@ -405,9 +405,9 @@ export class RemoteAccess {
       .map((r) => this.rowOf(r))
   }
 
-  // ── Log delle azioni remote ──────────────────────────────────────────────
+  // ── Log of remote actions ────────────────────────────────────────────────
 
-  /** `detail`: riassunto breve e non sensibile, già tradotto. */
+  /** `detail`: short, non-sensitive summary, already translated. */
   record(device: Pick<DeviceRow, 'id' | 'name'>, action: RemoteLogAction, sessionId: string | null, detail: string): RemoteLogEntry {
     const at = this.now()
     const clean = detail.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200)

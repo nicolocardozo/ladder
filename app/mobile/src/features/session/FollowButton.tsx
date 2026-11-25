@@ -1,5 +1,5 @@
-// Header della chat (iOS): segui la sessione sulla schermata di blocco e nella Dynamic Island (LAD-93). Un tocco la accende o la spegne
-// per questa sessione, a prescindere dall'avvio automatico; lo stato si legge dall'icona (colore e etichetta), non solo dal colore.
+// Chat header (iOS): follow the session on the lock screen and in the Dynamic Island. One tap turns it on or off
+// for this session, regardless of auto-start; the state is read from the icon (color and label), not from color alone.
 import * as Haptics from 'expo-haptics'
 import { Pressable } from 'react-native'
 import { t } from '@shared/i18n'
@@ -12,7 +12,7 @@ import { Icon } from '@/ui/Icon'
 import { useToast } from '@/ui/toast'
 import { useLive } from '@/store/live'
 
-/** Il pulsante, o null dove le Live Activity non esistono (Android, build senza estensione). */
+/** The button, or null where Live Activities do not exist (Android, builds without the extension). */
 export function FollowButton({ sessionId }: { sessionId: string }) {
   const { c } = useTheme()
   const live = usePrefs((s) => s.live)
@@ -21,7 +21,7 @@ export function FollowButton({ sessionId }: { sessionId: string }) {
   const on = follows(live, sessionId, opened)
   const toggle = () => {
     const prefs = usePrefs.getState()
-    // Accenderla con l'interruttore generale spento lo accende: l'intenzione è chiara.
+    // Turning it on while the global switch is off turns the switch on: the intent is clear.
     if (!on) prefs.setLive({ enabled: true })
     prefs.setSessionFollow(sessionId, on ? 'off' : 'on')
     void Haptics.selectionAsync()

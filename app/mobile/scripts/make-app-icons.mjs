@@ -1,10 +1,10 @@
-// Genera le icone dell'app mobile dal simbolo del brand (brand/app-icon/svg/ladder-app-circuit.svg):
-// - assets/icon.png: quadrato pieno 1024x1024 senza trasparenza e senza angoli arrotondati. iOS arrotonda da sé e riempie
-//   di bianco ogni pixel trasparente, per questo non si può usare l'icona del Mac (quadrato arrotondato con margine trasparente).
-// - assets/adaptive-icon.png: solo il simbolo su fondo trasparente, dentro l'area sicura dell'icona adattiva di Android
-//   (il cerchio centrale di 66/108); il fondo viola lo mette `android.adaptiveIcon.backgroundColor` in app.json.
-// Si rilancia solo se cambia il marchio. Serve `sharp`, che non è una dipendenza del progetto:
-// `SHARP_PATH=/percorso/di/sharp node scripts/make-app-icons.mjs`. Poi rilanciare make-notification-icon.mjs.
+// Generates the mobile app icons from the brand symbol (brand/app-icon/svg/ladder-app-circuit.svg):
+// - assets/icon.png: solid square 1024x1024 with no transparency and no rounded corners. iOS rounds it itself and fills
+//   every transparent pixel with white, which is why the Mac icon can't be used (rounded square with a transparent margin).
+// - assets/adaptive-icon.png: only the symbol on a transparent background, inside the safe area of the Android adaptive icon
+//   (the central circle of 66/108); the purple background is set by `android.adaptiveIcon.backgroundColor` in app.json.
+// Re-run only when the brand changes. Needs `sharp`, which is not a project dependency:
+// `SHARP_PATH=/path/to/sharp node scripts/make-app-icons.mjs`. Then re-run make-notification-icon.mjs.
 import { readFileSync } from 'node:fs'
 
 const { default: sharp } = await import(process.env.SHARP_PATH ?? 'sharp')
@@ -12,10 +12,10 @@ const brand = new URL('../../../brand/app-icon/svg/ladder-app-circuit.svg', impo
 const svg = readFileSync(brand, 'utf8')
 const BG = '#22123C'
 
-// Il tracciato del simbolo, senza la sua trasformazione: la posizione la decidiamo qui.
+// The symbol's path, without its transform: we decide the position here.
 const d = svg.match(/<path[^>]* d="([^"]+)"/)?.[1]
-if (!d) throw new Error('Simbolo non trovato in ' + brand)
-// Ingombro del simbolo nel suo sistema di coordinate (dal tracciato del brand).
+if (!d) throw new Error('Symbol not found in ' + brand)
+// Footprint of the symbol in its coordinate system (from the brand path).
 const GLYPH_W = 275
 const GLYPH_H = 177
 
@@ -31,14 +31,14 @@ function glyphSvg({ size, scale, background, fill = '#FFFFFF' }) {
 
 const out = (name) => new URL(`../assets/${name}`, import.meta.url).pathname
 
-// iOS: stessa proporzione del simbolo nell'icona del Mac (scala 2.6 su 1024), fondo pieno, nessun canale alpha.
+// iOS: same proportion of the symbol as in the Mac icon (scale 2.6 on 1024), solid background, no alpha channel.
 await sharp(glyphSvg({ size: 1024, scale: 2.6, background: BG })).flatten({ background: BG }).removeAlpha().png().toFile(out('icon.png'))
 
-// Android: il simbolo largo circa metà dell'icona, così resta dentro l'area sicura anche con le maschere rotonde.
+// Android: the symbol about half the width of the icon, so it stays inside the safe area even with round masks.
 await sharp(glyphSvg({ size: 1024, scale: 1.9, background: null })).png().toFile(out('adaptive-icon.png'))
 
-// iOS 18+: varianti scura e "tinted" (app.json -> ios.icon). La scura ha fondo scuro e simbolo nell'accento di Circuit;
-// la tinted è il simbolo in scala di grigi su fondo nero opaco: iOS la colora da sé con la tinta scelta dall'utente.
+// iOS 18+: dark and "tinted" variants (app.json -> ios.icon). The dark one has a dark background and the symbol in the Circuit accent;
+// the tinted one is the symbol in grayscale on an opaque black background: iOS tints it itself with the color the user chose.
 const DARK_BG = '#181424'
 const ACCENT = '#AC97FF'
 const tinted = (fill, bg) => glyphSvg({ size: 1024, scale: 2.6, background: bg, fill })

@@ -1,5 +1,5 @@
-// "/" e "@" nel composer (LAD-92): quale suggerimento è aperto, dove cercare e cosa succede al tocco.
-// Comandi: `session.commands` (una lettura per sessione, in cache); file: `project.files.search` con attesa breve a ogni tasto.
+// "/" and "@" in the composer: which suggestion is open, where to search and what happens on tap.
+// Commands: `session.commands` (one read per session, cached); files: `project.files.search` with a short debounce on every key.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SlashCommand } from '@shared/protocol'
 import { request } from '@/host/controller'
@@ -11,10 +11,10 @@ const FILE_LIMIT = 20
 
 const commandCache = new Map<string, { at: number; list: SlashCommand[] }>()
 
-/** Nomi dei comandi già letti per la sessione (vuoto se non ancora noti). */
+/** Names of the commands already read for the session (empty if not yet known). */
 export const cachedCommandNames = (sessionId: string): string[] => commandCache.get(sessionId)?.list.map((c) => c.name) ?? []
 
-/** Dimentica i comandi in cache (cambio di Mac o di mondo). */
+/** Forgets the cached commands (change of Mac or of world). */
 export const clearSuggestCache = (): void => commandCache.clear()
 
 export interface Selection {
@@ -23,14 +23,14 @@ export interface Selection {
 }
 
 interface Options {
-  /** Sessione (per i comandi). Senza, i comandi sono spenti (nuova sessione: non esiste ancora). */
+  /** Session (for commands). Without it, commands are off (new session: it doesn't exist yet). */
   sessionId?: string | null
-  /** Progetto (per i file). Senza, i file sono spenti. */
+  /** Project (for files). Without it, files are off. */
   projectId?: string | null
   text: string
   selection: Selection
   setText: (text: string) => void
-  /** Spento (offline, sessione in lavorazione con richiesta aperta…): nessun suggerimento. */
+  /** Off (offline, session working with an open request…): no suggestions. */
   enabled?: boolean
 }
 
@@ -39,7 +39,7 @@ export function useSuggest({ sessionId, projectId, text, selection, setText, ena
     if (!enabled || selection.start !== selection.end) return null
     return findTrigger(text, selection.start, { command: !!sessionId, file: !!projectId })
   }, [enabled, text, selection.start, selection.end, sessionId, projectId])
-  // Chiuso a mano: resta chiuso finché il pezzo non cambia.
+  // Closed by hand: stays closed until the token changes.
   const [dismissed, setDismissed] = useState<string | null>(null)
   const key = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : null
   const active = trigger && key !== dismissed ? trigger : null
@@ -50,7 +50,7 @@ export function useSuggest({ sessionId, projectId, text, selection, setText, ena
   const [failed, setFailed] = useState(false)
   const seq = useRef(0)
 
-  // Comandi: dalla cache subito, e riletti se vecchi.
+  // Commands: from cache right away, and re-read if stale.
   const kind = active?.kind ?? null
   useEffect(() => {
     if (kind !== 'command' || !sessionId) return
@@ -74,7 +74,7 @@ export function useSuggest({ sessionId, projectId, text, selection, setText, ena
     }
   }, [kind, sessionId])
 
-  // File: una ricerca ogni 150 ms di quiete; una risposta vecchia non vince su una nuova.
+  // Files: one search every 150 ms of quiet; an old response doesn't win over a new one.
   const query = active?.kind === 'file' ? active.query : null
   useEffect(() => {
     if (query === null || !projectId) {
@@ -98,7 +98,7 @@ export function useSuggest({ sessionId, projectId, text, selection, setText, ena
 
   const shownCommands = useMemo(() => (active?.kind === 'command' ? filterCommands(commands, active.query) : []), [active, commands])
 
-  /** Inserisce il suggerimento; restituisce dove va il cursore. */
+  /** Inserts the suggestion; returns where the cursor goes. */
   const choose = useCallback(
     (value: string, as: 'command' | 'file'): number | null => {
       if (!active) return null

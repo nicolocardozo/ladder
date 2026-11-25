@@ -1,7 +1,7 @@
-// Widget "Agent activity" (LAD-93): quante sessioni lavorano e quante aspettano te, con i titoli di quelle che aspettano.
-// Home Screen (small, medium) e Schermata di blocco (rettangolare, in linea). Gira nell'estensione, senza rete e senza lo scope del
-// modulo: legge solo le proprietà che l'app scrive nel gruppo condiviso (`props`, testi già tradotti compresi). Dopo dieci minuti
-// senza aggiornamenti la timeline passa da sola a `stale` e il widget scrive la sua età invece di affermare cosa succede.
+// "Agent activity" widget: how many sessions are working and how many are waiting for you, with the titles of the waiting ones.
+// Home Screen (small, medium) and Lock Screen (rectangular, inline). Runs in the extension, without network and without the module's
+// scope: it reads only the properties the app writes to the shared group (`props`, including already translated texts). After ten minutes
+// without updates the timeline goes `stale` on its own and the widget writes its age instead of claiming what is happening.
 import { HStack, Image, Spacer, Text, VStack } from '@expo/ui/swift-ui'
 import { containerBackground, font, foregroundStyle, frame, lineLimit, monospacedDigit, resizable, widgetURL } from '@expo/ui/swift-ui/modifiers'
 import { createWidget, type WidgetEnvironment } from 'expo-widgets'
@@ -14,7 +14,7 @@ export function AgentActivityWidget(published: Partial<WidgetProps> | undefined,
   const inline = family === 'accessoryInline'
   const small = family === 'systemSmall'
   const light = environment.colorScheme === 'light'
-  // Schermata di blocco e widget "tinted": un solo colore, quindi la differenza la fanno forma ed etichetta.
+  // Lock Screen and "tinted" widget: a single color, so shape and label make the difference.
   const mono = environment.widgetRenderingMode === 'accented' || environment.widgetRenderingMode === 'vibrant' || accessory
   const primary = { type: 'hierarchical', style: 'primary' } as const
   const secondary = { type: 'hierarchical', style: 'secondary' } as const
@@ -47,7 +47,7 @@ export function AgentActivityWidget(published: Partial<WidgetProps> | undefined,
       </HStack>
     )
   }
-  // "Updated 12 min ago": scritto dal telefono per ogni voce della timeline (nella lingua scelta).
+  // "Updated 12 min ago": written by the phone for each timeline entry (in the chosen language).
   const age = props.agoLabel ? <Text modifiers={[font({ size: 11 }), foregroundStyle(secondary), lineLimit(1)]}>{props.agoLabel}</Text> : null
   const footer = !loaded ? (
     <Text modifiers={[font({ size: 11 }), foregroundStyle(secondary), lineLimit(1)]}>{text.open}</Text>

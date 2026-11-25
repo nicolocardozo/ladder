@@ -1,7 +1,7 @@
-// Manda un push di prova a un token Expo, con lo stesso formato dei push veri (LAD-53). Node 24 lo esegue direttamente.
+// Sends a test push to an Expo token, in the same format as real pushes. Node 24 runs it directly.
 //   node scripts/push-test.ts 'ExponentPushToken[xxxxxxxx]' [request|turn|error|agents] [--locale it] [--session <id>] [--item <id>] [--mac <id>]
-// Chiama davvero exp.host. Stampa il messaggio (token nascosto) e l'esito dal log del sender (token mascherato, mai intero);
-// il biglietto grezzo di Expo non si stampa.
+// Calls exp.host for real. Prints the message (token hidden) and the outcome from the sender's log (token masked, never in full);
+// Expo's raw receipt is not printed.
 import { message, PushService } from '../src/host/remote/push.ts'
 import { registerCatalog, isLocale, type Locale } from '../src/shared/i18n.ts'
 import it from '../src/shared/locales/it/host.ts'
@@ -22,7 +22,7 @@ const kind: PushKind = kindArg === 'turn' || kindArg === 'error' || kindArg === 
 const locale: Locale = isLocale(flag('locale')) ? (flag('locale') as Locale) : 'en'
 const msg = message({ pushToken: token, locale }, { kind, sessionId: flag('session') ?? 'test-session', itemId: flag('item') ?? null }, flag('mac') ?? 'test-mac')
 
-// Usa direttamente il sender: nessun database, nessuna preferenza.
+// Uses the sender directly: no database, no preferences.
 const service = new PushService({
   access: { enabled: true, pushTargets: () => [], clearPushToken: () => console.log('(token not registered: the app would clear it)') },
   macId: () => msg.data.mac,

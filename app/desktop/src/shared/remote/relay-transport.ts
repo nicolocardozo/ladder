@@ -1,19 +1,19 @@
-// Trasporto del telefono verso il relay (LAD-50): TypeScript puro sul WebSocket globale (Node 24, React Native).
-// Ha la stessa forma di un RemoteLink (send / onBytes / onClose) più lo stato del Mac. È sottile: la riconnessione la decide chi lo usa.
-// Uso: crea il trasporto, aspetta `onStatus({ online: true })` e solo allora manda il primo messaggio Noise (clientHandshake().start()).
-// Ogni `online: true` successivo è un nuovo collegamento con il Mac (tornato dopo un'assenza): l'handshake riparte da capo.
-// Il relay non autentica niente: chi parla davvero con il Mac lo stabilisce l'handshake Noise, con la chiave pubblica del Mac.
+// Phone transport to the relay: plain TypeScript over the global WebSocket (Node 24, React Native).
+// It has the same shape as a RemoteLink (send / onBytes / onClose) plus the Mac's status. It is thin: whoever uses it decides how to reconnect.
+// Usage: create the transport, wait for `onStatus({ online: true })` and only then send the first Noise message (clientHandshake().start()).
+// Every later `online: true` is a new link with the Mac (back after an absence): the handshake starts over from scratch.
+// The relay authenticates nothing: the Noise handshake, with the Mac's public key, decides who is really talking to the Mac.
 import type { RemoteMacStatus } from '../protocol.ts'
 import { RELAY_MAX_PHONE_MESSAGE, RELAY_PING, RELAY_PING_INTERVAL_MS, RELAY_PONG, relayEndpoint, type RelayToPhone } from './relay-protocol.ts'
 
 export interface RelayTransportOptions {
-  /** Indirizzo del relay (wss://…; ws:// solo verso localhost). */
+  /** Relay address (wss://…; ws:// only towards localhost). */
   relayUrl: string
-  /** Id del Mac sul relay (dal QR di abbinamento). */
+  /** Mac id on the relay (from the pairing QR). */
   macId: string
-  /** Solo per le prove o per ambienti senza WebSocket globale. */
+  /** Only for tests or environments without a global WebSocket. */
   WebSocketImpl?: typeof WebSocket
-  /** Silenzio massimo dal relay prima di dare la connessione per morta. */
+  /** Maximum silence from the relay before the connection is considered dead. */
   deadMs?: number
 }
 
@@ -30,7 +30,7 @@ export class RelayTransport {
   private closed = false
   private macStatus: RemoteMacStatus | null = null
 
-  /** Lancia se l'indirizzo non è valido. */
+  /** Throws if the address is not valid. */
   constructor(options: RelayTransportOptions) {
     this.options = options
     const Impl = options.WebSocketImpl ?? WebSocket
@@ -51,16 +51,16 @@ export class RelayTransport {
     })
     this.ws.addEventListener('close', (event) => this.finish(event.code, event.reason))
     this.ws.addEventListener('error', () => {
-      // Dopo un errore arriva sempre un close.
+      // A close always follows an error.
     })
   }
 
-  /** Ultimo stato del Mac noto, o null prima del primo messaggio del relay. */
+  /** Last known Mac status, or null before the relay's first message. */
   get status(): RemoteMacStatus | null {
     return this.macStatus
   }
 
-  /** Un messaggio Noise verso il Mac. Se il Mac è offline il relay lo scarta: aspetta `online: true`. */
+  /** A Noise message to the Mac. If the Mac is offline the relay drops it: wait for `online: true`. */
   send(bytes: Uint8Array): void {
     if (this.closed || this.ws.readyState !== 1) throw new Error('Relay connection is not open.')
     this.ws.send(bytes as Uint8Array<ArrayBuffer>)
@@ -71,7 +71,7 @@ export class RelayTransport {
     try {
       this.ws.close(1000)
     } catch {
-      // già chiuso
+      // already closed
     }
     this.finish(1000, 'closed')
   }
@@ -84,22 +84,22 @@ export class RelayTransport {
     this.bytesHandlers.push(handler)
   }
 
-  /** Stato del Mac: arriva alla connessione e a ogni cambio (partenza, ritorno, sospensione). */
+  /** Mac status: arrives on connection and on every change (departure, return, suspension). */
   onStatus(handler: (status: RemoteMacStatus) => void): void {
     this.statusHandlers.push(handler)
   }
 
-  /** Il relay è raggiungibile (il Mac può non esserlo: vedi onStatus). */
+  /** The relay is reachable (the Mac may not be: see onStatus). */
   onOpen(handler: () => void): void {
     this.openHandlers.push(handler)
   }
 
-  /** Il relay ha risposto al ping: la connessione è viva. */
+  /** The relay answered the ping: the connection is alive. */
   onAlive(handler: () => void): void {
     this.aliveHandlers.push(handler)
   }
 
-  /** Connessione chiusa (da noi, dal relay o per rete sparita), con codice e motivo di chiusura. */
+  /** Connection closed (by us, by the relay or because the network vanished), with close code and reason. */
   onClose(handler: (code: number, reason: string) => void): void {
     this.closeHandlers.push(handler)
   }
@@ -121,20 +121,20 @@ export class RelayTransport {
     for (const handler of this.statusHandlers) handler(status)
   }
 
-  /** Keepalive: il relay risponde `pong` da solo; se tace troppo a lungo, la rete è sparita e si chiude. */
+  /** Keepalive: the relay answers `pong` on its own; if it stays silent too long, the network is gone and we close. */
   private ping(): void {
     if (Date.now() - this.lastRx > (this.options.deadMs ?? RELAY_PING_INTERVAL_MS * 2.5)) {
       try {
         this.ws.close()
       } catch {
-        // già chiuso
+        // already closed
       }
       return this.finish(1006, 'relay silent')
     }
     try {
       this.ws.send(RELAY_PING)
     } catch {
-      // il close arriva da solo
+      // the close arrives on its own
     }
   }
 

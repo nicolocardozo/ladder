@@ -1,6 +1,6 @@
-// Schermata "Plan limits" (LAD-90): un abbonamento per sezione, con le sue finestre d'uso, ora del reset in ora locale e quanto è
-// vecchio il dato. Tirando giù si rilegge ogni account (`agents.usage`; l'host fa al massimo una lettura vera al minuto per account,
-// il resto viene dalla sua cache e l'ora del dato lo dice).
+// "Plan limits" screen: one subscription per section, with its usage windows, reset time in local time and how
+// old the data is. Pulling down re-reads every account (`agents.usage`; the host does at most one real read per minute per account,
+// the rest comes from its cache and the data time says so).
 import { Stack, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshControl, ScrollView, View } from 'react-native'
@@ -41,7 +41,7 @@ export function PlanLimits() {
     setRefreshing(false)
   }, [])
 
-  // All'apertura: solo gli account mai letti o con un dato vecchio.
+  // On open: only accounts never read or with stale data.
   useEffect(() => {
     if (online) void run(false)
   }, [online, run])

@@ -1,5 +1,5 @@
-// Regole dei push (LAD-53): quali eventi, fascia silenziosa, testo generico. Funzioni pure: si provano con `node --test`.
-// Import relativi e solo `import type` dal protocollo.
+// Push rules: which events, quiet hours, generic text. Pure functions: tested with `node --test`.
+// Relative imports and only `import type` from the protocol.
 import type { PushKind, RemoteNotifyPrefs } from '../../shared/protocol.ts'
 import { tIn, type Locale } from '../../shared/i18n.ts'
 
@@ -11,7 +11,7 @@ const MAX_TZ = 64
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-/** Un fuso IANA che Intl conosce. */
+/** An IANA time zone that Intl knows. */
 export function validTimeZone(tz: unknown): tz is string {
   if (typeof tz !== 'string' || tz.length === 0 || tz.length > MAX_TZ) return false
   try {
@@ -22,7 +22,7 @@ export function validTimeZone(tz: unknown): tz is string {
   }
 }
 
-/** Controlla la forma di RemoteNotifyPrefs e la ricostruisce (campi in più scartati); null se non va. */
+/** Checks the shape of RemoteNotifyPrefs and rebuilds it (extra fields dropped); null if invalid. */
 export function cleanNotifyPrefs(value: unknown): RemoteNotifyPrefs | null {
   if (!isObject(value) || !isObject(value.events)) return null
   const events = {} as Record<PushKind, boolean>
@@ -40,7 +40,7 @@ export function cleanNotifyPrefs(value: unknown): RemoteNotifyPrefs | null {
   return { events, quiet, ...(value.quietAllowsRequests !== undefined ? { quietAllowsRequests: value.quietAllowsRequests as boolean } : {}) }
 }
 
-/** Preferenze salvate (JSON nel database): quelle non valide o assenti tornano ai predefiniti. */
+/** Saved preferences (JSON in the database): invalid or missing ones fall back to the defaults. */
 export function parseNotifyPrefs(raw: unknown): RemoteNotifyPrefs {
   if (typeof raw !== 'string') return DEFAULT_NOTIFY_PREFS
   try {
@@ -50,7 +50,7 @@ export function parseNotifyPrefs(raw: unknown): RemoteNotifyPrefs {
   }
 }
 
-/** Minuti dalla mezzanotte nel fuso `tz` all'istante `at`; null se il fuso non si legge. */
+/** Minutes since midnight in time zone `tz` at instant `at`; null if the zone cannot be read. */
 function minutesIn(tz: string, at: number): number | null {
   try {
     const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(at)
@@ -64,7 +64,7 @@ function minutesIn(tz: string, at: number): number | null {
 
 const toMinutes = (hhmm: string): number => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3))
 
-/** Siamo nella fascia silenziosa? `from` incluso, `to` escluso; from > to attraversa la mezzanotte; from === to è vuota. Fuso illeggibile: no. */
+/** Are we in quiet hours? `from` inclusive, `to` exclusive; from > to crosses midnight; from === to is empty. Unreadable zone: no. */
 export function inQuietHours(quiet: RemoteNotifyPrefs['quiet'], at: number): boolean {
   if (!quiet) return false
   const from = toMinutes(quiet.from)
@@ -75,14 +75,14 @@ export function inQuietHours(quiet: RemoteNotifyPrefs['quiet'], at: number): boo
   return from < to ? now >= from && now < to : now >= from || now < to
 }
 
-/** Il dispositivo vuole questo evento adesso? Evento spento → no; fascia silenziosa → no, salvo richieste con `quietAllowsRequests`. */
+/** Does the device want this event now? Event off → no; quiet hours → no, except requests with `quietAllowsRequests`. */
 export function wantsPush(prefs: RemoteNotifyPrefs, kind: PushKind, at: number): boolean {
   if (!prefs.events[kind]) return false
   if (inQuietHours(prefs.quiet, at)) return kind === 'request' && prefs.quietAllowsRequests === true
   return true
 }
 
-/** Testo generico del push nella lingua del telefono: mai nomi di progetti o contenuti. */
+/** Generic push text in the phone's language: never project names or content. */
 export function pushBody(kind: PushKind, locale: Locale): string {
   switch (kind) {
     case 'request':

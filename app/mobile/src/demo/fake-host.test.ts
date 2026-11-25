@@ -5,7 +5,7 @@ import { FakeHost } from './fake-host.ts'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-test('approvare una richiesta la risolve e la sessione riparte', async () => {
+test('approving a request resolves it and the session resumes', async () => {
   const host = new FakeHost({ speed: 0.05 })
   const events: RemoteEvent[] = []
   host.onEvent((e) => events.push(e))
@@ -18,7 +18,7 @@ test('approvare una richiesta la risolve e la sessione riparte', async () => {
   host.dispose()
 })
 
-test('permesso oltre il massimo del progetto rifiutato', async () => {
+test('permission above the project maximum is rejected', async () => {
   const host = new FakeHost()
   await assert.rejects(host.handle({ type: 'session.permission.set', sessionId: 's6', permission: 'full' }), /at most edit/)
   const ok = (await host.handle({ type: 'session.permission.set', sessionId: 's6', permission: 'plan' })) as { appliesFrom: string }
@@ -26,7 +26,7 @@ test('permesso oltre il massimo del progetto rifiutato', async () => {
   host.dispose()
 })
 
-test('invio con sessione in corso accoda, stop interrompe', async () => {
+test('sending while a session is running queues, stop interrupts', async () => {
   const host = new FakeHost({ speed: 0.05 })
   await host.handle({ type: 'session.send', sessionId: 's1', text: 'then deploy', busy: 'queue' })
   assert.equal(host.snapshot().sessions.find((s) => s.id === 's1')!.queue.length, 1)
@@ -35,7 +35,7 @@ test('invio con sessione in corso accoda, stop interrompe', async () => {
   host.dispose()
 })
 
-test('nuova sessione dal telefono: upsert prima del risultato, poi la chat risponde', async () => {
+test('new session from the phone: upsert before the result, then the chat replies', async () => {
   const host = new FakeHost({ speed: 0.05 })
   const events: RemoteEvent[] = []
   host.onEvent((e) => events.push(e))
@@ -49,7 +49,7 @@ test('nuova sessione dal telefono: upsert prima del risultato, poi la chat rispo
   host.dispose()
 })
 
-test('nuova sessione: errori come l’host, permesso ridotto al tetto del progetto', async () => {
+test('new session: errors like the host, permission reduced to the project cap', async () => {
   const host = new FakeHost({ speed: 0.05 })
   const base = { type: 'session.create' as const, agent: 'claude-code' as const, model: null, effort: null, mode: 'chat' as const }
   await assert.rejects(host.handle({ ...base, projectId: 'nope', text: 'x', permission: 'ask' }), /Project not found/)
@@ -60,7 +60,7 @@ test('nuova sessione: errori come l’host, permesso ridotto al tetto del proget
   host.dispose()
 })
 
-test('limiti d’uso: la lettura rimette l’ora ed emette agent.status; ACP non li ha', async () => {
+test('usage limits: reading refreshes the time and emits agent.status; ACP has none', async () => {
   const host = new FakeHost()
   const events: RemoteEvent[] = []
   host.onEvent((e) => events.push(e))
@@ -76,7 +76,7 @@ test('limiti d’uso: la lettura rimette l’ora ed emette agent.status; ACP non
   host.dispose()
 })
 
-test('allegati: l’invio e la nuova sessione portano i nomi nella chat (LAD-92)', async () => {
+test('attachments: sending and new session carry the names into the chat', async () => {
   const host = new FakeHost({ speed: 0.05 })
   const events: RemoteEvent[] = []
   host.onEvent((e) => events.push(e))
@@ -89,7 +89,7 @@ test('allegati: l’invio e la nuova sessione portano i nomi nella chat (LAD-92)
   host.dispose()
 })
 
-test('comandi e ricerca dei file nella demo (LAD-92)', async () => {
+test('commands and file search in the demo', async () => {
   const host = new FakeHost()
   const commands = (await host.handle({ type: 'session.commands', sessionId: 's1' })) as { name: string }[]
   assert.ok(commands.some((c) => c.name === 'review'))

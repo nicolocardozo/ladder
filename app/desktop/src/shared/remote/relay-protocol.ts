@@ -1,19 +1,19 @@
-// Formato dei messaggi tra Mac, relay e telefono (LAD-50). TypeScript puro: lo usano il relay (Worker), l'host e il telefono.
+// Message format between Mac, relay and phone. Plain TypeScript: used by the relay (Worker), the host and the phone.
 //
-// Endpoint: `<relay>/v1/<id>?role=mac|phone` (WebSocket). `id` = base64url(sha256(chiave pubblica Ed25519 del Mac))[0..32].
+// Endpoint: `<relay>/v1/<id>?role=mac|phone` (WebSocket). `id` = base64url(sha256(the Mac's Ed25519 public key))[0..32].
 //
-// Telefono: i messaggi binari sono messaggi Noise passati tali e quali (nessuna busta); quelli di testo sono controlli del relay
+// Phone: binary messages are Noise messages passed through as they are (no envelope); text ones are relay controls
 //   {"t":"mac","online":true} | {"t":"mac","online":false,"since":<ms|null>,"reason":"offline|asleep|quit|rekeyed|unknown"}.
-//   Ogni `online:true` è un collegamento nuovo con il Mac: l'handshake Noise riparte da capo.
-//   Il testo "ping" riceve "pong" dal relay (tiene viva la connessione senza svegliarlo).
+//   Every `online:true` is a new link with the Mac: the Noise handshake starts over.
+//   The text "ping" gets "pong" from the relay (keeps the connection alive without waking the Mac).
 //
-// Mac: un solo socket per tutti i telefoni. Messaggi di testo = controlli JSON:
-//   relay→Mac  {"t":"challenge","nonce":"<b64url>"}   all'apertura
-//   Mac→relay  {"t":"auth","key":"<b64url Ed25519>","sig":"<b64url>"}   firma di authPayload(origin, id, nonce)
+// Mac: a single socket for all phones. Text messages = JSON controls:
+//   relay→Mac  {"t":"challenge","nonce":"<b64url>"}   on open
+//   Mac→relay  {"t":"auth","key":"<b64url Ed25519>","sig":"<b64url>"}   signature of authPayload(origin, id, nonce)
 //   relay→Mac  {"t":"ready","maxPhones":n}
-//   Mac→relay  {"t":"state","state":"asleep|quit|rekeyed|awake"}   asleep/quit/rekeyed: il relay chiude il socket e ricorda il motivo
-//     (rekeyed = il Mac ha rigenerato la chiave: da questo id non tornerà, e il motivo resta finché il relay ricorda l'id)
-// I messaggi binari sono frame: [tipo u8][connId u32 BE][payload].
+//   Mac→relay  {"t":"state","state":"asleep|quit|rekeyed|awake"}   asleep/quit/rekeyed: the relay closes the socket and remembers the reason
+//     (rekeyed = the Mac regenerated its key: it will not return under this id, and the reason stays as long as the relay remembers the id)
+// Binary messages are frames: [type u8][connId u32 BE][payload].
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import type { RemoteMacStatus } from '../protocol.ts'
@@ -22,33 +22,33 @@ import { NOISE_MAX_MESSAGE } from './limits.ts'
 export const RELAY_VERSION = 'v1'
 export const RELAY_ID_LENGTH = 32
 export const RELAY_MAX_PHONES = 8
-/** Massimo di un messaggio WebSocket dal telefono (un messaggio Noise) e dal Mac (messaggio Noise + intestazione del frame). */
+/** Maximum size of a WebSocket message from the phone (one Noise message) and from the Mac (Noise message + frame header). */
 export const RELAY_MAX_PHONE_MESSAGE = NOISE_MAX_MESSAGE
 export const RELAY_FRAME_HEADER = 5
 export const RELAY_MAX_MAC_MESSAGE = NOISE_MAX_MESSAGE + RELAY_FRAME_HEADER
 
-/** Tipi di frame sul socket del Mac. */
+/** Frame types on the Mac's socket. */
 export const RELAY_FRAME_DATA = 1
-/** relay→Mac: un telefono si è connesso (o, dopo un nuovo collegamento del Mac, è ancora lì). */
+/** relay→Mac: a phone connected (or, after the Mac reconnects, is still there). */
 export const RELAY_FRAME_OPEN = 2
-/** In entrambe le direzioni: quel telefono non c'è più / il Mac lo chiude. */
+/** In both directions: that phone is gone / the Mac closes it. */
 export const RELAY_FRAME_CLOSE = 3
 
-/** Testo di keepalive: il relay risponde da solo (auto-response di Cloudflare). */
+/** Keepalive text: the relay answers by itself (Cloudflare auto-response). */
 export const RELAY_PING = 'ping'
 export const RELAY_PONG = 'pong'
-/** Ogni quanto telefono e Mac mandano `ping`; il relay chiude chi tace da più di RELAY_IDLE_MS. */
+/** How often phone and Mac send `ping`; the relay closes whoever has been silent for more than RELAY_IDLE_MS. */
 export const RELAY_PING_INTERVAL_MS = 20_000
 export const RELAY_IDLE_MS = 100_000
 
-/** Codici di chiusura WebSocket usati dal relay (4000-4999: applicativi). */
+/** WebSocket close codes used by the relay (4000-4999: application-defined). */
 export const RELAY_CLOSE = {
   badRequest: 4000,
-  /** Un altro Mac con la stessa chiave ha preso il posto. */
+  /** Another Mac with the same key took over. */
   replaced: 4001,
   authFailed: 4003,
   tooManyPhones: 4004,
-  /** Il Mac ha chiuso quel telefono. */
+  /** The Mac closed that phone. */
   macClosed: 4005,
   idle: 4006,
   rateLimit: 4008,
@@ -69,7 +69,7 @@ export function toBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-/** Null se il testo non è base64url valido. */
+/** Null if the text is not valid base64url. */
 export function fromBase64Url(text: string): Uint8Array | null {
   if (!/^[A-Za-z0-9_-]*$/.test(text) || text.length % 4 === 1) return null
   const binary = atob(text.replace(/-/g, '+').replace(/_/g, '/'))
@@ -78,7 +78,7 @@ export function fromBase64Url(text: string): Uint8Array | null {
   return out
 }
 
-/** Id del Mac sul relay: deriva dalla chiave pubblica, così chi non ha la chiave privata non può prendere quel posto. */
+/** Mac id on the relay: derived from the public key, so whoever lacks the private key cannot take that spot. */
 export function relayIdFromPublicKey(publicKey: Uint8Array): string {
   return toBase64Url(sha256(publicKey)).slice(0, RELAY_ID_LENGTH)
 }
@@ -86,9 +86,9 @@ export function relayIdFromPublicKey(publicKey: Uint8Array): string {
 export const isRelayId = (value: string): boolean => value.length === RELAY_ID_LENGTH && /^[A-Za-z0-9_-]+$/.test(value)
 
 /**
- * Origine del relay (schema + host[:porta]) nella forma che ne vede il Worker: wss→https, ws→http, porta predefinita omessa.
- * Entra nella firma, così una sfida firmata per un relay non vale su un altro (un relay malevolo che inoltra la sfida di uno vero).
- * Se il relay sta dietro un proxy che cambia l'host, Mac e relay vedono origini diverse e l'autenticazione fallisce.
+ * Relay origin (scheme + host[:port]) in the form the Worker sees it: wss→https, ws→http, default port omitted.
+ * It goes into the signature, so a challenge signed for one relay is not valid on another (a malicious relay forwarding a real one's challenge).
+ * If the relay sits behind a proxy that changes the host, Mac and relay see different origins and authentication fails.
  */
 export function relayOrigin(base: string): string {
   const url = new URL(base)
@@ -97,7 +97,7 @@ export function relayOrigin(base: string): string {
   return url.origin
 }
 
-/** Testo che il Mac firma per dimostrare di possedere la chiave dell'id, su quel relay. */
+/** Text the Mac signs to prove it owns the id's key, on that relay. */
 export function authPayload(origin: string, id: string, nonce: string): Uint8Array {
   return encoder.encode(`ladder-relay-v2|${origin}|${id}|${nonce}`)
 }
@@ -106,7 +106,7 @@ export function signAuth(secretKey: Uint8Array, origin: string, id: string, nonc
   return { t: 'auth', key: toBase64Url(ed25519.getPublicKey(secretKey)), sig: toBase64Url(ed25519.sign(authPayload(origin, id, nonce), secretKey)) }
 }
 
-/** Verifica l'autenticazione del Mac: la chiave presentata deve dare l'id e la firma deve valere per quel relay e quel nonce. */
+/** Verifies the Mac's authentication: the presented key must yield the id and the signature must be valid for that relay and that nonce. */
 export function verifyAuth(origin: string, id: string, nonce: string, message: { key: string; sig: string }): boolean {
   const key = fromBase64Url(message.key)
   const sig = fromBase64Url(message.sig)
@@ -132,7 +132,7 @@ export function decodeFrame(bytes: Uint8Array): { type: number; connId: number; 
   return { type: bytes[0], connId: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1, false), payload: bytes.subarray(RELAY_FRAME_HEADER) }
 }
 
-/** Indirizzo WebSocket di un id sul relay. Accetta ws(s):// e http(s)://; il testo in chiaro (ws, http) solo verso questo computer. */
+/** WebSocket address of an id on the relay. Accepts ws(s):// and http(s)://; plain text (ws, http) only toward this computer. */
 export function relayEndpoint(base: string, id: string, role: 'mac' | 'phone'): string {
   const url = new URL(base)
   if (url.protocol === 'https:') url.protocol = 'wss:'

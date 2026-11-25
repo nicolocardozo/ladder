@@ -1,24 +1,24 @@
-// Lettura dei limiti d'uso (LAD-90): `agents.usage` per account. L'host fa al massimo una lettura vera al minuto per dispositivo e
-// account (prima risponde dalla cache), quindi qui basta non farne partire due insieme per lo stesso account e non insistere
-// su un dato fresco. Il valore arriva anche come `agent.status`; lo si applica comunque allo store.
+// Reading usage limits: `agents.usage` per account. The host does at most one real read per minute per device and
+// account (before that it answers from cache), so here it is enough not to start two at once for the same account and not to insist
+// on fresh data. The value also arrives as `agent.status`; it is applied to the store anyway.
 import type { RemoteAgentStatus } from '@shared/protocol'
 import { isStale, type UsageAccount } from '@/lib/usage'
 import { onWorldReset } from '@/lib/world-reset'
 import { useApp } from '@/store/app'
 import { request } from './controller'
 
-/** Esito di una lettura: `ok` con finestre, `empty` se l'host risponde ma non c'è niente da mostrare, `error` se la richiesta fallisce. */
+/** Outcome of a read: `ok` with windows, `empty` if the host answers but there is nothing to show, `error` if the request fails. */
 export type UsageRead = 'ok' | 'empty' | 'error'
 
 const reading = new Map<string, Promise<UsageRead>>()
 const lastRead = new Map<string, number>()
-// Un altro Mac (o la demo) non eredita ora e letture in corso del precedente.
+// Another Mac (or the demo) does not inherit the time and in-flight reads of the previous one.
 onWorldReset(() => {
   reading.clear()
   lastRead.clear()
 })
 
-/** Rilegge un account (una sola richiesta alla volta per account: chi chiede mentre un'altra è in corso ne riceve la stessa). */
+/** Re-reads an account (one request at a time per account: whoever asks while another is in flight gets the same one). */
 export function readUsage(account: Pick<UsageAccount, 'key' | 'agent' | 'profileId'>): Promise<UsageRead> {
   const running = reading.get(account.key)
   if (running) return running
@@ -37,12 +37,12 @@ export function readUsage(account: Pick<UsageAccount, 'key' | 'agent' | 'profile
   return promise
 }
 
-/** Gli account nativi da rileggere: con `all` tutti (tirando giù la lista), altrimenti solo quelli mai letti o vecchi di un minuto. */
+/** The native accounts to re-read: with `all` every one (pull to refresh), otherwise only those never read or a minute old. */
 export function accountsToRead(accounts: UsageAccount[], all: boolean): UsageAccount[] {
   return accounts.filter((a) => a.native && (all || isStale(a.status?.usageAt, lastRead.get(a.key), Date.now())))
 }
 
-/** Rilegge gli account in parallelo; risolve con l'esito di ciascuno. */
+/** Re-reads the accounts in parallel; resolves with the outcome of each. */
 export async function readAll(accounts: UsageAccount[]): Promise<Record<string, UsageRead>> {
   const results = await Promise.all(accounts.map(async (a) => [a.key, await readUsage(a)] as const))
   return Object.fromEntries(results)

@@ -16,7 +16,7 @@ const CHIPS: { icon: IconName; label: () => string }[] = [
   { icon: 'sparkle', label: () => t('Your own agents & plans') }
 ]
 
-/** Prima schermata: abbinare il Mac o provare la demo (anche in produzione: è quella per App Review). */
+/** First screen: pair the Mac or try the demo (also in production: it is the one for App Review). */
 export default function Welcome() {
   const { c } = useTheme()
   const router = useRouter()
@@ -25,7 +25,7 @@ export default function Welcome() {
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 28, paddingTop: insets.top + 24, paddingBottom: 24 }}>
-        {/* Colonna centrata: simbolo fermo (nessuna animazione: l'intro all'avvio ha già dato il movimento), titolo, testo e i tre punti. */}
+        {/* Centered column: still symbol (no animation: the intro at launch already gave the motion), title, text and the three points. */}
         <View style={{ alignItems: 'center' }}>
           <Logo variant="mark" size={96} />
         </View>
@@ -35,7 +35,7 @@ export default function Welcome() {
         <Text variant="bodyL" tone="muted" style={{ marginTop: 12, textAlign: 'center' }}>
           {t('See which sessions need you, approve a request, read the reply as it arrives. Your agents keep running on your Mac.')}
         </Text>
-        {/* Tre capsule in una riga che va a capo, centrate (variante A); in sviluppo il driver può mostrare al loro posto una riga sola (B). */}
+        {/* Three capsules in a wrapping row, centered (variant A); in development the driver can show a single row in their place (B). */}
         {caption ? (
           <Text variant="caption" tone="muted" style={{ marginTop: 20, textAlign: 'center' }}>
             {t('End-to-end encrypted · No account')}

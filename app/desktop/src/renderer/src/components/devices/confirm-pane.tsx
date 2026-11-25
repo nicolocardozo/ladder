@@ -1,5 +1,5 @@
-// Riquadro di conferma dentro una riga (stesso di "Sign out" e del download degli agenti): il focus va su "Cancel", Esc chiude solo il riquadro
-// e riporta il focus al bottone che l'ha aperto.
+// Confirmation pane inside a row (the same as "Sign out" and the agent download): focus goes to "Cancel", Esc closes only the pane
+// and returns focus to the button that opened it.
 import { useEffect, useRef, type ReactNode } from 'react'
 import { t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,7 @@ export function ConfirmPane({ children, confirmLabel, busy, onConfirm, onCancel 
       className="flex flex-col gap-2 rounded-md bg-muted p-3"
       onKeyDown={(e) => {
         if (e.key !== 'Escape') return
-        // Esc chiude solo il riquadro, non le Impostazioni.
+        // Esc closes only the pane, not Settings.
         e.stopPropagation()
         close()
       }}

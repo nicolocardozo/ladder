@@ -1,4 +1,4 @@
-// Identità di un file aperto come tab: stessa stringa in `activeTab` e nello stato degli editor.
+// Identity of a file open as a tab: the same string in `activeTab` and in the editors state.
 const PREFIX = 'file:'
 
 export function fileTabId(root: string, path: string): string {

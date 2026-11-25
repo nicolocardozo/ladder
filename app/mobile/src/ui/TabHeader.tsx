@@ -1,6 +1,6 @@
-// Intestazione delle schermate radice dei tab (Sessioni, Richieste, Impostazioni): il titolo sta subito sotto la barra di stato, senza la
-// riga vuota della barra di navigazione nativa, con un'azione a destra sulla stessa riga. Il contenuto della lista scorre sotto: lo sfondo
-// è pieno fino al titolo e sfuma sotto di esso, così sul testo del titolo non passa mai nulla.
+// Header of the tab root screens (Sessions, Requests, Settings): the title sits right below the status bar, without the
+// empty row of the native navigation bar, with an action on the right on the same row. The list content scrolls underneath: the background
+// is solid down to the title and fades below it, so nothing ever passes over the title text.
 import { type ReactNode } from 'react'
 import { Platform, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -8,17 +8,17 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { useTheme } from '@/theme/theme'
 import { Text } from './Text'
 
-/** Altezza della riga del titolo (sotto la barra di stato) e della sfumatura sotto di essa. */
+/** Height of the title row (below the status bar) and of the fade below it. */
 export const TAB_HEADER_ROW = 52
 const FADE = 12
 
 /**
- * Spazio da lasciare in cima al contenuto della lista sotto l'intestazione. Su iOS la lista (`contentInsetAdjustmentBehavior="automatic"`)
- * aggiunge già l'altezza della barra di stato; su Android no.
+ * Space to leave at the top of the list content below the header. On iOS the list (`contentInsetAdjustmentBehavior="automatic"`)
+ * already adds the status bar height; on Android it does not.
  */
 export function useTabHeaderPad(): number {
   const insets = useSafeAreaInsets()
-  // Più la sfumatura: a riposo il primo elemento sta sotto di essa, intero.
+  // Plus the fade: at rest the first item sits below it, whole.
   return TAB_HEADER_ROW + FADE + (Platform.OS === 'ios' ? 0 : insets.top)
 }
 

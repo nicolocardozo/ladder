@@ -1,4 +1,4 @@
-// Paginazione della chat per il client remoto (LAD-49), separata da Host così si prova con un database vero.
+// Chat pagination for the remote client, separate from Host so it can be tested with a real database.
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChatItem, RemotePage } from '../../shared/protocol.ts'
 
@@ -6,15 +6,15 @@ export const PAGE_DEFAULT = 60
 export const PAGE_MAX = 200
 
 /**
- * Una pagina dalla fine all'indietro. `before`: seq esclusivo. Con la sessione in memoria (`live`, ha anche gli item non ancora
- * salvati) si taglia da lì; altrimenti si legge dal database solo la pagina, mai tutta la chat.
+ * One page going backwards from the end. `before`: exclusive seq. With the session in memory (`live`, which also has items not yet
+ * saved) it slices from there; otherwise only the page is read from the database, never the whole chat.
  */
 export function pageItems(db: Pick<DatabaseSync, 'prepare'>, live: Map<string, ChatItem> | undefined, sessionId: string, before?: number, limit?: number): RemotePage {
   const size = Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit as number), 1), PAGE_MAX) : PAGE_DEFAULT
   const upTo = before !== undefined && Number.isFinite(before) ? before : Number.MAX_SAFE_INTEGER
   let older: ChatItem[]
   if (live) {
-    // La mappa è quasi sempre già in ordine di seq (gli item nuovi si aggiungono in fondo): si ordina solo se non lo è.
+    // The map is almost always already in seq order (new items are appended): it is sorted only if it is not.
     const all = [...live.values()]
     for (let i = 1; i < all.length; i++) {
       if (all[i - 1].seq > all[i].seq) {
@@ -22,7 +22,7 @@ export function pageItems(db: Pick<DatabaseSync, 'prepare'>, live: Map<string, C
         break
       }
     }
-    // Ricerca binaria del primo item con seq >= upTo: la pagina sta subito prima.
+    // Binary search for the first item with seq >= upTo: the page sits right before it.
     let lo = 0
     let hi = all.length
     while (lo < hi) {
@@ -35,6 +35,6 @@ export function pageItems(db: Pick<DatabaseSync, 'prepare'>, live: Map<string, C
     const rows = db.prepare('select json from items where session_id = ? and seq < ? order by seq desc limit ?').all(sessionId, upTo, size + 1) as { json: string }[]
     older = rows.map((r) => JSON.parse(r.json) as ChatItem)
   }
-  // size + 1 righe lette: la in più dice solo se c'è altro più indietro.
+  // size + 1 rows read: the extra one only says whether there is more further back.
   return { sessionId, items: older.slice(0, size).reverse(), hasMore: older.length > size }
 }

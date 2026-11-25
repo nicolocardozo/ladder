@@ -1,5 +1,5 @@
-// Contenuto di uno sheet nativo (rotta `formSheet` di iOS): maniglia e vetro li mette il sistema, qui solo l'impaginazione.
-// `fit`: lo sheet è alto quanto il contenuto (scorre solo se non sta sopra la tastiera); altrimenti due altezze (metà e piena) e il contenuto scorre.
+// Content of a native sheet (iOS `formSheet` route): handle and glass come from the system, here only the layout.
+// `fit`: the sheet is as tall as its content (scrolls only if it doesn't fit above the keyboard); otherwise two heights (half and full) and the content scrolls.
 import { useEffect, useRef, type ComponentRef, type ReactNode } from 'react'
 import { ScrollView, View, useWindowDimensions } from 'react-native'
 import { KeyboardAwareScrollView, useKeyboardState } from 'react-native-keyboard-controller'
@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useDev } from '@/store/dev'
 import { Text } from './Text'
 
-/** Titolo di uno sheet: lo disegna il contenuto, uguale nello sheet nativo e in quello nostro. */
+/** Sheet title: drawn by the content, the same in the native sheet and in our own. */
 export function SheetTitle({ children }: { children: ReactNode }) {
   return (
     <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 }}>
@@ -22,7 +22,7 @@ export function NativeSheet({ fit, children }: { fit?: boolean; children: ReactN
   const insets = useSafeAreaInsets()
   const { height: screen } = useWindowDimensions()
   const scroller = useRef<ComponentRef<typeof ScrollView>>(null)
-  // Solo sviluppo: il driver fa scorrere lo sheet (prova dello scorrimento con la tastiera).
+  // Development only: the driver scrolls the sheet (scroll test with the keyboard).
   useEffect(() => {
     if (!__DEV__) return
     const fn = (y: number) => scroller.current?.scrollTo({ y, animated: false })
@@ -32,13 +32,13 @@ export function NativeSheet({ fit, children }: { fit?: boolean; children: ReactN
     }
   }, [])
   const kb = useKeyboardState((st) => (st.isVisible ? st.height : 0))
-  // Sotto la maniglia (circa 20 pt) il titolo respira.
+  // Below the handle (about 20 pt) the title gets room to breathe.
   const base = { paddingTop: 28, paddingBottom: Math.max(insets.bottom, 16) + 8 }
-  // Con la tastiera su il bordo di sicurezza del telefono sta già nell'altezza della tastiera.
+  // With the keyboard up the phone's bottom safe area is already within the keyboard's height.
   const pad = { ...base, paddingBottom: kb > 0 ? 12 : base.paddingBottom }
   if (fit) {
-    // Alto quanto il contenuto, ma mai più dello spazio sopra la tastiera. Il sistema allunga lo sheet della tastiera e dà alla lista tutta
-    // quell'altezza: `contentInset` lascia scorrere il fondo sopra la tastiera quando il contenuto (telefono piccolo, opzioni aperte) è più alto.
+    // As tall as the content, but never more than the space above the keyboard. The system stretches the keyboard's sheet and gives the list all
+    // that height: `contentInset` lets the bottom scroll above the keyboard when the content (small phone, options open) is taller.
     const room = screen - insets.top - 24 - kb
     return (
       <ScrollView ref={scroller} style={{ maxHeight: room }} contentInset={{ bottom: kb }} scrollIndicatorInsets={{ bottom: kb }} bounces={false} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="never" contentContainerStyle={pad}>

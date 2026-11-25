@@ -1,5 +1,5 @@
-// Trasporto locale per le prove: WebSocket su 127.0.0.1, un messaggio binario = un messaggio Noise.
-// Parte solo con LADDER_REMOTE_PORT (vedi host/index.ts): abbinamento e relay arrivano con LAD-51 e LAD-50.
+// Local transport for tests: WebSocket on 127.0.0.1, one binary message = one Noise message.
+// Starts only with LADDER_REMOTE_PORT (see host/index.ts); pairing and the relay live in their own modules.
 import { WebSocketServer, type WebSocket } from 'ws'
 import { NOISE_MAX_MESSAGE } from '../../shared/remote/noise.ts'
 import type { RemoteGateway, RemoteLink } from './gateway.ts'
@@ -12,7 +12,7 @@ function linkOf(ws: WebSocket): RemoteLink {
     close: () => ws.close(),
     onBytes: (handler) =>
       ws.on('message', (data, isBinary) => {
-        // Solo binari: un messaggio di testo non è Noise.
+        // Binary only: a text message is not Noise.
         if (!isBinary || !(data instanceof Buffer)) return ws.close(1003)
         handler(new Uint8Array(data.buffer, data.byteOffset, data.length))
       }),
@@ -26,10 +26,10 @@ function linkOf(ws: WebSocket): RemoteLink {
 }
 
 /**
- * Il server è solo locale: l'header Host deve essere l'indirizzo di loopback con la porta in ascolto (contro il DNS rebinding: una pagina web
- * il cui nome punta a 127.0.0.1 manda un altro Host). Origin: assente (client nativo) o `http://` + lo stesso Host (React Native).
- * Da questo server non si serve nessuna pagina, quindi le pagine web di altri siti restano fuori.
- * 10.0.2.2 è l'indirizzo con cui l'emulatore Android raggiunge il loopback del Mac: è un IP letterale, non un nome, quindi non riapre il rebinding.
+ * The server is local only: the Host header must be the loopback address with the listening port (against DNS rebinding: a web page
+ * whose name points to 127.0.0.1 sends a different Host). Origin: absent (native client) or `http://` + the same Host (React Native).
+ * No page is served from this server, so web pages of other sites stay out.
+ * 10.0.2.2 is the address the Android emulator uses to reach the Mac's loopback: it is a literal IP, not a name, so it does not reopen rebinding.
  */
 export function originAllowed({ origin, req }: { origin: string; req: { headers: { host?: string } } }, port: number): boolean {
   const host = req.headers.host
@@ -38,10 +38,10 @@ export function originAllowed({ origin, req }: { origin: string; req: { headers:
   return !origin || origin === `http://${host}`
 }
 
-/** Avvia il server su 127.0.0.1:port (0 = porta libera). Risolve con la porta in ascolto e uno `stop`. */
+/** Starts the server on 127.0.0.1:port (0 = free port). Resolves with the listening port and a `stop`. */
 export function startLocalWsServer(gateway: RemoteGateway, port: number): Promise<{ port: number; stop: () => void }> {
   return new Promise((resolve, reject) => {
-    // Con porta 0 quella vera si sa solo dopo l'ascolto: il controllo la legge da qui.
+    // With port 0 the real one is only known after listening: the check reads it from here.
     let actualPort = port
     const server = new WebSocketServer({
       host: '127.0.0.1',
@@ -57,7 +57,7 @@ export function startLocalWsServer(gateway: RemoteGateway, port: number): Promis
       actualPort = typeof address === 'object' && address ? address.port : port
       resolve({ port: typeof address === 'object' && address ? address.port : port, stop: () => server.close() })
     })
-    // Ping ogni 30 s: chi non ha risposto al giro prima è sparito e si chiude (il pong conta anche come attività per il gateway).
+    // Ping every 30 s: whoever did not answer in the previous round is gone and is closed (the pong also counts as activity for the gateway).
     const alive = new WeakSet<WebSocket>()
     const timer = setInterval(() => {
       for (const ws of server.clients) {

@@ -1,8 +1,8 @@
-// Intro animata: subito dopo lo splash nativo (che è solo uno sfondo, senza immagine) le tre barre del simbolo salgono come gradini,
-// nell'accento del tema, poi il velo si dissolve su Home o Welcome. Parte appena font e tema sono pronti, anche se l'avvio non ha
-// finito: in quel caso l'onda lenta del simbolo gira finché `ready` non arriva (al massimo MAX_WAIT_MS, poi si apre comunque).
-// Il passaggio dallo splash nativo è senza stacco: il velo parte dallo stesso colore dello splash (vedi NATIVE_BG, che deve
-// restare uguale a `expo-splash-screen` in app.json) e in 160 ms scivola allo sfondo del tema scelto, se diverso.
+// Animated intro: right after the native splash (which is only a background, no image) the symbol's three bars rise like steps,
+// in the theme accent, then the veil dissolves into Home or Welcome. It starts as soon as fonts and theme are ready, even if startup has not
+// finished: in that case the symbol's slow wave runs until `ready` arrives (at most MAX_WAIT_MS, then it opens anyway).
+// The handoff from the native splash is seamless: the veil starts from the same color as the splash (see NATIVE_BG, which must
+// stay equal to `expo-splash-screen` in app.json) and in 160 ms slides to the chosen theme's background, if different.
 import * as SplashScreen from 'expo-splash-screen'
 import { useEffect, useRef, useState } from 'react'
 import { Appearance, StyleSheet } from 'react-native'
@@ -11,13 +11,13 @@ import { useReduceMotion } from '@/lib/use-reduce-motion'
 import { useTheme } from '@/theme/theme'
 import { LOGO_ENTER_MS, Logo } from './Logo'
 
-/** Sfondi dello splash nativo (app.json, plugin expo-splash-screen): tema Circuit per lo scuro, Daylight per il chiaro. */
+/** Native splash backgrounds (app.json, expo-splash-screen plugin): Circuit theme for dark, Daylight for light. */
 const NATIVE_BG = { dark: '#181424', light: '#FFFFFF' }
 const HOLD_MS = 60
 const EXIT_MS = 240
 const MAX_WAIT_MS = 3500
 
-/** Vero quando l'intro si è chiusa: le schermate che nascono dopo (Welcome) possono far entrare il loro logo da sole. */
+/** True when the intro has closed: screens created afterwards (Welcome) can animate their logo in on their own. */
 export const introState = { done: false }
 
 export function Intro({ ready }: { ready: boolean }) {
@@ -26,7 +26,7 @@ export function Intro({ ready }: { ready: boolean }) {
   const [shown, setShown] = useState(true)
   const [entered, setEntered] = useState(false)
   const [timedOut, setTimedOut] = useState(false)
-  // Il colore dello splash nativo, deciso dall'aspetto del telefono all'avvio (prima che l'app lo cambi col tema).
+  // The native splash color, decided by the phone's appearance at launch (before the app changes it with the theme).
   const [from] = useState(() => (Appearance.getColorScheme() === 'light' ? NATIVE_BG.light : NATIVE_BG.dark))
   const bg = useSharedValue(0)
   const fade = useSharedValue(1)
@@ -36,7 +36,7 @@ export function Intro({ ready }: { ready: boolean }) {
   const onLayout = () => {
     if (started.current) return
     started.current = true
-    // Il primo fotogramma del velo è già a schermo: si toglie lo splash nativo (stesso colore, nessuno stacco).
+    // The veil's first frame is already on screen: remove the native splash (same color, no seam).
     SplashScreen.setOptions({ fade: false })
     void SplashScreen.hideAsync()
     if (from !== c.background) bg.value = withTiming(1, { duration: 160, easing: Easing.out(Easing.quad) })
@@ -64,7 +64,7 @@ export function Intro({ ready }: { ready: boolean }) {
   }, [leaving, fade, lift])
 
   const veil = useAnimatedStyle(() => ({ opacity: fade.value, backgroundColor: interpolateColor(bg.value, [0, 1], [from, c.background]) }))
-  // Il simbolo si ingrandisce appena mentre il velo svanisce (con "Reduce Motion": solo dissolvenza).
+  // The symbol grows slightly while the veil fades (with "Reduce Motion": fade only).
   const mark = useAnimatedStyle(() => ({ transform: [{ scale: reduce ? 1 : 1 + lift.value * 0.12 }] }))
   if (!shown) return null
   return (

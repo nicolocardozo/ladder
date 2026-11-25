@@ -1,6 +1,6 @@
-// Limiti d'uso dentro la sessione (LAD-90): avviso solo vicino al limite. Nell'header un triangolo accanto al permesso (da 80% o a
-// limite esaurito, la stessa soglia del desktop); sopra il composer un bannerino da 95%. Toccandoli si apre "Plan limits" sull'account
-// della sessione. Sotto soglia non c'è niente. Il bannerino chiuso resta chiuso finché la finestra non si azzera (solo in memoria).
+// Usage limits inside the session: warning only near the limit. In the header a triangle next to the permission (from 80% or when the
+// limit is exhausted, the same threshold as the desktop); above the composer a small banner from 95%. Tapping them opens "Plan limits" on the session's
+// account. Below the threshold there is nothing. A dismissed banner stays dismissed until the window resets (in memory only).
 import { useRouter } from 'expo-router'
 import { useCallback, useMemo } from 'react'
 import { Pressable, View } from 'react-native'
@@ -19,7 +19,7 @@ import { AlertGlyph } from './UsageBits'
 
 type Target = Pick<SessionSummary, 'agent' | 'profileId'>
 
-/** L'avviso dell'account di una sessione alla soglia data, con il suo testo già tradotto. */
+/** The warning of a session's account at the given threshold, with its text already translated. */
 export function useSessionUsageAlert(session: Target | undefined, threshold?: number): { alert: UsageAlert; text: { what: string; reset: string | null } } | null {
   const agents = useApp((s) => s.agents)
   const now = useNow(60_000)
@@ -32,22 +32,22 @@ export function useSessionUsageAlert(session: Target | undefined, threshold?: nu
   }, [agents, agent, profileId, now, threshold])
 }
 
-/** Apre "Plan limits" con l'account della sessione per primo. */
+/** Opens "Plan limits" with the session's account first. */
 export function useOpenLimits(session: Target | undefined): () => void {
   const router = useRouter()
   const agent = session?.agent
   const profileId = session?.profileId
-  // Stabile: entra nelle dipendenze delle opzioni dell'header, che non devono ricalcolarsi a ogni pezzo di testo in arrivo.
+  // Stable: it enters the dependencies of the header options, which must not be recomputed on every chunk of incoming text.
   return useCallback(() => router.push({ pathname: '/limits', params: { ...(agent ? { agent } : {}), ...(profileId ? { profileId } : {}) } }), [router, agent, profileId])
 }
 
-// ── Bannerino ──
+// ── Banner ──
 
 const useDismissed = create<{ closed: ReadonlyMap<string, number | null>; dismiss: (key: string, resetsAt: number | null) => void }>((set) => ({
   closed: new Map(),
   dismiss: (key, resetsAt) => set((s) => ({ closed: new Map(s.closed).set(key, resetsAt) }))
 }))
-// Per un altro Mac (o la demo) i bannerini chiusi non valgono più.
+// For another Mac (or the demo) dismissed banners no longer apply.
 onWorldReset(() => useDismissed.setState({ closed: new Map() }))
 
 export function UsageBanner({ session }: { session: Target }) {
@@ -57,7 +57,7 @@ export function UsageBanner({ session }: { session: Target }) {
   const closed = useDismissed((s) => s.closed)
   if (!found) return null
   const { alert, text } = found
-  // Chiave: account e finestra. Il reset si ricorda a parte e si confronta con una tolleranza (l'host lo ricalcola a ogni lettura).
+  // Key: account and window. The reset is remembered separately and compared with a tolerance (the host recomputes it on every read).
   const key = dismissKey(session.agent, session.profileId, alert.usage.key)
   if (isDismissed(closed, key, alert.usage.resetsAt)) return null
   const tone = alert.limited ? c.error : c.waiting

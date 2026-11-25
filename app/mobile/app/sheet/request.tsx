@@ -3,7 +3,7 @@ import { RequestContent } from '@/features/request/RequestSheet'
 import { useSheetClose } from '@/lib/use-sheet-close'
 import { NativeSheet } from '@/ui/NativeSheet'
 
-/** Richiesta dell'agente in un `formSheet` nativo (iOS). `fit=1`: permesso semplice, lo sheet è alto quanto il contenuto. */
+/** Agent request in a native `formSheet` (iOS). `fit=1`: simple permission, the sheet is as tall as the content. */
 export default function RequestRoute() {
   const { sessionId, requestId, fit } = useLocalSearchParams<{ sessionId: string; requestId: string; fit?: string }>()
   const close = useSheetClose()

@@ -1,5 +1,5 @@
-// Stato di una sessione: forma + colore, mai solo colore. In corso = anello che gira, ti aspetta = triangolo (ambra),
-// errore = quadrato con croce (rosa), da leggere = punto, in coda = tre righe. Il resto del colore è riservato a questi significati.
+// Session state: shape + color, never color alone. Running = spinning ring, waiting for you = triangle (amber),
+// error = square with a cross (rose), to read = dot, queued = three lines. The rest of the color is reserved for these meanings.
 import { useEffect } from 'react'
 import { View } from 'react-native'
 import Animated, { Easing, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated'
@@ -68,7 +68,7 @@ export function StateGlyph({ state, size = 16 }: { state: SessionState; size?: n
   }
 }
 
-/** Segnale aggregato di un progetto o di una sezione: forma piccola + numero. */
+/** Aggregate signal of a project or section: small shape + number. */
 export function SignalGlyph({ kind, size = 12 }: { kind: 'running' | 'waiting' | 'unread' | 'error'; size?: number }) {
   return <StateGlyph state={kind} size={size} />
 }

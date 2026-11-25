@@ -1,8 +1,8 @@
-// Un Durable Object per ogni Mac (id = hash della sua chiave pubblica). Inoltra byte tra il Mac e i suoi telefoni senza leggerli:
-// il contenuto è cifrato da capo a capo (Noise) e qui non c'è nessuna chiave. Formato dei messaggi: shared/remote/relay-protocol.ts.
-// Stato su disco: solo `mac` = { lastSeen, reason } (ultima volta visto e perché è sparito). Nessun messaggio viene conservato né registrato.
-// Hibernation: i socket sopravvivono all'eviction dell'oggetto, quindi tutto lo stato per socket sta negli attachment (max 2 KiB);
-// il ping/pong del keepalive è un auto-response e non sveglia l'oggetto.
+// One Durable Object per Mac (id = hash of its public key). Forwards bytes between the Mac and its phones without reading them:
+// the content is end-to-end encrypted (Noise) and there is no key here. Message format: shared/remote/relay-protocol.ts.
+// State on disk: only `mac` = { lastSeen, reason } (last time seen and why it disappeared). No message is stored or logged.
+// Hibernation: sockets survive the object's eviction, so all per-socket state lives in attachments (max 2 KiB);
+// the keepalive ping/pong is an auto-response and does not wake the object.
 import { DurableObject } from 'cloudflare:workers'
 import type { RemoteMacStatus, RemoteOfflineReason } from '../../desktop/src/shared/protocol.ts'
 import {
@@ -25,20 +25,20 @@ import {
   type RelayToPhone
 } from '../../desktop/src/shared/remote/relay-protocol.ts'
 
-/** Un Mac che non si è autenticato entro questo tempo viene chiuso; al massimo MAX_PENDING_MACS in attesa (oltre, il più vecchio fa posto al nuovo). */
+/** A Mac that has not authenticated within this time is closed; at most MAX_PENDING_MACS waiting (beyond that, the oldest makes room for the new one). */
 const AUTH_TIMEOUT_MS = 10_000
 const MAX_PENDING_MACS = 4
 /**
- * Un telefono che aspetta il Mac offline da più di così viene chiuso anche se manda ping (il suo client si riconnette e riceve lo stato):
- * otto socket che fanno solo ping non possono tenere occupati tutti i posti. Con il Mac offline, un telefono nuovo fa inoltre posto
- * cacciando quello in attesa da più tempo.
+ * A phone that has been waiting for the offline Mac longer than this is closed even if it sends pings (its client reconnects and gets the state):
+ * eight sockets that only ping cannot keep all the seats busy. While the Mac is offline, a new phone also makes room
+ * by evicting the one that has been waiting longest.
  */
 const OFFLINE_WAIT_MS = 5 * 60_000
-/** L'allarme scatta solo alla prossima scadenza vera (auth, silenzio, attesa offline), mai a intervalli fissi; mai prima di così. */
+/** The alarm fires only at the next real deadline (auth, silence, offline wait), never at fixed intervals; never sooner than this. */
 const MIN_ALARM_GAP_MS = 1_000
-/** Messaggi di testo di controllo del Mac (auth, state): piccoli. */
+/** Mac control text messages (auth, state): small. */
 const MAX_CONTROL_TEXT = 1024
-/** Limiti per connessione: messaggi al secondo e byte al secondo (a regime) con una raffica; il Mac porta il traffico di tutti i telefoni. */
+/** Per-connection limits: messages per second and bytes per second (steady state) with a burst; the Mac carries all phones' traffic. */
 const LIMITS = {
   phone: { msgsPerSec: 100, msgBurst: 200, bytesPerSec: 2 * 1024 * 1024, byteBurst: 8 * 1024 * 1024 },
   mac: { msgsPerSec: 400, msgBurst: 800, bytesPerSec: 8 * 1024 * 1024, byteBurst: 32 * 1024 * 1024 }
@@ -46,21 +46,21 @@ const LIMITS = {
 
 interface Attachment {
   role: 'mac' | 'phone'
-  /** Id del Mac (dall'indirizzo). */
+  /** Mac id (from the address). */
   id: string
-  /** Telefono: numero della connessione verso il Mac. */
+  /** Phone: connection number toward the Mac. */
   connId: number
-  /** Mac: ha superato la sfida. */
+  /** Mac: passed the challenge. */
   authed: boolean
   nonce: string
-  /** Origine del relay come la vede questo oggetto (entra nella firma del Mac). */
+  /** Origin of the relay as this object sees it (part of the Mac's signature). */
   origin: string
-  /** Telefono: da quando aspetta il Mac offline (ms), 0 se il Mac c'è. */
+  /** Phone: since when it has been waiting for the offline Mac (ms), 0 if the Mac is there. */
   waitingSince: number
-  /** Apertura e ultima attività vista dall'oggetto (il ping auto-risposto si legge a parte). */
+  /** Open time and last activity seen by the object (the auto-answered ping is read separately). */
   at: number
   last: number
-  /** Già gestita l'uscita: evita doppie notifiche (close esplicito + evento di chiusura). */
+  /** Exit already handled: avoids double notifications (explicit close + close event). */
   gone: boolean
 }
 
@@ -75,11 +75,11 @@ interface Bucket {
   at: number
 }
 
-// Nessuna variabile d'ambiente: il relay non ha segreti né configurazione.
+// No environment variables: the relay has no secrets or configuration.
 type Env = Record<string, never>
 
 export class RelayDurableObject extends DurableObject<Env> {
-  /** Secchielli dei limiti: in memoria, si azzerano con l'hibernation (un limite, non una garanzia). */
+  /** Limit buckets: in memory, reset on hibernation (a limit, not a guarantee). */
   private readonly buckets = new Map<WebSocket, Bucket>()
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -98,7 +98,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     const [client, server] = [pair[0], pair[1]]
 
     if (role === 'mac') {
-      // Sfide in attesa al limite: si chiude la più vecchia, così chi conosce l'id non può tenere occupati i posti e bloccare il Mac vero.
+      // Pending challenges at the limit: the oldest is closed, so someone who knows the id cannot keep the seats busy and lock out the real Mac.
       const pending = this.pendingMacs()
       if (pending.length >= MAX_PENDING_MACS) {
         const [oldest] = pending.sort((a, b) => a.att.at - b.att.at)
@@ -111,7 +111,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     } else {
       const mac = this.authedMac()
       let active = this.activePhones()
-      // Mac offline e posti finiti: fa posto il telefono in attesa da più tempo.
+      // Mac offline and seats full: the phone that has been waiting longest makes room.
       if (active.length >= RELAY_MAX_PHONES && !mac) {
         const [oldest] = active.filter((p) => p.att.waitingSince > 0).sort((a, b) => a.att.waitingSince - b.att.waitingSince)
         if (oldest) {
@@ -124,7 +124,7 @@ export class RelayDurableObject extends DurableObject<Env> {
       this.ctx.acceptWebSocket(server, ['phone', `c${connId}`])
       server.serializeAttachment({ role, id, connId, authed: false, nonce: '', origin, waitingSince: mac || full ? 0 : now, at: now, last: now, gone: full } satisfies Attachment)
       if (full) {
-        // Chiudere prima di restituire la risposta 101 non arriva al client: si chiude subito dopo. `gone` evita che conti come posto occupato.
+        // Closing before returning the 101 response does not reach the client: close right after. `gone` keeps it from counting as an occupied seat.
         setTimeout(() => this.closeQuiet(server, RELAY_CLOSE.tooManyPhones, 'too many phones'), 50)
       } else if (mac) {
         this.sendJson<RelayToPhone>(server, { t: 'mac', online: true })
@@ -143,7 +143,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     const size = typeof message === 'string' ? message.length : message.byteLength
     if (size > (att.role === 'mac' ? (typeof message === 'string' ? MAX_CONTROL_TEXT : RELAY_MAX_MAC_MESSAGE) : RELAY_MAX_PHONE_MESSAGE)) return this.kick(ws, att, RELAY_CLOSE.tooBig, 'message too big')
     if (!this.take(ws, att.role, size)) {
-      // Il Mac porta il traffico di tutti i telefoni: chiuderlo li farebbe cadere tutti. Si scartano i messaggi in eccesso.
+      // The Mac carries all phones' traffic: closing it would drop them all. Excess messages are discarded.
       if (att.role === 'mac') return
       return this.kick(ws, att, RELAY_CLOSE.rateLimit, 'rate limit')
     }
@@ -154,7 +154,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     }
 
     if (att.role === 'phone') {
-      // Dal telefono contano solo i byte Noise; il testo non fa nulla (il ping è già stato risposto).
+      // From the phone only Noise bytes count; text does nothing (the ping has already been answered).
       if (typeof message === 'string') return
       const mac = this.authedMac()
       if (mac) this.sendBytes(mac, encodeFrame(RELAY_FRAME_DATA, att.connId, new Uint8Array(message)))
@@ -180,7 +180,7 @@ export class RelayDurableObject extends DurableObject<Env> {
 
   override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
     await this.onGone(ws)
-    // Completa l'handshake di chiusura (il codice 1005/1006 non si può rimandare).
+    // Completes the closing handshake (code 1005/1006 cannot be sent back).
     this.closeQuiet(ws, code === 1005 || code === 1006 ? 1000 : code, 'closed')
   }
 
@@ -188,7 +188,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     await this.onGone(ws)
   }
 
-  /** Scadenze: Mac non autenticati, socket silenziosi (nessun messaggio né ping), telefoni in attesa del Mac da troppo. Poi riarma per la prossima. */
+  /** Deadlines: unauthenticated Macs, silent sockets (no message or ping), phones waiting too long for the Mac. Then re-arms for the next one. */
   override async alarm(): Promise<void> {
     const now = Date.now()
     for (const ws of this.ctx.getWebSockets()) {
@@ -201,7 +201,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     await this.arm(true)
   }
 
-  /** Quando e perché un socket scade. Il ping auto-risposto non sveglia l'oggetto: se ne legge l'ora qui. */
+  /** When and why a socket expires. The auto-answered ping does not wake the object: its time is read here. */
   private expiryOf(ws: WebSocket, att: Attachment): { at: number; code: number; reason: string } {
     if (att.role === 'mac' && !att.authed) return { at: att.at + AUTH_TIMEOUT_MS, code: RELAY_CLOSE.authFailed, reason: 'auth timeout' }
     const last = Math.max(att.last, this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0)
@@ -210,7 +210,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     return idle
   }
 
-  /** Programma l'allarme alla scadenza più vicina (solo se è prima di quello già programmato, salvo `force`); nessun socket = nessun allarme. */
+  /** Schedules the alarm at the nearest deadline (only if earlier than the one already scheduled, unless `force`); no sockets = no alarm. */
   private async arm(force = false): Promise<void> {
     let next = Infinity
     for (const ws of this.ctx.getWebSockets()) {
@@ -236,7 +236,7 @@ export class RelayDurableObject extends DurableObject<Env> {
       if (att.authed || typeof message.key !== 'string' || typeof message.sig !== 'string' || !verifyAuth(att.origin, att.id, att.nonce, message)) {
         return this.kick(ws, att, RELAY_CLOSE.authFailed, 'authentication failed')
       }
-      // Il Mac autenticato prende il posto di un eventuale altro: l'altro viene chiuso e la sua uscita non conta come "Mac sparito".
+      // The authenticated Mac takes the place of any other: the other is closed and its exit does not count as "Mac gone".
       for (const other of this.ctx.getWebSockets('mac')) {
         const otherAtt = this.attachmentOf(other)
         if (other === ws || !otherAtt?.authed) continue
@@ -247,7 +247,7 @@ export class RelayDurableObject extends DurableObject<Env> {
       ws.serializeAttachment(att)
       await this.ctx.storage.put<StoredMac>('mac', { lastSeen: Date.now(), reason: 'offline' })
       this.sendJson<RelayToMac>(ws, { t: 'ready', maxPhones: RELAY_MAX_PHONES })
-      // Ogni telefono già qui riceve un nuovo collegamento: il Mac lo apre, il telefono rifà l'handshake.
+      // Every phone already here gets a new link: the Mac opens it, the phone redoes the handshake.
       for (const phone of this.phones()) {
         const phoneAtt = this.attachmentOf(phone)
         if (!phoneAtt || phoneAtt.gone) continue
@@ -263,7 +263,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     }
     if (message.t === 'state' && att.authed) {
       if (message.state === 'asleep' || message.state === 'quit' || message.state === 'rekeyed') {
-        // Il Mac sta per sparire: lo si dice subito ai telefoni, senza aspettare che la connessione muoia.
+        // The Mac is about to go away: phones are told right away, without waiting for the connection to die.
         await this.macGone(ws, att, message.state)
         this.closeQuiet(ws, 1000, message.state)
       }
@@ -272,7 +272,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     return this.kick(ws, att, RELAY_CLOSE.badRequest, 'bad message')
   }
 
-  /** Il Mac autenticato se n'è andato (a meno che un altro abbia già preso il suo posto): si ricorda perché e si avvisano i telefoni. */
+  /** The authenticated Mac has left (unless another has already taken its place): the reason is remembered and phones are notified. */
   private async macGone(ws: WebSocket, att: Attachment, reason: RemoteOfflineReason): Promise<void> {
     if (att.gone) return
     this.markGone(ws, att)
@@ -284,14 +284,14 @@ export class RelayDurableObject extends DurableObject<Env> {
       const phoneAtt = this.attachmentOf(phone)
       if (!phoneAtt || phoneAtt.gone) continue
       this.sendJson<RelayToPhone>(phone, { t: 'mac', online: false, since: stored.lastSeen, reason })
-      // Da ora aspetta il Mac: la sua attesa ha un tetto (OFFLINE_WAIT_MS).
+      // From now on it is waiting for the Mac: the wait has a cap (OFFLINE_WAIT_MS).
       phoneAtt.waitingSince = now
       phone.serializeAttachment(phoneAtt)
     }
     await this.arm()
   }
 
-  // ── Uscite e chiusure ─────────────────────────────────────────────────────
+  // ── Exits and closes ──────────────────────────────────────────────────────
 
   private async onGone(ws: WebSocket): Promise<void> {
     const att = this.attachmentOf(ws)
@@ -308,14 +308,14 @@ export class RelayDurableObject extends DurableObject<Env> {
     if (mac) this.sendBytes(mac, encodeFrame(RELAY_FRAME_CLOSE, att.connId))
   }
 
-  /** Segna l'uscita come gestita (anche su disco, perché sopravviva all'hibernation) e libera il suo secchiello. */
+  /** Marks the exit as handled (also on disk, so it survives hibernation) and frees its bucket. */
   private markGone(ws: WebSocket, att: Attachment): void {
     att.gone = true
     ws.serializeAttachment(att)
     this.buckets.delete(ws)
   }
 
-  /** Chiude un socket per colpa sua e ne gestisce l'uscita subito (il close server-side non sempre genera l'evento). */
+  /** Closes a socket because of its own fault and handles its exit right away (a server-side close does not always raise the event). */
   private async kick(ws: WebSocket, att: Attachment, code: number, reason: string): Promise<void> {
     if (att.role === 'mac' && att.authed) await this.macGone(ws, att, 'offline')
     else await this.onGone(ws)
@@ -323,7 +323,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     this.closeQuiet(ws, code, reason)
   }
 
-  // ── Utilità ───────────────────────────────────────────────────────────────
+  // ── Utilities ────────────────────────────────────────────────────────────────
 
   private attachmentOf(ws: WebSocket): Attachment | null {
     try {
@@ -333,7 +333,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     }
   }
 
-  /** Mac autenticato, escluso eventualmente `except`. */
+  /** Authenticated Mac, optionally excluding `except`. */
   private authedMac(except?: WebSocket): WebSocket | null {
     for (const ws of this.ctx.getWebSockets('mac')) {
       if (ws === except) continue
@@ -343,7 +343,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     return null
   }
 
-  /** Mac con la sfida in sospeso (escluse le uscite già gestite). */
+  /** Mac with a pending challenge (excluding exits already handled). */
   private pendingMacs(): { ws: WebSocket; att: Attachment }[] {
     return this.ctx.getWebSockets('mac').flatMap((ws) => {
       const att = this.attachmentOf(ws)
@@ -355,7 +355,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     return this.ctx.getWebSockets('phone')
   }
 
-  /** Telefoni che occupano un posto (quelli già usciti non contano). */
+  /** Phones occupying a seat (those already gone don't count). */
   private activePhones(): { ws: WebSocket; att: Attachment }[] {
     return this.phones().flatMap((ws) => {
       const att = this.attachmentOf(ws)
@@ -375,7 +375,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     return stored ? { online: false, since: stored.lastSeen, reason: stored.reason } : { online: false, since: null, reason: 'unknown' }
   }
 
-  /** Un gettone per messaggio e uno per byte; false se uno dei due secchielli è vuoto. */
+  /** One token per message and one per byte; false if either bucket is empty. */
   private take(ws: WebSocket, role: 'mac' | 'phone', bytes: number): boolean {
     const limit = LIMITS[role]
     const now = Date.now()
@@ -395,7 +395,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     try {
       ws.send(JSON.stringify(message))
     } catch {
-      // socket già chiuso: la sua uscita arriva da sola
+      // socket already closed: its exit arrives on its own
     }
   }
 
@@ -403,7 +403,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     try {
       ws.send(bytes)
     } catch {
-      // idem
+      // same
     }
   }
 
@@ -411,7 +411,7 @@ export class RelayDurableObject extends DurableObject<Env> {
     try {
       ws.close(code, reason)
     } catch {
-      // già chiuso
+      // already closed
     }
   }
 }

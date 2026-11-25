@@ -1,25 +1,25 @@
-// Campo di testo dell'app: come quello di React Native, ma con testo e segnaposto centrati in verticale, uguale su iOS e Android.
-// - Riga singola: niente `lineHeight` (il sistema mette il testo in cima alla riga alta, sotto il centro), padding verticali uguali e, su
-//   Android, testo centrato senza "font padding". Con Mona Sans su iOS il testo risulta circa un punto troppo in basso: si compensa con
-//   più padding sotto, in proporzione al corpo (misurato a 15 e 17 pt).
-// - Più righe: l'altezza di una riga serve per l'a capo; lo spazio che la riga ha in più rispetto al font sta sopra il testo, quindi si
-//   sposta il padding da sopra a sotto della metà di quello spazio. Con un'altezza minima di una o due righe la prima riga sta al centro.
-// Colore, corpo e margini restano a chi usa il campo; `lineHeight` e i padding verticali si normalizzano qui.
+// App text field: like React Native's, but with text and placeholder vertically centered, the same on iOS and Android.
+// - Single line: no `lineHeight` (the system puts the text at the top of the tall line, below center), equal vertical paddings and, on
+//   Android, centered text without "font padding". With Mona Sans on iOS the text comes out about one point too low: compensated with
+//   more padding below, proportional to the font size (measured at 15 and 17 pt).
+// - Multiline: the line height is needed for wrapping; the extra space the line has over the font sits above the text, so
+//   the padding is moved from above to below by half of that space. With a minimum height of one or two lines the first line is centered.
+// Color, font size and margins are left to whoever uses the field; `lineHeight` and vertical paddings are normalized here.
 import { forwardRef, type ComponentRef } from 'react'
 import { Platform, StyleSheet, TextInput as RNTextInput, type TextInputProps, type TextStyle } from 'react-native'
 
 export const TextInput = forwardRef<ComponentRef<typeof RNTextInput>, TextInputProps>(function TextInput({ style, multiline, ...rest }, ref) {
   const flat = StyleSheet.flatten(style) ?? {}
   const fontSize = typeof flat.fontSize === 'number' ? flat.fontSize : 16
-  // Padding verticale simmetrico: il maggiore dei due (o paddingVertical), come lo voleva chi usa il campo.
+  // Symmetric vertical padding: the larger of the two (or paddingVertical), as the field's user intended.
   const num = (v: unknown): number => (typeof v === 'number' ? v : 0)
   const vertical = Math.max(num(flat.padding), num(flat.paddingVertical), num(flat.paddingTop), num(flat.paddingBottom))
   const fixed: Record<string, unknown> = { paddingTop: vertical, paddingBottom: vertical, paddingVertical: undefined }
   if (multiline) {
-    // Più righe: l'altezza di una riga serve (a capo), ma l'altezza minima è una riga più i padding e il testo parte dall'alto.
+    // Multiline: the line height is needed (wrapping), but the minimum height is one line plus the paddings and the text starts at the top.
     const line = typeof flat.lineHeight === 'number' ? flat.lineHeight : Math.round(fontSize * 1.35)
     fixed.lineHeight = line
-    // Altezza minima di una o due righe: padding = metà dello spazio che avanza; con tre righe o più il testo parte dall'alto.
+    // Minimum height of one or two lines: padding = half the leftover space; with three lines or more the text starts at the top.
     const min = typeof flat.minHeight === 'number' ? flat.minHeight : 0
     if (min > 0 && min <= line * 2.6) {
       const centered = Math.max(vertical, Math.round((min - line) / 2))
@@ -27,9 +27,9 @@ export const TextInput = forwardRef<ComponentRef<typeof RNTextInput>, TextInputP
       fixed.paddingBottom = centered
     }
     if (Platform.OS === 'android') Object.assign(fixed, { includeFontPadding: false, textAlignVertical: 'top' })
-    // Spazio in più della riga (lineHeight meno altezza naturale del font): sta sopra il testo, si sposta su di metà.
+    // Extra line space (lineHeight minus the font's natural height): it sits above the text, so it is shifted up by half.
     {
-      const natural = typeof flat.fontFamily === 'string' && flat.fontFamily.startsWith('MonaSans') ? 1.35 : 1.2 // altezza naturale della riga / corpo
+      const natural = typeof flat.fontFamily === 'string' && flat.fontFamily.startsWith('MonaSans') ? 1.35 : 1.2 // natural line height / font size
       const shift = Math.max(0, (line - fontSize * natural) / 2)
       const top = Number(fixed.paddingTop)
       const bottom = Number(fixed.paddingBottom)

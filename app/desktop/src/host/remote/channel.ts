@@ -1,5 +1,5 @@
-// Canale remoto dell'host: tiene insieme gateway, WebSocket locale di prova (LADDER_REMOTE_PORT) e relay (LAD-50).
-// Il gateway (e quindi l'identità) esiste finché almeno uno dei due trasporti è acceso.
+// Remote channel of the host: ties together the gateway, the local test WebSocket (LADDER_REMOTE_PORT) and the relay.
+// The gateway (and therefore the identity) exists as long as at least one of the two transports is on.
 import { hostname } from 'node:os'
 import { REMOTE_DEFAULT_RELAY_URL, type HostCommand, type HostPrefs, type PushEvent, type RemoteDeviceInfo, type RemoteLogEntry, type RemoteLogPage, type RemotePairStart, type RemoteStatus } from '../../shared/protocol.ts'
 import { t } from '../../shared/i18n.ts'
@@ -16,33 +16,33 @@ import type { MacLiveState } from '../../shared/remote/relay-protocol.ts'
 
 export interface RemoteChannelOptions {
   host: RemoteHostApi
-  /** Database dell'host: dispositivi abbinati e log delle azioni remote (LAD-51). */
+  /** Host database: paired devices and the log of remote actions. */
   db: Db
-  /** Cartella dati dell'app (identità e chiave del relay). */
+  /** App data folder (identity and relay key). */
   dataDir: string
   appVersion: string
-  /** LAD-54: telefoni collegati, a ogni cambiamento (il canale ne riporta anche lo zero quando si spegne). */
+  /** Connected phones, on every change (the channel also reports zero when it turns off). */
   onClients?: (count: number) => void
-  /** LAD-51: lo stato è cambiato (canale acceso o spento, dispositivi, collegamenti, QR, password, "Allow Full"). */
+  /** The state changed (channel on or off, devices, connections, QR, password, "Allow Full"). */
   onStatus?: (status: RemoteStatus) => void
-  /** LAD-51: un telefono si è appena abbinato. */
+  /** A phone has just paired. */
   onPaired?: (device: RemoteDeviceInfo) => void
-  /** LAD-51: nuova voce nel log delle azioni remote. */
+  /** New entry in the log of remote actions. */
   onLog?: (entry: RemoteLogEntry) => void
 }
 
-/** Comandi `remote.*` della finestra (LAD-51). */
+/** Window `remote.*` commands. */
 export type RemoteWindowCommand = Extract<HostCommand, { type: `remote.${string}` }>
 
 export const isRemoteWindowCommand = (command: HostCommand): command is RemoteWindowCommand => command.type.startsWith('remote.')
 
-/** Nome del Mac senza caratteri di controllo e di lunghezza limitata. */
+/** Mac name without control characters and of limited length. */
 export function macNameOf(): string {
   return hostname().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 64) || 'Mac'
 }
 
-/** Relay da usare: LADDER_RELAY_URL (solo sviluppo) vale più delle preferenze; spento se né l'uno né le altre lo chiedono. */
-/** Quanto si aspetta il relay, al massimo, per avvisarlo della nuova chiave. */
+/** Relay to use: LADDER_RELAY_URL (development only) takes precedence over the preferences; off if neither asks for it. */
+/** How long to wait for the relay, at most, to notify it of the new key. */
 const REKEY_NOTICE_MS = 1_500
 
 export function relayUrlFor(remote: HostPrefs['remote'], env: string | undefined): string | null {
@@ -61,11 +61,11 @@ export class RemoteChannel {
   private identity: NoiseKeyPair | null = null
   private lastRemote: HostPrefs['remote'] = undefined
   readonly access: RemoteAccess
-  /** LAD-53: notifiche push ai telefoni, con Expo. */
+  /** Push notifications to the phones, via Expo. */
   private readonly push: PushService
   private localStarted = false
   private busy: Promise<void> = Promise.resolve()
-  /** Il Mac dorme o sta uscendo (setMacState): vale anche per un relay nuovo, se l'indirizzo cambia. */
+  /** The Mac is sleeping or quitting (setMacState): also applies to a new relay, if the address changes. */
   private macPaused = false
 
   constructor(options: RemoteChannelOptions) {
@@ -82,17 +82,17 @@ export class RemoteChannel {
     })
   }
 
-  /** Id del Mac nei dati del push: derivato dalla chiave del Mac (pushMacId), uguale su ogni trasporto e senza rivelare l'id del relay. */
+  /** Mac id in the push data: derived from the Mac key (pushMacId), the same on every transport and without revealing the relay id. */
   private macId(): string {
     return this.identity ? pushMacId(toBase64Url(this.identity.publicKey)) : ''
   }
 
-  /** LAD-53: il main ha deciso che l'evento va ai telefoni; a canale spento non parte nulla. */
+  /** The main process decided the event goes to the phones; with the channel off nothing is sent. */
   notifyPhones(event: PushEvent): void {
     void this.push.notify(event)
   }
 
-  /** Stato per la finestra (Impostazioni → Dispositivi e indicatore nella barra in alto). */
+  /** State for the window (Settings → Devices and the indicator in the top bar). */
   status(): RemoteStatus {
     const connected = this.gateway_?.connectedDevices() ?? new Set<string>()
     let key = this.identity?.publicKey ?? null
@@ -125,7 +125,7 @@ export class RemoteChannel {
     }
   }
 
-  /** Comandi `remote.*` della finestra. Non passano dal gateway: dal telefono non si raggiungono. */
+  /** Window `remote.*` commands. They do not go through the gateway: the phone cannot reach them. */
   async handleCommand(command: RemoteWindowCommand): Promise<unknown> {
     switch (command.type) {
       case 'remote.status':
@@ -162,13 +162,13 @@ export class RemoteChannel {
 
   private startPairing(): RemotePairStart {
     if (!this.access.enabled || !this.identity) throw new Error(t('Access from your phone is turned off.'))
-    // Un QR senza strada per il Mac (relay non partito e niente WebSocket locale) il telefono lo rifiuterebbe.
+    // A QR with no route to the Mac (relay not started and no local WebSocket) would be rejected by the phone.
     if (!(this.relay && this.relayUrl) && !this.local) throw new Error(t('Cannot reach the relay right now. Check the relay address in Settings and try again.'))
     const start = this.access.startPairing({
       macName: macNameOf(),
       key: this.identity.publicKey,
       ...(this.relay && this.relayUrl ? { relay: this.relayUrl, id: this.relay.id } : {}),
-      // Il WebSocket locale esiste solo in sviluppo (LADDER_REMOTE_PORT è tolta dall'ambiente nelle build pacchettizzate).
+      // The local WebSocket exists only in development (LADDER_REMOTE_PORT is removed from the environment in packaged builds).
       ...(this.local ? { ws: `ws://127.0.0.1:${this.local.port}` } : {})
     })
     this.emitStatus()
@@ -176,16 +176,16 @@ export class RemoteChannel {
   }
 
   /**
-   * "Rigenera chiave": nuova identità e nuova chiave del relay (quindi nuovo id), annulla il QR, revoca ogni dispositivo e
-   * chiude ogni connessione; il relay riparte con la chiave nuova. In fila con `configure`.
+   * "Regenerate key": new identity and new relay key (hence a new id), cancels the QR, revokes every device and
+   * closes every connection; the relay restarts with the new key. Queued with `configure`.
    */
   regenerateKey(): Promise<void> {
     return this.queued(async () => {
       this.access.cancelPairing()
       this.access.revokeAll()
       this.gateway_?.disconnectAll()
-      // Il relay ricorda sul vecchio id che la chiave è cambiata: un telefono che si collega più tardi lo sa, invece di credere
-      // il Mac solo spento. Al meglio: con il relay irraggiungibile non si blocca la rigenerazione.
+      // The relay remembers on the old id that the key changed: a phone that connects later knows, instead of believing
+      // the Mac is just off. Best effort: with the relay unreachable, regeneration is not blocked.
       await this.announceRekey()
       await this.relay?.stop()
       this.relay = null
@@ -197,18 +197,18 @@ export class RemoteChannel {
     })
   }
 
-  /** Dice al relay (sul vecchio id) che il Mac cambia chiave; attende al massimo REKEY_NOTICE_MS e non lancia mai. */
+  /** Tells the relay (on the old id) that the Mac is changing key; waits at most REKEY_NOTICE_MS and never throws. */
   private async announceRekey(): Promise<void> {
     const relay = this.relay
     if (!relay) return
     try {
       await Promise.race([relay.setMacState('rekeyed'), new Promise<void>((resolve) => setTimeout(resolve, REKEY_NOTICE_MS))])
     } catch {
-      // relay irraggiungibile: si rigenera lo stesso
+      // relay unreachable: regenerate anyway
     }
   }
 
-  /** Esegue `fn` in fila con configure, rigenerazione e creazione del QR (il QR non nasce con l'identità a metà); l'errore va a chi chiama. */
+  /** Runs `fn` queued with configure, regeneration and QR creation (the QR is never created with a half-built identity); the error goes to the caller. */
   private queued<T>(fn: () => Promise<T> | T): Promise<T> {
     const run = this.busy.then(fn)
     this.busy = run.then(
@@ -218,23 +218,23 @@ export class RemoteChannel {
     return run
   }
 
-  /** Il gateway per gli eventi dell'host, o null a canale spento. */
+  /** The gateway for host events, or null when the channel is off. */
   get gateway(): RemoteGateway | null {
     return this.gateway_
   }
 
-  /** Id del Mac sul relay, se il relay è acceso (per l'abbinamento, LAD-51). */
+  /** Mac id on the relay, if the relay is on (for pairing). */
   get relayId(): string | null {
     return this.relay?.id ?? null
   }
 
-  /** Porta il canale allo stato voluto; le chiamate si mettono in fila. */
+  /** Brings the channel to the wanted state; calls are queued. */
   configure(remote: HostPrefs['remote']): Promise<void> {
     this.busy = this.busy.then(() => this.apply(remote)).catch((error) => console.error('[remote] configurazione non riuscita', error instanceof Error ? error.message : String(error)))
     return this.busy
   }
 
-  /** Per l'energia (LAD-54): dice al relay se il Mac dorme, esce o è sveglio. */
+  /** For power management: tells the relay whether the Mac is sleeping, quitting or awake. */
   setMacState(state: MacLiveState): Promise<void> {
     this.macPaused = state !== 'awake'
     return this.relay?.setMacState(state) ?? Promise.resolve()
@@ -259,7 +259,7 @@ export class RemoteChannel {
     const url = relayUrlFor(remote, process.env.LADDER_RELAY_URL)
     const localPort = this.localPort()
     this.access.enabled = url !== null || localPort !== null
-    // Gateway e identità solo se serve almeno un trasporto.
+    // Gateway and identity only if at least one transport is needed.
     if (url === null && localPort === null) {
       this.access.cancelPairing()
       await this.relay?.stop()
@@ -321,7 +321,7 @@ export class RemoteChannel {
     }
   }
 
-  /** Porta del WebSocket locale di prova, o null se LADDER_REMOTE_PORT manca o non è valida. */
+  /** Port of the local test WebSocket, or null if LADDER_REMOTE_PORT is missing or invalid. */
   private localPort(): number | null {
     const raw = process.env.LADDER_REMOTE_PORT
     if (!raw) return null

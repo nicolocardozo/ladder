@@ -1,16 +1,16 @@
-// Validazione degli allegati del telefono (LAD-92): solo immagini, controllate senza decodificarle per intero.
+// Validation of the phone's attachments: images only, checked without fully decoding them.
 import { REMOTE_ATTACHMENT_TYPES, REMOTE_MAX_ATTACHMENT_BYTES, REMOTE_MAX_ATTACHMENTS, REMOTE_MAX_ATTACHMENTS_TOTAL, type Attachment } from '../../shared/protocol.ts'
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/
 const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
 
-/** Byte decodificati di una stringa base64 già verificata (lunghezza multipla di 4). */
+/** Decoded bytes of an already verified base64 string (length a multiple of 4). */
 export function base64Size(data: string): number {
   const pad = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0
   return (data.length / 4) * 3 - pad
 }
 
-/** Il numero magico dei primi byte corrisponde al tipo dichiarato. */
+/** The magic number of the first bytes matches the declared type. */
 export function magicMatches(mediaType: string, head: Uint8Array): boolean {
   const at = (i: number, bytes: number[]) => bytes.every((b, k) => head[i + k] === b)
   if (mediaType === 'image/jpeg') return at(0, [0xff, 0xd8, 0xff])
@@ -19,7 +19,7 @@ export function magicMatches(mediaType: string, head: Uint8Array): boolean {
   return false
 }
 
-/** Basename, al massimo 120 caratteri, senza caratteri di controllo; se resta vuoto, `image.<ext>`. */
+/** Basename, at most 120 characters, without control characters; if it ends up empty, `image.<ext>`. */
 export function sanitizeName(name: unknown, mediaType: string): string {
   const fallback = `image.${EXT[mediaType] ?? 'jpg'}`
   if (typeof name !== 'string') return fallback
@@ -29,7 +29,7 @@ export function sanitizeName(name: unknown, mediaType: string): string {
   return Array.from(base).slice(0, 120).join('')
 }
 
-/** Allegati puliti, ricostruiti campo per campo, oppure null se qualcosa non va. */
+/** Clean attachments, rebuilt field by field, or null if anything is wrong. */
 export function cleanAttachments(value: unknown): Attachment[] | null {
   if (!Array.isArray(value)) return null
   if (value.length > REMOTE_MAX_ATTACHMENTS) return null
@@ -43,7 +43,7 @@ export function cleanAttachments(value: unknown): Attachment[] | null {
     const size = base64Size(data)
     total += size
     if (size <= 0 || size > REMOTE_MAX_ATTACHMENT_BYTES || total > REMOTE_MAX_ATTACHMENTS_TOTAL) return null
-    // Dimensione già verificata: si decodifica (al massimo 1 MiB) e si controlla che la codifica sia canonica e il numero magico.
+    // Size already verified: decode (at most 1 MiB) and check that the encoding is canonical and the magic number matches.
     const bytes = Buffer.from(data, 'base64')
     if (bytes.toString('base64') !== data || !magicMatches(mediaType, bytes.subarray(0, 12))) return null
     out.push({ name: sanitizeName(name, mediaType), mediaType, data })

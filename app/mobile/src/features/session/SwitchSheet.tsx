@@ -1,4 +1,4 @@
-// Cambio sessione senza tornare alla Home: "Now" in cima, sotto le altre sessioni dello stesso progetto.
+// Switch session without going back to Home: "Now" at the top, below it the other sessions of the same project.
 import { useRouter } from 'expo-router'
 import { useMemo } from 'react'
 import { View } from 'react-native'
@@ -10,7 +10,7 @@ import { useOnce } from '@/lib/use-once'
 import { SheetTitle } from '@/ui/NativeSheet'
 import { Text } from '@/ui/Text'
 
-/** Contenuto dello sheet "cambia sessione", uguale nello sheet nativo (iOS) e in quello nostro. */
+/** Content of the "switch session" sheet, the same in the native sheet (iOS) and in our own. */
 export function SwitchContent({ sessionId, onClose: onCloseRaw }: { sessionId: string; onClose: () => void }) {
   const onClose = useOnce(onCloseRaw)
   const router = useRouter()

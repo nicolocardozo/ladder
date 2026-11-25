@@ -1,6 +1,6 @@
-// Costruttore di conversazioni per le fixture: item con id, seq e orari coerenti. Adattato da
-// app/desktop/src/renderer/src/dev/fixtures.ts (ConversationBuilder), ridotto a ciò che serve al telefono.
-// Solo import di tipi: gira anche con `node` (harness) senza alias.
+// Conversation builder for fixtures: items with consistent ids, seq and timestamps. Adapted from
+// app/desktop/src/renderer/src/dev/fixtures.ts (ConversationBuilder), reduced to what the phone needs.
+// Type imports only: it also runs with `node` (harness) without aliases.
 import type { ChatItem, FileChange, Question, RequestOption, ToolKind } from '@shared/protocol'
 
 type Kind<K extends ChatItem['kind']> = Extract<ChatItem, { kind: K }>
@@ -16,7 +16,7 @@ export class Conv {
   private seq = 0
   private turnId = 't0'
   private turns = 0
-  /** Orario dell'ultimo item: si cammina in avanti e poi `shiftToNow` allinea la fine. */
+  /** Time of the last item: we walk forward and then `shiftToNow` aligns the end. */
   clock = 0
   private readonly prefix: string
 
@@ -119,7 +119,7 @@ export class Conv {
     return this.push('notice', { text, tone }, 2_000)
   }
 
-  /** Sposta tutti gli orari in modo che l'ultimo item sia di `agoMs` fa. */
+  /** Shifts all times so that the last item is `agoMs` ago. */
   shiftTo(now: number, agoMs: number): ChatItem[] {
     const delta = now - agoMs - this.clock
     for (const item of this.items) {

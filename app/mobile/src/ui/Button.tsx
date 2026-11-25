@@ -11,13 +11,13 @@ interface ButtonProps extends Omit<PressableProps, 'style' | 'children'> {
   variant?: 'primary' | 'secondary' | 'quiet' | 'danger'
   icon?: IconName
   style?: StyleProp<ViewStyle>
-  /** Occupa tutta la riga (nelle coppie Deny/Approve). */
+  /** Fills the whole row (in Deny/Approve pairs). */
   grow?: boolean
-  /** Al posto dell'icona un indicatore: l'azione è in corso (il pulsante resta com'è, non si tocca di nuovo). */
+  /** An indicator instead of the icon: the action is in progress (the button stays as is, not tappable again). */
   loading?: boolean
 }
 
-/** Pulsante piatto: primario = accento pieno, secondario = superficie, danger = testo rosa su superficie. */
+/** Flat button: primary = solid accent, secondary = surface, danger = rose text on surface. */
 export function Button({ label, variant = 'secondary', icon, style, grow, loading, disabled, ...rest }: ButtonProps) {
   const { c } = useTheme()
   const bg = variant === 'primary' ? c.accent : variant === 'quiet' ? 'transparent' : c.surface
@@ -71,13 +71,13 @@ export function IconButton({ icon, label, onPress, color, size = 22, disabled, s
   )
 }
 
-/** Riga di separazione: i fili stanno solo tra le zone. */
+/** Separator row: hairlines only between zones. */
 export function Hairline({ inset = 0 }: { inset?: number }) {
   const { c } = useTheme()
   return <View style={{ height: 1, backgroundColor: c.border, marginLeft: inset, opacity: 0.7 }} />
 }
 
-/** Chip: etichetta compatta, anche toccabile (permesso della sessione). */
+/** Chip: compact label, optionally tappable (session permission). */
 export function Chip({ label, onPress, tone = 'muted', icon, disabled }: { label: string; onPress?: () => void; tone?: 'muted' | 'waiting' | 'error'; icon?: IconName; disabled?: boolean }) {
   const { c } = useTheme()
   const color = tone === 'waiting' ? c.waiting : tone === 'error' ? c.error : c.textMuted

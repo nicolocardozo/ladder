@@ -19,7 +19,7 @@ const liveOf = (count: number): Map<string, ChatItem> => new Map(Array.from({ le
 const seqs = (p: { items: ChatItem[] }) => p.items.map((i) => i.seq)
 
 for (const mode of ['database', 'memoria']) {
-  test(`pagine dalla fine all’indietro (${mode})`, () => {
+  test(`pages from the end backwards (${mode})`, () => {
     const db = seeded(150)
     const live = mode === 'memoria' ? liveOf(150) : undefined
     const first = pageItems(db, live, 's')
@@ -32,12 +32,12 @@ for (const mode of ['database', 'memoria']) {
     const third = pageItems(db, live, 's', 31, 60)
     assert.deepEqual([seqs(third)[0], seqs(third).at(-1)], [1, 30])
     assert.equal(third.hasMore, false)
-    // Esattamente finiti: nessun "hasMore" fantasma.
+    // Exactly finished: no phantom "hasMore".
     assert.equal(pageItems(db, live, 's', 61, 60).hasMore, false)
     assert.equal(pageItems(db, live, 's', 62, 60).hasMore, true)
   })
 
-  test(`limite: massimo 200, minimo 1, valori strani (${mode})`, () => {
+  test(`limit: maximum 200, minimum 1, odd values (${mode})`, () => {
     const db = seeded(300)
     const live = mode === 'memoria' ? liveOf(300) : undefined
     assert.equal(pageItems(db, live, 's', undefined, 10_000).items.length, 200)
@@ -48,7 +48,7 @@ for (const mode of ['database', 'memoria']) {
   })
 }
 
-test('sessione in memoria: vede gli item non ancora salvati', () => {
+test('in-memory session: sees items not yet saved', () => {
   const db = seeded(3)
   assert.deepEqual(seqs(pageItems(db, liveOf(4), 's')), [1, 2, 3, 4])
   assert.deepEqual(seqs(pageItems(db, undefined, 's')), [1, 2, 3])

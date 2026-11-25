@@ -1,4 +1,4 @@
-// Testi (tradotti) per gli errori dell'abbinamento. L'host manda il suo testo nella lingua del Mac: qui si usa solo come ripiego.
+// (Translated) texts for pairing errors. The host sends its own text in the Mac's language: here it is used only as a fallback.
 import { t } from '@shared/i18n'
 import type { RemoteAuthErrorCode } from '@shared/protocol'
 
@@ -28,7 +28,7 @@ export function authMessage(code: RemoteAuthErrorCode, hostError?: string): stri
   }
 }
 
-/** Testo per un link di abbinamento che non si può usare. */
+/** Text for a pairing link that cannot be used. */
 export function linkErrorText(reason: 'invalid' | 'expired' | 'no-relay'): string {
   switch (reason) {
     case 'expired':

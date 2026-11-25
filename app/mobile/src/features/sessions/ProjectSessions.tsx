@@ -1,4 +1,4 @@
-// Sessioni di un progetto divise per i gruppi del Mac (ui[projectId].groups / groupOf).
+// Sessions of a project split by the Mac's groups (ui[projectId].groups / groupOf).
 import { useRouter } from 'expo-router'
 import { useMemo, useState, type ReactElement } from 'react'
 import { FlatList, Pressable, View } from 'react-native'
@@ -18,7 +18,7 @@ import { SessionRow } from './SessionRow'
 
 export type ProjectItem = { kind: 'header'; name: string; key: string } | { kind: 'session'; session: SessionSummary }
 
-/** Le righe di un progetto: sessioni divise per i gruppi del Mac. */
+/** The rows of a project: sessions split by the Mac's groups. */
 export function useProjectItems(projectId: string): ProjectItem[] {
   const sessionsMap = useApp((s) => s.sessions)
   const ui = useApp((s) => s.ui[projectId])
@@ -51,7 +51,7 @@ export function ProjectItemRow({ item, showProject }: { item: ProjectItem; showP
   )
 }
 
-/** `native`: sotto un header e sopra la barra dei tab nativi (default); `false` nel pannello fisso a sinistra, che non li ha. */
+/** `native`: below a header and above the native tab bar (default); `false` in the fixed left pane, which has neither. */
 export function ProjectSessions({ projectId, header, native = true, topPad = 0 }: { projectId: string; header?: ReactElement; native?: boolean; topPad?: number }) {
   const insets = useSafeAreaInsets()
   const items = useProjectItems(projectId)
@@ -80,7 +80,7 @@ export function ProjectSessions({ projectId, header, native = true, topPad = 0 }
 
 const ARCHIVED_PAGE = 30
 
-/** Sessioni archiviate sul Mac: sola lettura, a pagine (`project.sessions.archived`), chiuse finché non le apri. */
+/** Sessions archived on the Mac: read-only, paged (`project.sessions.archived`), collapsed until you open them. */
 export function ArchivedSection({ projectId }: { projectId: string }) {
   const { c } = useTheme()
   const router = useRouter()

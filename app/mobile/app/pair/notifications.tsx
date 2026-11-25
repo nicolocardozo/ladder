@@ -8,8 +8,8 @@ import { usePairFlow } from '@/store/pair-flow'
 import { Button } from '@/ui/Button'
 
 /**
- * Ultimo passo dell'abbinamento: spiega le notifiche (generiche, i dettagli restano nel canale cifrato) e poi chiede il permesso
- * di sistema. "Non ora" salta: si può attivarle dopo da Impostazioni → Notifiche. In ogni caso si va alla Home.
+ * Last pairing step: explains the notifications (generic, the details stay in the encrypted channel) and then asks for the system
+ * permission. "Not now" skips: they can be turned on later from Settings → Notifications. Either way we go to the Home.
  */
 export default function Notifications() {
   const router = useRouter()

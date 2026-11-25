@@ -1,5 +1,5 @@
-// Il pill della connessione: nome del Mac e stato, sempre visibile in cima alla Home. Pronto a diventare un selettore di Mac
-// (v1: un Mac solo, il tocco apre la schermata Mac e connessione).
+// The connection pill: Mac name and state, always visible at the top of Home. Ready to become a Mac selector
+// (v1: a single Mac, a tap opens the Mac and connection screen).
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Pressable, View } from 'react-native'
@@ -14,7 +14,7 @@ import { useTheme } from '@/theme/theme'
 import { StateGlyph } from './StateGlyph'
 import { Text } from './Text'
 
-/** Il motivo tecnico diventa una frase breve e tradotta; se non lo si riconosce non si mostra. */
+/** The technical reason becomes a short translated sentence; if it is not recognized it is not shown. */
 function reasonText(reason: string | undefined): string | null {
   switch (reasonKind(reason)) {
     case 'timeout':
@@ -30,12 +30,12 @@ function reasonText(reason: string | undefined): string | null {
   }
 }
 
-/** Testo breve dello stato, per il pill e per la schermata Mac. */
+/** Short state text, for the pill and for the Mac screen. */
 export function useConnectionText(): { title: string; detail: string | null; tone: 'ok' | 'busy' | 'bad' } {
   const conn = useApp((s) => s.conn)
   const mode = useApp((s) => s.mode)
   const mac = useApp((s) => s.macName) ?? t('Your Mac')
-  // Rinfresca il "da quanto" ogni 15 s.
+  // Refreshes the "for how long" every 15 s.
   const [, tick] = useState(0)
   useEffect(() => {
     if (conn.kind !== 'unreachable' && conn.kind !== 'reconnecting' && conn.kind !== 'mac-offline') return
@@ -58,7 +58,7 @@ export function useConnectionText(): { title: string; detail: string | null; ton
       return { title: t('Mac unreachable'), detail: why ? t('For {time} · {reason}', { time: since, reason: why }) : t('For {time}', { time: since }), tone: 'bad' }
     }
     case 'mac-offline': {
-      // Il relay sa perché il Mac non c'è (spento, in pausa, Ladder chiuso) e da quando.
+      // The relay knows why the Mac is not there (off, paused, Ladder closed) and since when.
       const title =
         conn.reason === 'asleep' ? t('Your Mac is asleep') : conn.reason === 'quit' ? t('Ladder is closed on your Mac') : conn.reason === 'offline' ? t('Your Mac is offline') : t('Mac unreachable')
       return { title, detail: conn.since ? (Date.now() - conn.since < 15_000 ? t('Last seen just now') : t('Last seen {time} ago', { time: duration(Date.now() - conn.since) })) : null, tone: 'bad' }
@@ -100,7 +100,7 @@ export function ConnectionPill() {
   const conn = useApp((s) => s.conn)
   const mark =
     tone === 'ok' ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.success }} /> : tone === 'busy' ? <Ring color={c.textMuted} /> : <StateGlyph state="error" size={14} />
-  // Piccolo, sulla riga del titolo: solo il nome del Mac (o il problema); il resto sta nel foglio che si apre toccandolo.
+  // Small, on the title row: only the Mac name (or the problem); the rest is in the sheet that opens on tap.
   const label = conn.kind === 'unreachable' && detail ? `${title} · ${detail.split(' · ')[0]}` : title
   return (
     <Pressable

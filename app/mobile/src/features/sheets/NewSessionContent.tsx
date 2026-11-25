@@ -1,7 +1,7 @@
-// Nuova sessione dal telefono (LAD-89). Il caso comune è progetto + messaggio + Invia; agente, account, modello, effort e permesso
-// stanno nelle opzioni, chiuse, con una riga di riepilogo. I valori di partenza li decide il Mac (`RemoteSnapshot.defaults`, vedi
-// lib/new-session.ts). Un errore resta nel modulo, in chiaro, e il testo non si perde. A sessione creata si apre la sua chat
-// nella pila delle Sessioni e lo sheet si chiude.
+// New session from the phone. The common case is project + message + Send; agent, account, model, effort and permission
+// live in the options, collapsed, with a summary row. Starting values are decided by the Mac (`RemoteSnapshot.defaults`, see
+// lib/new-session.ts). An error stays in the form, in plain view, and the text is not lost. Once the session is created its chat opens
+// on the Sessions stack and the sheet closes.
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
@@ -36,7 +36,7 @@ import { levelName } from '../session/PermissionSheet'
 
 type Step = 'form' | 'project' | 'agent' | 'account' | 'model' | 'effort' | 'permission'
 
-/** Sopra questo numero di progetti compare la ricerca. */
+/** Above this number of projects the search appears. */
 const SEARCH_FROM = 8
 const DRAFT_KEY = 'new-session'
 
@@ -58,7 +58,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
   const setDraft = usePrefs((s) => s.setDraft)
 
   const input = useMemo<FormInput>(() => ({ projects, projectGroups, defaults, agents, profiles, permissionsMax, allowFull, contextProjectId, lastProjectId }), [projects, projectGroups, defaults, agents, profiles, permissionsMax, allowFull, contextProjectId, lastProjectId])
-  // Il progetto di partenza si decide una volta, all'apertura: un aggiornamento dal Mac non deve spostarlo sotto le dita.
+  // The starting project is decided once, on open: an update from the Mac must not move it under the user's fingers.
   const dev = __DEV__ ? useDev.getState().newSession : null
   const [picks, setPicks] = useState<Picks>(() => ({ projectId: dev?.project ?? resolveForm(input, { projectId: dev?.project }).projectId, ...(dev?.agent ? { agent: dev.agent as AgentId } : {}) }))
   const values = useMemo(() => resolveForm(input, picks), [input, picks])
@@ -74,13 +74,13 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
   const [forced, setForced] = useState<Selection | null>(null)
   const textRef = useRef(text)
   textRef.current = text
-  // Solo sviluppo: il driver porta il focus nel campo per provare la tastiera.
+  // Development only: the driver focuses the field to test the keyboard.
   const devFocus = useDev((d) => d.focusNewSession)
   useEffect(() => {
     if (__DEV__ && devFocus && view === 'form') setTimeout(() => input_.current?.focus(), 700)
   }, [devFocus, view])
   useEffect(() => () => void (mounted.current = false), [])
-  // Solo sviluppo: il driver scrive nel campo e allega file locali.
+  // Development only: the driver types into the field and attaches local files.
   useEffect(() => {
     if (!__DEV__) return
     useDev.getState().setComposer((cmd) => {
@@ -101,7 +101,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
   }
   const dict = useDictation({ getText: () => textRef.current, setText: change })
   const listening = dict.state === 'listening'
-  // Qui i comandi non ci sono (la sessione non esiste ancora): solo i file del progetto scelto.
+  // There are no commands here (the session does not exist yet): only the files of the chosen project.
   const suggest = useSuggest({ projectId: values.projectId, text, selection: sel, setText: change, enabled: !sending })
   const typed = (v: string) => {
     if (listening) dict.stop()
@@ -127,7 +127,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
   const canSend = online && !sending && !att.busy && !problem && !!command && !tooBig
   const reason = !online ? t('Reconnect to your Mac to send.') : tooBig ? t('The message and its images are too big to send together. Remove an image or shorten the text.') : problem === 'long' ? t('The message is too long ({max} characters at most).', { max: MAX_MESSAGE.toLocaleString() }) : !values.agent && values.projectId ? t('No agent is available for this project.') : null
 
-  // Solo sviluppo: invio automatico per provare lo stato di invio.
+  // Development only: automatic send to test the sending state.
   useEffect(() => {
     if (__DEV__ && dev?.send) setTimeout(() => void sendRef.current(), 1200)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,7 +138,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
     setSending(true)
     setError(null)
     for (const f of att.ready) rememberThumb(f.name, f.uri)
-    // Sessioni di prima e ora d'invio: se la risposta non arriva (timeout, collegamento caduto) la sessione può esistere lo stesso.
+    // Sessions from before and send time: if the reply does not arrive (timeout, dropped connection) the session may exist anyway.
     const known = new Set(Object.keys(useApp.getState().sessions))
     const startedAt = Date.now()
     const result = await actions.create(command)
@@ -149,18 +149,18 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
       setError(result.ok ? null : result.error)
       return
     }
-    // Il Mac manda `session.upsert` di solito prima del risultato; se non fosse arrivato, la sessione entra comunque nello store.
+    // The Mac usually sends `session.upsert` before the result; if it has not arrived, the session still enters the store.
     useApp.getState().applyEvent({ type: 'session.upsert', session: created })
-    // Bozza e ultimo progetto si aggiornano comunque: anche con lo sheet già chiuso la sessione è nata.
+    // Draft and last project are updated anyway: even with the sheet already closed the session was created.
     usePrefs.getState().setLastProject(command.projectId)
     setDraft(DRAFT_KEY, '')
     att.clear()
     if (!mounted.current) return
-    // Come al tocco su una notifica (push-taps.ts): si chiude solo lo sheet, e solo dopo si apre la chat.
+    // As on a notification tap (push-taps.ts): only the sheet closes, and only afterwards the chat opens.
     if (nativeSheets() && router.canDismiss()) router.dismiss()
     else onClose()
-    // La chat è una schermata della radice (copre i tab da sé). Si apre a sheet chiuso e solo se il quadro è ancora quello: collegamento
-    // pieno, nessuno sheet in primo piano e non già lì (l'utente può essere andato altrove nel frattempo).
+    // The chat is a root screen (it covers the tabs by itself). It opens with the sheet closed and only if the picture is still the same: full connection,
+    // no sheet in front and not already there (the user may have gone elsewhere in the meantime).
     setTimeout(() => {
       if (!canAct()) return
       const route = focusedRoute()
@@ -171,7 +171,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
   const sendRef = useRef(send)
   sendRef.current = send
 
-  // Il progetto sparisce (tolto dal Mac) mentre il modulo è aperto: si ricalcola da solo; senza progetti non c'è nulla da fare.
+  // The project disappears (removed from the Mac) while the form is open: it recomputes by itself; with no projects there is nothing to do.
   if (projects.length === 0) {
     return (
       <>
@@ -250,7 +250,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
       <Group>
         <Row label={t('Project')} value={project?.name ?? ''} onPress={() => setView('project')} last />
       </Group>
-      {/* Come il composer della chat: il campo cresce con il testo (da tre righe), sotto ci sono allega, microfono, riepilogo delle opzioni e Invia. */}
+      {/* Like the chat composer: the field grows with the text (from three lines), below it attach, microphone, options summary and Send. */}
       <View style={{ marginHorizontal: 16, marginTop: 12 }}>
         <View style={{ borderRadius: 22, backgroundColor: c.surface, borderWidth: 1, borderColor: listening ? c.accent : c.border, overflow: 'hidden' }}>
           {att.count > 0 ? (
@@ -368,9 +368,9 @@ const TITLES: Record<Exclude<Step, 'form'>, () => string> = {
   permission: () => t('Permission')
 }
 
-/** Una scelta dentro lo sheet: indietro e titolo, poi l'elenco. */
+/** A choice inside the sheet: back and title, then the list. */
 function Picker({ view, onBack, children }: { view: Exclude<Step, 'form'>; onBack: () => void; children: ReactNode }) {
-  // Lo sheet è alto quanto il contenuto: un elenco lungo scorre dentro, senza superare i due terzi dello schermo.
+  // The sheet is as tall as its content: a long list scrolls inside, without exceeding two thirds of the screen.
   const { height } = useWindowDimensions()
   return (
     <>
@@ -387,7 +387,7 @@ function Picker({ view, onBack, children }: { view: Exclude<Step, 'form'>; onBac
   )
 }
 
-/** Progetti nelle sezioni del Mac; con molti progetti si cerca per nome. */
+/** Projects in the Mac's sections; with many projects, search by name. */
 function ProjectList({ input, selected, onPick }: { input: FormInput; selected: string | null; onPick: (id: string) => void }) {
   const { c } = useTheme()
   const [query, setQuery] = useState('')

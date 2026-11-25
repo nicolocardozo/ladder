@@ -1,4 +1,4 @@
-// Worker d'ingresso del relay: smista ogni WebSocket al Durable Object del suo id. Non legge né registra nulla del traffico.
+// Relay entry worker: routes each WebSocket to the Durable Object for its id. It never reads or logs any traffic.
 import { isRelayId, RELAY_VERSION } from '../../desktop/src/shared/remote/relay-protocol.ts'
 import type { RelayDurableObject } from './relay-do.ts'
 

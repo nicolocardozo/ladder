@@ -1,4 +1,4 @@
-// Elementi delle schermate di impostazioni: gruppo con titolo, riga con valore, riga con interruttore, scelta singola.
+// Building blocks for settings screens: titled group, row with a value, row with a switch, single choice.
 import type { ReactNode } from 'react'
 import { Pressable, Switch, View } from 'react-native'
 import { useTheme } from '@/theme/theme'

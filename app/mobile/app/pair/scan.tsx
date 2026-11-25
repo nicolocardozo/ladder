@@ -10,13 +10,13 @@ import { ScreenHeader } from '@/ui/ScreenHeader'
 import { Text } from '@/ui/Text'
 import { linkErrorText } from '@/ui/auth-text'
 
-/** Scansione del QR: legge `ladder://pair#…` e porta alla conferma. Il contenuto del codice non si logga mai. */
+/** QR scan: reads `ladder://pair#…` and leads to the confirmation. The content of the code is never logged. */
 export default function Scan() {
   const { c } = useTheme()
   const router = useRouter()
   const set = usePairFlow((s) => s.set)
   const [error, setError] = useState<string | null>(null)
-  // La fotocamera legge solo mentre la schermata è davanti: con la conferma (o altro) sopra non si scansiona.
+  // The camera reads only while the screen is in front: with the confirmation (or anything else) on top, nothing is scanned.
   const [focused, setFocused] = useState(true)
   const lastError = useRef(0)
   useFocusEffect(
@@ -34,7 +34,7 @@ export default function Scan() {
       router.push('/pair/confirm')
       return
     }
-    // Un codice sbagliato non si rilegge cento volte al secondo: il messaggio resta e si riprova dopo un attimo.
+    // A wrong code isn't re-read a hundred times a second: the message stays and we retry after a moment.
     if (Date.now() - lastError.current < 1_500) return
     lastError.current = Date.now()
     setError(linkErrorText(result.reason))

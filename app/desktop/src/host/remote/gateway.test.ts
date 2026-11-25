@@ -1,4 +1,4 @@
-// Prove del gateway remoto in-process: Host finto, collegamenti in memoria, handshake Noise vero.
+// In-process tests of the remote gateway: fake Host, in-memory links, real Noise handshake.
 import assert from 'node:assert/strict'
 import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -23,7 +23,7 @@ interface End {
   link: RemoteLink
 }
 
-/** Coppia di collegamenti in memoria: quello che un lato `send`, l'altro lo riceve (in modo asincrono, come una rete). */
+/** Pair of in-memory links: what one side `send`s, the other receives (asynchronously, like a network). */
 function linkPair(): { client: End; server: End } {
   const make = (): End => {
     const end: End = {
@@ -88,7 +88,7 @@ function newAccess(options: ConstructorParameters<typeof RemoteAccess>[1] = {}):
 
 const route = (mac: { publicKey: Uint8Array }) => ({ macName: 'Test Mac', key: mac.publicKey, ws: 'ws://127.0.0.1:1' })
 
-/** Gateway + Mac + database in memoria: più connessioni possono condividerli. */
+/** Gateway + Mac + in-memory database: several connections can share them. */
 function setup(options: { host?: RemoteHostApi; idleTimeoutMs?: number; access?: RemoteAccess; log?: RemoteLogEntry[]; now?: () => number } = {}) {
   const mac = generateKeyPair()
   const fake = fakeHost()
@@ -111,14 +111,14 @@ type Env = ReturnType<typeof setup>
 interface ConnectOptions {
   env?: Env
   helloV?: number
-  /** false: ci si ferma dopo l'handshake, il primo messaggio lo manda il test. */
+  /** false: stop after the handshake, the test sends the first message. */
   authenticate?: boolean
-  /** Dispositivo già abbinato: si manda `auth` invece di `pair`. */
+  /** Already paired device: sends `auth` instead of `pair`. */
   device?: { key: DeviceKeyPair; id: string }
   password?: string
   token?: string
   name?: string
-  /** Lingua dichiarata nell'hello. */
+  /** Language declared in the hello. */
   locale?: 'en' | 'it'
 }
 
@@ -160,7 +160,7 @@ async function connect(options: ConnectOptions & { idleTimeoutMs?: number; host?
     for (const m of session!.seal(message)) client.link.send(m)
   }
   const nextAuth = () => new Promise<RemoteAuthResult>((resolve) => (authWaiter = resolve))
-  /** Manda pair (codice nuovo o `token`) o auth e aspetta l'esito. */
+  /** Sends pair (new code or `token`) or auth and waits for the outcome. */
   const authenticate = async (extra: { token?: string; password?: string; device?: { key: DeviceKeyPair; id: string }; name?: string; key?: DeviceKeyPair } = {}) => {
     const dev = extra.device ?? options.device
     const result = nextAuth()
@@ -193,7 +193,7 @@ async function connect(options: ConnectOptions & { idleTimeoutMs?: number; host?
   return { mac, gateway, fake, access, client, server, events, auths, call, flush, sendRaw, authenticate, hash, closed: () => closedByPeer, session: () => session! }
 }
 
-test('hello: snapshot ridotto (niente bozze, terminali, scorciatoie, profili; della UI solo gruppi e seenAt)', async () => {
+test('hello: reduced snapshot (no drafts, terminals, shortcuts, profiles; of the UI only groups and seenAt)', async () => {
   const c = await connect()
   const result = await c.call({ type: 'hello' })
   assert.equal(result.kind, 'result')
@@ -201,13 +201,13 @@ test('hello: snapshot ridotto (niente bozze, terminali, scorciatoie, profili; de
   assert.deepEqual(Object.keys(data).sort(), ['agents', 'defaults', 'permissionsMax', 'prefs', 'profiles', 'projects', 'sessions', 'type', 'ui'])
   assert.deepEqual((data as { prefs: unknown }).prefs, { busySend: 'steer', allowFull: true })
   assert.deepEqual(data.ui, { p1: { groups: [{ id: 'g', name: 'G' }], groupOf: { s1: 'g' }, seenAt: 5 } })
-  // Lo snapshot viaggia una volta sola, come risultato: nessun evento duplicato.
+  // The snapshot travels only once, as the result: no duplicate event.
   await c.flush()
   assert.equal(c.events.filter((e) => e.kind === 'event' && e.event.type === 'snapshot').length, 0)
   assert.deepEqual(toRemoteSnapshot(snapshotEvent, { permissionsMax: {}, prefs: { busySend: 'steer', allowFull: true } }), data)
 })
 
-test('allowlist: comandi non ammessi respinti prima di Host.handle', async () => {
+test('allowlist: disallowed commands rejected before Host.handle', async () => {
   const c = await connect()
   for (const type of ['project.remove', 'terminal.input', 'session.archive', 'draft.set', 'fs.read', 'ui.set', 'session.open', '__proto__', 'toString']) {
     const r = await c.call({ type, sessionId: 's1' })
@@ -217,7 +217,7 @@ test('allowlist: comandi non ammessi respinti prima di Host.handle', async () =>
   assert.equal(c.fake.calls.length, 0)
 })
 
-test('allowlist: forma non valida respinta con errore e rid', async () => {
+test('allowlist: invalid shape rejected with error and rid', async () => {
   const c = await connect()
   for (const command of [{ type: 'session.send', sessionId: 's1' }, { type: 'session.watch', sessionId: 's1', on: 'yes' }, { type: 'session.respond', sessionId: 's1' }, 'nope']) {
     const r = await c.call(command)
@@ -226,7 +226,7 @@ test('allowlist: forma non valida respinta con errore e rid', async () => {
   assert.equal(c.fake.calls.length, 0)
 })
 
-test('session.permission.set accetta solo livelli validi', async () => {
+test('session.permission.set accepts only valid levels', async () => {
   const c = await connect()
   for (const permission of ['x', '', 'toString', 'FULL', 1, null]) {
     const r = await c.call({ type: 'session.permission.set', sessionId: 's1', permission })
@@ -237,7 +237,7 @@ test('session.permission.set accetta solo livelli validi', async () => {
   assert.equal(c.fake.calls.length, 4)
 })
 
-test('session.respond: forma della risposta controllata a fondo', async () => {
+test('session.respond: response shape thoroughly checked', async () => {
   const c = await connect()
   const bad: unknown[] = [
     {},
@@ -264,7 +264,7 @@ test('session.respond: forma della risposta controllata a fondo', async () => {
   assert.equal(c.fake.calls.length, 2)
 })
 
-test('session.queue.set: solo id e testo, con limiti', async () => {
+test('session.queue.set: only id and text, with limits', async () => {
   const c = await connect()
   const bad: unknown[] = ['x', [{ id: 1, text: 'a' }], [{ id: 'a' }], [null], Array.from({ length: 51 }, (_, i) => ({ id: `${i}`, text: 'a' })), [{ id: 'a', text: 'x'.repeat(200_001) }]]
   for (const queue of bad) {
@@ -276,7 +276,7 @@ test('session.queue.set: solo id e testo, con limiti', async () => {
   assert.deepEqual(c.fake.calls[0].command, { type: 'session.queue.set', sessionId: 's1', queue: [{ id: 'a', text: 'ciao' }] })
 })
 
-test('rid non valido: connessione chiusa', async () => {
+test('invalid rid: connection closed', async () => {
   for (const rid of [5, '', 'x'.repeat(129), {}]) {
     const c = await connect()
     for (const m of c.session().seal({ rid, command: { type: 'session.read', sessionId: 's1' } })) c.client.link.send(m)
@@ -286,12 +286,12 @@ test('rid non valido: connessione chiusa', async () => {
   }
 })
 
-test('limite di richieste: oltre la raffica errore, poi chiusura se si insiste', async () => {
+test('request limit: error beyond the burst, then close if it persists', async () => {
   const c = await connect()
   const results: FromRemoteHost[] = []
   for (let i = 0; i < RATE_BURST + 10; i++) results.push(await c.call({ type: 'session.read', sessionId: 's1' }))
   const failed = results.filter((r) => r.kind === 'result' && !r.ok)
-  assert.ok(failed.length >= 8 && failed.length <= 10, `rifiutate: ${failed.length}`)
+  assert.ok(failed.length >= 8 && failed.length <= 10, `rejected: ${failed.length}`)
   assert.match((failed[0] as { error: string }).error, /Too many requests/)
   assert.ok(c.fake.calls.length >= RATE_BURST && c.fake.calls.length <= RATE_BURST + 2)
   for (let i = 0; i < 200; i++) for (const m of c.session().seal({ rid: `x${i}`, command: { type: 'session.read', sessionId: 's1' } })) c.client.link.send(m)
@@ -299,7 +299,7 @@ test('limite di richieste: oltre la raffica errore, poi chiusura se si insiste',
   assert.equal(c.gateway.size, 0)
 })
 
-test('session.items con replace: true arriva ridotto all’ultima pagina', async () => {
+test('session.items with replace: true arrives trimmed to the last page', async () => {
   const c = await connect()
   await c.call({ type: 'session.watch', sessionId: 's1', on: true })
   const many = Array.from({ length: 500 }, (_, i) => ({ ...item, id: `i${i}`, seq: i }) as ChatItem)
@@ -307,11 +307,11 @@ test('session.items con replace: true arriva ridotto all’ultima pagina', async
   await c.flush()
   const event = c.events.at(-1)
   assert.ok(event && event.kind === 'event' && event.event.type === 'session.items')
-  // Il pageItems del Host finto restituisce una pagina vuota: i 500 item non sono passati.
+  // The fake Host's pageItems returns an empty page: the 500 items did not get through.
   assert.deepEqual(event.event, { type: 'session.items', sessionId: 's1', items: [], replace: true })
 })
 
-test('al massimo 8 connessioni contemporanee', async () => {
+test('at most 8 concurrent connections', async () => {
   const env = setup()
   for (let i = 0; i < MAX_CONNECTIONS; i++) await connect({ env })
   const extra = linkPair()
@@ -322,18 +322,18 @@ test('al massimo 8 connessioni contemporanee', async () => {
   env.gateway.close()
 })
 
-test('connessioni non autenticate: al massimo 4, a quella nuova fa posto la più vecchia', async () => {
+test('unauthenticated connections: at most 4, the oldest makes room for the new one', async () => {
   const env = setup()
   const pairs = Array.from({ length: MAX_UNAUTHENTICATED + 2 }, () => linkPair())
   for (const p of pairs) env.gateway.accept(p.server.link)
   await new Promise((r) => setTimeout(r, 10))
   assert.equal(env.gateway.size, MAX_UNAUTHENTICATED)
-  // Le due più vecchie sono state chiuse, le ultime restano.
+  // The two oldest were closed, the latest remain.
   assert.deepEqual(pairs.map((p) => p.server.closed), [true, true, false, false, false, false])
   env.gateway.close()
 })
 
-test('connessioni piene: un telefono vero entra anche se chi occupa i posti non si autentica', async () => {
+test('full connections: a real phone gets in even if whoever holds the slots does not authenticate', async () => {
   const env = setup()
   for (let i = 0; i < MAX_UNAUTHENTICATED; i++) env.gateway.accept(linkPair().server.link)
   const c = await connect({ env })
@@ -341,14 +341,14 @@ test('connessioni piene: un telefono vero entra anche se chi occupa i posti non 
   env.gateway.close()
 })
 
-test('silenzio dopo l’handshake: connessione chiusa', async () => {
+test('silence after the handshake: connection closed', async () => {
   const c = await connect({ idleTimeoutMs: 60 })
   await new Promise((r) => setTimeout(r, 120))
   assert.equal(c.gateway.size, 0)
   assert.equal(c.fake.closed.length, 1)
 })
 
-test('isRemoteCommandType e parseRemoteMessage', () => {
+test('isRemoteCommandType and parseRemoteMessage', () => {
   assert.equal(isRemoteCommandType('session.page'), true)
   assert.equal(isRemoteCommandType('session.send'), true)
   assert.equal(isRemoteCommandType('session.open'), false)
@@ -359,7 +359,7 @@ test('isRemoteCommandType e parseRemoteMessage', () => {
   assert.equal(parseRemoteMessage({ rid: 'x', command: { type: 'hello' } }, m).rid, 'x')
 })
 
-/** Base64 di un'immagine finta con il numero magico giusto (e `size` byte). */
+/** Base64 of a fake image with the right magic number (and `size` bytes). */
 function img(mediaType: string, size = 64): string {
   const head: Record<string, number[]> = { 'image/jpeg': [0xff, 0xd8, 0xff, 0xe0], 'image/png': [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'image/webp': [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50] }
   const bytes = Buffer.alloc(size, 7)
@@ -368,7 +368,7 @@ function img(mediaType: string, size = 64): string {
 }
 const att = (mediaType = 'image/jpeg', size = 64, name = 'a.jpg') => ({ name, mediaType, data: img(mediaType, size) })
 
-test('session.respond vale sempre via phone; session.send tiene solo allegati validi', async () => {
+test('session.respond always counts as via phone; session.send keeps only valid attachments', async () => {
   const c = await connect()
   await c.call({ type: 'session.respond', sessionId: 's1', requestId: 'q', response: { optionId: 'allow' }, via: 'chat' })
   await c.call({ type: 'session.send', sessionId: 's1', text: 'hi', attachments: [{ name: '../x/p.jpg', mediaType: 'image/jpeg', data: img('image/jpeg') }], extra: 1 })
@@ -377,17 +377,17 @@ test('session.respond vale sempre via phone; session.send tiene solo allegati va
   assert.equal((respond.command as { via: string }).via, 'phone')
   assert.deepEqual(send.command, { type: 'session.send', sessionId: 's1', text: 'hi', attachments: [{ name: 'p.jpg', mediaType: 'image/jpeg', data: img('image/jpeg') }] })
   assert.equal((interrupt.command as { type: string }).type, 'session.interrupt')
-  // Stessa origin per tutti i comandi di una connessione.
+  // Same origin for all commands of a connection.
   assert.equal(respond.origin, send.origin)
 })
 
-test('errori di Host.handle tornano come result ok:false', async () => {
+test('Host.handle errors come back as result ok:false', async () => {
   const c = await connect()
   const r = await c.call({ type: 'subagent.list', sessionId: 's1' })
   assert.deepEqual(r, { kind: 'result', rid: 'r1', ok: false, error: 'boom' })
 })
 
-test('session.page passa before e limit all’host', async () => {
+test('session.page passes before and limit to the host', async () => {
   const c = await connect()
   const r = await c.call({ type: 'session.page', sessionId: 's1', before: 1, limit: 2 })
   assert.deepEqual(r, { kind: 'result', rid: 'r1', ok: true, data: { sessionId: 's1', items: [], hasMore: true } })
@@ -396,7 +396,7 @@ test('session.page passa before e limit all’host', async () => {
 
 const item = { id: 'i', seq: 1, kind: 'user', text: 't' } as unknown as ChatItem
 
-test('eventi: solo i tipi ammessi, e session.items solo per le sessioni seguite', async () => {
+test('events: only allowed types, and session.items only for followed sessions', async () => {
   const c = await connect()
   const items = (sessionId: string): HostEvent => ({ type: 'session.items', sessionId, items: [item], replace: false })
   c.gateway.broadcast(items('s1'))
@@ -420,11 +420,11 @@ test('eventi: solo i tipi ammessi, e session.items solo per le sessioni seguite'
   assert.equal(c.events.length, 3)
 })
 
-test('session.watch: al massimo 8, la meno recente smette', async () => {
+test('session.watch: at most 8, the least recent one stops', async () => {
   const c = await connect()
   for (let i = 0; i < MAX_WATCHED; i++) await c.call({ type: 'session.watch', sessionId: `s${i}`, on: true })
-  await c.call({ type: 'session.watch', sessionId: 's0', on: true }) // s0 diventa la più recente
-  await c.call({ type: 'session.watch', sessionId: 'nuova', on: true }) // esce s1
+  await c.call({ type: 'session.watch', sessionId: 's0', on: true }) // s0 becomes the most recent
+  await c.call({ type: 'session.watch', sessionId: 'nuova', on: true }) // s1 drops out
   for (const id of ['s0', 's1', 'nuova']) c.gateway.broadcast({ type: 'session.items', sessionId: id, items: [item], replace: true })
   await c.flush()
   assert.deepEqual(
@@ -433,7 +433,7 @@ test('session.watch: al massimo 8, la meno recente smette', async () => {
   )
 })
 
-test('chiusura: host.connectionClosed con la stessa origin dei comandi', async () => {
+test('close: host.connectionClosed with the same origin as the commands', async () => {
   const c = await connect()
   await c.call({ type: 'session.read', sessionId: 's1' })
   c.client.link.close()
@@ -443,7 +443,7 @@ test('chiusura: host.connectionClosed con la stessa origin dei comandi', async (
   assert.equal(c.gateway.size, 0)
 })
 
-test('messaggio manomesso o riprodotto: il gateway chiude la connessione', async () => {
+test('tampered or replayed message: the gateway closes the connection', async () => {
   const c = await connect()
   const [sealed] = c.session().seal({ rid: 'a', command: { type: 'session.read', sessionId: 's1' } })
   c.client.link.send(sealed)
@@ -453,7 +453,7 @@ test('messaggio manomesso o riprodotto: il gateway chiude la connessione', async
   assert.equal(c.fake.closed.length, 1)
 })
 
-test('messaggio oltre REMOTE_MAX_MESSAGE: connessione chiusa', async () => {
+test('message over REMOTE_MAX_MESSAGE: connection closed', async () => {
   const c = await connect()
   for (const m of c.session().seal({ rid: 'a', command: { type: 'session.send', sessionId: 's1', text: 'a'.repeat(16 * 1024 * 1024) } })) c.client.link.send(m)
   await c.flush()
@@ -462,7 +462,7 @@ test('messaggio oltre REMOTE_MAX_MESSAGE: connessione chiusa', async () => {
   assert.equal(c.fake.calls.length, 0)
 })
 
-test('versione del protocollo diversa: connessione chiusa nell’handshake', async () => {
+test('different protocol version: connection closed during the handshake', async () => {
   const mac = generateKeyPair()
   const gateway = new RemoteGateway({ host: fakeHost().host, identity: mac, access: newAccess(), macName: 'm', appVersion: '1' })
   const { client, server } = linkPair()
@@ -474,7 +474,7 @@ test('versione del protocollo diversa: connessione chiusa nell’handshake', asy
   assert.equal(server.closed, true)
 })
 
-test('handshake con la chiave sbagliata o spazzatura: connessione chiusa', async () => {
+test('handshake with the wrong key or garbage: connection closed', async () => {
   const gateway = new RemoteGateway({ host: fakeHost().host, identity: generateKeyPair(), access: newAccess(), macName: 'm', appVersion: '1' })
   const { client, server } = linkPair()
   gateway.accept(server.link)
@@ -488,7 +488,7 @@ test('handshake con la chiave sbagliata o spazzatura: connessione chiusa', async
   assert.equal(gateway.size, 0)
 })
 
-test('identità: creata una volta, 0600, stessa chiave alla seconda lettura', () => {
+test('identity: created once, 0600, same key on the second read', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ladder-identity-'))
   try {
     const a = loadOrCreateIdentity(dir)
@@ -496,14 +496,14 @@ test('identità: creata una volta, 0600, stessa chiave alla seconda lettura', ()
     const b = loadOrCreateIdentity(dir)
     assert.equal(toBase64Url(a.publicKey), toBase64Url(b.publicKey))
     assert.deepEqual(a.secretKey, b.secretKey)
-    // Nessun file temporaneo rimasto.
+    // No temporary file left.
     assert.deepEqual(readdirSync(dir), [IDENTITY_FILE])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test('identità: file illeggibile → errore generico, senza pezzi del contenuto', () => {
+test('identity: unreadable file → generic error, without pieces of the content', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ladder-identity-'))
   try {
     writeFileSync(join(dir, IDENTITY_FILE), '{"secretKey":"SEGRETO-SEGRETO", broken')
@@ -516,18 +516,18 @@ test('identità: file illeggibile → errore generico, senza pezzi del contenuto
   }
 })
 
-// Il tipo del messaggio che il client manda è quello del contratto.
+// The type of the message the client sends is the contract's.
 const _check: ToRemoteHost = { rid: 'x', command: { type: 'session.page', sessionId: 's' } }
 void _check
 
-// ── LAD-51: autenticazione dei dispositivi ───────────────────────────────────
+// ── Device authentication ────────────────────────────────────────────────────
 
 const expectClosed = async (c: { flush: () => Promise<unknown>; closed: () => boolean; server: End }) => {
   await c.flush()
   assert.equal(c.server.closed, true)
 }
 
-test('abbinamento: il telefono entra, compare nell’elenco, vede le sessioni', async () => {
+test('pairing: the phone gets in, shows up in the list, sees the sessions', async () => {
   const c = await connect({ name: 'Zoë’s iPhone' })
   const auth = c.auths[0]
   assert.ok(auth.ok)
@@ -540,11 +540,11 @@ test('abbinamento: il telefono entra, compare nell’elenco, vede le sessioni', 
   assert.deepEqual([...c.gateway.connectedDevices()], [auth.deviceId])
   const hello = await c.call({ type: 'hello' })
   assert.ok(hello.kind === 'result' && hello.ok)
-  // Il codice è monouso: lo stato non ne ha più uno.
+  // The code is single-use: the state no longer has one.
   assert.equal(c.access.pairing(), null)
 })
 
-test('comandi prima dell’autenticazione: respinti e connessione chiusa', async () => {
+test('commands before authentication: rejected and connection closed', async () => {
   for (const first of [{ rid: 'a', command: { type: 'hello' } }, { type: 'pair' }, { type: 'auth' }, 'x', { type: 'pair', token: 5 }]) {
     const c = await connect({ authenticate: false })
     const result = new Promise<RemoteAuthResult>((resolve) => c.sendRaw(first) ?? resolve({ kind: 'auth', ok: false, code: 'invalid-request', error: '' }))
@@ -558,7 +558,7 @@ test('comandi prima dell’autenticazione: respinti e connessione chiusa', async
   }
 })
 
-test('un secondo messaggio mentre si autentica chiude la connessione', async () => {
+test('a second message while authenticating closes the connection', async () => {
   const c = await connect({ authenticate: false })
   c.sendRaw({ type: 'auth', deviceId: 'x', sig: 'y' })
   c.sendRaw({ rid: 'a', command: { type: 'hello' } })
@@ -567,13 +567,13 @@ test('un secondo messaggio mentre si autentica chiude la connessione', async () 
   assert.equal(c.fake.calls.length, 0)
 })
 
-test('codice sbagliato, scaduto, già usato, annullato', async () => {
+test('wrong, expired, already used, cancelled code', async () => {
   let now = 1_000_000
   const env = setup({ access: newAccess({ now: () => now }) })
   const bad = await connect({ env, authenticate: false })
   const r1 = await bad.authenticate({ token: 'nope' })
   assert.deepEqual(r1.ok === false && r1.code, 'bad-token')
-  // Il testo è per l'utente e tradotto.
+  // The text is for the user and translated.
   assert.ok(!r1.ok && r1.error.length > 5)
 
   const token = env.access.startPairing(route(env.mac)).payload.token
@@ -596,7 +596,7 @@ test('codice sbagliato, scaduto, già usato, annullato', async () => {
   assert.equal(env.access.devices().length, 1)
 })
 
-test('un solo codice attivo: uno nuovo sostituisce il precedente', async () => {
+test('only one active code: a new one replaces the previous one', async () => {
   const env = setup()
   const first = env.access.startPairing(route(env.mac)).payload.token
   env.access.startPairing(route(env.mac))
@@ -605,7 +605,7 @@ test('un solo codice attivo: uno nuovo sostituisce il precedente', async () => {
   assert.equal(r.ok, false)
 })
 
-test('password: obbligatoria, sbagliata, limite di tentativi che brucia il codice', async () => {
+test('password: required, wrong, attempt limit that burns the code', async () => {
   const env = setup()
   await env.access.setPassword('hunter22')
   assert.equal(env.access.hasPassword(), true)
@@ -623,22 +623,22 @@ test('password: obbligatoria, sbagliata, limite di tentativi che brucia il codic
   assert.equal(await code('wrong-1'), 'wrong-password')
   assert.equal(await code('wrong-2'), 'wrong-password')
   assert.equal(await code('wrong-3'), 'wrong-password')
-  // Il quinto errore brucia il codice.
+  // The fifth error burns the code.
   assert.equal(await code('wrong-4'), 'too-many-attempts')
-  // Ora nemmeno la password giusta serve.
+  // Now not even the right password is enough.
   assert.equal(await code('hunter22'), 'token-used')
   assert.equal(env.access.devices().length, 0)
 
-  // Con codice nuovo e password giusta si entra.
+  // With a new code and the right password it works.
   const t2 = env.access.startPairing(route(env.mac)).payload.token
   const c = await connect({ env, authenticate: false })
   assert.equal((await c.authenticate({ token: t2, password: 'hunter22' })).ok, true)
-  // Tolta la password, il codice non la chiede più.
+  // With the password removed, the code no longer asks for it.
   await env.access.setPassword(null)
   assert.equal(env.access.startPairing(route(env.mac)).payload.pw, false)
 })
 
-test('password: lunghezza controllata e salvata solo come hash', async () => {
+test('password: length checked and stored only as a hash', async () => {
   const env = setup()
   await assert.rejects(() => env.access.setPassword('abc'), /between 4 and 128/)
   await env.access.setPassword('correct horse')
@@ -648,7 +648,7 @@ test('password: lunghezza controllata e salvata solo come hash', async () => {
   assert.ok(!row.value.includes('correct horse'))
 })
 
-test('dispositivo noto: auth con la sua chiave; sconosciuto e firma sbagliata respinti', async () => {
+test('known device: auth with its key; unknown device and wrong signature rejected', async () => {
   const env = setup()
   const key = generateDeviceKey()
   const first = await connect({ env, authenticate: false })
@@ -668,7 +668,7 @@ test('dispositivo noto: auth con la sua chiave; sconosciuto e firma sbagliata re
   assert.equal(r2.ok === false && r2.code, 'bad-signature')
 })
 
-test('firma riusata su un’altra connessione: respinta (hash dell’handshake diverso)', async () => {
+test('signature reused on another connection: rejected (different handshake hash)', async () => {
   const env = setup()
   const key = generateDeviceKey()
   const first = await connect({ env, authenticate: false })
@@ -689,7 +689,7 @@ test('firma riusata su un’altra connessione: respinta (hash dell’handshake d
   b.sendRaw({ type: 'auth', deviceId, sig: sigA })
   const r = await result
   assert.equal(r.ok === false && r.code, 'bad-signature')
-  // Una firma di tipo `pair` non vale come `auth`, nemmeno sulla stessa connessione.
+  // A `pair` signature does not count as `auth`, not even on the same connection.
   const c = await connect({ env, authenticate: false })
   const wrongKind = new Promise<RemoteAuthResult>((resolve) => {
     const timer = setInterval(() => {
@@ -703,7 +703,7 @@ test('firma riusata su un’altra connessione: respinta (hash dell’handshake d
   assert.equal((await wrongKind).ok, false)
 })
 
-test('revoca: la connessione si chiude subito, il telefono è avvisato e non rientra', async () => {
+test('revocation: the connection closes right away, the phone is notified and cannot come back', async () => {
   const env = setup()
   const key = generateDeviceKey()
   const first = await connect({ env, authenticate: false })
@@ -721,22 +721,22 @@ test('revoca: la connessione si chiude subito, il telefono è avvisato e non rie
   assert.equal(first.server.closed, true)
   const notice = live.auths.at(-1)
   assert.ok(notice && !notice.ok && notice.code === 'device-revoked')
-  // L'altro telefono non è toccato.
+  // The other phone is untouched.
   assert.equal(other.server.closed, false)
   assert.equal(env.gateway.clients, 1)
   assert.equal(env.access.devices().length, 1)
 
-  // Con lo stesso abbinamento non si ricollega.
+  // It cannot reconnect with the same pairing.
   const retry = await connect({ env, authenticate: false })
   const r = await retry.authenticate({ device })
   assert.equal(r.ok === false && r.code, 'device-revoked')
-  // Con la chiave stessa ma un QR nuovo si può abbinare di nuovo: è un altro abbinamento.
+  // With the same key but a new QR it can pair again: it is a different pairing.
   const again = await connect({ env, authenticate: false })
   const r2 = await again.authenticate({ key })
   assert.ok(r2.ok && r2.deviceId !== device.id)
 })
 
-test('rigenerare la chiave: tutti i dispositivi revocati e le connessioni chiuse', async () => {
+test('regenerating the key: all devices revoked and connections closed', async () => {
   const env = setup()
   const a = await connect({ env })
   const b = await connect({ env })
@@ -749,7 +749,7 @@ test('rigenerare la chiave: tutti i dispositivi revocati e le connessioni chiuse
   assert.equal(env.gateway.size, 0)
 })
 
-test('canale spento: nessuna autenticazione', async () => {
+test('channel off: no authentication', async () => {
   const env = setup()
   env.access.enabled = false
   const c = await connect({ env, authenticate: false })
@@ -758,7 +758,7 @@ test('canale spento: nessuna autenticazione', async () => {
   assert.throws(() => env.access.startPairing(route(env.mac)), /turned off/)
 })
 
-test('allowFull spento: Full dal telefono rifiutato, gli altri livelli no', async () => {
+test('allowFull off: Full from the phone rejected, other levels not', async () => {
   const entries: RemoteLogEntry[] = []
   const env = setup({ log: entries })
   env.access.allowFull = false
@@ -772,13 +772,13 @@ test('allowFull spento: Full dal telefono rifiutato, gli altri livelli no', asyn
   assert.ok(ok.kind === 'result' && ok.ok)
   assert.equal(env.fake.calls.length, 1)
   assert.deepEqual(entries.map((e) => e.detail), ['Permission → Full (blocked)', 'Permission → Edit'])
-  // Riacceso, Full passa.
+  // Turned back on, Full goes through.
   env.access.allowFull = true
   const full = await c.call({ type: 'session.permission.set', sessionId: 's1', permission: 'full' })
   assert.ok(full.kind === 'result' && full.ok)
 })
 
-test('log delle azioni remote: respond, send, queue, interrupt, permission, senza testo dei messaggi', async () => {
+test('remote action log: respond, send, queue, interrupt, permission, without message text', async () => {
   const entries: RemoteLogEntry[] = []
   const env = setup({ log: entries })
   env.fake.host.requestInfo = (_s, requestId) => (requestId === 'q' ? { title: 'Run command', options: [{ id: 'allow', kind: 'allow' }, { id: 'no', kind: 'deny' }] } : null)
@@ -792,9 +792,9 @@ test('log delle azioni remote: respond, send, queue, interrupt, permission, senz
   await c.call({ type: 'session.send', sessionId: 's1', text: 'my secret prompt!' })
   await c.call({ type: 'session.queue.deliver', sessionId: 's1', id: 'm', how: 'now' })
   await c.call({ type: 'session.interrupt', sessionId: 's1' })
-  // Il telefono chiede Full ma il tetto del progetto dà Edit: nel log il livello vero.
+  // The phone asks for Full but the project ceiling gives Edit: the log has the real level.
   await c.call({ type: 'session.permission.set', sessionId: 's1', permission: 'full' })
-  // Comandi che non sono azioni non scrivono nel log.
+  // Commands that are not actions do not write to the log.
   await c.call({ type: 'session.read', sessionId: 's1' })
   const page = env.access.list()
   assert.deepEqual(
@@ -811,9 +811,9 @@ test('log delle azioni remote: respond, send, queue, interrupt, permission, senz
   assert.ok(page.entries.every((e) => e.deviceName === 'Phone A' && e.sessionId === 's1'))
   assert.ok(!JSON.stringify(page).includes('secret'))
   assert.equal(entries.length, 6)
-  // La risposta porta il nome del telefono (viaDevice).
+  // The response carries the phone's name (viaDevice).
   assert.equal((env.fake.calls[0].command as { viaDevice?: string }).viaDevice, 'Phone A')
-  // Paginazione: dalla più recente, `before` esclusivo.
+  // Pagination: from the most recent, `before` exclusive.
   const first = env.access.list(undefined, 2)
   assert.equal(first.entries.length, 2)
   assert.equal(first.hasMore, true)
@@ -822,7 +822,7 @@ test('log delle azioni remote: respond, send, queue, interrupt, permission, senz
   assert.equal(next.hasMore, false)
 })
 
-test('log: si tengono al massimo 1000 voci e 30 giorni', () => {
+test('log: at most 1000 entries and 30 days are kept', () => {
   let now = 100 * 86_400_000
   const access = newAccess({ now: () => now })
   const device = { id: 'd', name: 'D' }
@@ -835,7 +835,7 @@ test('log: si tengono al massimo 1000 voci e 30 giorni', () => {
   assert.ok(count <= LOG_MAX_ENTRIES + 50, String(count))
 })
 
-test('device.push.set salva il token sul dispositivo e non passa dall’host', async () => {
+test('device.push.set stores the token on the device and does not go through the host', async () => {
   const env = setup()
   const c = await connect({ env })
   const id = env.access.devices()[0].id
@@ -850,17 +850,17 @@ test('device.push.set salva il token sul dispositivo e non passa dall’host', a
     const e = await c.call({ type: 'device.push.set', ...bad })
     assert.ok(e.kind === 'result' && !e.ok)
   }
-  // Un token si toglie anche con la revoca.
+  // A token is also removed on revocation.
   await c.call({ type: 'device.push.set', token: 'T', platform: 'ios' })
   env.access.revoke(id)
   assert.equal(env.access.device(id)?.pushToken, null)
 })
 
-test('device.notify.set e device.state (LAD-53): validazione, salvataggio, primo piano per connessione, lingua', async () => {
+test('device.notify.set and device.state: validation, storage, per-connection foreground, language', async () => {
   const env = setup()
   const c = await connect({ env, locale: 'it' })
   const id = env.access.devices()[0].id
-  // Lingua dell'hello salvata dopo l'autenticazione; predefinite le preferenze.
+  // Hello language saved after authentication; preferences are the defaults.
   assert.equal(env.access.device(id)?.locale, 'it')
   assert.deepEqual(env.access.device(id)?.notify, { events: { request: true, turn: true, error: true, agents: true }, quiet: null })
   const prefs = { events: { request: true, turn: false, error: true, agents: true }, quiet: { from: '22:00', to: '07:00', tz: 'Europe/Rome' }, quietAllowsRequests: true }
@@ -872,7 +872,7 @@ test('device.notify.set e device.state (LAD-53): validazione, salvataggio, primo
     assert.ok(e.kind === 'result' && !e.ok)
   }
   assert.deepEqual(env.access.device(id)?.notify, prefs)
-  // Primo piano: per connessione e solo in memoria.
+  // Foreground: per connection and only in memory.
   assert.equal(env.gateway.foregroundDevices().size, 0)
   assert.ok((await c.call({ type: 'device.state', foreground: true })).kind === 'result')
   assert.deepEqual([...env.gateway.foregroundDevices()], [id])
@@ -887,7 +887,7 @@ test('device.notify.set e device.state (LAD-53): validazione, salvataggio, primo
   assert.equal(env.fake.calls.length, 0)
 })
 
-test('foreground (LAD-53): scade senza battito né traffico; l’ultimo stato del dispositivo vince; connessione caduta non conta', async () => {
+test('foreground: expires without heartbeat or traffic; the device’s latest state wins; a dropped connection does not count', async () => {
   let clock = 1_000_000
   const env = setup({ now: () => clock })
   const a = await connect({ env })
@@ -897,12 +897,12 @@ test('foreground (LAD-53): scade senza battito né traffico; l’ultimo stato de
   clock += 29_000
   assert.equal(env.gateway.foregroundDevices().size, 1)
   clock += 2_000
-  // Né battito né comandi da 31 secondi: i push ripartono.
+  // Neither heartbeat nor commands for 31 seconds: pushes resume.
   assert.equal(env.gateway.foregroundDevices().size, 0)
-  // Traffico di comandi sulla connessione: torna valido.
+  // Command traffic on the connection: valid again.
   await a.call({ type: 'session.read', sessionId: 's1' })
   assert.equal(env.gateway.foregroundDevices().size, 1)
-  // L'ultimo stato del dispositivo vince.
+  // The device's latest state wins.
   await a.call({ type: 'device.state', foreground: false })
   assert.equal(env.gateway.foregroundDevices().size, 0)
   await a.call({ type: 'device.state', foreground: true })
@@ -911,7 +911,7 @@ test('foreground (LAD-53): scade senza battito né traffico; l’ultimo stato de
   assert.equal(env.gateway.foregroundDevices().size, 0)
 })
 
-test('setPushToken: lo stesso token su un altro dispositivo non revocato viene tolto', () => {
+test('setPushToken: the same token on another non-revoked device is removed', () => {
   const access = newAccess()
   const db = (access as unknown as { db: { prepare(s: string): { run(...a: unknown[]): unknown } } }).db
   for (const id of ['x', 'y']) db.prepare('insert into devices (id, name, platform, public_key, created_at) values (?, ?, ?, ?, ?)').run(id, id, 'ios', `k${id}`, 1)
@@ -928,7 +928,7 @@ test('setPushToken: lo stesso token su un altro dispositivo non revocato viene t
   assert.equal(changes, 1)
 })
 
-test('istantanea: tetti di permesso, preferenze e sessioni archiviate (project.sessions.archived)', async () => {
+test('snapshot: permission ceilings, preferences and archived sessions (project.sessions.archived)', async () => {
   const env = setup()
   env.fake.host.remoteExtras = async () => ({ permissionsMax: { p1: 'edit', p2: null }, busySend: 'queue' })
   const archived: unknown[] = []
@@ -950,7 +950,7 @@ test('istantanea: tetti di permesso, preferenze e sessioni archiviate (project.s
   assert.equal(env.fake.calls.length, 0)
 })
 
-test('lo stato cambia: onDevices a ogni collegamento e scollegamento', async () => {
+test('state changes: onDevices on every connect and disconnect', async () => {
   let changes = 0
   const mac = generateKeyPair()
   const access = newAccess()
@@ -963,9 +963,9 @@ test('lo stato cambia: onDevices a ogni collegamento e scollegamento', async () 
   assert.equal(changes, 2)
 })
 
-// ── Limiti: l'`auth` valido non si blocca mai ────────────────────────────────
+// ── Limits: a valid `auth` is never blocked ──────────────────────────────────
 
-test('auth: un telefono valido entra anche dopo mille errori di altri; revocato o sconosciuto che insiste non blocca nessuno', async () => {
+test('auth: a valid phone gets in even after a thousand errors from others; a revoked or unknown one that persists blocks nobody', async () => {
   const env = setup()
   const key = generateDeviceKey()
   const first = await connect({ env, authenticate: false })
@@ -978,7 +978,7 @@ test('auth: un telefono valido entra anche dopo mille errori di altri; revocato 
   }
   const good = await connect({ env, device })
   assert.ok(good.auths[0].ok)
-  // I tentativi di `pair` sbagliati invece sì: dopo il limite si rifiuta senza guardare.
+  // Wrong `pair` attempts, however, are: after the limit requests are refused without looking.
   for (let i = 0; i < FAILURE_LIMIT; i++) {
     const bad = await connect({ env, authenticate: false })
     await bad.authenticate({ token: 'nope' })
@@ -986,12 +986,12 @@ test('auth: un telefono valido entra anche dopo mille errori di altri; revocato 
   const blocked = await connect({ env, authenticate: false })
   const r = await blocked.authenticate({ token: env.access.startPairing(route(env.mac)).payload.token })
   assert.equal(r.ok === false && r.code, 'too-many-attempts')
-  // E l'auth di un dispositivo valido passa comunque.
+  // And a valid device's auth still goes through.
   const again = await connect({ env, device })
   assert.ok(again.auths[0].ok)
 })
 
-test('rinomina: le connessioni aperte usano il nome nuovo nel log', async () => {
+test('rename: open connections use the new name in the log', async () => {
   const entries: RemoteLogEntry[] = []
   const env = setup({ log: entries })
   const c = await connect({ env, name: 'Old' })
@@ -1001,7 +1001,7 @@ test('rinomina: le connessioni aperte usano il nome nuovo nel log', async () => 
   assert.equal(entries[0].deviceName, 'New name')
 })
 
-test('allowFull cambia: i telefoni collegati ricevono remote.prefs', async () => {
+test('allowFull changes: connected phones receive remote.prefs', async () => {
   const env = setup()
   env.fake.host.remoteExtras = async () => ({ permissionsMax: {}, busySend: 'queue' })
   const c = await connect({ env })
@@ -1011,11 +1011,11 @@ test('allowFull cambia: i telefoni collegati ricevono remote.prefs', async () =>
   assert.deepEqual(c.events.find((e) => e.kind === 'event' && e.event.type === 'remote.prefs'), { kind: 'event', event: { type: 'remote.prefs', prefs: { busySend: 'queue', allowFull: false } } })
 })
 
-// ── LAD-89 / LAD-90 ──────────────────────────────────────────────────────────
+// ── Create and usage ─────────────────────────────────────────────────────────
 
 const createBase = { type: 'session.create', projectId: 'p1', agent: 'claude-code', text: 'do the thing', model: null, effort: null, permission: 'edit' }
 
-/** Host con i controlli di creazione veri (simulati): progetto p1, agenti claude-code (modello m1 con effort low/high) e codex non ammesso. */
+/** Host with the real (simulated) creation checks: project p1, agents claude-code (model m1 with effort low/high) and codex not allowed. */
 function createHost(extra: Partial<RemoteHostApi> = {}) {
   const env = fakeHost()
   env.host.checkCreate = async (command) => {
@@ -1033,7 +1033,7 @@ function createHost(extra: Partial<RemoteHostApi> = {}) {
   return env
 }
 
-test('session.create: forma e campi in più (allegati, terminale, worktree, command) respinti prima dell’host', async () => {
+test('session.create: shape and extra fields (attachments, terminal, worktree, command) rejected before the host', async () => {
   const env = setup({ host: createHost().host })
   const c = await connect({ env })
   const bad: Record<string, unknown>[] = [
@@ -1057,7 +1057,7 @@ test('session.create: forma e campi in più (allegati, terminale, worktree, comm
   assert.equal(env.fake.calls.length, 0)
 })
 
-test('session.create: ok, comando ricostruito (chat, nessun campo extra), risposta e log senza testo', async () => {
+test('session.create: ok, command rebuilt (chat, no extra fields), response and log without text', async () => {
   const entries: RemoteLogEntry[] = []
   const fake = createHost()
   const env = setup({ host: fake.host, log: entries })
@@ -1071,13 +1071,13 @@ test('session.create: ok, comando ricostruito (chat, nessun campo extra), rispos
   assert.equal(entries[0].sessionId, 'new1')
   assert.equal(entries[0].detail, 'New session: Claude Code in P')
   assert.ok(!JSON.stringify(entries).includes('secret'))
-  // model/effort assenti = null.
+  // model/effort absent = null.
   const d = await c.call({ type: 'session.create', projectId: 'p1', agent: 'claude-code', text: 'hi', permission: 'plan' })
   assert.ok(d.kind === 'result' && d.ok)
   assert.deepEqual(fake.calls[1].command, { type: 'session.create', projectId: 'p1', agent: 'claude-code', text: 'hi', model: null, effort: null, permission: 'plan', mode: 'chat' })
 })
 
-test('session.create: progetto, agente, modello, effort non validi (controlli dell’host) = errore e nessuna sessione', async () => {
+test('session.create: invalid project, agent, model, effort (host checks) = error and no session', async () => {
   const fake = createHost()
   let clock = 5_000_000
   const c = await connect({ env: setup({ host: fake.host, now: () => clock }) })
@@ -1088,7 +1088,7 @@ test('session.create: progetto, agente, modello, effort non validi (controlli de
     [{ ...createBase, effort: 'max' }, /effort/]
   ]
   for (const [command, re] of cases) {
-    clock += 60_000 // fuori dal limite delle nuove sessioni
+    clock += 60_000 // outside the new-session limit
     const r = await c.call(command)
     assert.ok(r.kind === 'result' && !r.ok)
     assert.match((r as { error: string }).error, re)
@@ -1096,7 +1096,7 @@ test('session.create: progetto, agente, modello, effort non validi (controlli de
   assert.equal(fake.calls.length, 0)
 })
 
-test('session.create: Full con allowFull spento = rifiutato (nessuna riduzione silenziosa), con voce di log; edit passa', async () => {
+test('session.create: Full with allowFull off = rejected (no silent downgrade), with a log entry; edit passes', async () => {
   const entries: RemoteLogEntry[] = []
   const fake = createHost()
   const env = setup({ host: fake.host, log: entries })
@@ -1112,11 +1112,11 @@ test('session.create: Full con allowFull spento = rifiutato (nessuna riduzione s
   env.access.allowFull = true
   const full = await c.call({ ...createBase, permission: 'full' })
   assert.ok(full.kind === 'result' && full.ok)
-  // Il tetto del progetto lo applica l'host (createSession): il gateway passa il livello chiesto.
+  // The project ceiling is applied by the host (createSession): the gateway passes the requested level.
   assert.equal((fake.calls[1].command as { permission: string }).permission, 'full')
 })
 
-test('agents.usage: ammesso, senza email né percorso, al massimo una lettura al minuto per agente+profilo e connessione', async () => {
+test('agents.usage: allowed, without email or path, at most one read per minute per agent+profile and connection', async () => {
   let reads = 0
   let clock = 1_000_000
   const fake = createHost()
@@ -1134,28 +1134,28 @@ test('agents.usage: ammesso, senza email né percorso, al massimo una lettura al
   assert.equal(data.account, 'Claude Max')
   assert.ok(!('email' in data) && !('path' in data))
   assert.ok(!JSON.stringify(first).includes('example.com'))
-  // Entro 60 secondi: valore in cache, il provider non si tocca.
+  // Within 60 seconds: cached value, the provider is not touched.
   clock += 30_000
   const second = await c.call({ type: 'agents.usage', agent: 'claude-code' })
   assert.deepEqual((second as { data: unknown }).data, data)
   assert.equal(reads, 1)
-  // Altro profilo = altra chiave; un'altra connessione ha il suo limite.
+  // Another profile = another key; another connection has its own limit.
   await c.call({ type: 'agents.usage', agent: 'claude-code', profileId: 'p2' })
   assert.equal(reads, 2)
   const other = await connect({ env })
   await other.call({ type: 'agents.usage', agent: 'claude-code' })
   assert.equal(reads, 3)
-  // Passati i 60 secondi: lettura vera.
+  // After the 60 seconds: real read.
   clock += 31_000
   const third = await c.call({ type: 'agents.usage', agent: 'claude-code' })
   assert.equal((third as { data: { usageAt: number } }).data.usageAt, 4)
   assert.equal(reads, 4)
-  // Forma non valida.
+  // Invalid shape.
   const bad = await c.call({ type: 'agents.usage', agent: '' })
   assert.ok(bad.kind === 'result' && !bad.ok)
 })
 
-test('agent.status inoltrato senza email e percorso; hello senza email, profili senza cartella', async () => {
+test('agent.status forwarded without email and path; hello without email, profiles without folder', async () => {
   const c = await connect()
   c.gateway.broadcast({ type: 'agent.status', status: { agent: 'codex', name: 'Codex', kind: 'native', available: true, version: null, account: 'ChatGPT Plus', email: 'a@b.c', path: '/x/codex', models: [], error: null } })
   await c.flush()
@@ -1168,7 +1168,7 @@ test('agent.status inoltrato senza email e percorso; hello senza email, profili 
   assert.ok(!JSON.stringify(snap).includes('a@b.c') && !JSON.stringify(snap).includes('/secret'))
 })
 
-test('predefiniti: nello snapshot, full ridotto a edit con allowFull spento, evento remote.defaults solo se cambiano', async () => {
+test('defaults: in the snapshot, full reduced to edit with allowFull off, remote.defaults event only when they change', async () => {
   const fake = createHost()
   let max: 'plan' | null = null
   fake.host.remoteExtras = async () => ({ permissionsMax: { p1: max }, busySend: 'steer', defaults: { p1: { allowed: [], agent: 'claude-code', lastAgent: null, launch: {}, permission: 'full' } } })
@@ -1192,7 +1192,7 @@ test('predefiniti: nello snapshot, full ridotto a edit con allowFull spento, eve
   assert.equal(sent().length, 2)
 })
 
-test('session.create: attachments [] = nessuno', async () => {
+test('session.create: attachments [] = none', async () => {
   const fake = createHost()
   const c = await connect({ env: setup({ host: fake.host }) })
   const r = await c.call({ ...createBase, attachments: [] })
@@ -1200,7 +1200,7 @@ test('session.create: attachments [] = nessuno', async () => {
   assert.ok(!('attachments' in (fake.calls[0].command as object)))
 })
 
-test('session.create: limite per dispositivo (raffica 3, poi 5 al minuto), rifiuto nel log', async () => {
+test('session.create: per-device limit (burst of 3, then 5 per minute), rejection in the log', async () => {
   const entries: RemoteLogEntry[] = []
   let clock = 9_000_000
   const fake = createHost()
@@ -1213,16 +1213,16 @@ test('session.create: limite per dispositivo (raffica 3, poi 5 al minuto), rifiu
   assert.match((refused as { error: string }).error, /Too many new sessions/)
   assert.equal(fake.calls.length, 3)
   assert.equal(entries.at(-1)?.detail, 'New session refused: too many requests')
-  // Dopo 12 secondi (5 al minuto) un gettone è tornato.
+  // After 12 seconds (5 per minute) a token is back.
   clock += 12_000
   await c.call(createBase)
   assert.equal(fake.calls.length as number, 4)
-  // Il limite è del dispositivo, non della connessione.
+  // The limit is per device, not per connection.
   const again = await c.call(createBase)
   assert.ok(again.kind === 'result' && !again.ok)
 })
 
-test('agents.usage: account predefinito = una sola chiave, account sconosciuto e agente sconosciuto respinti, limite per dispositivo', async () => {
+test('agents.usage: default account = a single key, unknown account and unknown agent rejected, per-device limit', async () => {
   let reads = 0
   const fake = createHost()
   fake.host.usageTarget = (agent, profileId) => {
@@ -1249,7 +1249,7 @@ test('agents.usage: account predefinito = una sola chiave, account sconosciuto e
   assert.equal(reads, 1)
 })
 
-test('predefiniti: invii sovrapposti (vince il più recente), reset senza telefoni, usage-only non ricalcola', async () => {
+test('defaults: overlapping sends (the most recent wins), reset without phones, usage-only does not recompute', async () => {
   const fake = createHost()
   let calls = 0
   const resolvers: ((v: Awaited<ReturnType<NonNullable<RemoteHostApi['remoteExtras']>>>) => void)[] = []
@@ -1263,12 +1263,12 @@ test('predefiniti: invii sovrapposti (vince il più recente), reset senza telefo
   env.gateway.pushDefaults(true)
   env.gateway.pushDefaults(true)
   resolvers[1](ext('edit'))
-  resolvers[0](ext('plan')) // arriva dopo ma è più vecchio: scartato
+  resolvers[0](ext('plan')) // arrives later but is older: discarded
   await c.flush()
   const sent = c.events.filter((e) => e.kind === 'event' && e.event.type === 'remote.defaults') as unknown as { event: { defaults: Record<string, { permission: string }> } }[]
   assert.equal(sent.length, 1)
   assert.equal(sent[0].event.defaults.p1.permission, 'edit')
-  // Solo limiti d'uso cambiati: nessun nuovo calcolo. Cambia un modello: sì.
+  // Only usage limits changed: no new computation. A model changes: yes.
   const status = (usageAt: number, models: { id: string; label: string }[]) => ({ type: 'agent.status' as const, status: { agent: 'codex' as const, name: 'Codex', kind: 'native' as const, available: true, version: null, account: null, models, error: null, usageAt } })
   env.gateway.broadcast(status(1, [{ id: 'a', label: 'A' }]))
   await new Promise((r) => setTimeout(r, 400))
@@ -1281,7 +1281,7 @@ test('predefiniti: invii sovrapposti (vince il più recente), reset senza telefo
   assert.equal(calls, before + 1)
 })
 
-test('account: profile.upsert e profile.removed arrivano ai telefoni senza la cartella di configurazione', async () => {
+test('account: profile.upsert and profile.removed reach phones without the configuration folder', async () => {
   const c = await connect()
   c.gateway.broadcast({ type: 'profile.upsert', profile: { id: 'pr', agent: 'codex', name: 'Work', configDir: '/secret/x', isDefault: false, addedAt: 1 } })
   c.gateway.broadcast({ type: 'profile.removed', profileId: 'pr' })
@@ -1290,7 +1290,7 @@ test('account: profile.upsert e profile.removed arrivano ai telefoni senza la ca
   assert.deepEqual(evs.slice(0, 2), [{ type: 'profile.upsert', profile: { id: 'pr', agent: 'codex', name: 'Work', isDefault: false } }, { type: 'profile.removed', profileId: 'pr' }])
 })
 
-test('LAD-92: session.send con immagini: tipi, nome pulito, log senza contenuto', async () => {
+test('session.send with images: types, clean name, log without content', async () => {
   const entries: RemoteLogEntry[] = []
   const env = setup({ log: entries })
   const c = await connect({ env })
@@ -1303,17 +1303,17 @@ test('LAD-92: session.send con immagini: tipi, nome pulito, log senza contenuto'
   assert.deepEqual(entries.map((e) => e.detail), ['Message with 2 images', 'Message with 1 image'])
 })
 
-test('LAD-92: allegati non validi respinti prima dell’host', async () => {
-  // Ogni caso su una connessione nuova e con l'orologio avanti: i limiti per dispositivo e il blocco dopo troppi errori non c'entrano qui.
+test('invalid attachments rejected before the host', async () => {
+  // Each case on a new connection and with the clock moved forward: the per-device limits and the block after too many errors do not matter here.
   let clock = 9_000_000
   const env = setup({ now: () => clock })
   const good = att()
   const bad: unknown[] = [
     [good, good, good, good],
     [{ ...good, mediaType: 'image/gif' }],
-    [{ ...good, mediaType: 'image/png' }], // magic jpeg dichiarato png
+    [{ ...good, mediaType: 'image/png' }], // magic says jpeg, declared png
     [{ ...good, data: 'not base64!' }],
-    [{ ...good, data: good.data.slice(1) }], // lunghezza non multipla di 4
+    [{ ...good, data: good.data.slice(1) }], // length not a multiple of 4
     [{ ...good, data: '' }],
     [att('image/jpeg', 1024 * 1024 + 1)],
     [att('image/jpeg', 1024 * 1024), att('image/jpeg', 1024 * 1024), att('image/jpeg', 10)],
@@ -1327,25 +1327,25 @@ test('LAD-92: allegati non validi respinti prima dell’host', async () => {
     const r = await c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments })
     assert.ok(r.kind === 'result' && !r.ok, JSON.stringify(attachments).slice(0, 60))
     assert.match((r as { error: string }).error, /Invalid images/)
-    // Il gateway ammette poche connessioni insieme: questa si chiude.
+    // The gateway allows few simultaneous connections: this one closes.
     c.client.link.close()
     await c.flush()
   }
   assert.equal(env.fake.calls.length, 0)
-  // Limiti esatti: 3 immagini, 1 MiB l'una ma 2 MiB in tutto.
+  // Exact limits: 3 images, 1 MiB each but 2 MiB in total.
   clock += 120_000
   const c = await connect({ env })
   const ok = await c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [att('image/jpeg', 1024 * 1024), att('image/jpeg', 1024 * 1024)] })
   assert.ok(ok.kind === 'result' && ok.ok)
 })
 
-test('LAD-92: limite dei messaggi dipende dall’autenticazione (1 MiB prima, 3 MiB dopo, solo con immagini)', async () => {
-  // Prima dell'autenticazione 1 MiB: il messaggio più grande chiude la connessione.
+test('message limit depends on authentication (1 MiB before, 3 MiB after, only with images)', async () => {
+  // Before authentication 1 MiB: the larger message closes the connection.
   const pre = await connect({ authenticate: false })
   for (const m of pre.session().seal({ type: 'pair', pad: 'a'.repeat(1024 * 1024 + 10) })) pre.client.link.send(m)
   await new Promise((r) => setTimeout(r, 100))
   assert.equal(pre.gateway.size, 0)
-  // Autenticato: oltre 1 MiB senza allegati chiude, con allegati passa.
+  // Authenticated: above 1 MiB without attachments it closes, with attachments it goes through.
   const big = await connect()
   const a = att('image/jpeg', 1024 * 1024)
   const r = await big.call({ type: 'session.send', sessionId: 's1', text: 'x'.repeat(100_000), attachments: [a, a] })
@@ -1354,14 +1354,14 @@ test('LAD-92: limite dei messaggi dipende dall’autenticazione (1 MiB prima, 3 
   for (const m of big.session().seal({ rid: 'z', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(1024 * 1024 + 10) } })) big.client.link.send(m)
   await new Promise((r2) => setTimeout(r2, 100))
   assert.equal(big.gateway.size, 0)
-  // Oltre 3 MiB chiude anche con allegati.
+  // Above 3 MiB it closes even with attachments.
   const huge = await connect()
   for (const m of huge.session().seal({ rid: 'z', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(3 * 1024 * 1024), attachments: [att()] } })) huge.client.link.send(m)
   await new Promise((r2) => setTimeout(r2, 100))
   assert.equal(huge.gateway.size, 0)
 })
 
-test('LAD-92: session.create con immagini: passano all’host, testo vuoto ok con immagine, log con il numero', async () => {
+test('session.create with images: forwarded to the host, empty text ok with an image, log with the count', async () => {
   const entries: RemoteLogEntry[] = []
   const fake = createHost()
   const c = await connect({ env: setup({ host: fake.host, log: entries }) })
@@ -1376,7 +1376,7 @@ test('LAD-92: session.create con immagini: passano all’host, testo vuoto ok co
   assert.match(entries[0].detail, /\(1 image\)$/)
 })
 
-test('LAD-92: limite delle immagini per dispositivo (raffica 6, poi 10 al minuto)', async () => {
+test('per-device image limit (burst of 6, then 10 per minute)', async () => {
   const entries: RemoteLogEntry[] = []
   let clock = 9_000_000
   const env = setup({ log: entries, now: () => clock })
@@ -1391,7 +1391,7 @@ test('LAD-92: limite delle immagini per dispositivo (raffica 6, poi 10 al minuto
   assert.ok(((await send()) as { ok: boolean }).ok)
 })
 
-test('LAD-92: session.commands ammesso; project.files (elenco intero) no', async () => {
+test('session.commands allowed; project.files (full list) not', async () => {
   const env = setup()
   const c = await connect({ env })
   const ok = await c.call({ type: 'session.commands', sessionId: 's1' })
@@ -1402,7 +1402,7 @@ test('LAD-92: session.commands ammesso; project.files (elenco intero) no', async
   assert.equal(env.fake.calls.length, 1)
 })
 
-test('LAD-92: project.files.search filtra sul Mac, limita, usa la cache e il limite per dispositivo', async () => {
+test('project.files.search filters on the Mac, limits, uses the cache and the per-device limit', async () => {
   let clock = 9_000_000
   let reads = 0
   const fake = fakeHost()
@@ -1425,7 +1425,7 @@ test('LAD-92: project.files.search filtra sul Mac, limita, usa la cache e il lim
   assert.ok(missing.kind === 'result' && !missing.ok)
   const long = await c.call({ type: 'project.files.search', projectId: 'p1', query: 'a'.repeat(201) })
   assert.ok(long.kind === 'result' && !long.ok)
-  // Raffica 10 (3 già usate + 1 sopra: progetto mancante conta), poi rifiuto.
+  // Burst of 10 (3 already used + 1 above: a missing project counts), then refusal.
   let refused = 0
   for (let i = 0; i < 12; i++) {
     const x = await c.call({ type: 'project.files.search', projectId: 'p1', query: 'a' })
@@ -1437,7 +1437,7 @@ test('LAD-92: project.files.search filtra sul Mac, limita, usa la cache e il lim
   assert.ok(again.kind === 'result' && again.ok)
 })
 
-test('LAD-92: solo immagini = testo segnaposto della finestra, per send e create; con testo resta il testo', async () => {
+test('images only = window placeholder text, for send and create; with text the text stays', async () => {
   const fake = createHost()
   let clock = 9_000_000
   const c = await connect({ env: setup({ host: fake.host, now: () => clock }) })
@@ -1445,7 +1445,7 @@ test('LAD-92: solo immagini = testo segnaposto della finestra, per send e create
   await c.call({ type: 'session.send', sessionId: 's1', text: '  \n', attachments: [att(), att('image/png')] })
   await c.call({ type: 'session.send', sessionId: 's1', text: 'guarda', attachments: [att()] })
   await c.call({ ...createBase, text: '', attachments: [att()] })
-  clock += 60_000 // il secchiello delle immagini si riempie di nuovo
+  clock += 60_000 // the image bucket refills
   await c.call({ ...createBase, text: '', attachments: [att(), att()] })
   const texts = fake.calls.map((x) => (x.command as { text: string }).text)
   assert.deepEqual(texts, ['(image attached)', '(images attached)', 'guarda', '(image attached)', '(images attached)'])
@@ -1453,13 +1453,13 @@ test('LAD-92: solo immagini = testo segnaposto della finestra, per send e create
   assert.equal(isImagePlaceholder('guarda'), false)
 })
 
-test('LAD-92: i limiti si applicano prima di validare: immagini non valide consumano il secchiello e vengono contate', async () => {
+test('limits apply before validation: invalid images consume the bucket and are counted', async () => {
   let clock = 9_000_000
   const entries: RemoteLogEntry[] = []
   const env = setup({ now: () => clock, log: entries })
   const c = await connect({ env })
   const badSend = () => c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [{ ...att(), mediaType: 'image/png' }, att(), att()] })
-  // Prima raffica 6 immagini = 2 richieste (non valide: errore "Invalid images"), poi il secchiello è vuoto: "Too many images" senza validare.
+  // First burst of 6 images = 2 requests (invalid: "Invalid images" error), then the bucket is empty: "Too many images" without validating.
   for (let i = 0; i < 2; i++) assert.match(((await badSend()) as { error: string }).error, /Invalid images/)
   const refused = await badSend()
   assert.match((refused as { error: string }).error, /Too many images/)
@@ -1468,7 +1468,7 @@ test('LAD-92: i limiti si applicano prima di validare: immagini non valide consu
   assert.equal(env.fake.calls.length, 0)
 })
 
-test('LAD-92: allegati non validi ripetuti chiudono la connessione', async () => {
+test('repeated invalid attachments close the connection', async () => {
   let clock = 9_000_000
   const env = setup({ now: () => clock })
   const c = await connect({ env })
@@ -1480,7 +1480,7 @@ test('LAD-92: allegati non validi ripetuti chiudono la connessione', async () =>
   assert.equal(env.gateway.size, 0)
 })
 
-test('LAD-92: oltre 1 MiB solo con forma di allegati valida (chiavi in più o allegati strani chiudono)', async () => {
+test('over 1 MiB only with a valid attachments shape (extra keys or odd attachments close)', async () => {
   const bad = [
     { rid: 'a', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(1024 * 1024 + 10), attachments: [att()], extra: 1 } },
     { rid: 'b', command: { type: 'session.send', sessionId: 's1', text: 'x'.repeat(1024 * 1024 + 10), attachments: ['x'] } },
@@ -1496,7 +1496,7 @@ test('LAD-92: oltre 1 MiB solo con forma di allegati valida (chiavi in più o al
   }
 })
 
-test('LAD-92: session.command: nome dall’elenco della sessione, argomenti ≤ 2000, log senza argomenti', async () => {
+test('session.command: name from the session’s list, arguments ≤ 2000, log without arguments', async () => {
   const entries: RemoteLogEntry[] = []
   const fake = fakeHost()
   const base = fake.host.handle
@@ -1507,7 +1507,7 @@ test('LAD-92: session.command: nome dall’elenco della sessione, argomenti ≤ 
   const c = await connect({ env: setup({ host: fake.host, log: entries }) })
   assert.equal(isRemoteCommandType('session.command'), true)
   const ok = await c.call({ type: 'session.command', sessionId: 's1', name: 'review', args: 'secret args', evil: true })
-  assert.ok(ok.kind === 'result' && !ok.ok, 'chiavi in più respinte')
+  assert.ok(ok.kind === 'result' && !ok.ok, 'extra keys rejected')
   const good = await c.call({ type: 'session.command', sessionId: 's1', name: 'review', args: 'secret args' })
   assert.ok(good.kind === 'result' && good.ok)
   assert.deepEqual(fake.calls.filter((x) => (x.command as { type: string }).type === 'session.command').map((x) => x.command), [{ type: 'session.command', sessionId: 's1', name: 'review', args: 'secret args' }])
@@ -1524,12 +1524,12 @@ test('LAD-92: session.command: nome dall’elenco della sessione, argomenti ≤ 
   assert.ok(!entries.some((e) => e.detail.includes('secret')))
 })
 
-test('LAD-92: create rifiutata dal limite delle sessioni restituisce le immagini al dispositivo', async () => {
+test('create rejected by the session limit returns the images to the device', async () => {
   let clock = 9_000_000
   const fake = createHost()
   const c = await connect({ env: setup({ host: fake.host, now: () => clock }) })
-  for (let i = 0; i < 3; i++) await c.call({ ...createBase }) // raffica di 3 sessioni
-  // La quarta è rifiutata dal limite delle sessioni: le sue 3 immagini non restano consumate.
+  for (let i = 0; i < 3; i++) await c.call({ ...createBase }) // burst of 3 sessions
+  // The fourth is refused by the session limit: its 3 images are not left consumed.
   const refused = await c.call({ ...createBase, attachments: [att(), att(), att()] })
   assert.match((refused as { error: string }).error, /Too many new sessions/)
   const send = await c.call({ type: 'session.send', sessionId: 's1', text: 'a', attachments: [att(), att(), att()] })
@@ -1538,7 +1538,7 @@ test('LAD-92: create rifiutata dal limite delle sessioni restituisce le immagini
   assert.ok(send2.kind === 'result' && send2.ok)
 })
 
-test('LAD-92: letture contemporanee dell’elenco file a cache fredda ne fanno una sola', async () => {
+test('concurrent reads of the file list on a cold cache make only one', async () => {
   let reads = 0
   const fake = fakeHost()
   fake.host.projectFiles = async () => {

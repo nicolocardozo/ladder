@@ -1,5 +1,5 @@
-// Temi: i 15 del Mac (themes.generated.ts). "Same as Mac" segue il tema che il Mac manderà sul canale (per ora Circuit);
-// "Match system appearance" sceglie un tema chiaro e uno scuro che seguono la modalità del telefono.
+// Themes: the Mac's 15 (themes.generated.ts). "Same as Mac" follows the theme the Mac will send on the channel (for now Circuit);
+// "Match system appearance" picks a light and a dark theme that follow the phone's mode.
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useColorScheme } from 'react-native'
 import { DEFAULT_THEME, THEMES, type ThemeId, type ThemeInfo } from '@shared/themes.generated'
@@ -46,7 +46,7 @@ export function useTheme(): ThemeValue {
   return v
 }
 
-/** Aggiunge trasparenza a un colore #rrggbb. */
+/** Adds transparency to a #rrggbb color. */
 export function alpha(hex: string, a: number): string {
   const m = /^#([0-9a-f]{6})$/i.exec(hex)
   if (!m) return hex

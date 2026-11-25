@@ -1,9 +1,9 @@
 /*
- * Stili della chat che Tailwind non esprime bene: tipografia del markdown, colori di Shiki, cursore dello streaming.
- * Usano solo i token di globals.css più pochi colori di sintassi, definiti qui per chiaro e scuro.
+ * Chat styles that Tailwind does not express well: markdown typography, Shiki colors, the streaming cursor.
+ * They use only the globals.css tokens plus a few syntax colors, defined here for light and dark.
  */
 :root {
-  /* Sintassi derivata dai token del tema; i temi Mono hanno colori propri, perché lì accento e stati sono grigi. */
+  /* Syntax colors derived from the theme tokens; the Mono themes have their own colors, because there the accent and statuses are gray. */
   --chat-code-bg: var(--ladder-code-background);
   --chat-code-head: var(--ladder-surface);
   --shiki-foreground: color-mix(in oklab, var(--ladder-text) 90%, var(--ladder-code-background));
@@ -22,13 +22,13 @@
   --shiki-token-changed: var(--ladder-syntax-constant, var(--ladder-waiting));
 }
 
-/* Markdown dell'agente. */
+/* Agent markdown. */
 .chat-md {
   overflow-wrap: break-word;
   min-width: 0;
   font-family: var(--font-chat);
 }
-/* Corpo e interlinea seguono il font scelto (globals.css); la variante compatta resta a 13 px. */
+/* Body size and line height follow the chosen font (globals.css); the compact variant stays at 13 px. */
 .chat-md:not(.chat-md-compact) {
   font-size: var(--chat-size);
   line-height: var(--chat-leading);
@@ -195,12 +195,12 @@
   border-bottom: 0;
 }
 
-/* Variante compatta per i messaggi intermedi dentro i passaggi. */
+/* Compact variant for intermediate messages inside steps. */
 .chat-md-compact {
   color: color-mix(in oklab, var(--foreground) 78%, var(--muted-foreground));
 }
 
-/* Riferimento a file. */
+/* File reference. */
 .chat-fref {
   display: inline-flex;
   align-items: center;
@@ -231,7 +231,7 @@
   outline-offset: 1px;
 }
 
-/* Cursore alla fine del testo in streaming. */
+/* Cursor at the end of streaming text. */
 .chat-md[data-streaming] > .chat-md-b:last-child > :last-child:is(p, h1, h2, h3, h4)::after,
 .chat-md[data-streaming] > .chat-md-b:last-child > :last-child:is(ul, ol) > li:last-child::after {
   content: '';
@@ -256,17 +256,17 @@
   }
 }
 
-/* La barra di scorrimento è quella globale (globals.css); qui resta solo l'ancoraggio dello scroll. */
+/* The scrollbar is the global one (globals.css); only the scroll anchoring stays here. */
 .chat-scroll {
   overflow-anchor: none;
 }
 
 /*
- * Larghezza della chat (Impostazioni, Aspetto: prefs.chatWidth su <html data-chat-width>).
- * Il testo sta in una colonna centrata larga al più 820 px (Comoda), 1100 px (Ampia) o tutta la vista (Piena), sempre limitata allo spazio utile.
- * La zona che scorre è un container (cqi): una colonna stretta, un monitor normale e un ultrawide, anche con due colonne
- * affiancate, usano la stessa regola. I blocchi larghi (codice, tabelle, output, comandi) escono
- * dalla colonna fino a 1100 px, centrati sul testo, senza mai superare la vista.
+ * Chat width (Settings, Appearance: prefs.chatWidth on <html data-chat-width>).
+ * The text sits in a centered column at most 820 px wide (Comfortable), 1100 px (Wide) or the full view (Full), always limited to the available space.
+ * The scrolling area is a container (cqi): a narrow column, a normal monitor and an ultrawide, even with two columns
+ * side by side, all use the same rule. Wide blocks (code, tables, output, commands) extend
+ * beyond the column up to 1100 px, centered on the text, never exceeding the view.
  */
 @property --chat-room {
   syntax: '<length>';
@@ -287,11 +287,11 @@
 }
 .chat-scroll {
   container-type: inline-size;
-  /* Il gutter della barra è riservato su entrambi i lati: il testo resta al centro della colonna e il composer
-     (fuori dalla zona che scorre) ha lo stesso margine a sinistra e a destra, anche nelle colonne strette. */
+  /* The scrollbar gutter is reserved on both sides: the text stays in the center of the column and the composer
+     (outside the scrolling area) has the same margin on the left and right, even in narrow columns. */
   scrollbar-gutter: stable both-edges;
 }
-/* Margini laterali e spazio utile (vista meno margini), calcolato qui perché cqi guarda la zona che scorre. */
+/* Side margins and available space (view minus margins), computed here because cqi refers to the scrolling area. */
 .chat-col {
   --chat-pad: 24px;
   --chat-room: calc(100cqi - 2 * var(--chat-pad));
@@ -300,11 +300,11 @@
 .chat-col[data-compact] {
   --chat-pad: 12px;
 }
-/* Fuori dalla zona che scorre (composer, note): stesso margine più il gutter della barra (10 px per lato, globals.css). */
+/* Outside the scrolling area (composer, notes): same margin plus the scrollbar gutter (10 px per side, globals.css). */
 .chat-col.chat-gutter {
   padding-inline: calc(var(--chat-pad) + 10px);
 }
-/* Il font della chat vive solo qui, perché ch ne dipende; .chat-reset restituisce ai figli il font dell'app. */
+/* The chat font lives only here, because ch depends on it; .chat-reset gives the app font back to children. */
 .chat-measure,
 .chat-text {
   width: 100%;
@@ -316,9 +316,9 @@
 .chat-text {
   container-type: inline-size;
 }
-/* Il composer sporge dalla colonna di testo di --chat-bleed per lato: il bordo arrotondato non si allinea al testo
-   che scorre sopra, e il testo scritto dentro (padding 16 px) cade sullo stesso filo della chat. In una colonna stretta
-   prende parte del margine laterale, senza mai mangiarlo tutto. */
+/* The composer extends past the text column by --chat-bleed on each side: the rounded border does not line up with the text
+   scrolling above it, and the text typed inside (16 px padding) falls on the same line as the chat. In a narrow column
+   it takes part of the side margin, never all of it. */
 .chat-measure.chat-bleed {
   --chat-bleed: min(16px, var(--chat-pad, 24px) - 4px);
   width: min(100% + 2 * var(--chat-bleed), var(--chat-measure) + 2 * var(--chat-bleed));
@@ -328,30 +328,30 @@
 .chat-reset {
   font: 13px / 1.45 var(--font-sans);
 }
-/* Passaggi con la linea a sinistra: 6 px di margine, 1 di bordo, 14 di padding. */
+/* Steps with the line on the left: 6 px margin, 1 px border, 14 px padding. */
 .chat-steps {
   --chat-indent: 21px;
 }
-/* Blocco largo: almeno la colonna (meno il rientro), fino a 1100 px e allo spazio utile, centrato sul testo.
-   --chat-indent è la distanza del contenitore dal bordo sinistro della colonna. Solo dentro .chat-text. */
+/* Wide block: at least the column (minus the indent), up to 1100 px and the available space, centered on the text.
+   --chat-indent is the distance of the container from the left edge of the column. Only inside .chat-text. */
 .chat-text .chat-wide {
   --chat-w: max(100cqi - var(--chat-indent, 0px), min(var(--chat-wide-max, 1100px), var(--chat-room)));
   width: var(--chat-w);
   margin-inline-start: min(0px, calc((100cqi - var(--chat-w)) / 2 - var(--chat-indent, 0px) / 2));
 }
-/* Come .chat-wide, ma simmetrico: dentro la colonna sta con lo stesso rientro a sinistra e a destra, fuori è centrato sul testo. */
+/* Like .chat-wide, but symmetric: inside the column it has the same indent on the left and right, outside it is centered on the text. */
 .chat-text .chat-wide-sym {
   --chat-w: max(100cqi - 2 * var(--chat-indent, 0px), min(var(--chat-wide-max, 1100px), var(--chat-room)));
   width: var(--chat-w);
   margin-inline-start: min(0px, calc((100cqi - var(--chat-w)) / 2 - var(--chat-indent, 0px)));
 }
-/* Liste e citazioni non escono dalla loro colonna: il rientro del contenitore non è quello che le formule si aspettano. */
+/* Lists and quotes do not leave their column: the container indent is not what the formulas expect. */
 .chat-md :is(li, blockquote) .chat-wide,
 .chat-md :is(li, blockquote) .chat-wide-sym {
   width: 100%;
   margin-inline-start: 0;
 }
-/* Tabelle: grandi quanto serve, almeno la colonna di testo e al più il blocco largo; le piccole restano centrate sul testo. */
+/* Tables: as large as needed, at least the text column and at most the wide block; small ones stay centered on the text. */
 .chat-text .chat-md-table {
   width: fit-content;
   min-width: min(100%, 100cqi);

@@ -28,7 +28,7 @@ export default function Settings() {
   const macName = useApp((s) => s.macName)
   const permission = usePush((s) => s.permission)
   const tokenFailed = usePush((s) => s.tokenFailed)
-  // Riga dei limiti: la finestra peggiore fra gli abbonamenti, con il segno d'avviso se è vicina al limite.
+  // Limits row: the worst window among the subscriptions, with the warning sign if it is close to the limit.
   const agents = useApp((s) => s.agents)
   const profiles = useApp((s) => s.profiles)
   const now = useNow(60_000)

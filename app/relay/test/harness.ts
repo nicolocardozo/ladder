@@ -1,4 +1,4 @@
-// Prove locali del relay: avvia `wrangler dev` (Miniflare, nessun account) su una porta libera e fornisce socket di prova.
+// Local relay tests: starts `wrangler dev` (Miniflare, no account) on a free port and provides test sockets.
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
@@ -22,11 +22,11 @@ export const freePort = (): Promise<number> =>
     server.on('error', reject)
   })
 
-/** Avvia wrangler dev; `persistDir` conserva lo storage dei Durable Object tra un riavvio e l'altro. */
+/** Starts wrangler dev; `persistDir` keeps the Durable Objects' storage across restarts. */
 export async function startDev(port?: number, persistDir?: string): Promise<Dev> {
   const p = port ?? (await freePort())
   const persist = persistDir ?? mkdtempSync(join(tmpdir(), 'ladder-relay-'))
-  // Dall'ambiente del figlio si tolgono ANTHROPIC_* e CLAUDE*.
+  // ANTHROPIC_* and CLAUDE* are removed from the child's environment.
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('ANTHROPIC_') && !k.startsWith('CLAUDE')))
   const child: ChildProcess = spawn('pnpm', ['exec', 'wrangler', 'dev', '--ip', '127.0.0.1', '--port', String(p), '--persist-to', persist], {
     cwd: join(import.meta.dirname, '..'),
@@ -40,30 +40,30 @@ export async function startDev(port?: number, persistDir?: string): Promise<Dev>
   const url = `http://127.0.0.1:${p}`
   const deadline = Date.now() + 60_000
   for (;;) {
-    if (child.exitCode !== null) throw new Error(`wrangler dev è uscito:\n${log}`)
+    if (child.exitCode !== null) throw new Error(`wrangler dev exited:\n${log}`)
     try {
       if ((await fetch(`${url}/health`)).ok) break
     } catch {
-      // non ancora pronto
+      // not ready yet
     }
-    if (Date.now() > deadline) throw new Error(`wrangler dev non parte:\n${log}`)
+    if (Date.now() > deadline) throw new Error(`wrangler dev failed to start:\n${log}`)
     await new Promise((r) => setTimeout(r, 300))
   }
   return {
     url,
     async stop() {
       const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
-      // Il gruppo di processi: pnpm → wrangler → workerd.
+      // The process group: pnpm → wrangler → workerd.
       try {
         process.kill(-child.pid!, 'SIGTERM')
       } catch {
-        // già uscito
+        // already exited
       }
       await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))])
       try {
         process.kill(-child.pid!, 'SIGKILL')
       } catch {
-        // già uscito
+        // already exited
       }
       if (!persistDir) rmSync(persist, { recursive: true, force: true })
     }
@@ -80,7 +80,7 @@ export function newMacKey(): MacKey {
   return { secretKey, id: relayIdFromPublicKey(ed25519.getPublicKey(secretKey)) }
 }
 
-/** Un WebSocket che accumula i messaggi e permette di aspettarne uno. */
+/** A WebSocket that accumulates messages and lets you wait for one. */
 export class TestSocket {
   readonly ws: WebSocket
   readonly texts: string[] = []
@@ -106,7 +106,7 @@ export class TestSocket {
     for (const w of this.waiters.splice(0)) w()
   }
 
-  /** Aspetta che `check` sia vera (controllata a ogni messaggio o chiusura). */
+  /** Waits until `check` is true (checked on every message or close). */
   async until<T>(check: () => T | undefined | false | null, ms = 8000): Promise<T> {
     const deadline = Date.now() + ms
     for (;;) {
@@ -140,7 +140,7 @@ export class TestSocket {
     if (this.ws.readyState === WebSocket.OPEN) return this
     await new Promise<void>((resolve, reject) => {
       this.ws.addEventListener('open', () => resolve())
-      this.ws.addEventListener('error', () => reject(new Error('connessione non riuscita')))
+      this.ws.addEventListener('error', () => reject(new Error('connection failed')))
     })
     return this
   }
@@ -150,10 +150,10 @@ export class TestSocket {
   }
 }
 
-/** Mac autenticato; con `key` diversa dall'id o firma sbagliata l'autenticazione fallisce. */
+/** Authenticated Mac; with a `key` different from the id or a wrong signature, authentication fails. */
 export async function connectMac(dev: Dev, key: MacKey, options: { tamper?: boolean; origin?: string } = {}): Promise<TestSocket> {
   const mac = new TestSocket(relayEndpoint(dev.url, key.id, 'mac'))
-  // Il Mac vero scrive subito (ping): vedi il commento in connectPhone.
+  // The real Mac writes right away (ping): see the comment in connectPhone.
   mac.ws.addEventListener('open', () => mac.ws.send('ping'))
   const challenge = await mac.nextJson<{ t: string; nonce: string }>((m) => m.t === 'challenge')
   const auth = signAuth(key.secretKey, options.origin ?? relayOrigin(dev.url), key.id, options.tamper ? `${challenge.nonce}x` : challenge.nonce)
@@ -163,7 +163,7 @@ export async function connectMac(dev: Dev, key: MacKey, options: { tamper?: bool
 
 export async function connectPhone(dev: Dev, id: string): Promise<TestSocket> {
   const phone = new TestSocket(relayEndpoint(dev.url, id, 'phone'))
-  // Come fa il telefono vero (keepalive appena aperto). Con wrangler dev un client che non ha mai scritto non completa la chiusura iniziata dal relay.
+  // Like the real phone (keepalive right after opening). With wrangler dev a client that has never written does not complete the close started by the relay.
   phone.ws.addEventListener('open', () => phone.ws.send('ping'))
   return phone
 }

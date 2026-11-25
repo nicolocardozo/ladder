@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 
-/** Funzione che esegue `fn` una volta sola: chiudere uno sheet da due strade (effetto e risposta) non deve tornare indietro due volte. */
+/** Function that runs `fn` only once: closing a sheet from two paths (effect and response) must not go back twice. */
 export function useOnce(fn: () => void): () => void {
   const done = useRef(false)
   const latest = useRef(fn)

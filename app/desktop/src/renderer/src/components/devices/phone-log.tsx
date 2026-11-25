@@ -1,5 +1,5 @@
-// "Phone activity": le ultime azioni fatte dal telefono (risposte, messaggi, stop, permessi), con il nome del telefono e la sessione.
-// Si aggiorna da sola con gli eventi `remote.log`; "Show more" legge le voci più vecchie. Un clic su una voce apre la sessione.
+// "Phone activity": the latest actions taken from the phone (answers, messages, stops, permissions), with the phone's name and the session.
+// It updates by itself with `remote.log` events; "Show more" reads older entries. Clicking an entry opens the session.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RemoteLogEntry } from '@shared/protocol'
 import { t } from '@shared/i18n'
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import { useSettings } from '@/hooks/use-theme'
 import { useApp } from '@/store/app-store'
 
-/** Unisce voci nuove e vecchie senza doppioni, dalla più recente. */
+/** Merges new and old entries without duplicates, most recent first. */
 function merge(current: RemoteLogEntry[], incoming: RemoteLogEntry[]): RemoteLogEntry[] {
   const byId = new Map(current.map((entry) => [entry.id, entry]))
   for (const entry of incoming) byId.set(entry.id, entry)

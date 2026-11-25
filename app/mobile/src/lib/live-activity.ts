@@ -1,25 +1,25 @@
-// Live Activity delle sessioni sul telefono (LAD-93). Solo logica pura (niente React Native né i18n), così si prova con node --test:
-// da una sessione a ciò che l'attività mostra, e il ciclo di vita (parte, si aggiorna, finisce) dato lo stato del negozio.
+// Live Activities of the sessions on the phone. Pure logic only (no React Native nor i18n), so it can be tested with node --test:
+// from a session to what the activity shows, and the lifecycle (start, update, end) given the store state.
 //
-// Privacy: titolo, progetto e testo dell'attività nascono e restano sul telefono. Le Live Activity non ricevono nulla da Expo,
-// Apple o Google: Expo non sa mandare push ActivityKit (serve APNs con chiave .p8, che il Mac non ha), quindi l'app le avvia e
-// le aggiorna da sola finché è viva. Vedi app/mobile/RELEASE.md, sezione "Lock Screen".
+// Privacy: the activity's title, project and text are born and stay on the phone. Live Activities receive nothing from Expo,
+// Apple or Google: Expo cannot send ActivityKit pushes (they need APNs with a .p8 key, which the Mac does not have), so the app starts and
+// updates them itself while it is alive. See app/mobile/RELEASE.md, "Lock Screen" section.
 import type { AgentId, ChatItem, Project, SessionSummary } from '../../../desktop/src/shared/protocol.ts'
 import { sessionState } from './session-state.ts'
 
-/** Fasi mostrate: lavora, aspetta te, finita, errore. */
+/** Phases shown: working, waiting for you, done, error. */
 export type ActivityPhase = 'running' | 'waiting' | 'done' | 'error'
 
-/** Quanto dura una Live Activity senza aggiornamenti prima che iOS la dia per "non aggiornata" (isStale). */
+/** How long a Live Activity lasts without updates before iOS considers it stale (isStale). */
 export const STALE_AFTER_MS = 5 * 60_000
-/** Con l'app viva e il Mac collegato si rinnova la scadenza così spesso: la Live Activity non invecchia finché la verità è nota. */
+/** With the app alive and the Mac connected the expiry is renewed this often: the Live Activity does not age while the truth is known. */
 export const REFRESH_MS = 60_000
-/** Dopo la fine o l'errore la Live Activity resta sulla schermata di blocco ancora un po', poi iOS la toglie. */
+/** After the end or the error the Live Activity stays on the lock screen a little longer, then iOS removes it. */
 export const END_AFTER_MS = 5 * 60_000
-/** Quante Live Activity di Ladder insieme: iOS ne ammette poche per app, e troppe sono rumore. */
+/** How many Ladder Live Activities at once: iOS allows few per app, and too many are noise. */
 export const MAX_LIVE = 3
 
-/** Testi già tradotti: l'estensione non ha il catalogo dell'app, quindi arrivano nelle proprietà. */
+/** Already-translated texts: the extension does not have the app's catalog, so they arrive in the properties. */
 export interface ActivityText {
   running: string
   waiting: string
@@ -28,24 +28,24 @@ export interface ActivityText {
   stale: string
 }
 
-/** Proprietà della Live Activity (JSON): tutto ciò che il layout nativo può mostrare. */
+/** Live Activity properties (JSON): everything the native layout can show. */
 export interface ActivityProps {
   sessionId: string
   title: string
   project: string
-  /** Quale marchio disegnare: claude, codex o l'iniziale per gli altri. */
+  /** Which brand to draw: claude, codex or the initial for the others. */
   mark: 'claude' | 'codex' | 'other'
   initial: string
   phase: ActivityPhase
-  /** Riga di dettaglio: il passaggio attuale ("Esegue pnpm test"), l'attesa ("Approvazione"), l'errore. Vuota se non c'è. */
+  /** Detail row: the current step ("Running pnpm test"), the wait ("Approval"), the error. Empty if there is none. */
   detail: string
-  /** Passaggi del turno ("12 steps"); null se la chat non è in memoria. */
+  /** Steps of the turn ("12 steps"); null if the chat is not in memory. */
   steps: string | null
-  /** Inizio del turno (ms): il cronometro conta da qui mentre lavora. */
+  /** Start of the turn (ms): the stopwatch counts from here while it works. */
   startedAt: number
-  /** Durata già formattata quando il turno è finito; null mentre lavora. */
+  /** Already-formatted duration when the turn is over; null while it works. */
   took: string | null
-  /** `ladder://session/<id>`: il tocco apre la sessione. */
+  /** `ladder://session/<id>`: tapping opens the session. */
   link: string
   text: ActivityText
 }
@@ -54,7 +54,7 @@ export const markOf = (agent: AgentId): ActivityProps['mark'] => (agent === 'cla
 
 export const sessionLink = (sessionId: string): string => `ladder://session/${encodeURIComponent(sessionId)}`
 
-/** Il turno in corso nella chat in memoria: quanti passaggi (strumenti) e da quando. Null se non c'è la chat. */
+/** The ongoing turn in the in-memory chat: how many steps (tools) and since when. Null if there is no chat. */
 export function currentTurn(items: ChatItem[] | undefined): { steps: number; startedAt: number } | null {
   if (!items || items.length === 0) return null
   let last = items[0]
@@ -69,25 +69,25 @@ export function currentTurn(items: ChatItem[] | undefined): { steps: number; sta
   return { steps, startedAt: Number.isFinite(startedAt) ? startedAt : last.at }
 }
 
-/** Fase "viva" di una sessione (lavora, aspetta, errore) oppure 'idle' se non ha nulla da mostrare. */
+/** "Live" phase of a session (working, waiting, error) or 'idle' if it has nothing to show. */
 export function livePhase(session: SessionSummary): 'running' | 'waiting' | 'error' | 'idle' {
   const state = sessionState(session)
   return state === 'running' || state === 'waiting' || state === 'error' ? state : 'idle'
 }
 
-/** Estratto per `describe`: la parte del turno che serve ai testi. */
+/** Excerpt for `describe`: the part of the turn the texts need. */
 export interface DescribeInput {
   session: SessionSummary
   project: Project | undefined
   items: ChatItem[] | undefined
-  /** Fase da mostrare (quella viva, o 'done' alla fine del turno). */
+  /** Phase to show (the live one, or 'done' at the end of the turn). */
   phase: ActivityPhase
   now: number
   text: ActivityText
-  /** Etichette generate dal telefono con i18n: passi e durata. */
+  /** Labels generated by the phone with i18n: steps and duration. */
   stepsLabel: (n: number) => string
   durationLabel: (ms: number) => string
-  /** Quando è iniziato il turno secondo chi segue la sessione (prima volta che la si è vista viva). */
+  /** When the turn started according to whoever follows the session (first time it was seen live). */
   seenSince: number
 }
 
@@ -113,25 +113,25 @@ export function describe(i: DescribeInput): ActivityProps {
   }
 }
 
-/** Cosa cambia a vista d'occhio: se resta uguale non si riaggiorna la Live Activity (ogni update costa batteria e budget). */
+/** What changes at a glance: if it stays the same the Live Activity is not updated again (each update costs battery and budget). */
 export const activityKey = (p: ActivityProps): string => [p.phase, p.title, p.project, p.detail, p.steps ?? '', p.took ?? '', p.text.running].join('\u0001')
 
-// ── Chi si segue ──
+// ── What is followed ──
 
 export type FollowOverride = 'on' | 'off'
 
 export interface FollowPrefs {
-  /** Interruttore generale (Impostazioni → Notifiche). */
+  /** Master switch (Settings → Notifications). */
   enabled: boolean
-  /** Parte da sola per le sessioni aperte o avviate da questo telefono. */
+  /** Starts on its own for sessions opened or started from this phone. */
   auto: boolean
-  /** Scelta per sessione, dall'header della chat. */
+  /** Per-session choice, from the chat header. */
   overrides: Record<string, FollowOverride>
 }
 
 export const DEFAULT_FOLLOW: FollowPrefs = { enabled: true, auto: true, overrides: {} }
 
-/** Questa sessione deve avere una Live Activity? `opened`: la si è aperta o ci si è scritto da questo telefono. */
+/** Should this session have a Live Activity? `opened`: it was opened or written to from this phone. */
 export function follows(prefs: FollowPrefs, sessionId: string, opened: boolean): boolean {
   if (!prefs.enabled) return false
   const o = prefs.overrides[sessionId]
@@ -140,7 +140,7 @@ export function follows(prefs: FollowPrefs, sessionId: string, opened: boolean):
   return prefs.auto && opened
 }
 
-/** Rilegge ciò che era salvato: valori non validi tornano al predefinito, le scelte per sessione sono al massimo 60 (le ultime). */
+/** Re-reads what was saved: invalid values go back to the default, per-session choices are at most 60 (the latest). */
 export function normalizeFollow(raw: unknown): FollowPrefs {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const ov = r.overrides && typeof r.overrides === 'object' ? (r.overrides as Record<string, unknown>) : {}
@@ -153,31 +153,31 @@ export function normalizeFollow(raw: unknown): FollowPrefs {
   }
 }
 
-// ── Ciclo di vita ──
+// ── Lifecycle ──
 
-/** Una sessione vista dal ciclo di vita: la fase viva e le proprietà già pronte per quella fase. */
+/** A session as seen by the lifecycle: the live phase and the properties already prepared for that phase. */
 export interface Item {
   id: string
   phase: 'running' | 'waiting' | 'error' | 'idle'
-  /** Va seguita (interruttori e preferenze) e il telefono la può mostrare. */
+  /** It should be followed (switches and preferences) and the phone can show it. */
   wants: boolean
-  /** Proprietà per la fase attuale; per 'idle' sono quelle di "finita". */
+  /** Properties for the current phase; for 'idle' they are those of "done". */
   props: ActivityProps
 }
 
 export interface Track {
-  /** La Live Activity è sullo schermo e riceve aggiornamenti. */
+  /** The Live Activity is on screen and receives updates. */
   live: boolean
   key: string
-  /** Ultimo invio (avvio, update o rinnovo), per il rinnovo periodico. */
+  /** Last send (start, update or renewal), for the periodic renewal. */
   sentAt: number
-  /** Fine, per dimenticare la traccia dopo un po'. */
+  /** End, to forget the trace after a while. */
   endedAt: number | null
-  /** L'utente (o iOS) l'ha tolta dallo schermo mentre la sessione era in questa fase: non riparte finché il turno non finisce. */
+  /** The user (or iOS) removed it from the screen while the session was in this phase: it does not restart until the turn ends. */
   dismissed?: ActivityPhase
 }
 
-/** Segna una Live Activity sparita dallo schermo senza che l'abbiamo chiusa noi: libera il posto e non la riavvia subito. */
+/** Marks a Live Activity that vanished from the screen without us closing it: frees the slot and does not restart it right away. */
 export function markDismissed(tracks: Tracks, sessionId: string, phase: ActivityPhase, now: number): Tracks {
   const t = tracks[sessionId]
   if (!t || !t.live) return tracks
@@ -189,25 +189,25 @@ export type Tracks = Record<string, Track>
 export type Op =
   | { type: 'start'; sessionId: string; props: ActivityProps }
   | { type: 'update'; sessionId: string; props: ActivityProps }
-  /** `immediate`: via subito (non si segue più); altrimenti resta `END_AFTER_MS` con lo stato finale. */
+  /** `immediate`: gone right away (no longer followed); otherwise it stays `END_AFTER_MS` with the final state. */
   | { type: 'end'; sessionId: string; props: ActivityProps | null; immediate: boolean }
 
 export interface ReconcileOptions {
   now: number
-  /** Il Mac risponde: solo allora si rinnova la scadenza (altrimenti l'attività invecchia, ed è giusto). */
+  /** The Mac responds: only then is the expiry renewed (otherwise the activity ages, as it should). */
   connected: boolean
   maxLive?: number
   refreshMs?: number
-  /** Si può avviare (Mac collegato o demo): con dati dalla copia in cache non si avvia nulla, ma ciò che c'è resta. */
+  /** Can be started (Mac connected or demo): with data from the cached copy nothing is started, but what exists stays. */
   canStart?: boolean
-  /** Sessioni il cui ultimo avvio è fallito: niente nuovo tentativo finché chi chiama non le toglie (primo piano, preferenze). */
+  /** Sessions whose last start failed: no new attempt until the caller removes them (foreground, preferences). */
   blocked?: ReadonlySet<string>
 }
 
 /**
- * Dato lo stato di adesso, cosa fare con le Live Activity: avviare quando una sessione seguita lavora o aspetta, aggiornare quando cambia
- * ciò che si vede (e rinnovare la scadenza ogni minuto), chiudere con lo stato finale quando il turno finisce o va in errore,
- * chiudere subito quando non la si segue più o la sessione sparisce. Non cambia gli argomenti: restituisce le tracce nuove.
+ * Given the current state, what to do with the Live Activities: start when a followed session works or waits, update when what is
+ * shown changes (and renew the expiry every minute), end with the final state when the turn finishes or errors,
+ * end right away when it is no longer followed or the session disappears. Does not mutate its arguments: returns the new traces.
  */
 export function reconcile(tracks: Tracks, items: Item[], opts: ReconcileOptions): { tracks: Tracks; ops: Op[] } {
   const { now, connected, maxLive = MAX_LIVE, refreshMs = REFRESH_MS, canStart = true, blocked } = opts
@@ -215,7 +215,7 @@ export function reconcile(tracks: Tracks, items: Item[], opts: ReconcileOptions)
   const ops: Op[] = []
   const seen = new Set<string>()
   let live = Object.values(tracks).filter((t) => t.live).length
-  // Prima chi smette di essere seguito o sparisce: libera posti per chi parte.
+  // First those that stop being followed or disappear: frees slots for those starting.
   for (const item of items) seen.add(item.id)
   for (const [id, t] of Object.entries(tracks)) {
     if (!seen.has(id)) {
@@ -256,9 +256,9 @@ export function reconcile(tracks: Tracks, items: Item[], opts: ReconcileOptions)
       } else next[item.id] = t
       continue
     }
-    // Turno finito: la scelta di toglierla vale solo per quel turno.
+    // Turn over: the choice to remove it applies only to that turn.
     if (t?.dismissed) continue
-    // Errore o fermo: se c'era una Live Activity si chiude con lo stato finale; se non c'era, nessuno la vuole (turno vecchio).
+    // Error or stopped: if there was a Live Activity it ends with the final state; if not, nobody wants it (old turn).
     if (t?.live) {
       const props: ActivityProps = item.phase === 'error' ? { ...item.props, phase: 'error' } : { ...item.props, phase: 'done' }
       ops.push({ type: 'end', sessionId: item.id, props, immediate: false })

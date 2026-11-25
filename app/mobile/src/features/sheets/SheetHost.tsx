@@ -1,6 +1,6 @@
-// Sheet "nostri" (ui/Sheet.tsx) per Android e per gli schermi larghi, dove non si usano le rotte `formSheet` di iOS.
-// Aperti da openSheet() (lib/sheets.ts); montati una volta sola nella radice. Si chiudono se cambia la schermata
-// (scollegamento, tocco su una notifica): uno sheet non deve restare sopra una rotta che non è più la sua.
+// Our own sheets (ui/Sheet.tsx) for Android and wide screens, where the iOS `formSheet` routes are not used.
+// Opened by openSheet() (lib/sheets.ts); mounted once at the root. They close when the screen changes
+// (disconnection, notification tap): a sheet must not stay on top of a route that is no longer its own.
 import { usePathname } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { nativeSheets, useSheets, type SheetSpec } from '@/lib/sheets'
@@ -18,7 +18,7 @@ export function SheetHost() {
   const current = useSheets((s) => s.current)
   const close = useSheets((s) => s.close)
   const pathname = usePathname()
-  // L'ultimo sheet resta in memoria finché l'animazione di chiusura non finisce (Sheet lo smonta da sé).
+  // The last sheet stays in memory until the closing animation ends (Sheet unmounts itself).
   const [last, setLast] = useState<SheetSpec | null>(null)
   useEffect(() => {
     if (current) setLast(current)

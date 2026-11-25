@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AccessibilityInfo } from 'react-native'
 
-/** "Reduce Motion" del sistema: `null` finché non si sa (pochi ms), poi true/false; segue le modifiche in corso d'uso. */
+/** The system's "Reduce Motion": `null` until known (a few ms), then true/false; follows changes while in use. */
 export function useReduceMotion(): boolean | null {
   const [reduce, setReduce] = useState<boolean | null>(null)
   useEffect(() => {

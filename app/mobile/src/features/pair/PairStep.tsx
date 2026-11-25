@@ -1,4 +1,4 @@
-// Struttura comune dei passi dell'abbinamento: icona, titolo, testo, azioni in basso.
+// Common structure of the pairing steps: icon, title, text, actions at the bottom.
 import type { ReactNode } from 'react'
 import { ScrollView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'

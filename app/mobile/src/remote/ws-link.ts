@@ -1,9 +1,9 @@
-// WebSocket diretto all'host locale (LADDER_REMOTE_PORT, solo 127.0.0.1): solo sviluppo, per abbinarsi senza relay.
-// Simulatore iOS: 127.0.0.1. Emulatore Android: 10.0.2.2 (l'indirizzo del Mac visto dall'emulatore).
+// Direct WebSocket to the local host (LADDER_REMOTE_PORT, 127.0.0.1 only): development only, to pair without the relay.
+// iOS simulator: 127.0.0.1. Android emulator: 10.0.2.2 (the Mac's address as seen from the emulator).
 import { Platform } from 'react-native'
 import type { LinkFactory, RemoteLink } from './link'
 
-/** Su Android 127.0.0.1 è l'emulatore stesso: lo si porta sull'host. */
+/** On Android 127.0.0.1 is the emulator itself: map it to the host. */
 export function devUrl(url: string): string {
   return Platform.OS === 'android' ? url.replace('//127.0.0.1', '//10.0.2.2').replace('//localhost', '//10.0.2.2') : url
 }
@@ -32,10 +32,10 @@ export function wsLinkFactory(url: string): LinkFactory {
         ws.onopen = () => onReady()
         ws.onmessage = (event) => {
           if (event.data instanceof ArrayBuffer) onBytes(new Uint8Array(event.data))
-          else ws?.close() // un messaggio di testo non è Noise
+          else ws?.close() // a text message is not Noise
         }
         ws.onerror = (event) => finish((event as { message?: string }).message || 'Connection failed')
-        // Chiusura ordinata (1000, 1005, 1008) = il Mac ci ha chiusi di proposito; 1006 è la rete che cade.
+        // Orderly close (1000, 1005, 1008) = the Mac closed us on purpose; 1006 is the network dropping.
         ws.onclose = (event) => finish(event.reason || (event.code === 1006 ? 'Connection lost' : undefined), event.code === 1000 || event.code === 1005 || event.code === 1008)
       },
       send(bytes) {
@@ -46,7 +46,7 @@ export function wsLinkFactory(url: string): LinkFactory {
         try {
           ws?.close()
         } catch {
-          // già chiusa
+          // already closed
         }
       },
       onReady: (h) => (onReady = h),

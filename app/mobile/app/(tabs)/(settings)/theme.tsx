@@ -1,4 +1,4 @@
-// Impostazione "Theme": Same as Mac (predefinito) o un tema scelto; "Match system appearance" con un tema chiaro e uno scuro.
+// "Theme" setting: Same as Mac (default) or a chosen theme; "Match system appearance" with one light and one dark theme.
 import { ScrollView, View } from 'react-native'
 import { t } from '@shared/i18n'
 import { usePrefs } from '@/store/prefs'

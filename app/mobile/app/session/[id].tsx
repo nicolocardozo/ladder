@@ -45,13 +45,13 @@ export default function SessionScreen() {
   const openLimits = useOpenLimits(session)
   const openSwitch = useCallback(() => openSheet(router, { kind: 'switch', sessionId: id }), [router, id])
 
-  // Segue la sessione mentre la schermata è aperta (chat in diretta, ultima pagina).
+  // Follows the session while the screen is open (live chat, latest page).
   useEffect(() => {
     void follow(id).catch(() => {})
-    // Aperta da questo telefono: da qui in poi la sua Live Activity può partire da sola (LAD-93).
+    // Opened from this phone: from here on its Live Activity can start on its own.
     markOpened(id)
   }, [id])
-  // Aprendola, la sessione si segna letta (anche quando arriva una risposta mentre guardi).
+  // On opening, the session is marked read (even when a reply arrives while you are looking).
   const unread = session?.unread
   useFocusEffect(
     useCallback(() => {
@@ -59,7 +59,7 @@ export default function SessionScreen() {
     }, [id, unread, online])
   )
 
-  // Le notifiche di questa sessione, già nel Centro notifiche, non servono più.
+  // This session's notifications, already in Notification Center, are no longer needed.
   useFocusEffect(
     useCallback(() => {
       void clearSessionNotifications(id)
@@ -67,12 +67,12 @@ export default function SessionScreen() {
   )
 
   const request = useMemo(() => (items ? openRequests(items)[0] : null), [items]) ?? null
-  // Fallback: la richiesta del riepilogo, finché la chat non è arrivata.
+  // Fallback: the summary's request, until the chat has arrived.
   const pinned = request ?? (session?.request && session.request.state === 'open' ? session.request : null)
 
-  // Aperta da una notifica "ti aspetta": si apre il foglio della richiesta, se è ancora aperta, ma solo dopo che la chat è stata riletta
-  // dal Mac dopo il tocco (push-taps.ts azzera `loaded`) e il collegamento è pieno: una chat vecchia non dice se la richiesta c'è ancora.
-  // Si lascia perdere se la sessione non esiste (più), se la richiesta è chiusa o se è passato troppo tempo.
+  // Opened from a "waiting for you" notification: the request sheet opens, if it is still open, but only after the chat has been re-read
+  // from the Mac following the tap (push-taps.ts resets `loaded`) and the link is full: an old chat doesn't say whether the request is still there.
+  // We give up if the session no longer exists, if the request is closed or if too much time has passed.
   const wanted = usePush((p) => p.openRequest)
   const loaded = useApp((s) => !!s.loaded[id])
   useEffect(() => {
@@ -87,7 +87,7 @@ export default function SessionScreen() {
     } else if (loaded || !session) drop()
   }, [wanted, id, items, session, loaded, online])
 
-  // Solo sviluppo: apre lo sheet richiesto dal deep link ladder://dev?sheet=…
+  // Development only: opens the sheet requested by the deep link ladder://dev?sheet=…
   const devSheet = useDev((d) => d.sheet)
   useEffect(() => {
     if (!__DEV__ || !devSheet || !session || !items) return
@@ -102,19 +102,19 @@ export default function SessionScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devSheet, !!session, !!items])
 
-  // Opzioni dell'header: si ricalcolano solo quando cambia ciò che si vede (titolo, modello, stato, permesso, tema), non a ogni
-  // pezzo di testo in arrivo, altrimenti setOptions scatterebbe a ogni rendering durante lo streaming.
+  // Header options: recomputed only when what is visible changes (title, model, state, permission, theme), not on every
+  // incoming piece of text, otherwise setOptions would fire on every render during streaming.
   const title = session?.title
   const agent = session?.agent
   const permission = session?.permission
   const state = session ? sessionState(session) : 'idle'
-  // Avviso d'uso: il triangolo nell'header (da 80%, o a limite esaurito) accanto al permesso.
+  // Usage notice: the triangle in the header (from 80%, or when the limit is exhausted) next to the permission.
   const usage = useSessionUsageAlert(session)
   const usageLimited = usage?.alert.limited
   const usageLabel = usage ? `${usage.text.what}${usage.text.reset ? ` ${usage.text.reset}` : ''}` : null
   const headerOptions = useMemo(() => {
     if (!title || !agent || !permission) {
-      // Sessione sparita: via titolo e pulsanti della sessione di prima, resta il titolo generico.
+      // Session gone: drop the title and buttons of the previous session, keep the generic title.
       return { title: t('Session'), headerTitle: t('Session'), headerRight: () => null, unstable_headerRightItems: () => [] }
     }
     const stateColor = state === 'waiting' ? c.waiting : state === 'error' ? c.error : c.textMuted
@@ -141,7 +141,7 @@ export default function SessionScreen() {
         </View>
       </Pressable>
     )
-    // Il livello di permesso si legge a colpo d'occhio: icona e nome ("Ask"). Su iOS sta in una capsula di vetro dell'header.
+    // The permission level is readable at a glance: icon and name ("Ask"). On iOS it sits in a glass capsule in the header.
     const chip = IOS ? (
       <Pressable onPress={openPermission} accessibilityRole="button" accessibilityLabel={`${t('Permission')}: ${levelName(permission)}`} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, height: 36 }}>
         <Icon name="shield" size={16} color={c.text} />
@@ -164,7 +164,7 @@ export default function SessionScreen() {
       headerLargeTitleEnabled: false,
       headerTitle: () => titleView,
       headerTitleAlign: 'left' as const,
-      // La chat è una lista invertita: il sistema non le applica l'effetto di bordo, quindi l'header ha lo sfondo pieno (i pulsanti restano di vetro).
+      // The chat is an inverted list: the system doesn't apply the edge effect to it, so the header has a solid background (the buttons stay glass).
       headerTransparent: false,
       headerStyle: { backgroundColor: c.background },
       unstable_headerRightItems: () => [...(warn ? [{ type: 'custom' as const, element: warn }] : []), ...(followBtn ? [{ type: 'custom' as const, element: followBtn }] : []), { type: 'custom' as const, element: chip }],
@@ -176,7 +176,7 @@ export default function SessionScreen() {
         </View>
       )
     }
-    // `model` e `state` dipendono da session ma cambiano di rado; il resto della sessione (attività, testo) non entra qui.
+    // `model` and `state` depend on session but rarely change; the rest of the session (activity, text) doesn't come in here.
   }, [id, title, agent, permission, state, model, c, width, openSwitch, openPermission, openLimits, usageLabel, usageLimited])
 
   if (!session) {

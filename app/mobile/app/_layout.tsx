@@ -29,11 +29,11 @@ import { ToastHost } from '@/ui/ToastHost'
 import { WIDE } from '@/ui/Sheet'
 import { useHeaderOptions } from '@/ui/native-header'
 
-// Un link o un tocco su una notifica che apre direttamente una sessione trova i tab sotto, e quindi un tasto indietro.
+// A link or a tap on a notification that opens a session directly finds the tabs underneath, and so a back button.
 export const unstable_settings = { anchor: '(tabs)' }
 
 void SplashScreen.preventAutoHideAsync()
-// Come si mostrano le notifiche con l'app aperta e canale Android: prima di qualunque notifica (anche quella che ha aperto l'app).
+// How notifications show while the app is open, and the Android channel: before any notification (including the one that opened the app).
 configureNotifications()
 
 const fonts = {
@@ -46,7 +46,7 @@ const fonts = {
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(fonts)
-  // La radice della navigazione, per azzerare la pila (resetTo) quando cambia lo stato dell'app (abbinamento, uscita dalla demo).
+  // The navigation root, to reset the stack (resetTo) when the app state changes (pairing, leaving the demo).
   const rootRef = useNavigationContainerRef()
   useEffect(() => {
     setRootNavigation(rootRef)
@@ -55,10 +55,10 @@ export default function RootLayout() {
   const booted = useBoot()
   useEffect(() => installForegroundHook(), [])
   useEffect(() => startDevDriver(), [])
-  // Live Activity e widget (iOS, LAD-93): seguono il negozio finché l'app è viva.
+  // Live Activity and widget (iOS): they follow the store as long as the app is alive.
   useEffect(() => startLiveActivities(), [])
-  // Con font e preferenze (quindi il tema) pronti si toglie lo splash nativo e parte l'intro animata (`Intro`), anche se l'avvio
-  // non è finito: la Shell compare sotto il velo quando `booted` è vero.
+  // With fonts and preferences (hence the theme) ready, the native splash is removed and the animated intro (`Intro`) starts, even if boot
+  // hasn't finished: the Shell appears under the veil when `booted` is true.
   const hydrated = usePrefsHydrated()
   if (!(fontsLoaded || !!fontError) || !hydrated) return null
   return (
@@ -76,26 +76,26 @@ export default function RootLayout() {
   )
 }
 
-/** Barra di stato, sfondo di sistema e barra di navigazione di Android seguono il tema. */
+/** Status bar, system background and Android navigation bar follow the theme. */
 function Chrome() {
   const { c, dark } = useTheme()
   const matchSystem = usePrefs((s) => s.theme.matchSystem)
   useEffect(() => {
-    // Barra di stato, tastiera e controlli di sistema seguono il tema; con "Match system" seguono il telefono.
+    // Status bar, keyboard and system controls follow the theme; with "Match system" they follow the phone.
     Appearance.setColorScheme(matchSystem ? 'unspecified' : dark ? 'dark' : 'light')
   }, [dark, matchSystem])
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(c.background)
-    // 'light' = icone chiare (per sfondi scuri).
+    // 'light' = light icons (for dark backgrounds).
     if (Platform.OS === 'android') NavigationBar.setStyle(dark ? 'light' : 'dark')
   }, [c.background, dark])
   return <StatusBar style={dark ? 'light' : 'dark'} />
 }
 
 /**
- * Sheet nativi (iOS): `formSheet` con maniglia. `fit` = alto quanto il contenuto, altrimenti metà e piena altezza. Su iOS 26 lo sfondo è
- * trasparente e il vetro lo disegna il sistema; prima, il sistema non mette sfondo e si usa la superficie del tema. Niente
- * raggio degli angoli: lo decide il sistema.
+ * Native sheets (iOS): `formSheet` with a grabber. `fit` = as tall as the content, otherwise half and full height. On iOS 26 the background is
+ * transparent and the system draws the glass; before that, the system adds no background and the theme surface is used. No
+ * corner radius: the system decides.
  */
 function sheet(surface: string, fit: boolean, detents?: number[]): NativeStackNavigationOptions {
   return {
@@ -117,15 +117,15 @@ function Shell() {
   const language = usePrefs((s) => s.language)
   useEffect(() => {
     applyLocale(language)
-    // Il nome del canale Android è tradotto: si aggiorna con la lingua.
+    // The Android channel name is translated: it updates with the language.
     void ensureChannel()
   }, [language])
   useNotificationTaps()
-  // Da 600 pt in su la Home resta fissa a sinistra; sotto, è la prima schermata della pila.
+  // From 600 pt up the Home stays docked on the left; below that, it is the first screen of the stack.
   const kind = useApp((s) => s.conn.kind)
   const router = useRouter()
   const navReady = !!useRootNavigationState()?.key
-  // Il Mac ha tolto questo telefono, o la sua chiave è cambiata: da qualunque schermata si va a spiegarlo.
+  // The Mac removed this phone, or its key changed: from any screen we go to explain it.
   useEffect(() => {
     if (navReady && (kind === 'revoked' || kind === 'key-changed')) router.replace('/disconnected')
   }, [kind, navReady, router])
@@ -136,16 +136,16 @@ function Shell() {
       {docked ? <HomePane width={Math.min(380, Math.max(320, width * 0.36))} /> : null}
       <View style={{ flex: 1 }}>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.background }, animation: 'default' }}>
-          {/* La chat sta nella radice, sopra i tab: la barra dei tab non può restare sotto il composer, e il tasto indietro torna al tab di partenza. */}
+          {/* The chat lives at the root, above the tabs: the tab bar can't stay under the composer, and the back button returns to the starting tab. */}
           <Stack.Screen name="session/[id]" options={header} />
-          {/* Plan limits si apre dalle Impostazioni e dalla chat: radice, così dalla chat non si impila un secondo (tabs) e il tasto indietro torna lì. */}
+          {/* Plan limits opens from Settings and from the chat: root, so from the chat a second (tabs) isn't stacked and the back button returns there. */}
           <Stack.Screen name="limits" options={header} />
           <Stack.Screen name="sheet/request" options={({ route }) => sheet(c.surface, (route.params as { fit?: string } | undefined)?.fit === '1')} />
           <Stack.Screen name="sheet/permission" options={sheet(c.surface, true)} />
           <Stack.Screen name="sheet/mac" options={sheet(c.surface, true)} />
           <Stack.Screen name="sheet/switch" options={sheet(c.surface, false)} />
           <Stack.Screen name="sheet/turn" options={sheet(c.surface, false)} />
-          {/* Alto quanto il contenuto: con la tastiera su resta sopra di essa (NativeSheet limita l'altezza e, se serve, scorre). */}
+          {/* As tall as the content: with the keyboard up it stays above it (NativeSheet caps the height and scrolls if needed). */}
           <Stack.Screen name="sheet/new-session" options={sheet(c.surface, true)} />
         </Stack>
       </View>

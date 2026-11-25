@@ -1,5 +1,5 @@
-// Card ambra della lista "In attesa": titolo della richiesta, progetto e sessione, agente e modello, comando in mono (3 righe),
-// Deny e Approve. Domande e modifiche con anteprima si decidono nello sheet.
+// Amber card of the "Waiting" list: request title, project and session, agent and model, command in mono (3 lines),
+// Deny and Approve. Questions and edits with preview are decided in the sheet.
 import { View } from 'react-native'
 import { t } from '@shared/i18n'
 import type { SessionSummary } from '@shared/protocol'

@@ -1,5 +1,5 @@
-// Host finto per i telefoni (LAD-51): risponde ai comandi remote.* come farebbe l'host vero e manda `remote.status`, `remote.paired` e `remote.log`,
-// così Impostazioni → Devices, il QR, la revoca e l'indicatore nella barra in alto si provano senza Electron.
+// Fake host for phones: answers remote.* commands as the real host would and sends `remote.status`, `remote.paired` and `remote.log`,
+// so Settings → Devices, the QR, revocation and the indicator in the top bar can be tried without Electron.
 import { REMOTE_PAIRING_TTL_MS, REMOTE_PASSWORD_MAX, REMOTE_PASSWORD_MIN, type HostCommand, type RemoteDeviceInfo, type RemoteLogEntry, type RemoteStatus } from '@shared/protocol'
 import { useApp } from '@/store/app-store'
 import { emitPreviewEvent, registerPreviewHandler } from './shortcuts-preview'
@@ -41,7 +41,7 @@ let status: RemoteStatus = {
   pairing: null
 }
 
-/** Voci del log, dalla più recente. Le prime due puntano alla sessione di anteprima dei sotto-agenti (quando c'è, si apre con un clic). */
+/** Log entries, most recent first. The first two point to the subagents preview session (when it exists, it opens with a click). */
 function logEntries(): RemoteLogEntry[] {
   const now = Date.now()
   const rows: [string, string, RemoteLogEntry['action'], string | null, string][] = [
@@ -69,7 +69,7 @@ const publish = (): void => {
   emitPreviewEvent({ type: 'remote.status', status })
 }
 
-/** Indirizzo finto, della lunghezza di uno vero (circa 330 caratteri): il QR ha la stessa densità. Non è un codice valido. */
+/** Fake address, as long as a real one (about 330 characters): the QR has the same density. It is not a valid code. */
 function fakePairUrl(): string {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
   let seed = Date.now() % 9973
@@ -90,7 +90,7 @@ function setPairing(expiresAt: number | null): void {
 
 export type PhoneScenario = 'off' | 'on' | 'empty' | 'busy'
 
-/** Porta lo stato in uno scenario: acceso/spento, con 2 telefoni, senza telefoni, o con 3 telefoni collegati (indicatore con il numero). */
+/** Puts the state into a scenario: on/off, with 2 phones, without phones, or with 3 connected phones (indicator with the number). */
 export function setPhoneScenario(scenario: PhoneScenario): void {
   const prefs = useApp.getState().prefs
   const enabled = scenario !== 'off'
@@ -108,7 +108,7 @@ export function setPhoneScenario(scenario: PhoneScenario): void {
   publish()
 }
 
-/** Un telefono si abbina: evento `remote.paired` (il dialogo del QR mostra l'esito e si chiude) e `remote.status` con il nuovo dispositivo. */
+/** A phone pairs: `remote.paired` event (the QR dialog shows the outcome and closes) and `remote.status` with the new device. */
 export function emitPhonePaired(): void {
   const added = device(`d-new-${Date.now()}`, 'Marta’s iPhone', 'ios', { createdAt: Date.now(), lastSeenAt: Date.now(), connected: true })
   setPairing(null)
@@ -117,7 +117,7 @@ export function emitPhonePaired(): void {
   publish()
 }
 
-/** Una nuova voce nel log, come quando il telefono risponde a una richiesta. */
+/** A new log entry, as when the phone answers a request. */
 export function emitPhoneLog(): void {
   const entry: RemoteLogEntry = { id: (log[0]?.id ?? 0) + 1, deviceId: 'd-iphone', deviceName: 'Zoë’s iPhone', at: Date.now(), action: 'respond', sessionId: 'preview-agents', detail: 'Approved: Run command' }
   log = [entry, ...log]
@@ -127,7 +127,7 @@ export function emitPhoneLog(): void {
 export function installRemotePreview(): void {
   if (installed) return
   installed = true
-  // L'interruttore "Access from your phone" cambia la preferenza del main; l'host finto la segue come farebbe quello vero.
+  // The "Access from your phone" switch changes the main preference; the fake host follows it as the real one would.
   let lastEnabled = Boolean(useApp.getState().prefs?.remote?.enabled)
   useApp.subscribe((state) => {
     const enabled = Boolean(state.prefs?.remote?.enabled)

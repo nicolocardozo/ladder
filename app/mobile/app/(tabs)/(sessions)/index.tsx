@@ -12,12 +12,12 @@ import { TabHeader } from '@/ui/TabHeader'
 import { Text } from '@/ui/Text'
 import { WIDE } from '@/ui/Sheet'
 
-/** Tab Sessions: "Now" e le sezioni dei progetti. Titolo e pill del Mac sulla stessa riga; la ricerca è il primo elemento dell'elenco. */
+/** Sessions tab: "Now" and the project sections. Title and Mac pill on the same row; search is the first item of the list. */
 export default function Sessions() {
   const router = useRouter()
   const { width } = useWindowDimensions()
   useLanguage()
-  // Su schermi larghi la Home sta già a sinistra: qui resta un segnaposto.
+  // On wide screens the Home is already docked on the left: only a placeholder remains here.
   if (width >= WIDE)
     return (
       <>
@@ -33,7 +33,7 @@ export default function Sessions() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <HomeContent />
-      {/* Su iOS "Nuova sessione" è il "+" staccato della barra dei tab; su Android è il pulsante accanto al pill. */}
+      {/* On iOS "New session" is the detached "+" of the tab bar; on Android it is the button next to the pill. */}
       <TabHeader
         title={t('Sessions')}
         right={

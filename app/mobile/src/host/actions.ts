@@ -1,6 +1,6 @@
-// Azioni dell'utente verso il Mac. Vibrazione solo su una risposta inviata e su un errore (DESIGN: haptics rari).
-// Ogni azione risolve con true se il Mac l'ha accettata, false se è fallita (l'errore è già stato mostrato): chi chiama
-// decide cosa fare (tenere aperto lo sheet, rimettere il testo nel composer).
+// User actions towards the Mac. Haptics only on a sent reply and on an error (DESIGN: haptics are rare).
+// Each action resolves true if the Mac accepted it, false if it failed (the error has already been shown): the caller
+// decides what to do (keep the sheet open, put the text back in the composer).
 import * as Haptics from 'expo-haptics'
 import { t } from '@shared/i18n'
 import type { Attachment, PermissionLevel, QueuedMessage, RemoteSessionCreate, SessionSummary } from '@shared/protocol'
@@ -8,7 +8,7 @@ import type { RequestItem } from '@/lib/turns'
 import { useToast } from '@/ui/toast'
 import { request } from './controller'
 
-/** Errori noti, in inglese come arrivano: si traducono qui. Il resto è già un testo dell'host e si mostra com'è. */
+/** Known errors, in English as they arrive: translated here. Anything else is already host text and is shown as is. */
 export function explain(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error)
   switch (text) {
@@ -46,11 +46,11 @@ async function run<T>(fn: () => Promise<T>, opts: { haptic?: boolean } = {}): Pr
 
 const done = async (p: Promise<{ ok: boolean }>): Promise<boolean> => (await p).ok
 
-/** Esito di una nuova sessione: l'errore resta nel modulo (testo già tradotto), niente toast. */
+/** Outcome of a new session: the error stays in the form (text already translated), no toast. */
 export type CreateResult = { ok: true; session: SessionSummary } | { ok: false; error: string }
 
 export const actions = {
-  /** `session.create` (LAD-89). Il modulo mostra l'errore da sé e conserva il testo; vibra solo sull'esito. */
+  /** `session.create`. The form shows the error itself and keeps the text; haptics only on the outcome. */
   async create(command: RemoteSessionCreate): Promise<CreateResult> {
     try {
       const session = await request<SessionSummary>(command)
@@ -76,7 +76,7 @@ export const actions = {
   send(sessionId: string, text: string, busy: 'queue' | 'steer', attachments: Attachment[] = []): Promise<boolean> {
     return done(run(() => request({ type: 'session.send', sessionId, text, busy, ...(attachments.length > 0 ? { attachments } : {}) })))
   },
-  /** Esegue un comando dell'agente scelto da "/" (`session.command`): l'host aggiunge la riga "comando" in chat. */
+  /** Runs an agent command chosen from "/" (`session.command`): the host adds the "command" row in the chat. */
   command(sessionId: string, name: string, args: string): Promise<boolean> {
     return done(run(() => request({ type: 'session.command', sessionId, name, args })))
   },

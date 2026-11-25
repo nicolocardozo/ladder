@@ -1,4 +1,4 @@
-// Riga di impostazioni con un orario (HH:MM). iOS: selettore compatto nella riga; Android: la riga apre la finestra dell'orologio.
+// Settings row with a time (HH:MM). iOS: compact picker in the row; Android: the row opens the clock dialog.
 import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker'
 import { Platform } from 'react-native'
 import { dateToTime, displayTime, timeToDate } from '@/lib/notify-prefs'
@@ -6,7 +6,7 @@ import { useTheme } from '@/theme/theme'
 import { Row } from './List'
 import { Text } from './Text'
 
-/** Il telefono mostra l'ora a 24 ore? (serve alla finestra di Android, che altrimenti userebbe sempre le 12). */
+/** Does the phone show time in 24-hour format? (needed by Android's dialog, which would otherwise always use 12). */
 function uses24Hour(): boolean {
   try {
     return new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hour12 === false

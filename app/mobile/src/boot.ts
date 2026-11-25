@@ -1,4 +1,4 @@
-// Avvio: preferenze, lingua, abbinamento salvato → collegamento. Un solo posto, usato dal layout radice.
+// Boot: preferences, language, saved pairing → connection. A single place, used by the root layout.
 import { useEffect, useState } from 'react'
 import { applyLocale } from '@/i18n'
 import { startRemote } from '@/host/controller'
@@ -10,11 +10,11 @@ export function useBoot(): boolean {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      // Le preferenze (zustand persist) si idratano da sole; qui si aspetta la fine.
+      // Preferences (zustand persist) hydrate on their own; here we wait for it to finish.
       if (!usePrefs.persist.hasHydrated()) await new Promise<void>((resolve) => usePrefs.persist.onFinishHydration(() => resolve()))
       applyLocale(usePrefs.getState().language)
       const pairing = await loadPairing()
-      // startRemote imposta la modalità prima di qualunque attesa: al primo render l'app sa già di avere un Mac.
+      // startRemote sets the mode before any wait: at first render the app already knows it has a Mac.
       if (pairing && !cancelled) void startRemote(pairing)
       if (!cancelled) setReady(true)
     })()
@@ -25,7 +25,7 @@ export function useBoot(): boolean {
   return ready
 }
 
-/** Le preferenze (tema compreso) sono state lette dal disco: da qui il tema è quello scelto dall'utente. */
+/** Preferences (theme included) have been read from disk: from here the theme is the one chosen by the user. */
 export function usePrefsHydrated(): boolean {
   const [done, setDone] = useState(usePrefs.persist.hasHydrated())
   useEffect(() => {

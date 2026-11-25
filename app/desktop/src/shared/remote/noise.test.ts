@@ -19,8 +19,8 @@ function handshake(): { client: NoiseTransport; server: NoiseTransport } {
   return { client, server }
 }
 
-// Vettore ufficiale (cacophony, usato anche da snow): Noise_NK_25519_ChaChaPoly_SHA256.
-test('vettore ufficiale cacophony per NK 25519 ChaChaPoly SHA256', () => {
+// Official vector (cacophony, also used by snow): Noise_NK_25519_ChaChaPoly_SHA256.
+test('official cacophony vector for NK 25519 ChaChaPoly SHA256', () => {
   const v = {
     prologue: hex('4a6f686e2047616c74'),
     initEphemeral: hex('893e28b9dc6ca8d611ab664754b8ceb7bac5117349a4439a6b0569da977c464a'),
@@ -52,7 +52,7 @@ test('vettore ufficiale cacophony per NK 25519 ChaChaPoly SHA256', () => {
   assert.equal(toHex(client.handshakeHash), v.handshakeHash)
   assert.equal(toHex(server.handshakeHash), v.handshakeHash)
 
-  // Dal terzo messaggio in poi: trasporto, a turno iniziatore e responder.
+  // From the third message on: transport, in turns initiator and responder.
   v.messages.slice(2).forEach(([plain, cipher], i) => {
     const [sender, receiver] = i % 2 === 0 ? [client, server] : [server, client]
     const sealed = sender.encrypt(hex(plain))
@@ -61,7 +61,7 @@ test('vettore ufficiale cacophony per NK 25519 ChaChaPoly SHA256', () => {
   })
 })
 
-test('handshake e trasporto nei due versi', () => {
+test('handshake and transport in both directions', () => {
   const { client, server } = handshake()
   assert.deepEqual(client.handshakeHash, server.handshakeHash)
   for (let i = 0; i < 5; i++) {
@@ -70,20 +70,20 @@ test('handshake e trasporto nei due versi', () => {
   }
 })
 
-test('un prologo diverso fa fallire l’handshake', () => {
+test('a different prologue makes the handshake fail', () => {
   const mac = generateKeyPair()
   const init = new NoiseInitiator({ prologue, remoteStatic: mac.publicKey })
   const resp = new NoiseResponder({ prologue: text('other'), staticKey: mac })
   assert.throws(() => resp.readMessage1(init.writeMessage1(text('x'))))
 })
 
-test('un Mac con un’altra chiave statica non completa l’handshake', () => {
+test('a Mac with a different static key does not complete the handshake', () => {
   const init = new NoiseInitiator({ prologue, remoteStatic: generateKeyPair().publicKey })
   const resp = new NoiseResponder({ prologue, staticKey: generateKeyPair() })
   assert.throws(() => resp.readMessage1(init.writeMessage1(text('x'))))
 })
 
-test('messaggi dell’handshake manomessi sono rifiutati', () => {
+test('tampered handshake messages are rejected', () => {
   const mac = generateKeyPair()
   const init = new NoiseInitiator({ prologue, remoteStatic: mac.publicKey })
   const m1 = init.writeMessage1(text('x'))
@@ -98,43 +98,43 @@ test('messaggi dell’handshake manomessi sono rifiutati', () => {
   assert.throws(() => init2.readMessage2(message))
 })
 
-test('messaggio di trasporto manomesso: errore, e il canale resta rotto', () => {
+test('tampered transport message: error, and the channel stays broken', () => {
   const { client, server } = handshake()
   const sealed = client.encrypt(text('ciao'))
   sealed[0] ^= 1
   assert.throws(() => server.decrypt(sealed))
-  // Anche il messaggio buono successivo non passa più.
+  // The good next message does not pass either.
   assert.throws(() => server.decrypt(client.encrypt(text('dopo'))))
 })
 
-test('messaggio ripetuto (replay) rifiutato', () => {
+test('replayed message rejected', () => {
   const { client, server } = handshake()
   const sealed = client.encrypt(text('paga'))
   assert.deepEqual(server.decrypt(sealed), text('paga'))
   assert.throws(() => server.decrypt(sealed))
 })
 
-test('messaggi fuori ordine rifiutati', () => {
+test('out-of-order messages rejected', () => {
   const { client, server } = handshake()
   const first = client.encrypt(text('uno'))
   const second = client.encrypt(text('due'))
   assert.throws(() => server.decrypt(second))
-  assert.throws(() => server.decrypt(first)) // rotto per sempre dopo il primo errore
+  assert.throws(() => server.decrypt(first)) // broken forever after the first error
 })
 
-test('messaggio riflesso (il proprio, rimandato indietro) rifiutato', () => {
+test('reflected message (one’s own, sent back) rejected', () => {
   const { client, server } = handshake()
   const sealed = client.encrypt(text('eco'))
   assert.throws(() => client.decrypt(sealed))
   const { client: c2, server: s2 } = handshake()
   const fromServer = s2.encrypt(text('eco'))
   assert.throws(() => s2.decrypt(fromServer))
-  // Un messaggio valido per l'altro lato resta valido (nuovi canali, nessuno stato condiviso).
+  // A message valid for the other side stays valid (new channels, no shared state).
   assert.deepEqual(c2.decrypt(fromServer), text('eco'))
   assert.deepEqual(server.decrypt(sealed), text('eco'))
 })
 
-test('limite di 65535 byte per messaggio di trasporto', () => {
+test('65535-byte limit per transport message', () => {
   const { client, server } = handshake()
   const max = client.encrypt(new Uint8Array(65535 - 16))
   assert.equal(max.length, 65535)
@@ -145,7 +145,7 @@ test('limite di 65535 byte per messaggio di trasporto', () => {
   assert.throws(() => s3.decrypt(new Uint8Array(65536)))
 })
 
-test('un messaggio più corto del tag è rifiutato', () => {
+test('a message shorter than the tag is rejected', () => {
   const { server } = handshake()
   assert.throws(() => server.decrypt(new Uint8Array(15)))
 })

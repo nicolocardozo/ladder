@@ -1,5 +1,5 @@
-// Dati del Mac sul telefono: progetti, sessioni, chat. Stesso stile del desktop (zustand), alimentati dagli eventi del canale
-// (reale o demo). Lo stato della connessione e le azioni stanno in src/host.
+// Mac data on the phone: projects, sessions, chats. Same style as the desktop (zustand), fed by the channel's events
+// (real or demo). Connection state and actions live in src/host.
 import { create } from 'zustand'
 import type { ChatItem, PermissionLevel, Project, ProjectGroupsState, RemoteAgentStatus, RemoteEvent, RemotePrefs, RemoteProfile, RemoteProjectDefaults, RemoteSnapshot, SessionSummary, SubagentInfo } from '@shared/protocol'
 import { applyItemsEvent, mergeById, mergeSnapshotSessions } from '@/lib/items'
@@ -12,7 +12,7 @@ export interface AppState {
   mode: Mode
   conn: ConnState
   macName: string | null
-  /** Tema del Mac: il canale lo porterà (LAD-52 follow-up); finché è null vale Circuit. */
+  /** Mac theme: the channel will carry it; until then it is null and Circuit applies. */
   macTheme: string | null
   hydrated: boolean
   projects: Project[]
@@ -20,17 +20,17 @@ export interface AppState {
   ui: RemoteSnapshot['ui']
   projectGroups: ProjectGroupsState | null
   agents: RemoteAgentStatus[]
-  /** Account (abbonamenti) di Claude Code e Codex; `AgentStatus.profileId` li lega allo stato. */
+  /** Claude Code and Codex accounts (subscriptions); `AgentStatus.profileId` links them to the status. */
   profiles: RemoteProfile[]
-  /** Come parte una nuova sessione, per progetto (agenti ammessi, modello ed effort scelti da Ladder, permesso). */
+  /** How a new session starts, per project (allowed agents, model and effort chosen by Ladder, permission). */
   defaults: Record<string, RemoteProjectDefaults>
-  /** Tetto di permesso per progetto (null = nessun tetto), dallo snapshot. */
+  /** Permission ceiling per project (null = no ceiling), from the snapshot. */
   permissionsMax: Record<string, PermissionLevel | null>
-  /** Preferenze del Mac che il telefono rispecchia: cosa fa l'invio a sessione al lavoro, e se Full è permesso dal telefono. */
+  /** Mac preferences the phone mirrors: what sending to a working session does, and whether Full is allowed from the phone. */
   prefs: RemotePrefs
   items: Record<string, ChatItem[]>
   hasMore: Record<string, boolean>
-  /** La pagina iniziale della sessione è arrivata (la chat si può mostrare). */
+  /** The session's first page has arrived (the chat can be shown). */
   loaded: Record<string, boolean>
   subagents: Record<string, SubagentInfo[]>
   setMode: (mode: Mode) => void
@@ -40,9 +40,9 @@ export interface AppState {
   applyEvent: (event: RemoteEvent) => void
   mergeItems: (sessionId: string, items: ChatItem[], opts: { replace?: boolean; hasMore?: boolean }) => void
   setAllowFull: (allowFull: boolean) => void
-  /** Sessioni archiviate lette dalla schermata del progetto: restano in `sessions` (con archived: true) per poterle aprire. */
+  /** Archived sessions read from the project screen: they stay in `sessions` (with archived: true) so they can be opened. */
   addArchived: (sessions: SessionSummary[]) => void
-  /** Svuota i dati del Mac (uscita dalla demo, scollegamento). */
+  /** Clears the Mac's data (leaving the demo, disconnecting). */
   reset: () => void
   restore: (data: Partial<Pick<AppState, 'projects' | 'sessions' | 'ui' | 'projectGroups' | 'agents' | 'profiles' | 'defaults' | 'items' | 'macName' | 'macTheme' | 'hasMore' | 'permissionsMax' | 'prefs'>>) => void
 }
@@ -63,7 +63,7 @@ const empty = {
   subagents: {} as Record<string, SubagentInfo[]>
 }
 
-/** Parte dello stato che dipende da uno snapshot (all'`hello` e come evento): sessioni sparite = chat in memoria via. */
+/** Part of the state that depends on a snapshot (on `hello` and as an event): vanished sessions = their in-memory chat is dropped. */
 function snapshotPatch(snap: RemoteSnapshot, previous: Record<string, SessionSummary>, items: Record<string, ChatItem[]>) {
   const sessions = mergeSnapshotSessions(previous, snap.sessions, snap.projects.map((p) => p.id))
   return {

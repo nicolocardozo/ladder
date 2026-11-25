@@ -43,35 +43,35 @@ const input = (patch: Partial<FormInput> = {}): FormInput => ({
   ...patch
 })
 
-test('progetto: dove si è, poi l’ultimo usato, poi il primo del Mac', () => {
+test('project: where you are, then the last used, then the first on the Mac', () => {
   assert.equal(pickProject({ ...input(), contextProjectId: 'c', lastProjectId: 'b' }), 'c')
   assert.equal(pickProject({ ...input(), contextProjectId: 'gone', lastProjectId: 'b' }), 'b')
   assert.equal(pickProject({ ...input(), contextProjectId: null, lastProjectId: null }), 'a')
   assert.equal(pickProject({ ...input(), projects: [], projectGroups: undefined }), null)
 })
 
-test('le sezioni del Mac: senza titolo i progetti fuori da ogni sezione', () => {
+test('Mac sections: untitled projects outside any section', () => {
   const s = projectSections(input().projects, input().projectGroups)
   assert.deepEqual(s.map((x) => [x.name, x.projects.map((p) => p.id)]), [[null, ['a']], ['Work', ['b', 'c']]])
 })
 
-test('agenti ammessi: allowed vuoto = tutti i disponibili, senza doppioni', () => {
+test('allowed agents: empty allowed = all available, no duplicates', () => {
   assert.deepEqual(usableAgents(input().agents, def()), ['claude-code', 'codex', 'acp:gemini-cli'])
   assert.deepEqual(usableAgents(input().agents, def({ allowed: ['codex'] })), ['codex'])
   assert.deepEqual(usableAgents([{ ...codex, available: false }], def()), [])
 })
 
-test('agente: quello del Mac, poi l’ultimo usato, poi il primo ammesso', () => {
+test('agent: the Mac one, then the last used, then the first allowed', () => {
   assert.equal(resolveForm(input(), { projectId: 'a' }).agent, 'claude-code')
   assert.equal(resolveForm(input(), { projectId: 'b' }).agent, 'codex')
-  // `agent` non ammesso: ripiega sull'ultimo usato se ammesso
+  // `agent` not allowed: falls back to the last used one if allowed
   const i = input({ defaults: { a: def({ agent: null, allowed: ['codex'], lastAgent: 'codex' }) } })
   assert.equal(resolveForm(i, { projectId: 'a' }).agent, 'codex')
   assert.equal(resolveForm(i, { projectId: 'a', agent: 'claude-code' }).agent, 'codex')
   assert.equal(resolveForm(input({ agents: [] })).agent, null)
 })
 
-test('modello ed effort partono da `launch`, com’è; null mostra il predefinito dell’agente', () => {
+test('model and effort start from `launch`, as is; null shows the agent default', () => {
   const v = resolveForm(input(), { projectId: 'a' })
   assert.equal(v.model, 'sonnet')
   assert.equal(v.effort, 'low')
@@ -86,15 +86,15 @@ test('modello ed effort partono da `launch`, com’è; null mostra il predefinit
   assert.equal(d.defaultEffort, 'high')
 })
 
-test('l’utente può tornare al predefinito (null) e uno non valido cade a null', () => {
+test('the user can go back to the default (null) and an invalid one falls to null', () => {
   assert.equal(resolveForm(input(), { projectId: 'a', model: null }).model, null)
   assert.equal(resolveForm(input(), { projectId: 'a', model: 'nope' }).model, null)
-  // effort non accettato dal modello scelto: torna al predefinito
+  // effort not accepted by the chosen model: back to the default
   assert.equal(resolveForm(input(), { projectId: 'a', model: 'sonnet', effort: 'xhigh' }).effort, null)
   assert.equal(resolveForm(input(), { projectId: 'a', model: 'opus', effort: 'xhigh' }).effort, 'xhigh')
 })
 
-test('agente senza effort (ACP): nessuna scelta di effort', () => {
+test('agent without effort (ACP): no effort choice', () => {
   const v = resolveForm(input(), { projectId: 'a', agent: 'acp:gemini-cli' })
   assert.deepEqual(v.effortOptions, [])
   assert.equal(v.effort, null)
@@ -102,22 +102,22 @@ test('agente senza effort (ACP): nessuna scelta di effort', () => {
   assert.equal(v.profile, null)
 })
 
-test('account: quello del progetto, poi il predefinito; si manda sempre l’id scelto', () => {
-  // anche il predefinito: senza, il Mac userebbe l'account assegnato al progetto
+test('account: the project one, then the default; the chosen id is always sent', () => {
+  // the default too: without it, the Mac would use the account assigned to the project
   assert.equal(resolveForm(input(), { projectId: 'a' }).profileId, 'default:claude-code')
   assert.equal(resolveForm(input(), { projectId: 'a', agent: 'acp:gemini-cli' }).profileId, undefined)
   assert.equal(resolveForm(input(), { projectId: 'a' }).profile?.name, 'Personal')
   const assigned = input({ projects: [project('a', { profiles: { 'claude-code': 'p-work' } })] })
   const v = resolveForm(assigned, { projectId: 'a' })
   assert.equal(v.profileId, 'p-work')
-  // con l'account di lavoro un modello che quell'account non ha cade al predefinito
+  // with the work account a model that the account does not have falls back to the default
   assert.equal(v.model, null)
   assert.equal(v.status?.account, 'Claude Team')
-  // scelta esplicita dell'account predefinito (null)
+  // explicit choice of the default account (null)
   assert.equal(resolveForm(assigned, { projectId: 'a', profileId: null }).profileId, 'default:claude-code')
 })
 
-test('permesso: parte da quello del Mac; sopra il tetto o Full spento = livello spento', () => {
+test('permission: starts from the Mac one; above the cap or Full off = level off', () => {
   assert.equal(resolveForm(input(), { projectId: 'a' }).permission, 'edit')
   const b = resolveForm(input(), { projectId: 'b' })
   assert.deepEqual(b.levels.map((l) => [l.level, l.allowed, l.reason]), [['plan', true, null], ['ask', true, null], ['edit', false, 'max'], ['full', false, 'max']])
@@ -129,13 +129,13 @@ test('permesso: parte da quello del Mac; sopra il tetto o Full spento = livello 
   assert.equal(resolveForm(input(), { projectId: 'a', permission: 'plan' }).permission, 'plan')
 })
 
-test('messaggio: obbligatorio dopo trim, con un limite', () => {
+test('message: required after trim, with a limit', () => {
   assert.equal(messageError('  \n '), 'empty')
   assert.equal(messageError('ciao'), null)
   assert.equal(messageError('x'.repeat(200_001)), 'long')
 })
 
-test('comando di creazione: solo le chiavi ammesse, profileId per gli agenti con account', () => {
+test('create command: only allowed keys, profileId for agents with accounts', () => {
   const v = resolveForm(input(), { projectId: 'a' })
   assert.deepEqual(createCommand(v, '  fix it \n'), { type: 'session.create', projectId: 'a', agent: 'claude-code', text: 'fix it', model: 'sonnet', effort: 'low', permission: 'edit', profileId: 'default:claude-code', mode: 'chat' })
   const acp = createCommand(resolveForm(input(), { projectId: 'a', agent: 'acp:gemini-cli' }), 'x')!
@@ -149,29 +149,29 @@ const made = (patch: Partial<import('../../../desktop/src/shared/protocol.ts').S
   ({ id: 's-new', projectId: 'a', agent: 'claude-code', profileId: undefined, title: 'Fix the flaky test', mode: 'chat', archived: false, createdAt: 1_000_000, ...patch }) as import('../../../desktop/src/shared/protocol.ts').SessionSummary
 const cmd = { projectId: 'a', agent: 'claude-code' as const, text: 'Fix the flaky test and more', profileId: 'default:claude-code' }
 
-test('dopo un timeout: la sessione nata nel frattempo si riconosce, così non si rimanda', () => {
+test('after a timeout: the session created meanwhile is recognized, so it is not resent', () => {
   const known = new Set(['old'])
   assert.equal(findCreated([made({ id: 'old' })], known, cmd, 1_000_000), null)
   assert.equal(findCreated([made({})], known, cmd, 1_000_000)?.id, 's-new')
-  // altro progetto, altro agente, vecchia o archiviata: no
+  // other project, other agent, old or archived: no
   assert.equal(findCreated([made({ projectId: 'b' })], known, cmd, 1_000_000), null)
   assert.equal(findCreated([made({ agent: 'codex' })], known, cmd, 1_000_000), null)
   assert.equal(findCreated([made({ createdAt: 100 })], known, cmd, 1_000_000), null)
   assert.equal(findCreated([made({ archived: true })], known, cmd, 1_000_000), null)
-  // con due candidate vince il titolo uguale al primo messaggio; senza titolo uguale non si indovina
+  // with two candidates the one whose title equals the first message wins; without a matching title no guess is made
   const two = [made({ id: 'x', title: 'Other' }), made({ id: 'y' })]
   assert.equal(findCreated(two, known, cmd, 1_000_000)?.id, 'y')
   assert.equal(findCreated([made({ id: 'x', title: 'Other' }), made({ id: 'z', title: 'Another' })], known, cmd, 1_000_000), null)
 })
 
-test('con immagini il testo può essere vuoto; senza testo né immagini no (LAD-92)', () => {
+test('with images the text may be empty; without text or images it may not', () => {
   assert.equal(messageError('', 1), null)
   assert.equal(messageError('   ', 2), null)
   assert.equal(messageError('', 0), 'empty')
   assert.equal(messageError('x'.repeat(200_001), 1), 'long')
 })
 
-test('comando di creazione con allegati: la chiave c’è solo se ci sono immagini', () => {
+test('create command with attachments: the key is present only if there are images', () => {
   const v = resolveForm(input(), { projectId: 'a' })
   const img = { name: 'p-ab12c.jpg', mediaType: 'image/jpeg', data: 'AAAA' }
   assert.deepEqual((createCommand(v, 'guarda', [img]) as { attachments?: unknown }).attachments, [img])

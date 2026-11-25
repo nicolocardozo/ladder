@@ -1,5 +1,5 @@
-// Markdown nativo per le risposte dell'agente (react-native-markdown-display: solo View e Text, niente WebView, App Store 4.2).
-// Testo con il font di sistema, codice in Monaspace Neon.
+// Native markdown for agent replies (react-native-markdown-display: only View and Text, no WebView, App Store 4.2).
+// Text in the system font, code in Monaspace Neon.
 import { memo, useMemo } from 'react'
 import { Linking, Platform } from 'react-native'
 import MarkdownDisplay from 'react-native-markdown-display'

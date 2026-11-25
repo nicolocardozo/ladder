@@ -1,19 +1,19 @@
-// Il link di abbinamento arrivato da fuori (deep link). expo-router lo vede prima che la schermata esista: lo intercetta
-// app/+native-intent.tsx e lo parcheggia qui, la schermata /pair lo prende al montaggio. Solo in memoria, mai nei log.
+// The pairing link that arrived from outside (deep link). expo-router sees it before the screen exists: app/+native-intent.tsx
+// intercepts it and parks it here, the /pair screen picks it up on mount. In memory only, never in logs.
 let pending: string | null = null
 
 export const setPendingPairLink = (link: string): void => {
   pending = link
 }
 
-/** Lo restituisce una volta sola. */
+/** Returns it only once. */
 export function takePendingPairLink(): string | null {
   const link = pending
   pending = null
   return link
 }
 
-/** Link già letto (usato o scartato): `useURL` continua a restituire quello con cui l'app si è aperta, e non va riletto. */
+/** Link already read (used or discarded): `useURL` keeps returning the one the app opened with, and it must not be read again. */
 let consumed: string | null = null
 export const markConsumed = (link: string): void => {
   consumed = link

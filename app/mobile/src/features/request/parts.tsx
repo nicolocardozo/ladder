@@ -1,4 +1,4 @@
-// Pezzi comuni per mostrare una richiesta: comando in mono, percorsi, anteprima con - e +.
+// Shared pieces for showing a request: command in mono, paths, preview with - and +.
 import { View } from 'react-native'
 import type { RequestItemData } from '@shared/protocol'
 import { alpha, useTheme } from '@/theme/theme'
@@ -16,7 +16,7 @@ export function CodeBlock({ text, lines, selectable }: { text: string; lines?: n
   )
 }
 
-/** Anteprima della modifica: righe con - e +, forma (segno) e tinta insieme. */
+/** Preview of the change: lines with - and +, shape (sign) and tint together. */
 export function EditPreview({ text }: { text: string }) {
   const { c } = useTheme()
   const lines = text.split('\n')
@@ -42,7 +42,7 @@ export function EditPreview({ text }: { text: string }) {
   )
 }
 
-/** Cosa mostrare come "comando o percorso" di una richiesta. */
+/** What to show as the "command or path" of a request. */
 export function subjectOf(r: RequestItemData): { label: 'command' | 'file' | 'files'; text: string } | null {
   if (r.command) return { label: 'command', text: r.command }
   if (r.paths && r.paths.length > 1) return { label: 'files', text: r.paths.join('\n') }
@@ -50,5 +50,5 @@ export function subjectOf(r: RequestItemData): { label: 'command' | 'file' | 'fi
   return null
 }
 
-/** Richiesta che si decide meglio nello sheet: domande e modifiche con anteprima. */
+/** Request that is better decided in the sheet: questions and edits with a preview. */
 export const needsSheet = (r: RequestItemData): boolean => r.requestType === 'question' || !!r.preview

@@ -1,4 +1,4 @@
-// Prove dei push (LAD-53) con un fetch finto: nessuna chiamata a Expo.
+// Push tests with a fake fetch: no calls to Expo.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { registerCatalog } from '../../shared/i18n.ts'
@@ -14,7 +14,7 @@ registerCatalog('it', it)
 const at = (iso: string): number => Date.parse(iso)
 const request: PushEvent = { kind: 'request', sessionId: 's1', itemId: 'q1' }
 
-test('fascia silenziosa: stessa giornata, a cavallo della mezzanotte, estremi, fascia vuota', () => {
+test('quiet hours: same day, across midnight, edges, empty range', () => {
   const day = { from: '09:00', to: '17:00', tz: 'UTC' }
   assert.equal(inQuietHours(day, at('2026-01-01T09:00:00Z')), true)
   assert.equal(inQuietHours(day, at('2026-01-01T16:59:00Z')), true)
@@ -30,21 +30,21 @@ test('fascia silenziosa: stessa giornata, a cavallo della mezzanotte, estremi, f
   assert.equal(inQuietHours({ from: '22:00', to: '07:00', tz: 'Not/AZone' }, at('2026-01-02T23:00:00Z')), false)
 })
 
-test('fascia silenziosa: valutata nel fuso del telefono (con ora legale)', () => {
+test('quiet hours: evaluated in the phone’s time zone (with daylight saving)', () => {
   const night = { from: '23:00', to: '07:00', tz: 'Europe/Rome' }
-  // Inverno UTC+1: 22:30Z = 23:30 a Roma (dentro); 21:30Z = 22:30 (fuori).
+  // Winter UTC+1: 22:30Z = 23:30 in Rome (inside); 21:30Z = 22:30 (outside).
   assert.equal(inQuietHours(night, at('2026-01-15T22:30:00Z')), true)
   assert.equal(inQuietHours(night, at('2026-01-15T21:30:00Z')), false)
-  // Estate UTC+2: 21:30Z = 23:30 a Roma (dentro); 20:30Z = 22:30 (fuori).
+  // Summer UTC+2: 21:30Z = 23:30 in Rome (inside); 20:30Z = 22:30 (outside).
   assert.equal(inQuietHours(night, at('2026-07-15T21:30:00Z')), true)
   assert.equal(inQuietHours(night, at('2026-07-15T20:30:00Z')), false)
-  // Stesso istante, due fusi diversi.
+  // Same instant, two different zones.
   const t = at('2026-01-15T03:00:00Z')
-  assert.equal(inQuietHours({ from: '22:00', to: '07:00', tz: 'America/New_York' }, t), true) // 22:00 a New York
-  assert.equal(inQuietHours({ from: '22:00', to: '07:00', tz: 'Asia/Tokyo' }, t), false) // 12:00 a Tokyo
+  assert.equal(inQuietHours({ from: '22:00', to: '07:00', tz: 'America/New_York' }, t), true) // 22:00 in New York
+  assert.equal(inQuietHours({ from: '22:00', to: '07:00', tz: 'Asia/Tokyo' }, t), false) // 12:00 in Tokyo
 })
 
-test('wantsPush: eventi spenti, fascia silenziosa e richieste ammesse', () => {
+test('wantsPush: events off, quiet hours and allowed requests', () => {
   const night = { from: '22:00', to: '07:00', tz: 'UTC' }
   const base: RemoteNotifyPrefs = { events: { request: true, turn: true, error: false, agents: true }, quiet: night }
   const quietTime = at('2026-01-01T23:00:00Z')
@@ -59,7 +59,7 @@ test('wantsPush: eventi spenti, fascia silenziosa e richieste ammesse', () => {
   assert.equal(wantsPush(DEFAULT_NOTIFY_PREFS, 'agents', quietTime), true)
 })
 
-test('cleanNotifyPrefs / parseNotifyPrefs: validazione e predefiniti', () => {
+test('cleanNotifyPrefs / parseNotifyPrefs: validation and defaults', () => {
   const ok = { events: { request: true, turn: false, error: true, agents: true }, quiet: { from: '22:00', to: '07:00', tz: 'Europe/Rome' }, quietAllowsRequests: true, extra: 1 }
   assert.deepEqual(cleanNotifyPrefs(ok), { events: ok.events, quiet: ok.quiet, quietAllowsRequests: true })
   assert.deepEqual(cleanNotifyPrefs({ events: ok.events, quiet: null }), { events: ok.events, quiet: null })
@@ -71,7 +71,7 @@ test('cleanNotifyPrefs / parseNotifyPrefs: validazione e predefiniti', () => {
   assert.deepEqual(parseNotifyPrefs(JSON.stringify(ok)), cleanNotifyPrefs(ok))
 })
 
-test('testo generico nella lingua del dispositivo', () => {
+test('generic text in the device language', () => {
   assert.equal(pushBody('request', 'en'), 'A session is waiting for you')
   assert.equal(pushBody('request', 'it'), 'Una sessione ti aspetta')
   assert.equal(pushBody('turn', 'it'), 'Una sessione è finita')
@@ -79,7 +79,7 @@ test('testo generico nella lingua del dispositivo', () => {
   assert.equal(pushBody('agents', 'it'), 'Gli agenti in background hanno finito')
 })
 
-test('maskToken non mostra mai il token intero', () => {
+test('maskToken never shows the whole token', () => {
   assert.equal(maskToken('ExponentPushToken[abcdefghijkl]'), 'ExponentPushToken[abcd…]')
   assert.equal(maskToken('weird-token'), 'weir…')
 })
@@ -90,7 +90,7 @@ interface Call {
   headers: Record<string, string>
 }
 
-/** Ambiente: database vero in memoria, dispositivi abbinati a mano, fetch finto con risposte programmabili. */
+/** Environment: real in-memory database, devices paired by hand, fake fetch with programmable responses. */
 function env(answer: (call: Call) => { status?: number; body: unknown } = (call) => ({ body: { data: (call.body as unknown[]).map((_, i) => ({ status: 'ok', id: `id-${i}-${Math.random()}` })) } })) {
   const db = openDb(':memory:')
   const access = new RemoteAccess(db)
@@ -117,7 +117,7 @@ function env(answer: (call: Call) => { status?: number; body: unknown } = (call)
   return { db, access, add, calls, state, service, logs }
 }
 
-test('notify: salta revocati, senza token, evento spento, fascia silenziosa e app in primo piano', async () => {
+test('notify: skips revoked devices, no token, event off, quiet hours and foreground app', async () => {
   const e = env()
   const ok = e.add('ExponentPushToken[ok]')
   e.add(null)
@@ -134,7 +134,7 @@ test('notify: salta revocati, senza token, evento spento, fascia silenziosa e ap
   assert.ok(ok && allowed)
 })
 
-test('notify: payload senza titoli né testo del progetto, formato Expo, lingua del dispositivo', async () => {
+test('notify: payload without titles or project text, Expo format, device language', async () => {
   const e = env()
   e.add('ExponentPushToken[en]')
   e.add('ExponentPushToken[it]', { locale: 'it' })
@@ -148,11 +148,11 @@ test('notify: payload senza titoli né testo del progetto, formato Expo, lingua 
   const en = byToken['ExponentPushToken[en]']
   assert.deepEqual(en, { to: 'ExponentPushToken[en]', title: 'Ladder', body: 'A session is waiting for you', data: { v: 1, kind: 'request', sessionId: 's1', itemId: 'q1', mac: 'mac-1' }, sound: 'default', priority: 'high', channelId: 'sessions', ttl: 3600 })
   assert.equal(byToken['ExponentPushToken[it]'].body, 'Una sessione ti aspetta')
-  // Nient'altro oltre ai campi noti: nessun nome di progetto, titolo di sessione o testo.
+  // Nothing besides the known fields: no project name, session title or text.
   assert.deepEqual(Object.keys((en as { data: object }).data).sort(), ['itemId', 'kind', 'mac', 'sessionId', 'v'])
 })
 
-test('notify: canale spento → nessun push; stesso evento ripetuto entro 5 secondi → uno solo', async () => {
+test('notify: channel off → no push; same event repeated within 5 seconds → only one', async () => {
   const e = env()
   e.add('ExponentPushToken[a]')
   e.access.enabled = false
@@ -167,28 +167,28 @@ test('notify: canale spento → nessun push; stesso evento ripetuto entro 5 seco
   assert.equal(e.calls.length, 2)
 })
 
-test('invio a gruppi da 100', async () => {
+test('sending in groups of 100', async () => {
   const e = env()
   const messages = Array.from({ length: 250 }, (_, i) => ({ to: `ExponentPushToken[t${i}]`, title: 'Ladder', body: 'x', data: { v: 1 as const, kind: 'turn' as const, sessionId: 's', itemId: null, mac: 'm' }, sound: 'default' as const, priority: 'high' as const, channelId: 'sessions', ttl: 1 }))
   await e.service.send(messages)
   assert.deepEqual(e.calls.map((c) => (c.body as unknown[]).length), [MAX_BATCH, MAX_BATCH, 50])
 })
 
-test('DeviceNotRegistered toglie il token di quel dispositivo e solo quello', async () => {
+test('DeviceNotRegistered removes that device’s token and only that one', async () => {
   const e = env((call) => ({ body: { data: (call.body as { to: string }[]).map((m) => (m.to.includes('dead') ? { status: 'error', message: 'x', details: { error: 'DeviceNotRegistered' } } : { status: 'ok', id: 'r' })) } }))
   const dead = e.add('ExponentPushToken[dead]')
   const live = e.add('ExponentPushToken[live]')
   await e.service.notify(request)
   assert.equal(e.access.device(dead)?.pushToken, null)
   assert.equal(e.access.device(live)?.pushToken, 'ExponentPushToken[live]')
-  assert.ok(e.logs.every((l) => !l.includes('dead]')), 'token mai intero nel log')
-  // Il prossimo evento non lo include più.
+  assert.ok(e.logs.every((l) => !l.includes('dead]')), 'token never whole in the log')
+  // The next event no longer includes it.
   e.state.now += 10_000
   await e.service.notify({ ...request, itemId: 'q2' })
   assert.deepEqual((e.calls[1].body as { to: string }[]).map((m) => m.to), ['ExponentPushToken[live]'])
 })
 
-test('InvalidCredentials: i token restano, un solo avviso nel log', async () => {
+test('InvalidCredentials: tokens are kept, a single warning in the log', async () => {
   const e = env((call) => ({ body: { data: (call.body as unknown[]).map(() => ({ status: 'error', message: 'x', details: { error: 'InvalidCredentials' } })) } }))
   const id = e.add('ExponentPushToken[a]')
   await e.service.notify(request)
@@ -198,7 +198,7 @@ test('InvalidCredentials: i token restano, un solo avviso nel log', async () => 
   assert.equal(e.logs.filter((l) => l.includes('InvalidCredentials')).length, 1)
 })
 
-test('MessageRateExceeded e 429: pausa, niente tempesta di nuovi invii, poi riprende', async () => {
+test('MessageRateExceeded and 429: pause, no storm of new sends, then resume', async () => {
   let rate = true
   const e = env((call) => (rate ? { body: { data: (call.body as unknown[]).map(() => ({ status: 'error', message: 'x', details: { error: 'MessageRateExceeded' } })) } } : { body: { data: (call.body as unknown[]).map(() => ({ status: 'ok', id: 'r' })) } }))
   const id = e.add('ExponentPushToken[a]')
@@ -220,7 +220,7 @@ test('MessageRateExceeded e 429: pausa, niente tempesta di nuovi invii, poi ripr
   assert.equal(f.calls.length, 1)
 })
 
-test('errori di rete, risposta storta e MessageTooBig non lanciano e non toccano i token', async () => {
+test('network errors, malformed responses and MessageTooBig do not throw and leave tokens alone', async () => {
   const db = openDb(':memory:')
   const access = new RemoteAccess(db)
   access.enabled = true
@@ -241,7 +241,7 @@ test('errori di rete, risposta storta e MessageTooBig non lanciano e non toccano
   assert.equal(access.device('d')?.pushToken, 'ExponentPushToken[a]')
 })
 
-test('ricevute dopo 15 minuti: DeviceNotRegistered toglie il token', async () => {
+test('receipts after 15 minutes: DeviceNotRegistered removes the token', async () => {
   const e = env((call) => {
     if (call.url === EXPO_RECEIPTS_URL) return { body: { data: { 'id-dead': { status: 'error', details: { error: 'DeviceNotRegistered' } }, 'id-live': { status: 'ok' } } } }
     return { body: { data: (call.body as { to: string }[]).map((m) => ({ status: 'ok', id: m.to.includes('dead') ? 'id-dead' : 'id-live' })) } }
@@ -250,7 +250,7 @@ test('ricevute dopo 15 minuti: DeviceNotRegistered toglie il token', async () =>
   const live = e.add('ExponentPushToken[live]')
   await e.service.notify(request)
   await e.service.pollReceipts()
-  assert.equal(e.calls.length, 1, 'troppo presto: nessuna richiesta di ricevute')
+  assert.equal(e.calls.length, 1, 'too early: no receipts request')
   e.state.now += RECEIPT_DELAY_MS
   await e.service.pollReceipts()
   assert.equal(e.calls.length, 2)
@@ -260,7 +260,7 @@ test('ricevute dopo 15 minuti: DeviceNotRegistered toglie il token', async () =>
   e.service.stop()
 })
 
-test('revoca: il token sparisce e non si usa più; il canale spento non manda nulla', async () => {
+test('revocation: the token disappears and is no longer used; a channel that is off sends nothing', async () => {
   const e = env()
   const id = e.add('ExponentPushToken[a]')
   e.access.revoke(id)
@@ -268,14 +268,14 @@ test('revoca: il token sparisce e non si usa più; il canale spento non manda nu
   assert.equal(e.calls.length, 0)
 })
 
-test('pausa controllata a ogni gruppo: dopo MessageRateExceeded il resto si scarta', async () => {
+test('pause checked at each group: after MessageRateExceeded the rest is dropped', async () => {
   const e = env((call) => ({ body: { data: (call.body as unknown[]).map(() => ({ status: 'error', details: { error: 'MessageRateExceeded' } })) } }))
   const messages = Array.from({ length: 250 }, (_, i) => ({ to: `ExponentPushToken[t${i}]`, title: 'Ladder', body: 'x', data: { v: 1 as const, kind: 'turn' as const, sessionId: 's', itemId: null, mac: 'm' }, sound: 'default' as const, priority: 'high' as const, channelId: 'sessions', ttl: 1 }))
   await e.service.send(messages)
   assert.equal(e.calls.length, 1)
 })
 
-test('stop svuota le ricevute in attesa', async () => {
+test('stop clears pending receipts', async () => {
   const e = env()
   e.add('ExponentPushToken[a]')
   await e.service.notify(request)
@@ -285,7 +285,7 @@ test('stop svuota le ricevute in attesa', async () => {
   assert.equal(e.calls.length, 1)
 })
 
-test('pushMacId: stabile, 16 caratteri base64url, diverso per chiave, non contiene la chiave', async () => {
+test('pushMacId: stable, 16 base64url characters, different per key, does not contain the key', async () => {
   const { pushMacId } = await import('../../shared/remote/pairing.ts')
   const id = pushMacId('KEY-A')
   assert.match(id, /^[A-Za-z0-9_-]{16}$/)

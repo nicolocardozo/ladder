@@ -1,11 +1,11 @@
-// Notifiche push sul telefono (LAD-53). Il Mac manda un push generico quando non lo stai usando; qui si fa la parte del telefono:
-//  - permesso di sistema e canale Android "sessions";
-//  - token Expo → `device.push.set` (null se il permesso manca o è stato tolto);
-//  - preferenze → `device.notify.set` a ogni connessione e a ogni cambio;
-//  - primo piano / sfondo → `device.state` a ogni cambio di AppState e ogni 20 secondi finché si è in primo piano;
-//  - il tocco su una notifica si gestisce in push-taps.ts.
-// Non importa il controller (niente cicli): il controller dà `send` con `startPush` e avvisa con `pushLinkReady`.
-// Nella demo non si avvia mai: niente permesso, niente token, niente comandi.
+// Push notifications on the phone. The Mac sends a generic push when you are not using it; this is the phone's side:
+//  - system permission and Android channel "sessions";
+//  - Expo token → `device.push.set` (null if the permission is missing or was revoked);
+//  - preferences → `device.notify.set` on every connection and every change;
+//  - foreground / background → `device.state` on every AppState change and every 20 seconds while in the foreground;
+//  - a tap on a notification is handled in push-taps.ts.
+// It does not import the controller (no cycles): the controller provides `send` with `startPush` and signals with `pushLinkReady`.
+// It never starts in the demo: no permission, no token, no commands.
 import Constants from 'expo-constants'
 import * as Notifications from 'expo-notifications'
 import * as SecureStore from 'expo-secure-store'
@@ -20,9 +20,9 @@ import { usePush, type PushPermission } from '@/store/push'
 
 type Send = (command: RemoteCommand) => Promise<unknown>
 
-/** Battito dello stato in primo piano: il Mac lo considera vivo per 30 secondi. */
+/** Foreground state heartbeat: the Mac considers it alive for 30 seconds. */
 const HEARTBEAT_MS = 20_000
-/** Quanto si aspetta il Mac, scollegandosi, prima di lasciar perdere (il token resta lì, ma non è un problema: il push non arriva a un token tolto). */
+/** How long the Mac is waited for when disconnecting, before giving up (the token stays there, but that is fine: a push to a removed token does not arrive). */
 const UNREGISTER_WAIT_MS = 1_500
 
 let link: { send: Send; macKey: string } | null = null
@@ -30,7 +30,7 @@ let ready = false
 let subs: { remove(): void }[] = []
 let heartbeat: ReturnType<typeof setInterval> | null = null
 let notifyTimer: ReturnType<typeof setTimeout> | null = null
-/** Serializza token e permesso: un solo giro alla volta, così due eventi vicini non si accavallano. */
+/** Serializes token and permission: one round at a time, so two close events do not overlap. */
 let chain: Promise<unknown> = Promise.resolve()
 const enqueue = <T>(job: () => Promise<T>): Promise<T> => {
   const next = chain.then(job, job)
@@ -38,13 +38,13 @@ const enqueue = <T>(job: () => Promise<T>): Promise<T> => {
   return next
 }
 
-// ── Impostazione iniziale (una volta, all'avvio dell'app) ──
+// ── Initial setup (once, at app start) ──
 
 /**
- * Con l'app in primo piano gli eventi si vedono dal vivo e il Mac non manda il push: se ne arriva uno lo stesso (connessione muta),
- * niente banner e niente suono. Su iOS resta nel Centro notifiche (`shouldShowList`); su Android non si mostra affatto, perché lì
- * l'elenco coincide con l'heads-up del canale ad alta importanza.
- * Nessun badge: Ladder non lo imposta (i push non portano un conteggio e il telefono non lo ricalcola con l'app chiusa).
+ * With the app in the foreground events are seen live and the Mac does not send the push: if one arrives anyway (silent connection),
+ * no banner and no sound. On iOS it stays in the Notification Center (`shouldShowList`); on Android it is not shown at all, because there
+ * the list coincides with the heads-up of the high-importance channel.
+ * No badge: Ladder does not set one (pushes carry no count and the phone does not recompute it with the app closed).
  */
 export function configureNotifications(): void {
   Notifications.setNotificationHandler({
@@ -53,7 +53,7 @@ export function configureNotifications(): void {
   void ensureChannel()
 }
 
-/** Canale Android dei push (importanza alta, nome tradotto). Si può richiamare: aggiorna il nome se cambia la lingua. */
+/** Android push channel (high importance, translated name). Can be called again: it updates the name if the language changes. */
 export async function ensureChannel(): Promise<void> {
   if (Platform.OS !== 'android') return
   try {
@@ -64,24 +64,24 @@ export async function ensureChannel(): Promise<void> {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE
     })
   } catch {
-    // il canale non si è potuto creare: le notifiche usano quello predefinito
+    // the channel could not be created: notifications use the default one
   }
 }
 
-// ── Permesso ──
+// ── Permission ──
 
 function permissionOf(status: Notifications.NotificationPermissionsStatus): { permission: PushPermission; canAsk: boolean } {
   if (status.granted) return { permission: 'granted', canAsk: false }
   return { permission: status.status === 'undetermined' ? 'undetermined' : 'denied', canAsk: status.canAskAgain }
 }
 
-/** Stato delle notifiche come lo mostrano Impostazioni e la schermata Notifiche: acceso, spento (permesso mancante o negato) o non configurato (build senza credenziali). */
+/** Notification state as shown by Settings and the Notifications screen: on, off (permission missing or denied) or not configured (build without credentials). */
 export function pushStatusLabel(permission: PushPermission, tokenFailed: boolean): string {
   if (permission !== 'granted') return t('Off')
   return tokenFailed ? t('Not set up') : t('On')
 }
 
-/** Rilegge il permesso di sistema (anche dopo che l'utente è passato dalle impostazioni). */
+/** Re-reads the system permission (also after the user went through the settings). */
 export async function refreshPermission(): Promise<PushPermission> {
   try {
     const { permission, canAsk } = permissionOf(await Notifications.getPermissionsAsync())
@@ -92,7 +92,7 @@ export async function refreshPermission(): Promise<PushPermission> {
   }
 }
 
-/** Chiede il permesso (finestra di sistema) e, se concesso, registra il token e lo manda al Mac. Nella demo non fa nulla. */
+/** Asks for the permission (system dialog) and, if granted, registers the token and sends it to the Mac. In the demo it does nothing. */
 export async function requestPermission(): Promise<PushPermission> {
   if (!link) return usePush.getState().permission
   await ensureChannel()
@@ -103,12 +103,12 @@ export async function requestPermission(): Promise<PushPermission> {
   } catch {
     await refreshPermission()
   }
-  // Il token si registra in sottofondo: chi chiama può proseguire appena il permesso è noto.
+  // The token is registered in the background: the caller can proceed as soon as the permission is known.
   void syncToken(true)
   return usePush.getState().permission
 }
 
-/** Apre le impostazioni di sistema di Ladder (permesso negato). */
+/** Opens Ladder's system settings (permission denied). */
 export function openSystemSettings(): void {
   void Linking.openSettings().catch(() => {})
 }
@@ -121,12 +121,12 @@ const projectId = (): string | undefined => {
 }
 
 const TOKEN_KEY = 'ladder.push-token.v1'
-/** Ultimo token Expo buono, con il token di sistema a cui corrisponde: si richiede di nuovo solo se cambia il permesso o quello. */
+/** Last good Expo token, with the system token it corresponds to: requested again only if the permission or that token changes. */
 let cached: { token: string; device: string | null } | null = null
 let cacheLoaded = false
-/** Ultimo token di sistema (APNs / FCM) visto: gli eventi con lo stesso valore non sono novità. */
+/** Last system token (APNs / FCM) seen: events with the same value are not news. */
 let lastDeviceToken: string | null = null
-/** Errori passeggeri di fila: "non configurato" solo dopo qualche tentativo, mai al primo intoppo di rete. */
+/** Consecutive transient errors: "not configured" only after a few attempts, never on the first network hiccup. */
 let transientFailures = 0
 
 async function loadCache(): Promise<void> {
@@ -137,7 +137,7 @@ async function loadCache(): Promise<void> {
     const parsed = raw ? (JSON.parse(raw) as { token?: unknown; device?: unknown }) : null
     if (parsed && typeof parsed.token === 'string' && parsed.token.length > 0) cached = { token: parsed.token, device: typeof parsed.device === 'string' ? parsed.device : null }
   } catch {
-    // portachiavi non leggibile: si rifà il giro
+    // keychain not readable: the round is redone
   }
 }
 
@@ -146,11 +146,11 @@ const saveCache = (): void => {
 }
 
 /**
- * Il token Expo di adesso:
- *  - stringa: da mandare al Mac;
- *  - null: nessun token (permesso mancante o tolto, build senza credenziali push): al Mac va null;
- *  - undefined: non si sa (errore passeggero): al Mac non si manda nulla e resta l'ultimo buono.
- * `device`: il token di sistema appena ricevuto dall'evento; serve a non richiederlo (e a non riemettere l'evento).
+ * The current Expo token:
+ *  - string: to send to the Mac;
+ *  - null: no token (permission missing or revoked, build without push credentials): null goes to the Mac;
+ *  - undefined: unknown (transient error): nothing is sent to the Mac and the last good one stays.
+ * `device`: the system token just received from the event; used to avoid requesting it again (and re-emitting the event).
  */
 async function currentToken(device?: string): Promise<string | null | undefined> {
   await loadCache()
@@ -159,14 +159,14 @@ async function currentToken(device?: string): Promise<string | null | undefined>
     usePush.getState().set({ token: null, tokenFailed: false })
     return null
   }
-  // Niente di nuovo (stesso permesso, stesso token di sistema): vale quello già buono.
+  // Nothing new (same permission, same system token): the one already good applies.
   if (cached && cachedTokenStillValid(cached, device)) {
     usePush.getState().set({ token: cached.token, tokenFailed: false })
     return cached.token
   }
   try {
     const id = projectId()
-    // Con il token di sistema già in mano si passa `devicePushToken`: Expo non lo richiede di nuovo (richiederlo riemette l'evento del token).
+    // With the system token already in hand `devicePushToken` is passed: Expo does not request it again (requesting it re-emits the token event).
     const { data } = await Notifications.getExpoPushTokenAsync({ ...(id ? { projectId: id } : {}), ...(device ? { devicePushToken: { type: Platform.OS === 'ios' ? 'ios' : 'android', data: device } } : {}) })
     cached = { token: data, device: device ?? lastDeviceToken }
     saveCache()
@@ -175,7 +175,7 @@ async function currentToken(device?: string): Promise<string | null | undefined>
     return data
   } catch (error) {
     if (isTransientTokenError(error)) {
-      // Rete o server: si tiene l'ultimo token buono (se c'è) e si riprova alla prossima occasione; "non configurato" solo se insiste.
+      // Network or server: the last good token is kept (if any) and retried at the next chance; "not configured" only if it persists.
       transientFailures++
       usePush.getState().set({ tokenFailed: notSetUpAfterTransient(!!cached, transientFailures) })
       return cached ? cached.token : undefined
@@ -188,29 +188,29 @@ async function currentToken(device?: string): Promise<string | null | undefined>
 }
 
 /**
- * Porta il token (o null) al Mac. `always`: anche se non è cambiato (a ogni nuova connessione); altrimenti solo se diverso
- * dall'ultimo mandato su questa connessione. Con il permesso tolto manda null, così il Mac smette di provare a notificare.
+ * Delivers the token (or null) to the Mac. `always`: even if unchanged (on every new connection); otherwise only if different
+ * from the last one sent on this connection. With the permission revoked it sends null, so the Mac stops trying to notify.
  */
 let lastSent: string | null | undefined
 function syncToken(always: boolean, device?: string): Promise<void> {
   return enqueue(async () => {
     if (!link) return
     const token = await currentToken(device)
-    // Dopo l'attesa il collegamento può essere cambiato o finito (stopPush): niente invii fuori tempo.
+    // After the wait the connection may have changed or ended (stopPush): no late sends.
     if (token === undefined || !link || !ready) return
     if (!always && lastSent === token) return
     try {
       await link.send({ type: 'device.push.set', token, platform: devicePlatform() })
       lastSent = token
     } catch {
-      // senza collegamento: lo rifà pushLinkReady alla prossima connessione
+      // without a connection: pushLinkReady redoes it on the next connection
     }
   })
 }
 
-// ── Preferenze e stato ──
+// ── Preferences and state ──
 
-/** Fuso mandato con le ultime preferenze: se il telefono cambia fuso (viaggio) la fascia silenziosa va rimandata. */
+/** Time zone sent with the latest preferences: if the phone changes zone (travel) the quiet hours must be sent again. */
 let lastTz: string | null = null
 function sendNotify(): Promise<unknown> {
   if (!link || !ready) return Promise.resolve()
@@ -228,11 +228,11 @@ function sendState(): Promise<unknown> {
   return link.send({ type: 'device.state', foreground: AppState.currentState === 'active' }).catch(() => {})
 }
 
-// ── Ciclo di vita ──
+// ── Lifecycle ──
 
 /**
- * Parte con la connessione al Mac (non nella demo). Ascolta cambi di token, di AppState e delle preferenze, ma non manda nulla finché
- * il collegamento non è pronto (`pushLinkReady`).
+ * Starts with the connection to the Mac (not in the demo). Listens to token, AppState and preference changes, but sends nothing until
+ * the link is ready (`pushLinkReady`).
  */
 export function startPush(send: Send, macKey: string): void {
   clearListeners()
@@ -242,8 +242,8 @@ export function startPush(send: Send, macKey: string): void {
   lastTz = null
   transientFailures = 0
   subs.push(
-    // Il token del sistema è cambiato (reinstallazione, rinnovo): quello Expo va richiesto di nuovo, con il token ricevuto.
-    // Richiedere il token Expo fa riemettere questo stesso evento: quello con lo stesso valore dell'ultimo visto non è una novità.
+    // The system token changed (reinstall, renewal): the Expo one must be requested again, with the received token.
+    // Requesting the Expo token re-emits this same event: one with the same value as the last seen is not news.
     Notifications.addPushTokenListener((token) => {
       if (typeof token.data !== 'string' || token.data === lastDeviceToken) return
       lastDeviceToken = token.data
@@ -252,15 +252,15 @@ export function startPush(send: Send, macKey: string): void {
     AppState.addEventListener('change', (state) => {
       void sendState()
       if (state !== 'active') return
-      // Tornando in primo piano il permesso può essere cambiato dalle impostazioni di sistema (token o null di conseguenza)
-      // e il telefono può aver cambiato fuso orario (la fascia silenziosa si valuta nel suo fuso).
+      // Back in the foreground the permission may have been changed from system settings (token or null accordingly)
+      // and the phone may have changed time zone (quiet hours are evaluated in its zone).
       void syncToken(false)
       if (lastTz !== null && phoneTimeZone() !== lastTz) void sendNotify()
     }),
     {
       remove: usePrefs.subscribe((s, prev) => {
         if (s.notify === prev.notify) return
-        // Un interruttore dopo l'altro: si manda l'ultimo stato, non ogni passo.
+        // One switch after another: the last state is sent, not every step.
         if (notifyTimer) clearTimeout(notifyTimer)
         notifyTimer = setTimeout(() => {
           notifyTimer = null
@@ -275,12 +275,12 @@ export function startPush(send: Send, macKey: string): void {
   void refreshPermission()
 }
 
-/** Il collegamento al Mac è pronto (dopo ogni hello, anche dopo una riconnessione): token, preferenze e stato. */
+/** The link to the Mac is ready (after every hello, also after a reconnection): token, preferences and state. */
 export function pushLinkReady(): void {
   if (!link) return
   ready = true
   lastSent = undefined
-  // Uno dopo l'altro e in coda: i tre invii non si sommano alle richieste di sincronizzazione nel secchio del client.
+  // One after the other and queued: the three sends do not add to the sync requests in the client's bucket.
   void enqueue(async () => {
     await sendNotify()
     await sendState()
@@ -297,13 +297,13 @@ function clearListeners(): void {
 }
 
 /**
- * Smette: ferma ascolti e battito. Con `unregister` (l'utente scollega il Mac) prima manda `device.push.set` con null, se il
- * collegamento c'era, e toglie la registrazione di sistema; con un abbinamento revocato dal Mac il collegamento non c'è e basta fermarsi.
+ * Stops: halts listeners and heartbeat. With `unregister` (the user disconnects the Mac) it first sends `device.push.set` with null, if the
+ * link was there, and removes the system registration; with a pairing revoked by the Mac there is no link and stopping is enough.
  */
 export async function stopPush(unregister: boolean): Promise<void> {
   const current = link
   const wasReady = ready
-  // Subito, prima di qualunque attesa: una sincronizzazione già in coda vede `link` nullo e non manda più il token vero dopo il null.
+  // Right away, before any wait: a sync already queued sees a null `link` and no longer sends the real token after the null.
   link = null
   ready = false
   lastSent = undefined
@@ -322,17 +322,17 @@ export async function stopPush(unregister: boolean): Promise<void> {
     try {
       await Notifications.unregisterForNotificationsAsync()
     } catch {
-      // piattaforma o build che non lo supporta: nessun danno, il Mac non ha più il token
+      // platform or build that does not support it: no harm, the Mac no longer has the token
     }
   }
 }
 
-/** Chiave del Mac abbinato che ascolta i push (per riconoscere le notifiche del nostro Mac); null senza collegamento (e nella demo). */
+/** Key of the paired Mac that listens to pushes (to recognize our Mac's notifications); null without a link (and in the demo). */
 export const pushMacKey = (): string | null => link?.macKey ?? null
 
-// ── Notifiche già mostrate ──
+// ── Notifications already shown ──
 
-/** Aprendo una sessione si tolgono dal Centro notifiche quelle che la riguardano. */
+/** Opening a session removes the notifications about it from the Notification Center. */
 export async function clearSessionNotifications(sessionId: string): Promise<void> {
   try {
     const shown = await Notifications.getPresentedNotificationsAsync()
@@ -345,15 +345,15 @@ export async function clearSessionNotifications(sessionId: string): Promise<void
         .map((n) => Notifications.dismissNotificationAsync(n.request.identifier))
     )
   } catch {
-    // non disponibile: restano lì
+    // not available: they stay there
   }
 }
 
-// ── Solo sviluppo ──
+// ── Development only ──
 
 /**
- * Notifica locale con gli stessi `data` di un push vero: prova il tocco (Android senza credenziali FCM, simulatori) senza passare da Expo.
- * Arriva dopo `delayS` secondi (almeno 1): il tempo di mettere l'app in sfondo o di chiuderla.
+ * Local notification with the same `data` as a real push: tests the tap (Android without FCM credentials, simulators) without going through Expo.
+ * Arrives after `delayS` seconds (at least 1): time to put the app in the background or close it.
  */
 export async function devLocalNotification(opts: { kind: 'request' | 'turn' | 'error' | 'agents'; sessionId: string; itemId?: string | null; delayS?: number; mac?: string }): Promise<void> {
   if (!__DEV__) return

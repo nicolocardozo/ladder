@@ -11,12 +11,12 @@ import { Text } from '@/ui/Text'
 import { TextInput } from '@/ui/TextInput'
 import { authMessage } from '@/ui/auth-text'
 
-/** Password del Mac per i telefoni nuovi (solo se il codice dice `pw`). La verifica la fa il Mac, al `pair`. */
+/** The Mac's password for new phones (only if the code says `pw`). The Mac does the check, on `pair`. */
 export default function Password() {
   const { c } = useTheme()
   const router = useRouter()
   const { payload, confirmed, password, failure, set } = usePairFlow()
-  // Senza conferma (per esempio da un link diretto) non si va oltre: si riparte dall'inizio.
+  // Without confirmation (for example from a direct link) we go no further: start over from the beginning.
   if (!payload || !confirmed) return <Redirect href="/" />
   const wrong = failure?.code === 'wrong-password' || failure?.code === 'password-required'
   return (

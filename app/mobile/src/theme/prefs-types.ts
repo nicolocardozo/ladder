@@ -1,7 +1,7 @@
 import type { ThemeId } from '@shared/themes.generated'
 
 export interface ThemePrefs {
-  /** 'mac' = segue il tema del Mac; altrimenti l'id scelto. */
+  /** 'mac' = follows the Mac's theme; otherwise the chosen id. */
   choice: 'mac' | ThemeId
   matchSystem: boolean
   lightTheme: ThemeId
