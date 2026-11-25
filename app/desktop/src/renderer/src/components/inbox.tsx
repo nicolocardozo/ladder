@@ -29,7 +29,7 @@ export function useInboxGroups(): InboxGroups {
   const sessions = useApp((s) => s.sessions)
   const projects = useApp((s) => s.projects)
   return useMemo(() => {
-    const live = Object.values(sessions).filter((s) => isLiveSession({ projects }, s))
+    const live = Object.values(sessions).filter((s) => isLiveSession({ projects }, s) && !s.parent)
     return {
       waiting: live.filter((s) => s.run === 'waiting').sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0)),
       errors: live.filter((s) => s.run === 'error' && s.unread).sort((a, b) => b.activityAt - a.activityAt),

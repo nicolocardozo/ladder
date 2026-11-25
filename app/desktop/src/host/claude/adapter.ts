@@ -14,8 +14,9 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import { localeTag, t } from '@shared/i18n'
 import type { AgentStatus, Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, SlashCommand, ToolKind, UsageWindow } from '@shared/protocol'
-import { agentInstructions, BROWSER_MCP_NAME } from '../agents/common'
+import { agentInstructions, BROWSER_MCP_NAME, LADDER_MCP_NAME, ladderDetail } from '../agents/common'
 import type { SubagentUpdate } from '../subagents'
+import { readOnlyHooks } from './read-only'
 import { claudeAccountLabel, claudeEnv, claudeModels, claudeUsage, readClaudeDefaults } from './environment'
 
 export const PERMISSION_MODE: Record<PermissionLevel, PermissionMode> = {
@@ -122,6 +123,12 @@ export interface StartOptions {
   autonomyHint?: boolean
   /** LAD-57 parte 2: server MCP del browser dell'agente (URL e token della sessione); assente = nessuna registrazione. */
   browserTools?: { url: string; token: string } | null
+  /** Ladder MCP server (session URL and token); absent = no registration. */
+  ladderTools?: { url: string; token: string } | null
+  /** Read-only child session: write tools and plan exit are removed, not just refused. */
+  readOnly?: boolean
+  /** Project delegates in the system prompt. */
+  delegateHint?: string | null
 }
 
 
@@ -219,7 +226,7 @@ export function describeTool(name: string, input: Block, cwd: string): Pick<Tool
     default:
       if (name.startsWith('mcp__')) {
         const [, server, tool] = name.split('__')
-        return { tool: 'other', title: t('Uses {tool}', { tool: `${server} · ${tool}` }), detail: null }
+        return { tool: 'other', title: t('Uses {tool}', { tool: `${server} · ${tool}` }), detail: server === LADDER_MCP_NAME ? ladderDetail(input) : null }
       }
       return { tool: 'other', title: t('Uses {tool}', { tool: name }), detail: null }
   }
@@ -331,33 +338,40 @@ export class ClaudeSession {
       options: {
         cwd,
         // Il token del browser dell'agente viaggia nell'ambiente del processo, non negli argomenti (`ps` li mostra a tutti).
-        env: { ...claudeEnv(configDir ?? null), ...(this.options.browserTools ? { LADDER_BROWSER_TOKEN: this.options.browserTools.token } : {}) },
+        env: { ...claudeEnv(configDir ?? null), ...(this.options.browserTools ? { LADDER_BROWSER_TOKEN: this.options.browserTools.token } : {}), ...(this.options.ladderTools ? { LADDER_MCP_TOKEN: this.options.ladderTools.token } : {}) },
         abortController: this.abort,
         ...(cli ? { pathToClaudeCodeExecutable: cli } : {}),
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
         ...(resume ? { resume } : {}),
         permissionMode: PERMISSION_MODE[permission],
+        // Read-only: write tools removed and a hook that decides before the settings allow rules (see read-only.ts).
+        ...(this.options.readOnly ? { disallowedTools: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'ExitPlanMode'], hooks: readOnlyHooks } : {}),
         // Sempre il prompt di Claude Code (senza, l'SDK userebbe un prompt vuoto). Snapshot predefinito: il prompt è registrato alla
         // prima richiesta e riusato (cache stabile), quindi l'istruzione di autonomia vale dalla creazione della sessione
         // (permesso e preferenza di quel momento); riprese e cambi di permesso successivi non la cambiano.
         systemPrompt: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
-          append: agentInstructions(autonomyHint && (permission === 'edit' || permission === 'full'))
+          append: agentInstructions(autonomyHint && (permission === 'edit' || permission === 'full'), this.options.delegateHint)
         },
         // Sempre attivo: senza, una sessione nata in Ask non potrebbe passare a Full access (setPermissionMode verrebbe rifiutato).
-        allowDangerouslySkipPermissions: true,
+        allowDangerouslySkipPermissions: !this.options.readOnly,
         includePartialMessages: true,
         settingSources: ['user', 'project', 'local'],
         // Con il login dell'abbonamento la CLI collegherebbe i connettori di claude.ai (posta, calendario…).
         settings: { disableClaudeAiConnectors: true },
         // LAD-57 parte 2: browser dell'agente. Le conferme (click, digitazione, indirizzi fuori da localhost) le chiede il server
         // stesso con le card di approvazione e secondo il livello della sessione: qui gli strumenti non chiedono una seconda volta.
-        ...(this.options.browserTools
+        // Ladder MCP server (handoff, delegation, result). Permissions are handled by the server (handoff confirmation) and, for
+        // read-only children, by the hook (only list_agents and report_result).
+        ...(this.options.browserTools || this.options.ladderTools
           ? {
-              mcpServers: { [BROWSER_MCP_NAME]: { type: 'http' as const, url: this.options.browserTools.url, headers: { Authorization: 'Bearer ${LADDER_BROWSER_TOKEN}' } } },
-              allowedTools: [`mcp__${BROWSER_MCP_NAME}`]
+              mcpServers: {
+                ...(this.options.browserTools ? { [BROWSER_MCP_NAME]: { type: 'http' as const, url: this.options.browserTools.url, headers: { Authorization: 'Bearer ${LADDER_BROWSER_TOKEN}' }, timeout: 660_000 } } : {}),
+                ...(this.options.ladderTools ? { [LADDER_MCP_NAME]: { type: 'http' as const, url: this.options.ladderTools.url, headers: { Authorization: 'Bearer ${LADDER_MCP_TOKEN}' }, timeout: 3_600_000 } } : {})
+              },
+              allowedTools: [...(this.options.browserTools ? [`mcp__${BROWSER_MCP_NAME}`] : []), ...(this.options.ladderTools ? [`mcp__${LADDER_MCP_NAME}`] : [])]
             }
           : {}),
         canUseTool

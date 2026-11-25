@@ -8,7 +8,9 @@ import type {
   AcpAgentSpec,
   AgentLogin,
   AgentSignature,
+  AdviceItem,
   AgentId,
+  AgentResult,
   AgentStatus,
   DiffScope,
   ReviewState,
@@ -47,6 +49,7 @@ import type {
   RunState,
   SessionSummary,
   SubagentInfo,
+  UsageWindow,
   SlashCommand,
   TerminalInfo,
   WorktreeInfo,
@@ -59,18 +62,20 @@ import { isValidEffort, isValidModel, resolveRemoteDefaults } from './remote/def
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
 import { acpAuthenticate, AcpSession } from './acp/adapter'
 import { BrowserAgent } from './browser-agent'
+import { LadderMcpServer, type DelegateArgs, type HandoffArgs, type LadderCall, type LadderToolName, type ReportArgs, type ToolOutcome } from './ladder-mcp'
+import { isReadOnlyBash } from './claude/read-only'
 import { agentCatalog, resolveAgentSpec, UNKNOWN_LOGIN } from './acp/catalog'
 import { OtherAgents } from './acp/others'
 import { agentDir, AgentInstaller, recoverInstalls } from './acp/install'
 import { hasUnsafeArgs, iconData, registryEntry, registrySpec } from './acp/registry'
 import { rm } from 'node:fs/promises'
-import { whichInShell, type AgentSession, type SessionOptions } from './agents/common'
+import { delegatesHint, whichInShell, type AgentSession, type SessionOptions } from './agents/common'
 import { CodexSession, codexFixedCommands } from './codex/adapter'
 import { codexVersion, findCodexCli, probeCodex } from './codex/environment'
 import { patchText, reviewPrompt, ReviewRun } from './review'
 import { claudeListId, claudeModelNames, claudeProjectDefaults, claudeVersion, findClaudeCli, probeClaude, readClaudeDefaults } from './claude/environment'
 import { claudeText, claudeTitle } from './claude/title'
-import { COMMIT_BODY_MAX, PR_BODY_MAX, isTextBlocked } from './text-safety'
+import { COMMIT_BODY_MAX, PR_BODY_MAX, isTextBlocked, stripControl } from './text-safety'
 import { codexDefaults } from './codex/environment'
 import { codexText, codexTitle, smallCodexModel } from './codex/title'
 import { clipTitle, inTitleQueue, issueRef, teamPrefixes, titlePrompt, withIssue } from './titles'
@@ -88,10 +93,10 @@ import { Connections } from './connections'
 import { customProfileId, isDefaultProfileId, isProfileAgent, Profiles } from './profiles'
 import { defaultBranch, ghState, listGithubIssues, listGithubPrs, prForBranch, type PrDetails } from './github'
 import { PrFiles } from './pr-files'
-import { renderPrPrompt, renderPrompt } from './prompts'
+import { renderAdviceForward, renderAdvisorPrompt, renderDelegatePrompt, renderDelegateResume, renderDelegateResumed, renderHandoffPrompt, renderHandoffReceive, renderImplementPrompt, renderPrPrompt, renderPrompt, renderReviewCrossPrompt } from './prompts'
 import { searchItems } from './search'
 import { SubagentBoard } from './subagents'
-import { clampPermission, loadProjectSettings, PERSONAL_PATTERNS, saveWorktreeSettings } from './project-settings'
+import { agentKey, clampPermission, LEVELS, loadProjectSettings, PERSONAL_PATTERNS, saveAgentsSettings, saveWorktreeSettings } from './project-settings'
 import { TerminalManager, type AgentKind, type AgentSignal, type SpawnOptions } from './terminals'
 import { diffFile, diffFiles, historyList, recordCheckpoint, restore } from './workspace'
 import { ProjectGroups } from './project-groups'
@@ -121,6 +126,87 @@ interface PendingRequest {
 /** Agenti che dopo la chiusura del processo riprendono la stessa conversazione (Claude con resume, Codex con thread/resume). */
 const RESTARTABLE_AGENTS = new Set(['claude-code', 'codex'])
 
+/** Handoff in progress in the origin session, from the summary turn to the delivery. Saved in `sessions.handoff`. */
+interface HandoffRun {
+  /** HandoffItem 'out' row of the origin session. */
+  itemId: string
+  turnId: string
+  agent: AgentId
+  model: string | null
+  effort: Effort | null
+  note: string | null
+  /** 'implement' = "Implement with…" to another agent, without a summary turn (not saved in `sessions.handoff`). */
+  reason?: 'implement' | 'agent' | 'limit'
+  /** 'implement' only: already composed prompt to deliver and permission level of the destination session. */
+  prompt?: string
+  permission?: PermissionLevel
+  /** 'agent' only: summary written by the agent with the handoff tool (no summary turn). */
+  summary?: string
+  /** 'limit' only: LimitItem row that asked for the handoff (back to 'proposed' if the handoff fails or stops). */
+  limitItemId?: string
+  /** 'limit' only: the request left half done, delivered separately in the prompt (not inside the summary). */
+  request?: string
+}
+
+type LimitRow = Extract<ChatItem, { kind: 'limit' }>
+type ResumeRow = Extract<ChatItem, { kind: 'resume' }>
+
+/** After a plan-limit handoff, the previous agent's window is watched until it resets. */
+interface LimitWatch {
+  limitItemId: string
+  fromId: string
+  toId: string
+  agent: AgentId
+  window: string
+  resetsAt: number | null
+  at: number
+  /** Last limits re-read we asked for (only if the reset is unknown). */
+  checked: number
+}
+
+/** Only the phrasings Claude and Codex use to announce the plan limit; a transient 429 does not count. */
+const LIMIT_ERROR = /usage[ _-]?limit|hit your (?:\w+ )?limit|(?:5[- ]hour|weekly|session) limit reached|limit will reset|insufficient[_ ]quota/i
+/** Pause before an automatic plan-limit handoff: time to stop it (session.handoff.stop) from the chat row. */
+const LIMIT_SWITCH_GRACE_MS = 4_000
+const LIMIT_WATCH_EVERY_MS = 30_000
+
+/** Readable name of a usage window: "5-hour limit", "Weekly limit", with the model if reserved to one. */
+function windowName(w: UsageWindow): string {
+  const base = w.label ?? (w.minutes >= 10_080 ? t('Weekly limit') : w.minutes === 300 ? t('5-hour limit') : w.minutes >= 60 ? t('{hours}-hour limit', { hours: Math.round(w.minutes / 60) }) : t('Usage limit'))
+  return w.model ? `${base} · ${w.model}` : base
+}
+
+/** Window at its limit and still valid (extra usage does not block work; a reset already past is stale data). */
+const windowLimited = (w: UsageWindow): boolean => w.state === 'limited' && w.key !== 'extra_usage' && !(w.resetsAt !== null && w.resetsAt * 1000 <= Date.now())
+
+/** Verdict from the first line of the advice ("VERDICT: ok|minor|serious"); null if missing. */
+function parseVerdict(text: string): 'ok' | 'minor' | 'serious' | null {
+  const first = text.split('\n').find((line) => line.trim()) ?? ''
+  const match = /^\W*VERDICT\W*(ok|minor|serious)\b/i.exec(first)
+  return match ? (match[1].toLowerCase() as 'ok' | 'minor' | 'serious') : null
+}
+
+/** A delegation in progress (delegate tool): the parent's MCP call waits for `done`. */
+interface Delegation {
+  motherId: string
+  /** Parent's 'tool' row (or, if not found, the MCP request id). */
+  itemId: string
+  agent: AgentId
+  task: string
+  ended: boolean
+  /** Outcome given by the child with report_result. */
+  report: AgentResult | null
+  resolve: (outcome: ToolOutcome) => void
+  done: Promise<ToolOutcome>
+  /** Delegation resumed by the user (ResumeItem card): at the end of the turn the result goes to the parent as a message, no MCP call waits. */
+  resume?: { itemId: string }
+  /** Branch of the child's worktree (delegate with worktree: true), stated in the result. */
+  branch?: string | null
+}
+
+const MAX_DELEGATION_DEPTH = 2
+const MAX_DELEGATIONS_PER_TURN = 4
+
 interface Runtime {
   adapter: AgentSession
   turnId: string | null
@@ -130,6 +216,8 @@ interface Runtime {
   pending: Map<string, PendingRequest>
   /** Riga 'command' del turno avviato da un comando /: si chiude a fine turno. */
   command: { id: string; at: number; name: string; args: string } | null
+  /** Handoff ("Switch to…") whose summary the current turn is writing; it closes at the end of the turn. */
+  handoff?: HandoffRun | null
   /** L'utente ha chiesto l'interruzione del turno in corso. */
   interrupting: boolean
   /** Il turno in corso lo ha aperto l'agente da solo (risposta a un sotto-agente in background, messaggio inserito). */
@@ -175,6 +263,27 @@ export class Host {
   private shortcuts: Shortcuts
   private rows = new Map<string, SessionRow>()
   private runtimes = new Map<string, Runtime>()
+  /** Sessions with a "Switch to…" just requested, before the summary turn is open. */
+  private handoffStarting = new Set<string>()
+  /** Handoffs (id of the 'out' row) the user stopped while the delivery was already in progress. */
+  private readonly handoffStops = new Set<string>()
+  /** Session -> 'reset' LimitItem that asked for the return (becomes 'returned' once delivered). */
+  private readonly returnLinks = new Map<string, string>()
+  /** Limit windows already reported, per session and agent (key) -> until when (ms): one row per window. */
+  private readonly limitSeen = new Map<string, number>()
+  private readonly limitWatches = new Map<string, LimitWatch>()
+  private limitTimer: NodeJS.Timeout | null = null
+  /** Dev only: LADDER_SIMULATE_LIMIT=claude-code[,codex] makes that agent's next end of turn count as a reached limit (LADDER_SIMULATE_LIMIT_SECONDS: reset after N seconds, default 90). */
+  private readonly simulatedLimit = new Set((process.env.LADDER_SIMULATE_LIMIT ?? '').split(',').map((a) => a.trim()).filter(Boolean).map(agentKey))
+  /** Text forwarded by the cross-review (session -> text) and turns born from it: they are not reviewed. */
+  private readonly reviewForwards = new Map<string, string>()
+  private readonly reviewTurns = new Set<string>()
+  /** Only one automatic forward per user message: session + id of the last 'user' row. */
+  private readonly reviewForwarded = new Set<string>()
+  /** One pending review (the latest) per session, if another is still running. */
+  private readonly reviewQueued = new Map<string, Extract<ChatItem, { kind: 'handoff' }>['files']>()
+  /** Project delegates for the system prompt, read before the session runtime is created. */
+  private readonly delegateHints = new Map<string, string | null>()
   /** Quando è arrivato l'ultimo evento context per sessione: il ripiego di un turnEnd più vecchio non lo sovrascrive. */
   private contextAt = new Map<string, number>()
   /** Livello chiesto a turno in corso che l'agente applica solo dal turno successivo (Codex). */
@@ -244,6 +353,20 @@ export class Host {
     level: (sessionId) => (this.rows.get(sessionId)?.permission ?? 'ask') as PermissionLevel,
     request: (sessionId, request, signal) => this.openRequest(sessionId, request, signal)
   })
+  /** Ladder MCP server (list_agents, handoff, delegate, report_result), for every chat session. */
+  private readonly ladderMcp = new LadderMcpServer({
+    enabled: (sessionId) => this.runtimes.has(sessionId) && !this.isGone(sessionId),
+    listAgents: (sessionId) => this.ladderListAgents(sessionId),
+    handoff: (sessionId, args, call, signal) => this.ladderHandoff(sessionId, args, call, signal),
+    delegate: (sessionId, args, call, signal) => this.ladderDelegate(sessionId, args, call, signal),
+    report: (sessionId, args) => this.ladderReport(sessionId, args)
+  })
+  /** Delegations in progress per child session. */
+  private readonly delegations = new Map<string, Delegation>()
+  /** Delegations started in a parent's current turn (reset every turn). */
+  private readonly delegateCounts = new Map<string, { turnId: string; n: number }>()
+  /** 'tool' rows already taken by a delegation (another parallel call does not reuse them). */
+  private readonly claimedToolRows = new Set<string>()
   /** Sessioni con un messaggio di commit o un testo di PR in scrittura. */
   /** Generazioni di commit/PR in corso per sessione; text.cancel le annulla. */
   private writing = new Map<string, AbortController>()
@@ -390,8 +513,14 @@ export class Host {
     // I checkout principali prendono i primi blocchi di porte (4100, …), prima di qualunque worktree.
     for (const project of this.projects.values()) this.ports.allocate(project.path)
     const resumeQueued = this.recoverInterrupted()
+    this.restoreLimitWatches()
     this.dismissStaleAgentsRows()
     await this.terminals.init()
+    // Children left open after the parent was archived (or vanished): they are archived with it.
+    for (const row of this.rows.values()) {
+      const parent = row.archived ? null : this.parentOf(row)
+      if (parent && (this.rows.get(parent.sessionId)?.archived ?? 1)) void this.archive(row.id).catch(() => undefined)
+    }
     // Installazioni di agenti interrotte (app chiusa a metà): si ripristina o si pulisce prima di leggere gli agenti.
     const storedAcp = this.db.prepare(`select value from kv where key = 'acp-agents'`).get() as { value: string } | undefined
     const registered = new Map<string, AcpAgentSpec>()
@@ -811,7 +940,38 @@ export class Host {
   /** Sessioni che lavoravano quando Ladder è stato chiuso: tornano ferme, con una nota e le richieste scadute. */
   private recoverInterrupted(): string[] {
     const resume: { id: string; at: number }[] = []
+    // Advice with entries still 'running': child sessions do not restart, the entry becomes 'stopped'.
+    const advices = this.db.prepare(`select session_id, json from items where json like '%"kind":"advice"%' and json like '%"state":"running"%'`).all() as { session_id: string; json: string }[]
+    for (const { session_id, json } of advices) {
+      const item = JSON.parse(json) as ChatItem
+      if (item.kind !== 'advice') continue
+      const entries = item.entries.map((e) => (e.state === 'running' ? { ...e, state: 'stopped' as const, error: t('Ladder was closed before the advice was ready.') } : e))
+      this.writeItem(session_id, { ...item, entries })
+    }
+    // Resumed delegations left 'resumed': the process is gone, the card is open again.
+    const resumed = this.db.prepare(`select session_id, json from items where json like '%"kind":"resume"%' and json like '%"state":"resumed"%'`).all() as { session_id: string; json: string }[]
+    for (const { session_id, json } of resumed) {
+      const item = JSON.parse(json) as ChatItem
+      if (item.kind === 'resume' && item.state === 'resumed') this.writeItem(session_id, { ...item, state: 'open', error: null, reason: t('Ladder was closed while the delegate was working.') })
+    }
+    // Delegations in progress at close: the child stays stopped (the loop below does it), the parent's 'tool' row closes with a readable
+    // error and the resume card appears next to it.
     for (const row of this.rows.values()) {
+      const parent = this.parentOf(row)
+      if (parent?.role !== 'delegate') continue
+      const saved = this.db.prepare('select json from items where session_id = ? and id = ?').get(parent.sessionId, parent.itemId) as { json: string } | undefined
+      const item = saved ? (JSON.parse(saved.json) as ChatItem) : null
+      if (item?.kind === 'tool' && item.status === 'running') {
+        const resumable = !row.archived && row.mode === 'chat' && !this.rows.get(parent.sessionId)?.archived
+        this.writeItem(parent.sessionId, { ...item, status: 'error', endedAt: Date.now(), output: resumable ? t('Ladder was closed while the delegate was working. The delegation did not finish: resume it from the card below, or ask the agent to delegate again.') : t('Ladder was closed while the delegate was working. The delegation did not finish; ask the agent to delegate again if it is still needed.') })
+        if (resumable) {
+          this.writeItem(parent.sessionId, this.withSeq(parent.sessionId, { kind: 'resume', id: `${item.id}:resume`, turnId: item.turnId, at: Date.now(), toolItemId: item.id, agent: row.agent as AgentId, childSessionId: row.id, reason: t('Ladder was closed while the delegate was working.'), state: 'open', error: null }))
+        }
+      }
+    }
+    for (const row of this.rows.values()) {
+      // Handoff left half done: the summary is not resumed, the row does not stay 'summarizing'.
+      if (row.handoff) this.recoverHandoff(row)
       // Stato 'queued' di versioni precedenti (limite di turni, ora tolto): torna ferma, i messaggi restano in coda e il primo riparte.
       if ((row.run_state as string) === 'queued') {
         this.updateRow(row.id, { run_state: 'idle' })
@@ -846,6 +1006,40 @@ export class Host {
     return resume.sort((a, b) => a.at - b.at).map((r) => r.id)
   }
 
+  /**
+   * The 'out' row of a handoff interrupted by a restart becomes 'interrupted' (or 'done' if the destination session already existed).
+   * The already saved summary stays and the row is 'resumable': the resume card delivers without repeating anything.
+   */
+  private recoverHandoff(row: SessionRow): void {
+    try {
+      const run = JSON.parse(row.handoff!) as HandoffRun
+      const saved = this.db.prepare('select json from items where session_id = ? and id = ?').get(row.id, run.itemId) as { json: string } | undefined
+      const item = saved ? (JSON.parse(saved.json) as ChatItem) : null
+      if (item?.kind === 'handoff' && (item.state === 'summarizing' || item.state === 'pending')) {
+        // Delivered only if the destination session has the 'in' row pointing at this one.
+        const inRows = item.peerSessionId ? (this.db.prepare(`select json from items where session_id = ? and id = ?`).all(item.peerSessionId, `${run.itemId}:in`) as { json: string }[]) : []
+        const arrived = inRows.some((r) => (JSON.parse(r.json) as { peerSessionId?: string }).peerSessionId === row.id)
+        const reason = item.summary?.trim() ? t('Ladder was closed during the handoff. The summary is saved: resume to hand it over.') : t('Ladder was closed before the summary was ready. Nothing was handed over: resume to ask for it again.')
+        this.writeItem(row.id, arrived ? { ...item, state: 'done', resumable: false } : { ...item, peerSessionId: null, state: 'interrupted', error: reason, resumable: true })
+        // Plan-limit handoff delivered: the card becomes 'switched' (restoreLimitWatches, right after, resumes watching for the reset).
+        if (arrived && run.limitItemId) {
+          const saved = this.db.prepare('select json from items where session_id = ? and id = ?').get(row.id, run.limitItemId) as { json: string } | undefined
+          const limit = saved ? (JSON.parse(saved.json) as ChatItem) : null
+          if (limit?.kind === 'limit') this.writeItem(row.id, { ...limit, state: 'switched', peerSessionId: item.peerSessionId, error: null })
+        }
+        // Plan-limit handoff not delivered: the proposal goes back to proposed.
+        if (!arrived && run.limitItemId) {
+          const saved = this.db.prepare('select json from items where session_id = ? and id = ?').get(row.id, run.limitItemId) as { json: string } | undefined
+          const limit = saved ? (JSON.parse(saved.json) as ChatItem) : null
+          if (limit?.kind === 'limit') this.writeItem(row.id, { ...limit, state: 'proposed', automatic: false, peerSessionId: null, error: reason })
+        }
+      }
+    } catch {
+      // Unreadable state: just reset it.
+    }
+    this.updateRow(row.id, { handoff: null })
+  }
+
   /** Fa partire il primo messaggio in coda di una sessione ferma (migrazione dallo stato 'queued'). */
   private startFirstQueued(sessionId: string): void {
     const row = this.rows.get(sessionId)
@@ -858,7 +1052,7 @@ export class Host {
       // Il messaggio torna in testa alla coda e il runtime si chiude, come nella ripartenza dopo exit.
       const current = JSON.parse(this.rows.get(sessionId)?.queue ?? '[]') as QueuedMessage[]
       current.unshift(next)
-      this.browserAgent.revoke(sessionId)
+      this.revokeTools(sessionId)
       this.runtimes.get(sessionId)?.adapter.close()
       this.runtimes.delete(sessionId)
       this.updateRow(sessionId, { queue: JSON.stringify(current), run_state: 'idle' })
@@ -958,6 +1152,42 @@ export class Host {
       case 'session.command':
         await this.runCommand(command.sessionId, command.name, command.args.trim())
         return null
+      case 'session.handoff':
+        this.assertNotChild(command.sessionId, t('A child session (advice or delegation) cannot be handed over.'))
+        await this.startHandoff(command)
+        return null
+      case 'session.handoff.stop':
+        await this.stopHandoff(command.sessionId, command.itemId)
+        return null
+      case 'session.handoff.resume':
+        this.assertNotChild(command.sessionId, t('A child session (advice or delegation) cannot be handed over.'))
+        await this.resumeHandoff(command)
+        return null
+      case 'session.delegation.resume':
+        await this.resumeDelegation(command.sessionId, command.itemId, command.action)
+        return null
+      case 'session.limit.respond':
+        this.assertNotChild(command.sessionId, t('A child session (advice or delegation) cannot be handed over.'))
+        await this.respondLimit(command)
+        return null
+      case 'project.agents.set': {
+        const project = this.mustProject(command.projectId)
+        for (const agent of [command.patch.autoSwitch, command.patch.crossReview]) if (agent && !this.agents.has(agent)) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
+        await saveAgentsSettings(project.path, command.patch)
+        // The personal file is not committed to git.
+        void ensureExcluded(project.path, PERSONAL_PATTERNS).catch(() => undefined)
+        return loadProjectSettings(project.path)
+      }
+      case 'session.advise':
+        return this.advise(command)
+      case 'session.advice.stop':
+        await this.stopAdvice(command.sessionId, command.itemId)
+        return null
+      case 'session.advice.forward':
+        await this.forwardAdvice(command.sessionId, command.itemId, command.note ?? null)
+        return null
+      case 'session.implement':
+        return this.implement(command)
       case 'session.rename': {
         const title = command.title.trim()
         if (title) {
@@ -1003,6 +1233,7 @@ export class Host {
         this.respond(command.sessionId, command.requestId, command.response, command.via ?? 'chat', undefined, command.viaDevice)
         return null
       case 'session.permission.set':
+        this.assertNotChild(command.sessionId, t('The permission level of a child session (advice or delegation) cannot be changed.'))
         return await this.setPermission(command.sessionId, command.permission)
       case 'session.effort.set': {
         this.mustRow(command.sessionId)
@@ -1119,7 +1350,7 @@ export class Host {
         const root = this.knownRoot(command.root)
         const busy = this.busySession(root)
         if (busy) throw new Error(t('“{title}” is working in this folder: stop it before restoring.', { title: busy.title }))
-        const sessionId = [...this.rows.values()].find((r) => this.cwdOf(r) === root && !r.archived)?.id ?? null
+        const sessionId = [...this.rows.values()].find((r) => this.cwdOf(r) === root && !r.archived && !r.parent)?.id ?? null
         const result = await restore(this.db, root, command.to, command.paths, command.label, sessionId)
         this.notifyFsChanged(root)
         return result
@@ -1486,7 +1717,7 @@ export class Host {
     const base = usable ? await (this.defaultBranches.get(project.path) ?? defaultBranch(project.path, false)) : null
     const rows: BranchMapRow[] = []
     for (const row of this.rows.values()) {
-      if (row.project_id !== projectId || !usable) continue
+      if (row.project_id !== projectId || !usable || row.parent) continue
       let worktree: WorktreeInfo | null = null
       try {
         worktree = row.worktree ? (JSON.parse(row.worktree) as WorktreeInfo) : null
@@ -1569,7 +1800,8 @@ export class Host {
   /** Una sessione che sta scrivendo in `root`, se c'è. */
   private busySession(root: string): SessionRow | null {
     for (const row of this.rows.values()) {
-      if (row.archived || this.cwdOf(row) !== root) continue
+      // Advice (advisor) sessions are read-only: they do not block a restore.
+      if (row.archived || ['advisor', 'review'].includes(this.parentOf(row)?.role ?? '') || this.cwdOf(row) !== root) continue
       if (this.runtimes.get(row.id)?.adapter.isRunning || row.run_state === 'running' || row.run_state === 'waiting') return row
     }
     return null
@@ -1604,7 +1836,7 @@ export class Host {
     this.db.prepare('delete from kv where key = ?').run(`agent:${profile.agent}:${profileId}`)
     for (const row of users) {
       // Prima la revoca: scioglie le conferme del browser dell'agente ancora aperte, finché il runtime le trova.
-      this.browserAgent.revoke(row.id)
+      this.revokeTools(row.id)
       this.runtimes.get(row.id)?.adapter.close()
       this.runtimes.delete(row.id)
       // La conversazione sta nella cartella del profilo: col predefinito il resume non la troverebbe, riparte una nuova.
@@ -1664,14 +1896,7 @@ export class Host {
     let worktree: WorktreeInfo | null = null
     const settings = await loadProjectSettings(project.path)
     // Regole del progetto ([agents] in .ladder/settings.toml): agenti ammessi e livello di permesso massimo.
-    if (mode === 'chat') {
-      if (settings.agents.allowed.length && !settings.agents.allowed.includes(command.agent)) {
-        throw new Error(t('{agent} is not allowed in this project (.ladder/settings.toml, [agents] allowed).', { agent: this.agentName(command.agent) }))
-      }
-      const status = this.agents.get(command.agent)
-      if (!status) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
-      if (!status.available) throw new Error(status.error ?? t('{agent} is not available.', { agent: status.name }))
-    }
+    if (mode === 'chat') this.assertHandoffAgent(settings, command.agent)
     // Profilo (account) della sessione: scelto qui, poi non cambia più (nemmeno alla ripresa).
     // Una sessione terminale ha agente 'claude-code' per la UI: il profilo è quello del programma del comando.
     const programAgent = mode === 'terminal' ? terminalAgent(shellCommand) : command.agent
@@ -1738,15 +1963,12 @@ export class Host {
       profile_id: profileId,
       permission_next: null,
       merged_via: null,
-      merged_at: null
+      merged_at: null,
+      handoff_from: null,
+      handoff: null,
+      parent: null
     }
-    this.db
-      .prepare(
-        `insert into sessions (id, project_id, title, agent, model, effort, permission, created_at, updated_at, mode, command, cwd, worktree, activity_at, source, title_source, profile_id)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(row.id, row.project_id, row.title, row.agent, row.model, row.effort, row.permission, now, now, mode, shellCommand, row.cwd, row.worktree, now, row.source, row.title_source, row.profile_id)
-    this.rows.set(row.id, row)
+    this.insertSession(row)
     for (const text of notices) this.upsertItem(row.id, { kind: 'notice', id: randomUUID(), turnId: 'system', at: now, tone: 'info', text })
 
     const begin = async () => {
@@ -1953,7 +2175,8 @@ export class Host {
     const limit = Date.now() - days * 86_400_000
     const archived: string[] = []
     for (const row of [...this.rows.values()]) {
-      if (row.archived || (row.run_state !== 'idle' && row.run_state !== 'error') || this.preparing.has(row.id)) continue
+      // Child sessions do not count on their own: they are archived with the parent.
+      if (row.archived || row.parent || (row.run_state !== 'idle' && row.run_state !== 'error') || this.preparing.has(row.id)) continue
       if (Math.max(row.activity_at, row.updated_at, row.created_at) > limit) continue
       if (row.queue !== '[]' || this.isBusy(row.id) || this.terminals.bySession(row.id).some((term) => term.state === 'running' && term.kind !== 'service')) continue
       try {
@@ -2013,9 +2236,15 @@ export class Host {
     )
   }
 
+  /** Revokes the session's MCP server tokens (agent browser and Ladder): releases pending confirmations and delegations. */
+  private revokeTools(sessionId: string): void {
+    this.browserAgent.revoke(sessionId)
+    this.ladderMcp.revoke(sessionId)
+  }
+
   /** Chiude il processo dell'agente senza toccare la sessione: come l'archiviazione, prima la revoca del browser dell'agente. */
   private closeRuntime(sessionId: string): void {
-    this.browserAgent.revoke(sessionId)
+    this.revokeTools(sessionId)
     this.runtimes.get(sessionId)?.adapter.close()
     this.runtimes.delete(sessionId)
     this.agentsIdle.delete(sessionId)
@@ -2043,13 +2272,18 @@ export class Host {
   }
 
   private async runArchive(sessionId: string, row: SessionRow, options: { cleanup?: boolean }): Promise<void> {
-    // Da qui la sessione è «in archiviazione»: send, avvio turni, riavvii e servizi nuovi vengono rifiutati.
+    // From here the session is "archiving": send, turn starts, restarts and new services are refused (even a concurrent session.advise).
     this.archiving.add(sessionId)
     // Progetto e script di pulizia si leggono ora, prima di ogni attesa: project.remove può togliere il progetto mentre i servizi si fermano.
     let project: Project | undefined
     let script: string | null = null
+    // Child with its own worktree (delegate with worktree: true): at the end of archiving the worktree is removed if clean.
+    const childWorktree = !!row.parent && this.ownsWorktree(row)
     try {
-      if (row.worktree && options.cleanup !== false) {
+      // Child sessions (advice, delegations) are archived with the parent, before it.
+      for (const child of [...this.rows.values()]) if (!child.archived && this.parentOf(child)?.sessionId === sessionId) await this.archive(child.id).catch(() => undefined)
+      // The cleanup script closes the worktree: it does not run if another live session uses the same folder.
+      if (this.ownsWorktree(row) && options.cleanup !== false && !this.worktreeHeir(row)) {
         project = this.projects.get(row.project_id)
         script = project ? (await loadProjectSettings(project.path)).worktree.archive : null
       }
@@ -2060,16 +2294,65 @@ export class Host {
     this.emitSummary(sessionId)
     this.attention({ kind: 'resolved', sessionId, itemId: null })
     // Comando di chiusura del worktree (per esempio docker compose down), in processo e con timeout. Il worktree resta: lo toglie archiveMerged.
+    let cleanupOk = true
     if (project && script) {
       const cwd = this.cwdOf(row)
-      if (existsSync(cwd)) this.noticeCleanup(sessionId, await runCleanupScript(cwd, script, this.ports.allocate(cwd)))
+      if (existsSync(cwd)) {
+        const result = await runCleanupScript(cwd, script, this.ports.allocate(cwd))
+        cleanupOk = result.code === 0 && !result.timedOut
+        this.noticeCleanup(sessionId, result)
+      }
     }
+    if (childWorktree) await this.removeChildWorktree(row, cleanupOk)
+  }
+
+  /**
+   * Archived child with its own worktree: if clean it is removed and the ports are freed; if it has uncommitted files (or git
+   * refuses) it stays, and a note in the parent says where the work is (the branch always stays).
+   */
+  private async removeChildWorktree(row: SessionRow, cleanupOk: boolean): Promise<void> {
+    const project = this.projects.get(row.project_id)
+    const parent = this.parentOf(row)
+    if (!project || !row.worktree) return
+    const cwd = this.cwdOf(row)
+    const branch = (JSON.parse(row.worktree) as WorktreeInfo).branch
+    // The cleanup script (if any) already ran in runArchive.
+    const { removed, error } = await removeWorktree(project, cwd, { skipCleanup: true })
+    if (removed && cleanupOk) this.ports.release(cwd)
+    if (removed || !parent || !this.rows.has(parent.sessionId)) return
+    const dirty = existsSync(cwd) ? ((await gitStatus(cwd, true, false).catch(() => null))?.dirty ?? 0) > 0 : false
+    this.upsertItem(parent.sessionId, {
+      kind: 'notice',
+      id: randomUUID(),
+      turnId: 'system',
+      at: Date.now(),
+      tone: 'info',
+      text: dirty
+        ? t('The worktree of the delegate “{title}” was kept because it has uncommitted files. Its work is on branch {branch}.', { title: row.title, branch })
+        : t('Git could not remove the worktree of the delegate “{title}”: {reason} Its work is on branch {branch}.', { title: row.title, reason: error ?? t('the folder no longer exists'), branch })
+    })
+    this.flush()
   }
 
   private async archiveSession(sessionId: string, row: SessionRow): Promise<void> {
     this.restartAfterTurn.delete(sessionId)
+    // A child archived mid-work: the parent's row does not stay 'running'.
+    this.settleAdvice(sessionId, { state: 'stopped', error: null })
+    this.finishDelegation(sessionId, 'stopped', null, '')
+    this.delegateCounts.delete(sessionId)
+    this.delegateHints.delete(sessionId)
+    this.reviewForwards.delete(sessionId)
+    this.reviewQueued.delete(sessionId)
+    for (const key of [...this.limitSeen.keys()]) if (key.startsWith(`${sessionId}\0`)) this.limitSeen.delete(key)
+    for (const key of [...this.reviewForwarded]) if (key.startsWith(`${sessionId}\0`)) this.reviewForwarded.delete(key)
     // Prima la revoca: scioglie le conferme del browser dell'agente ancora aperte (expireRequest ha bisogno del runtime).
-    this.browserAgent.revoke(sessionId)
+    this.revokeTools(sessionId)
+    const closing = this.runtimes.get(sessionId)
+    if (closing?.handoff) {
+      const run = closing.handoff
+      closing.handoff = null
+      this.failHandoff(sessionId, run, 'interrupted', t('The handoff was interrupted.'))
+    }
     this.runtimes.get(sessionId)?.adapter.close()
     this.runtimes.delete(sessionId)
     this.unsubscribeGit(sessionId)
@@ -2089,8 +2372,20 @@ export class Host {
     // Prima si aspetta l'eventuale avvio dei servizi (che da ora non spawna più), poi i servizi del worktree (LAD-66) si fermano
     // davvero e liberano le porte, poi si chiudono tutti i terminali (i servizi con attesa).
     await this.servicesStarting.get(sessionId)
-    await this.stopServices(this.cwdOf(row))
-    await Promise.all(this.terminals.bySession(sessionId).map((terminal) => this.terminals.close(terminal.id)))
+    // Folder also used by another live session (linked sessions): services do not stop, they pass to that session.
+    const heir = this.worktreeHeir(row)
+    // A child does not own the folder's services: archiving it does not stop them.
+    if (!heir && (!row.parent || this.ownsWorktree(row))) await this.stopServices(this.cwdOf(row))
+    await Promise.all(
+      this.terminals
+        .bySession(sessionId)
+        .filter((terminal) => {
+          if (!heir || terminal.kind !== 'service') return true
+          this.terminals.reassign(terminal.id, heir.id)
+          return false
+        })
+        .map((terminal) => this.terminals.close(terminal.id))
+    )
     this.termStatus.delete(sessionId)
     this.updateRow(sessionId, { archived: 1, run_state: 'idle' })
   }
@@ -2327,7 +2622,7 @@ export class Host {
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
     if (!runtime?.turnId || !runtime.adapter.steer || !runtime.adapter.isRunning) return false
-    if (!this.canSteer(row) || row.run_state !== 'running' || runtime.command || runtime.interrupting || runtime.closing > 0 || this.preparing.has(sessionId)) return false
+    if (!this.canSteer(row) || row.run_state !== 'running' || runtime.command || runtime.handoff || runtime.interrupting || runtime.closing > 0 || this.preparing.has(sessionId)) return false
     const turnId = runtime.turnId
     // L'id della riga è anche l'uuid del messaggio nello stream: serve a ritrovarla se gira da solo.
     const id = randomUUID()
@@ -2440,7 +2735,7 @@ export class Host {
     const owner: { adapter?: AgentSession } = {}
     const adapter = this.createAdapter(
       row.agent,
-      { cwd: this.cwdOf(row), model: row.model, effort: row.effort as Effort | null, permission: row.permission as PermissionLevel, resume: row.external_id, autonomyHint: this.prefs.autonomyHint !== false, browserTools: this.browserAgent.register(sessionId, row.project_id) },
+      { cwd: this.cwdOf(row), model: row.model, effort: row.effort as Effort | null, permission: row.permission as PermissionLevel, resume: row.external_id, autonomyHint: this.prefs.autonomyHint !== false, ...(this.isReadOnlyRow(row) ? { readOnly: true } : {}), ...(row.parent ? {} : { browserTools: this.browserAgent.register(sessionId, row.project_id) }), ladderTools: this.ladderMcp.register(sessionId, row.project_id, this.ladderToolsFor(row)), delegateHint: this.delegateHints.get(sessionId) ?? null },
       this.guardEvents(sessionId, owner, this.adapterEvents(sessionId)),
       row.profile_id
     )
@@ -2516,7 +2811,7 @@ export class Host {
     return turnId
   }
 
-  private async startTurn(sessionId: string, text: string, attachments: Attachment[] = [], command: { name: string; args: string } | null = null): Promise<void> {
+  private async startTurn(sessionId: string, text: string, attachments: Attachment[] = [], command: { name: string; args: string } | null = null, system: { rows: (turnId: string) => HandoffRun | void } | null = null): Promise<void> {
     const row = this.mustRow(sessionId)
     // Browser per l'agente: il server deve già ascoltare quando nasce il runtime (solo se l'interruttore è acceso).
     if (this.isGone(sessionId)) return
@@ -2529,23 +2824,32 @@ export class Host {
       this.closeRuntime(sessionId)
       this.noticeInfo(sessionId, t('Agent restarted. The next message continues the conversation with settings and MCP servers loaded again.'))
     }
-    const browserReady = this.runtimes.has(sessionId) ? null : this.browserAgent.prepare(row.project_id)
+    // Read-only children do not have the agent browser.
+    const browserReady = this.runtimes.has(sessionId) || row.parent ? null : this.browserAgent.prepare(row.project_id)
     if (browserReady) await browserReady
+    // Ladder MCP server: must be listening before the runtime is created (all chat sessions, children included).
+    if (!this.runtimes.has(sessionId)) await this.ladderMcp.start().catch((error: Error) => console.error(`[host] Ladder MCP server: ${error.message}`))
+    // Project delegates in the system prompt: the prompt is fixed when the process starts, so they are read first.
+    if (!this.runtimes.has(sessionId)) await this.loadDelegateHint(sessionId).catch(() => undefined)
     // L'archiviazione può essere arrivata mentre si aspettava il browser.
     if (this.isGone(sessionId)) return
     const runtime = this.ensureRuntime(sessionId)
     // Il titolo nasce dal primo messaggio dell'utente: un comando iniziale non lo consuma.
     // Un titolo scelto (rinominato o dato alla creazione) non si tocca: si sostituisce solo il segnaposto.
-    const firstMessage = !command && isPlaceholderTitle(row.title) && !this.hasUserMessage(sessionId)
+    const firstMessage = !command && !system && isPlaceholderTitle(row.title) && !this.hasUserMessage(sessionId)
     runtime.lastCommand = command?.name ?? null
     await this.beginTurn(sessionId, runtime, {
       // Il titolo nasce dal primo messaggio, tranne per le sessioni da issue, PR o branch: lì resta il loro titolo.
       title: firstMessage && !row.source ? titleFrom(text) : undefined,
       label: titleFrom(text),
       // Un comando / non è la ripresa dei background.
-      agentsState: command ? 'dismissed' : 'continued',
+      agentsState: command || system ? 'dismissed' : 'continued',
       rows: (turnId) => {
-        if (command) {
+        if (system) {
+          // System turn (handoff): its own row in place of the user's.
+          const run = system.rows(turnId)
+          if (run) runtime.handoff = run
+        } else if (command) {
           runtime.command = { id: randomUUID(), at: Date.now(), ...command }
           this.upsertItem(sessionId, { kind: 'command', ...runtime.command, turnId, status: 'running', error: null })
         } else {
@@ -2553,6 +2857,11 @@ export class Host {
         }
       }
     })
+    // Message forwarded by the cross-review: the turn it creates is not reviewed in turn.
+    if (this.reviewForwards.get(sessionId) === text && runtime.turnId) {
+      this.reviewForwards.delete(sessionId)
+      this.reviewTurns.add(runtime.turnId)
+    }
     if (command) runtime.adapter.command(command.name, command.args)
     else runtime.adapter.send(text, attachments)
   }
@@ -2953,9 +3262,17 @@ export class Host {
           for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
           // Turno ancora aperto all'uscita: non è "fatto" (interrotto se l'hai chiesto tu, altrimenti errore).
           this.finishCommand(sessionId, runtime, runtime.interrupting ? 'interrupted' : 'error', runtime.interrupting ? null : error ?? t('{agent} exited', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? '') }))
+          if (runtime.handoff) {
+            const run = runtime.handoff
+            runtime.handoff = null
+            this.failHandoff(sessionId, run, runtime.interrupting ? 'interrupted' : 'error', runtime.interrupting ? t('The handoff was interrupted.') : error ?? t('{agent} exited', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? '') }))
+          }
+          // Child exited before answering: the entry on the parent's card does not stay 'running'.
+          this.settleAdvice(sessionId, runtime.interrupting ? { state: 'stopped', error: null } : { state: 'error', error: error ?? t('{agent} exited', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? '') }) })
+          this.finishDelegation(sessionId, runtime.interrupting ? 'stopped' : 'error', error ?? t('{agent} exited', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? '') }), '')
           this.runtimes.delete(sessionId)
           this.restartAfterTurn.delete(sessionId)
-          this.browserAgent.revoke(sessionId)
+          this.revokeTools(sessionId)
           if (error) {
             const notice = this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime.turnId ?? 'system', at: Date.now(), tone: 'error', text: t('{agent} exited: {error}', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? ''), error }) })
             this.updateRow(sessionId, { run_state: 'error', activity_at: Date.now(), last_activity_seq: notice.seq })
@@ -2973,7 +3290,7 @@ export class Host {
             void this.startTurn(sessionId, next.text, next.attachments ?? []).catch((e: Error) => {
               const current = JSON.parse(this.rows.get(sessionId)?.queue ?? '[]') as QueuedMessage[]
               current.unshift(next)
-              this.browserAgent.revoke(sessionId)
+              this.revokeTools(sessionId)
               this.runtimes.get(sessionId)?.adapter.close()
               this.runtimes.delete(sessionId)
               this.updateRow(sessionId, { queue: JSON.stringify(current), run_state: 'idle' })
@@ -3034,6 +3351,22 @@ export class Host {
   private openRequest(sessionId: string, request: UserRequest, signal: AbortSignal): Promise<RequestResponse> {
     const runtime = this.runtimes.get(sessionId)
     if (!runtime?.turnId) return Promise.resolve({ optionId: 'deny', message: t('Session not active.') })
+    // Child session: nobody watches it and it does not end up in "Waiting".
+    const own = this.rows.get(sessionId)
+    const parent = own ? this.parentOf(own) : null
+    if (own && parent) {
+      if (this.isReadOnlyRow(own)) {
+        // Read-only: commands that only read approve themselves (in Plan the CLI may still ask), the rest is refused.
+        const allow = request.options.find((o) => o.kind === 'allow')
+        if (request.requestType === 'permission' && request.command && allow && isReadOnlyBash(request.command)) return Promise.resolve({ optionId: allow.id })
+        return Promise.resolve({ optionId: 'deny', message: t('This session is read-only: answer in text, without asking to run or change anything.') })
+      }
+      // Delegation with write permission: confirmations go to the parent's card, which the user watches; questions do not.
+      if (parent.role !== 'delegate' || request.requestType === 'question' || !this.runtimes.get(parent.sessionId)?.turnId) {
+        return Promise.resolve({ optionId: 'deny', message: t('This delegated session cannot ask the user questions: make reasonable assumptions or report that you are blocked.') })
+      }
+      return this.openRequest(parent.sessionId, { ...request, title: t('{agent} (delegated): {title}', { agent: this.agentName(own.agent), title: request.title }) }, signal)
+    }
     const requestId = randomUUID()
     // La richiesta è "in sospeso" prima di comparire: il riepilogo della sessione la include già (per "In attesa").
     let resolve!: (response: RequestResponse) => void
@@ -3161,9 +3494,18 @@ export class Host {
     const { turnId, turnStart } = snap
     // Un'interruzione chiesta da noi vale anche se l'agente risponde con un errore (ACP al cancel).
     const wasInterrupting = snap.interrupting
+    // Turn born from advice that the cross-review forwarded: it is not reviewed.
+    const fromReview = this.reviewTurns.delete(snap.turnId)
     // Da leggere prima che expireRequest svuoti pending e che finishCommand chiuda il comando.
     const hadRequest = runtime.pending.size > 0
     const wasCommand = !!runtime.command
+    // Summary turn of a handoff: the text is read now, before anything else covers it.
+    const handoff = runtime.handoff?.turnId === snap.turnId ? runtime.handoff : null
+    if (handoff) runtime.handoff = null
+    const handoffSummary = handoff ? (handoff.reason === 'agent' ? (handoff.summary ?? '') : this.lastAssistantText(sessionId, snap.turnId)) : ''
+    // Child session: the advice is the last text of the turn, read now like the handoff summary.
+    const child = !!row.parent
+    const adviceText = child ? this.lastAssistantText(sessionId, snap.turnId) : ''
     for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
     this.finishCommand(sessionId, runtime, result.status === 'completed' ? 'done' : result.status === 'interrupted' ? 'interrupted' : 'error', result.status === 'error' ? result.error : null)
     // Interruzione o errore: i sotto-agenti in primo piano si fermano con il turno, quelli in background no.
@@ -3198,6 +3540,8 @@ export class Host {
       result.status === 'completed' &&
       (row.permission === 'edit' || row.permission === 'full') &&
       !wasCommand &&
+      !handoff &&
+      !child &&
       !snap.implicit &&
       snap.agents === 0 &&
       snap.requests === 0 &&
@@ -3225,6 +3569,7 @@ export class Host {
     // Se un turno implicito ha già preso il posto, è lui a tenere turnId, attività e stato "in corso".
     const superseded = runtime.turnId !== turnId && runtime.turnId !== null
     if (!superseded) {
+      this.delegateCounts.delete(sessionId)
       runtime.turnId = null
       runtime.activity = null
       runtime.approveAll = false
@@ -3249,11 +3594,34 @@ export class Host {
     if (result.status === 'error') this.agentsPending.delete(sessionId)
     const merged = result.status !== 'error' && !superseded && this.flushAgentsDone(sessionId, end.id)
     if (result.status === 'error') this.errorAttention(sessionId, end.id, result.error ?? t('The turn stopped because of an error.'))
-    else if (result.status === 'completed' && project && !merged) {
+    else if (result.status === 'completed' && project && !merged && !child && !(handoff && handoffSummary)) {
       this.attention({ kind: 'turn', sessionId, projectId: project.id, projectName: project.name, itemId: end.id, durationMs: result.durationMs, title: row.title })
     }
     // Titolo da un modello piccolo, dopo il primo turno concluso: in background, senza aspettarlo.
-    if (result.status === 'completed' && !superseded) void this.autoTitle(sessionId)
+    if (result.status === 'completed' && !superseded && !handoff && !child) void this.autoTitle(sessionId)
+    // End of a child's first turn: the parent's row goes to 'done', 'error' or 'stopped'.
+    if (child) {
+      const stopped = result.status === 'interrupted' || (result.status === 'error' && wasInterrupting)
+      if (stopped) this.settleAdvice(sessionId, { state: 'stopped', error: null })
+      else if (result.status === 'error') this.settleAdvice(sessionId, { state: 'error', error: result.error ?? t('The turn stopped because of an error.') })
+      else if (!adviceText) this.settleAdvice(sessionId, { state: 'error', error: t('The agent wrote no opinion.') })
+      else this.settleAdvice(sessionId, { state: 'done', text: adviceText, error: null })
+      // Delegation: the child's first turn is the result of the parent's call.
+      this.finishDelegation(sessionId, stopped ? 'stopped' : result.status === 'error' ? 'error' : 'completed', result.error, adviceText)
+      // Entry closed: the process is no longer needed; if the user opens the child and writes, the conversation resumes with a new one.
+      // A stopped delegation closes the process anyway: nobody watches it, and the parent already got the error.
+      if ((!stopped || this.parentOf(row)?.role === 'delegate') && !superseded && !runtime.adapter.isRunning) this.closeRuntime(sessionId)
+    }
+    // Summary ready (or failed): deliver to the other agent, without holding up the end of the turn.
+    if (handoff) void this.finishHandoff(sessionId, handoff, result.status === 'error' && wasInterrupting ? 'interrupted' : result.status, result.error, handoffSummary, checkpoints?.end ?? null)
+    // Plan limit: limit error or 'limited' window of the session's agent. With autoSwitch the handoff starts on its own.
+    let switching = false
+    if (!child && !handoff && !superseded && !wasInterrupting && result.status !== 'interrupted') {
+      const hit = this.limitHit(row, result)
+      if (hit) switching = await this.onLimit(sessionId, turnId, hit).catch(() => false)
+    }
+    // Cross-review: turn ended with changes, not a child's nor born from advice forwarded by the review.
+    if (!child && !handoff && !superseded && !fromReview && !switching && result.status === 'completed' && files.length > 0) void this.startCrossReview(sessionId, files).catch(() => undefined)
 
     // Messaggi inseriti non ancora uniti a un turno girano da soli (turno implicito, già o a momenti aperto):
     // la coda riparte alla fine di quel turno.
@@ -3265,6 +3633,10 @@ export class Host {
       this.noticeInfo(sessionId, t('Agent restarted. The next message continues the conversation with settings and MCP servers loaded again.'))
       this.emitSummary(sessionId)
     }
+    // Handoff succeeded: the origin queue stays there (the other agent works in the same folder) until the user delivers it.
+    if (handoff && result.status === 'completed' && handoffSummary) return
+    // Automatic plan-limit handoff: queued messages stay in the origin session, as after any handoff.
+    if (switching) return
     const queue = JSON.parse(this.mustRow(sessionId).queue) as QueuedMessage[]
     const next = queue.shift()
     if (next && (result.status !== 'error' || wasInterrupting)) {
@@ -3289,6 +3661,657 @@ export class Host {
     }
   }
 
+  // ── Switch to… ────────────────────────────────────────────────────
+
+  private handoffFromOf(row: SessionRow): SessionSummary['handoffFrom'] {
+    try {
+      return row.handoff_from ? (JSON.parse(row.handoff_from) as { sessionId: string; agent: AgentId }) : null
+    } catch {
+      return null
+    }
+  }
+
+  /** Writes a new session to the database and memory (createSession and the destination session of a handoff). */
+  private insertSession(row: SessionRow): void {
+    this.db
+      .prepare(
+        `insert into sessions (id, project_id, title, agent, model, effort, permission, created_at, updated_at, mode, command, cwd, worktree, activity_at, source, title_source, profile_id, handoff_from, parent)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(row.id, row.project_id, row.title, row.agent, row.model, row.effort, row.permission, row.created_at, row.updated_at, row.mode, row.command, row.cwd, row.worktree, row.activity_at, row.source, row.title_source, row.profile_id, row.handoff_from, row.parent)
+    this.rows.set(row.id, row)
+  }
+
+  /** The destination agent is allowed by the project ([agents] allowed), known and available. */
+  private assertHandoffAgent(settings: ProjectSettings, agent: AgentId): void {
+    if (settings.agents.allowed.length && !settings.agents.allowed.includes(agent)) {
+      throw new Error(t('{agent} is not allowed in this project (.ladder/settings.toml, [agents] allowed).', { agent: this.agentName(agent) }))
+    }
+    const status = this.agents.get(agent)
+    if (!status) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
+    if (!status.available) throw new Error(status.error ?? t('{agent} is not available.', { agent: status.name }))
+  }
+
+  /** Opens the turn in which the current agent writes the summary; the rest (delivery) happens at the end of the turn in finishHandoff. */
+  private async startHandoff(command: Extract<HostCommand, { type: 'session.handoff' }>): Promise<void> {
+    const { sessionId, agent } = command
+    const row = this.mustRow(sessionId)
+    const busy = () => new Error(t('Wait for the session to finish before handing it over.'))
+    if (row.mode === 'terminal') throw new Error(t('A terminal session cannot be handed over.'))
+    if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+    if (this.isBusy(sessionId) || row.handoff || this.handoffStarting.has(sessionId) || (row.run_state !== 'idle' && row.run_state !== 'error')) throw busy()
+    if (agent === row.agent) throw new Error(t('The session already uses {agent}: pick a different agent.', { agent: this.agentName(agent) }))
+    const project = this.mustProject(row.project_id)
+    // Reserved synchronously: a second request arriving during the awaits below finds the handoff already in progress.
+    this.handoffStarting.add(sessionId)
+    try {
+      this.assertHandoffAgent(await loadProjectSettings(project.path), agent)
+      const note = command.note?.trim() || null
+      const text = await renderHandoffPrompt(project.path, { agent: this.agentName(agent), note })
+      // After the awaits the session may have started working or been archived.
+      if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+      if (this.isBusy(sessionId) || this.mustRow(sessionId).handoff || this.mustRow(sessionId).run_state === 'running') throw busy()
+      await this.startTurn(sessionId, text, [], null, {
+        rows: (turnId) => {
+          const run: HandoffRun = { itemId: `${turnId}:handoff-out`, turnId, agent, model: command.model ?? null, effort: command.effort ?? null, note }
+          this.upsertItem(sessionId, { kind: 'handoff', id: run.itemId, turnId, at: Date.now(), direction: 'out', agent, peerSessionId: null, state: 'summarizing', note, summary: null, checkpoint: null, files: [], error: null })
+          this.updateRow(sessionId, { handoff: JSON.stringify(run) })
+          this.saveRun(run)
+          return run
+        }
+      })
+    } catch (error) {
+      // The turn did not start: the 'out' row does not stay 'summarizing'.
+      const run = this.mustRow(sessionId).handoff
+      if (run) {
+        const parsed = JSON.parse(run) as HandoffRun
+        const runtime = this.runtimes.get(sessionId)
+        if (runtime?.handoff?.itemId === parsed.itemId) runtime.handoff = null
+        this.failHandoff(sessionId, parsed, 'error', (error as Error).message)
+        this.restoreAfterFailedStart(sessionId)
+      }
+      throw error
+    } finally {
+      this.handoffStarting.delete(sessionId)
+    }
+  }
+
+  /** Updates the 'out' row of a handoff (if still there). */
+  private patchHandoffItem(sessionId: string, itemId: string, patch: Partial<Extract<ChatItem, { kind: 'handoff' }>>): void {
+    if (!this.rows.has(sessionId)) return
+    const item = this.loadItems(sessionId).find((i) => i.id === itemId)
+    if (item?.kind !== 'handoff') return
+    this.upsertItem(sessionId, { ...item, ...patch })
+    this.flush()
+  }
+
+  /** Updates a limit card (if still there). */
+  private patchLimitItem(sessionId: string, itemId: string, patch: Partial<LimitRow>): void {
+    if (!this.rows.has(sessionId)) return
+    const item = this.itemById(sessionId, itemId)
+    if (item?.kind !== 'limit') return
+    this.upsertItem(sessionId, { ...item, ...patch })
+    this.flush()
+  }
+
+  /**
+   * Handoff failed: the 'out' row goes to 'error' or 'interrupted' with the reason; no destination session.
+   * The row is always 'resumable' (with a saved summary it is delivered again, without one it is requested); a limit card goes back to proposed.
+   */
+  private failHandoff(sessionId: string, run: HandoffRun, state: 'error' | 'interrupted', error: string): void {
+    this.handoffStops.delete(run.itemId)
+    this.returnLinks.delete(sessionId)
+    this.patchHandoffItem(sessionId, run.itemId, { state, error, peerSessionId: null, resumable: true })
+    if (run.limitItemId) this.patchLimitItem(sessionId, run.limitItemId, { state: 'proposed', automatic: false, peerSessionId: null, error })
+    if (this.rows.has(sessionId)) {
+      this.updateRow(sessionId, { handoff: null })
+      this.emitSummary(sessionId)
+    }
+  }
+
+  /** End of the summary turn: checks the outcome, gathers files and checkpoint and delivers to the other agent. Never throws. */
+  private async finishHandoff(sessionId: string, run: HandoffRun, status: TurnResult['status'], error: string | null, summary: string, checkpoint: string | null): Promise<void> {
+    const delivered = await this.deliverFinished(sessionId, run, status, error, summary, checkpoint)
+    // Handoff failed: the queue the summary turn had held back restarts.
+    if (!delivered && this.rows.has(sessionId) && !this.isGone(sessionId)) this.startFirstQueued(sessionId)
+  }
+
+  private async deliverFinished(sessionId: string, run: HandoffRun, status: TurnResult['status'], error: string | null, summary: string, checkpoint: string | null): Promise<boolean> {
+    const fail = (state: 'error' | 'interrupted', text: string): false => (this.failHandoff(sessionId, run, state, text), false)
+    if (status === 'interrupted') return fail('interrupted', t('The handoff was interrupted.'))
+    if (status === 'error') return fail('error', error ?? t('The turn stopped because of an error.'))
+    if (!summary) return fail('error', t('The agent wrote no summary. Nothing was handed over.'))
+    if (!this.rows.has(sessionId) || this.isGone(sessionId)) return fail('interrupted', t('The handoff was interrupted.'))
+    // The summary is saved right away, before files and delivery: a kill during delivery does not lose it.
+    this.patchHandoffItem(sessionId, run.itemId, { summary, checkpoint })
+    return this.deliverSaved(sessionId, run, summary, checkpoint)
+  }
+
+  /** Delivers a summary already saved on the 'out' row (end of the summary turn, resume, plan-limit handoff). Never throws. */
+  private async deliverSaved(sessionId: string, run: HandoffRun, summary: string, checkpoint: string | null): Promise<boolean> {
+    const fail = (state: 'error' | 'interrupted', text: string): false => (this.failHandoff(sessionId, run, state, text), false)
+    try {
+      const row = this.mustRow(sessionId)
+      if (this.isGone(sessionId)) return fail('interrupted', t('The handoff was interrupted.'))
+      const files = await this.sessionFiles(row, checkpoint)
+      if (this.isGone(sessionId)) return fail('interrupted', t('The handoff was interrupted.'))
+      if (this.handoffStops.delete(run.itemId)) return fail('interrupted', t('The handoff was stopped.'))
+      this.patchHandoffItem(sessionId, run.itemId, { files })
+      const peerId = await this.deliverHandoff(row, run, summary, files, checkpoint)
+      this.patchHandoffItem(sessionId, run.itemId, { state: 'done', peerSessionId: peerId, error: null, resumable: false })
+      this.updateRow(sessionId, { handoff: null })
+      this.handoffStops.delete(run.itemId)
+      this.db.prepare('delete from kv where key = ?').run(`handoff-run:${run.itemId}`)
+      // Return requested by a reset card, or plan-limit handoff: the cards follow the outcome.
+      const link = this.returnLinks.get(sessionId)
+      if (link) {
+        this.returnLinks.delete(sessionId)
+        this.patchLimitItem(sessionId, link, { state: 'returned', peerSessionId: peerId })
+      }
+      if (run.limitItemId) {
+        this.patchLimitItem(sessionId, run.limitItemId, { state: 'switched', peerSessionId: peerId, error: null })
+        this.watchLimit(sessionId, run.limitItemId, peerId)
+      }
+      this.emitSummary(sessionId)
+      return true
+    } catch (e) {
+      if (!this.rows.has(sessionId)) return false
+      // Stopped by the user or archived during delivery: it is an interruption, not an error.
+      if (this.handoffStops.delete(run.itemId)) return fail('interrupted', t('The handoff was stopped.'))
+      if (this.isGone(sessionId)) return fail('interrupted', t('The handoff was interrupted.'))
+      const message = e instanceof Error ? e.message : String(e)
+      // The summary existed and the end-of-turn notification was skipped: the delivery failure still goes to whoever is not watching.
+      this.errorAttention(sessionId, run.itemId, message)
+      return fail('error', message)
+    }
+  }
+
+  /** startTurn failed after opening the turn: the session does not stay 'running' (as at end of turn). */
+  private restoreAfterFailedStart(sessionId: string): void {
+    const live = this.runtimes.get(sessionId)
+    if (live && !live.adapter.isRunning) {
+      live.turnId = null
+      live.activity = null
+      live.handoff = null
+    }
+    if (this.rows.get(sessionId)?.run_state === 'running' && !live?.adapter.isRunning) this.updateRow(sessionId, { run_state: 'idle' })
+    this.emitSummary(sessionId)
+  }
+
+  /**
+   * Files changed by the session since its first checkpoint (the same starting point as the diff 'session' scope) up to the
+   * handoff checkpoint. If the session was born from a handoff, it starts from the first session of the chain in the same
+   * folder: the receiver sees all the work, not just the last stretch.
+   */
+  private async sessionFiles(row: SessionRow, checkpoint: string | null): Promise<Extract<ChatItem, { kind: 'handoff' }>['files']> {
+    const project = this.projects.get(row.project_id)
+    if (!project?.isGit || !checkpoint) return []
+    const cwd = this.cwdOf(row)
+    const chain = [row.id]
+    for (let current: SessionRow | undefined = row; current; ) {
+      const from = this.handoffFromOf(current)
+      const next: SessionRow | undefined = from ? this.rows.get(from.sessionId) : undefined
+      if (!next || chain.includes(next.id) || this.cwdOf(next) !== cwd) break
+      chain.push(next.id)
+      current = next
+    }
+    const first = this.db
+      .prepare(`select sha from checkpoints where session_id in (${chain.map(() => '?').join(',')}) and kind = 'start' order by at limit 1`)
+      .get(...chain) as { sha: string } | undefined
+    if (!first) return []
+    return changedFiles(cwd, first.sha, checkpoint).catch(() => [])
+  }
+
+  /** The origin session to go back to: born from a handoff, has the requested agent, is not archived or working. */
+  private returnTarget(row: SessionRow, agent: AgentId): SessionRow | null {
+    const from = this.handoffFromOf(row)
+    const target = from ? this.rows.get(from.sessionId) : undefined
+    if (!target || target.agent !== agent || target.mode !== 'chat' || target.project_id !== row.project_id || this.cwdOf(target) !== this.cwdOf(row)) return null
+    if (target.archived || this.isGone(target.id) || this.isBusy(target.id) || (target.run_state !== 'idle' && target.run_state !== 'error')) return null
+    return target
+  }
+
+  /** New destination session: same folder and worktree as the origin (no new worktree or setup). */
+  private async createLinkedSession(from: SessionRow, run: HandoffRun, settings: ProjectSettings): Promise<SessionRow> {
+    const row = this.derivedRow(from, {
+      agent: run.agent,
+      model: run.model,
+      effort: run.effort,
+      permission: clampPermission((run.permission ?? from.permission) as PermissionLevel, settings.agents.permissionsMax),
+      title: from.title,
+      // The title is the origin's: no automatic generation changes it.
+      titleSource: from.title_source === 'provisional' ? 'generated' : from.title_source,
+      handoffFrom: JSON.stringify({ sessionId: from.id, agent: from.agent }),
+      parent: null
+    })
+    this.insertSession(row)
+    this.emitSummary(row.id)
+    return row
+  }
+
+  /** Delivers the summary: goes back to the origin session or creates a new one, and starts the turn there with the 'in' row. Returns the destination session. */
+  private async deliverHandoff(from: SessionRow, run: HandoffRun, summary: string, files: Extract<ChatItem, { kind: 'handoff' }>['files'], checkpoint: string | null): Promise<string> {
+    const project = this.mustProject(from.project_id)
+    const settings = await loadProjectSettings(project.path)
+    this.assertHandoffAgent(settings, run.agent)
+    const text = run.prompt ?? (await renderHandoffReceive(project.path, { fromAgent: this.agentName(from.agent), summary, note: run.note, files, checkpoint, branch: this.branchOf(from), report: run.reason === 'agent', ...(run.request ? { request: run.request } : {}) }))
+    // After the awaits the origin session may have been archived or removed, or the handoff stopped by the user.
+    if (this.isGone(from.id)) throw new Error(t('The handoff was interrupted.'))
+    if (this.handoffStops.has(run.itemId)) throw new Error(t('The handoff was stopped.'))
+    const existing = this.returnTarget(from, run.agent)
+    const target = existing ?? (await this.createLinkedSession(from, run, settings))
+    try {
+      // "Implement with…": going back to a session idle in Plan, the level goes up as in session.permission.set.
+      if (existing && run.permission && existing.permission === 'plan') await this.setPermission(existing.id, run.permission)
+      await this.startTurn(target.id, text, [], null, {
+        rows: (turnId) => {
+          // The destination session has its own turn: from here the 'out' row knows it.
+          this.patchHandoffItem(from.id, run.itemId, { peerSessionId: target.id })
+          this.upsertItem(target.id, { kind: 'handoff', id: `${run.itemId}:in`, turnId, at: Date.now(), direction: 'in', ...(run.reason ? { reason: run.reason } : {}), agent: from.agent as AgentId, peerSessionId: from.id, state: 'done', note: run.note, summary, checkpoint, files, error: null })
+        }
+      })
+    } catch (error) {
+      // A new session left without a turn is useless: it is archived (the worktree belongs to the origin, not touched).
+      if (!existing) await this.archive(target.id, { cleanup: false }).catch(() => undefined)
+      else {
+        // The 'in' row was already written: consistent with the 'out' row, it becomes 'error'.
+        this.patchHandoffItem(target.id, `${run.itemId}:in`, { state: 'error', error: error instanceof Error ? error.message : String(error) })
+        this.restoreAfterFailedStart(target.id)
+      }
+      throw error
+    }
+    return target.id
+  }
+
+  // ── Stop, resume, reassign ──────────────────────────────────────
+
+  /** The handoff as it started (permission, model, effort, prompt): needed for a faithful resume after an error or a restart. */
+  private saveRun(run: HandoffRun): void {
+    this.kvSet(`handoff-run:${run.itemId}`, JSON.stringify(run))
+  }
+
+  private savedRun(itemId: string): HandoffRun | null {
+    try {
+      const raw = this.kvGet(`handoff-run:${itemId}`)
+      return raw ? (JSON.parse(raw) as HandoffRun) : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Stops a handoff: 'pending' requested by the agent (cancelled, the turn continues), 'summarizing' with the summary turn
+   * (interrupts it), or the delivery already in progress (stops before starting the destination session).
+   */
+  private async stopHandoff(sessionId: string, itemId: string): Promise<void> {
+    this.mustRow(sessionId)
+    const item = this.itemById(sessionId, itemId)
+    if (item?.kind !== 'handoff' || item.direction !== 'out') throw new Error(t('Handoff not found.'))
+    if (item.state !== 'summarizing' && item.state !== 'pending') return
+    const runtime = this.runtimes.get(sessionId)
+    const run = runtime?.handoff?.itemId === itemId ? runtime.handoff : null
+    if (run && runtime && item.state === 'pending') {
+      // Requested by the agent and not started yet: cancelled, the turn no longer delivers it.
+      runtime.handoff = null
+      this.failHandoff(sessionId, run, 'interrupted', t('The handoff was stopped.'))
+      return
+    }
+    if (run) {
+      // Summary turn in progress: the interruption closes it and finishHandoff marks it 'interrupted'; if the turn closes 'completed' anyway, the delivery stops.
+      this.handoffStops.add(itemId)
+      await this.interrupt(sessionId)
+      return
+    }
+    // Delivery in progress: it stops at the checks before starting the destination session.
+    this.handoffStops.add(itemId)
+  }
+
+  /**
+   * Resumes a resumable 'out' row, even with another agent (reassign). Saved summary: delivers right away, without
+   * asking for it again; otherwise reopens the summary turn. The summary turn is text only: no command is repeated.
+   */
+  private async resumeHandoff(command: Extract<HostCommand, { type: 'session.handoff.resume' }>): Promise<void> {
+    const { sessionId, itemId } = command
+    const row = this.mustRow(sessionId)
+    const item = this.itemById(sessionId, itemId)
+    if (item?.kind !== 'handoff' || item.direction !== 'out' || !item.resumable || (item.state !== 'interrupted' && item.state !== 'error')) throw new Error(t('This handoff cannot be resumed.'))
+    if (row.mode === 'terminal') throw new Error(t('A terminal session cannot be handed over.'))
+    if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+    const agent = command.agent ?? item.agent
+    const summary = item.summary?.trim() ?? ''
+    if (!summary) {
+      // No saved summary: new summary turn (the old row stays in the history, no longer resumable).
+      this.patchHandoffItem(sessionId, itemId, { resumable: false })
+      try {
+        await this.startHandoff({ type: 'session.handoff', sessionId, agent, model: command.model ?? null, effort: command.effort ?? null, note: item.note })
+      } catch (error) {
+        this.patchHandoffItem(sessionId, itemId, { resumable: true })
+        throw error
+      }
+      return
+    }
+    const busy = () => new Error(t('Wait for the session to finish before handing it over.'))
+    if (this.isBusy(sessionId) || row.handoff || this.handoffStarting.has(sessionId) || (row.run_state !== 'idle' && row.run_state !== 'error')) throw busy()
+    if (agent === row.agent) throw new Error(t('The session already uses {agent}: pick a different agent.', { agent: this.agentName(agent) }))
+    const project = this.mustProject(row.project_id)
+    this.handoffStarting.add(sessionId)
+    try {
+      const settings = await loadProjectSettings(project.path)
+      this.assertHandoffAgent(settings, agent)
+      if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+      if (this.isBusy(sessionId) || this.mustRow(sessionId).handoff || this.mustRow(sessionId).run_state === 'running') throw busy()
+      const reason = item.reason && item.reason !== 'handoff' ? item.reason : undefined
+      // The handoff as it started: chosen permission, `implement` prompt, half-done request, model and effort (if the agent does not change).
+      const saved = this.savedRun(itemId)
+      const same = agent === (saved?.agent ?? item.agent)
+      const run: HandoffRun = {
+        itemId,
+        turnId: item.turnId,
+        agent,
+        model: command.model ?? (same ? (saved?.model ?? null) : null),
+        effort: command.effort ?? (same ? (saved?.effort ?? null) : null),
+        note: item.note,
+        ...(reason ? { reason } : {}),
+        summary,
+        ...(saved?.prompt ? { prompt: saved.prompt } : {}),
+        ...(saved?.permission ? { permission: saved.permission } : reason === 'implement' ? { permission: clampPermission('edit', settings.agents.permissionsMax) } : {}),
+        ...(saved?.request ? { request: saved.request } : {}),
+        ...(reason === 'limit' && itemId.endsWith(':handoff') ? { limitItemId: itemId.slice(0, -':handoff'.length) } : {})
+      }
+      this.patchHandoffItem(sessionId, itemId, { agent, state: 'pending', error: null, resumable: false, peerSessionId: null })
+      this.updateRow(sessionId, { handoff: JSON.stringify(run) })
+      this.saveRun(run)
+      this.emitSummary(sessionId)
+      const delivered = await this.deliverSaved(sessionId, run, summary, item.checkpoint)
+      if (!delivered) {
+        const out = this.itemById(sessionId, itemId)
+        throw new Error(out?.kind === 'handoff' && out.error ? out.error : t('The handoff was interrupted.'))
+      }
+    } finally {
+      this.handoffStarting.delete(sessionId)
+    }
+  }
+
+  // ── Plan limit and automatic handoff ─────────────────────────────
+
+  /** Usage state of the agent for the profile the session works with. */
+  private usageOf(row: SessionRow): { windows: UsageWindow[]; at: number } {
+    const profileId = customProfileId(row.profile_id)
+    const status = profileId ? this.profileAgents.get(profileId) : this.agents.get(row.agent)
+    return { windows: status?.usage ?? [], at: status?.usageAt ?? 0 }
+  }
+
+  /** The agent is at its limit for the profile a new session of this project would use (windows reserved to a model excluded). */
+  private agentLimited(agent: AgentId, projectId: string): boolean {
+    const profileId = customProfileId(this.profiles.resolve(agent, projectId) ?? undefined)
+    const status = profileId ? this.profileAgents.get(profileId) : this.agents.get(agent)
+    return (status?.usage ?? []).some((w) => windowLimited(w) && !w.model)
+  }
+
+  /**
+   * Is the finished turn a plan limit? Three ways: the dev simulation (LADDER_SIMULATE_LIMIT), a usage window
+   * of the agent in 'limited' when the turn ended in error, or a Claude or Codex limit error (LIMIT_ERROR).
+   * One report per window: until the reset passes no other is written.
+   */
+  private limitHit(row: SessionRow, result: TurnResult): { name: string; key: string; resetsAt: number | null } | null {
+    let hit: { name: string; key: string; resetsAt: number | null } | null = null
+    if (this.simulatedLimit.delete(row.agent)) {
+      hit = { name: t('Simulated limit'), key: 'simulated', resetsAt: Math.round(Date.now() / 1000) + (Number(process.env.LADDER_SIMULATE_LIMIT_SECONDS) || 90) }
+    } else if (result.status === 'error') {
+      const model = row.model?.toLowerCase() ?? ''
+      const limited = this.usageOf(row).windows.filter((w) => windowLimited(w) && (!w.model || model.includes(w.model.toLowerCase())))
+      // The one that resets last is the window that really blocks.
+      const binding = [...limited].sort((a, b) => (b.resetsAt ?? Infinity) - (a.resetsAt ?? Infinity))[0]
+      if (binding) hit = { name: windowName(binding), key: binding.key, resetsAt: binding.resetsAt }
+      else if (LIMIT_ERROR.test(result.error ?? '')) {
+        const epoch = /\|(\d{10})\b/.exec(result.error ?? '')
+        hit = { name: t('Usage limit'), key: 'error', resetsAt: epoch ? Number(epoch[1]) : null }
+      }
+    }
+    if (!hit) return null
+    const key = `${row.id}\0${row.agent}\0${hit.key}`
+    if ((this.limitSeen.get(key) ?? 0) > Date.now()) return null
+    this.limitSeen.set(key, hit.resetsAt ? hit.resetsAt * 1000 : Date.now() + 60 * 60_000)
+    return hit
+  }
+
+  /**
+   * Limit reached at end of turn: writes the 'reached' card with the proposed agent (the project's autoSwitch or the first allowed and
+   * available one of another provider). With autoSwitch the handoff starts on its own (after a short pause to stop it), unless
+   * the target is also at its limit: then only the proposal stays, with the reason. True if an automatic handoff starts.
+   */
+  private async onLimit(sessionId: string, turnId: string, hit: { name: string; resetsAt: number | null }): Promise<boolean> {
+    const row = this.rows.get(sessionId)
+    const project = row && this.projects.get(row.project_id)
+    if (!row || !project || row.mode !== 'chat' || this.isGone(sessionId)) return false
+    const settings = await loadProjectSettings(project.path)
+    if (this.isGone(sessionId)) return false
+    const preferred = settings.agents.autoSwitch && settings.agents.autoSwitch !== row.agent ? settings.agents.autoSwitch : null
+    let target: AgentId | null = null
+    let error: string | null = null
+    if (preferred) {
+      target = preferred
+      try {
+        this.assertHandoffAgent(settings, preferred)
+        if (this.agentLimited(preferred, row.project_id)) error = t('{agent} has reached its limit too, so switching would not help. Wait for the reset or pick another agent.', { agent: this.agentName(preferred) })
+      } catch (e) {
+        error = (e as Error).message
+      }
+    } else {
+      for (const status of this.agents.values()) {
+        if (status.agent === row.agent || !status.available || (settings.agents.allowed.length && !settings.agents.allowed.includes(status.agent)) || this.agentLimited(status.agent, row.project_id)) continue
+        target = status.agent
+        break
+      }
+      if (!target) error = t('No other agent is available to continue.')
+    }
+    const automatic = !!settings.agents.autoSwitch && !!preferred && !error
+    const itemId = `${turnId}:limit`
+    this.upsertItem(sessionId, { kind: 'limit', id: itemId, turnId, at: Date.now(), phase: 'reached', agent: row.agent as AgentId, window: hit.name, resetsAt: hit.resetsAt, target, state: automatic ? 'switched' : 'proposed', peerSessionId: null, automatic, error })
+    this.flush()
+    if (!automatic || !target) return false
+    // If it does not start (agent no longer available, session busy...) the card stays a proposal with the reason.
+    void this.switchOnLimit(sessionId, itemId, target, true).catch((e: Error) => this.patchLimitItem(sessionId, itemId, { state: 'proposed', automatic: false, peerSessionId: null, error: e.message }))
+    return true
+  }
+
+  /**
+   * Summary of a plan-limit handoff, composed by Ladder (the agent at its limit cannot write it): the conversation.
+   * The last unfinished request goes apart (`request`), delivered in its block as a user request to complete.
+   */
+  private limitSummary(row: SessionRow, items: ChatItem[], window: string): { summary: string; request: string } {
+    const lastUser = [...items].reverse().find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && Boolean(i.text.trim()))
+    const request = lastUser && items.some((i) => i.kind === 'turn-end' && i.turnId === lastUser.turnId && i.status !== 'completed') ? lastUser.text.trim().slice(0, 4_000) : ''
+    const excerpt = conversationExcerpt(items)
+    const summary = [t('{agent} reached its plan limit ({window}) and could not write a handoff summary, so Ladder composed this one from the conversation and the files.', { agent: this.agentName(row.agent), window }), excerpt ? `## ${t('Conversation so far')}\n\n${excerpt}` : '']
+      .filter(Boolean)
+      .join('\n\n')
+    return { summary, request }
+  }
+
+  /** Plan-limit handoff (reason 'limit'): no summary turn, Ladder composes the summary. With `automatic` it waits a moment, so it can be stopped. */
+  private async switchOnLimit(sessionId: string, limitItemId: string, agent: AgentId, automatic: boolean): Promise<void> {
+    const row = this.mustRow(sessionId)
+    const limit = this.itemById(sessionId, limitItemId)
+    if (limit?.kind !== 'limit') throw new Error(t('Limit card not found.'))
+    if (row.mode === 'terminal') throw new Error(t('A terminal session cannot be handed over.'))
+    if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+    const busy = () => new Error(t('Wait for the session to finish before handing it over.'))
+    // The automatic handoff starts from the end of the turn (still open for the host): the check applies after the pause.
+    if ((!automatic && (this.isBusy(sessionId) || (row.run_state !== 'idle' && row.run_state !== 'error'))) || row.handoff || this.handoffStarting.has(sessionId)) throw busy()
+    if (agent === row.agent) throw new Error(t('The session already uses {agent}: pick a different agent.', { agent: this.agentName(agent) }))
+    const project = this.mustProject(row.project_id)
+    this.handoffStarting.add(sessionId)
+    try {
+      this.assertHandoffAgent(await loadProjectSettings(project.path), agent)
+      if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+      const checkpoint = (this.db.prepare(`select sha from checkpoints where session_id = ? and kind = 'end' order by at desc limit 1`).get(sessionId) as { sha: string } | undefined)?.sha ?? null
+      const { summary, request } = this.limitSummary(row, this.loadItems(sessionId), limit.window)
+      const itemId = `${limitItemId}:handoff`
+      const run: HandoffRun = { itemId, turnId: 'system', agent, model: null, effort: null, note: null, reason: 'limit', summary, limitItemId, ...(request ? { request } : {}) }
+      this.upsertItem(sessionId, { kind: 'handoff', id: itemId, turnId: 'system', at: Date.now(), reason: 'limit', direction: 'out', agent, peerSessionId: null, state: 'pending', note: null, summary, checkpoint, files: [], error: null })
+      this.patchLimitItem(sessionId, limitItemId, { state: 'switched', target: agent, automatic, peerSessionId: null, error: null })
+      this.updateRow(sessionId, { handoff: JSON.stringify(run) })
+      this.saveRun(run)
+      this.flush()
+      this.emitSummary(sessionId)
+      if (automatic) {
+        await new Promise((r) => setTimeout(r, LIMIT_SWITCH_GRACE_MS))
+        // Meanwhile the user started writing again: the handoff no longer makes sense.
+        if (!this.handoffStops.has(itemId) && !this.isGone(sessionId) && (this.isBusy(sessionId) || this.mustRow(sessionId).run_state === 'running')) this.handoffStops.add(itemId)
+      }
+      const delivered = await this.deliverSaved(sessionId, run, summary, checkpoint)
+      if (!delivered) {
+        const out = this.itemById(sessionId, itemId)
+        throw new Error(out?.kind === 'handoff' && out.error ? out.error : t('The handoff was interrupted.'))
+      }
+    } finally {
+      this.handoffStarting.delete(sessionId)
+    }
+  }
+
+  /** Answer to a limit card: hands off to another agent ('reached'), goes back to the previous one ('reset') or closes. */
+  private async respondLimit(command: Extract<HostCommand, { type: 'session.limit.respond' }>): Promise<void> {
+    const { sessionId, itemId, action } = command
+    this.mustRow(sessionId)
+    const item = this.itemById(sessionId, itemId)
+    if (item?.kind !== 'limit') throw new Error(t('Limit card not found.'))
+    if (item.state !== 'proposed' && item.state !== 'error') throw new Error(t('This card was already handled.'))
+    if (action === 'dismiss') return this.patchLimitItem(sessionId, itemId, { state: 'dismissed', error: null })
+    if (action === 'switch') {
+      if (item.phase !== 'reached') throw new Error(t('Switching is only for a reached limit.'))
+      const agent = command.agent ?? item.target
+      if (!agent) throw new Error(t('Pick an agent to continue with.'))
+      await this.switchOnLimit(sessionId, itemId, agent, false)
+      return
+    }
+    if (item.phase !== 'reset' || !item.target) throw new Error(t('Going back is only for a limit that has reset.'))
+    // Normal handoff (with summary) to the origin session: the card becomes 'returned' once delivered.
+    this.returnLinks.set(sessionId, itemId)
+    try {
+      await this.startHandoff({ type: 'session.handoff', sessionId, agent: item.target })
+    } catch (error) {
+      this.returnLinks.delete(sessionId)
+      throw error
+    }
+  }
+
+  /** After a plan-limit handoff: watches the previous agent's window to propose going back. */
+  private watchLimit(fromId: string, limitItemId: string, toId: string): void {
+    const item = this.itemById(fromId, limitItemId)
+    if (item?.kind !== 'limit') return
+    this.limitWatches.set(limitItemId, { limitItemId, fromId, toId, agent: item.agent, window: item.window, resetsAt: item.resetsAt, at: Date.now(), checked: 0 })
+    this.ensureLimitTimer()
+  }
+
+  private ensureLimitTimer(): void {
+    if (this.limitTimer || this.stopped) return
+    this.limitTimer = setInterval(() => this.checkLimitResets(), LIMIT_WATCH_EVERY_MS)
+    this.limitTimer.unref?.()
+  }
+
+  /** After a restart: plan-limit handoffs without a reset card are watched again. */
+  private restoreLimitWatches(): void {
+    const rows = this.db.prepare(`select session_id, json from items where json like '%"kind":"limit"%' and json like '%"phase":"reached"%' and json like '%"state":"switched"%'`).all() as { session_id: string; json: string }[]
+    for (const { session_id, json } of rows) {
+      const item = JSON.parse(json) as ChatItem
+      if (item.kind !== 'limit' || !item.peerSessionId || this.rows.get(item.peerSessionId)?.archived !== 0) continue
+      if (this.db.prepare('select 1 from items where session_id = ? and id = ?').get(item.peerSessionId, `${item.id}:reset`)) continue
+      this.limitWatches.set(item.id, { limitItemId: item.id, fromId: session_id, toId: item.peerSessionId, agent: item.agent, window: item.window, resetsAt: item.resetsAt, at: item.at, checked: 0 })
+    }
+    if (this.limitWatches.size) this.ensureLimitTimer()
+  }
+
+  /**
+   * Reset: the window goes back to 'ok' (read after the handoff) or its resetsAt has passed → 'reset' card in the session
+   * reached, proposing to go back. Without a known resetsAt usage is re-read every 10 minutes.
+   */
+  private checkLimitResets(): void {
+    const now = Date.now()
+    for (const [key, watch] of [...this.limitWatches]) {
+      const to = this.rows.get(watch.toId)
+      const from = this.rows.get(watch.fromId)
+      // Destination or origin session archived: nothing to propose.
+      if (!to || to.archived || !from || from.archived) {
+        this.limitWatches.delete(key)
+        continue
+      }
+      const passed = watch.resetsAt !== null && now >= watch.resetsAt * 1000
+      const usage = this.usageOf(from)
+      const same = usage.windows.find((w) => windowName(w) === watch.window)
+      const back = !!same && same.state === 'ok' && usage.at > watch.at
+      if (!passed && !back) {
+        if (watch.resetsAt === null && now - Math.max(watch.checked, watch.at) > 10 * 60_000) {
+          watch.checked = now
+          void this.refreshUsage(from.agent, customProfileId(from.profile_id)).catch(() => undefined)
+        }
+        continue
+      }
+      this.limitWatches.delete(key)
+      this.upsertItem(watch.toId, { kind: 'limit', id: `${watch.limitItemId}:reset`, turnId: 'system', at: now, phase: 'reset', agent: watch.agent, window: watch.window, resetsAt: watch.resetsAt, target: watch.agent, state: 'proposed', peerSessionId: watch.fromId, automatic: false, error: null })
+      this.flush()
+    }
+    if (this.limitWatches.size === 0 && this.limitTimer) {
+      clearInterval(this.limitTimer)
+      this.limitTimer = null
+    }
+  }
+
+  // ── Cross-review ──────────────────────────────────────────────
+
+  /**
+   * At the end of a turn with changes: if the project has `cross_review`, a read-only opinion (AdviceItem mode 'review')
+   * from that agent on the diff. It does not start if the agent is the session's or if another review is still running.
+   */
+  private async startCrossReview(sessionId: string, files: Extract<ChatItem, { kind: 'handoff' }>['files']): Promise<void> {
+    const row = this.rows.get(sessionId)
+    const project = row && this.projects.get(row.project_id)
+    if (!row || !project || row.mode !== 'chat' || this.isGone(sessionId)) return
+    const settings = await loadProjectSettings(project.path)
+    const agent = settings.agents.crossReview
+    if (!agent || agent === row.agent) return
+    try {
+      this.assertHandoffAgent(settings, agent)
+    } catch {
+      return
+    }
+    const items = this.loadItems(sessionId)
+    // A review still running: only one (the latest) waits, and starts when that one finishes.
+    if (items.some((i) => i.kind === 'advice' && i.mode === 'review' && i.entries.some((e) => e.state === 'running'))) {
+      this.reviewQueued.set(sessionId, files)
+      return
+    }
+    const prompt = await renderReviewCrossPrompt(project.path, { title: row.title, branch: this.branchOf(row), files, conversation: conversationExcerpt(items) })
+    // After the awaits the session may have been archived.
+    if (this.isGone(sessionId)) return
+    const itemId = randomUUID()
+    this.upsertItem(sessionId, { kind: 'advice', id: itemId, turnId: 'system', at: Date.now(), mode: 'review', question: '', entries: [{ agent, model: null, sessionId: null, state: 'running', text: null, error: null }], forwarded: false, verdict: null })
+    this.flush()
+    await this.startAdvisor(row, itemId, 0, { agent }, prompt, settings, 'review')
+  }
+
+  /** Review with verdict 'serious': goes to the coordinator on its own, at most once per user message. */
+  private async forwardReview(sessionId: string, itemId: string): Promise<void> {
+    if (!this.rows.has(sessionId) || this.isGone(sessionId)) return
+    const lastUser = [...this.loadItems(sessionId)].reverse().find((i) => i.kind === 'user')
+    const key = `${sessionId}\0${lastUser?.id ?? ''}`
+    if (this.reviewForwarded.has(key)) return
+    this.reviewForwarded.add(key)
+    await this.forwardAdvice(sessionId, itemId, null, true)
+  }
+
+  /** Project delegates for the system prompt: only if there are any and the session can delegate (same as tools, depth and read-only). */
+  private async loadDelegateHint(sessionId: string): Promise<void> {
+    const row = this.rows.get(sessionId)
+    const project = row && this.projects.get(row.project_id)
+    if (!row || !project || !this.ladderToolsFor(row).includes('delegate')) {
+      this.delegateHints.delete(sessionId)
+      return
+    }
+    const delegates = (await loadProjectSettings(project.path)).agents.delegates.filter((d) => this.agents.get(d.agent)?.available)
+    this.delegateHints.set(sessionId, delegates.length ? delegatesHint(delegates) : null)
+  }
+
   /** Ultimo testo dell'assistente nel turno ('' se non ha scritto nulla). */
   private lastAssistantText(sessionId: string, turnId: string): string {
     let last: Extract<ChatItem, { kind: 'assistant' }> | null = null
@@ -3296,6 +4319,755 @@ export class Host {
       if (item.kind === 'assistant' && item.turnId === turnId && (!last || item.seq > last.seq)) last = item
     }
     return last?.text.trim() ?? ''
+  }
+
+  // ── Ladder MCP server: handoff, delegate, report_result ─────────
+
+  /** Read-only child session: advice and reviews always; delegations when they have the Plan level (read_only or parent in Plan). */
+  private isReadOnlyRow(row: SessionRow): boolean {
+    const parent = this.parentOf(row)
+    return !!parent && (parent.role !== 'delegate' || row.permission === 'plan')
+  }
+
+  /** How many delegations are above the session (0 = normal session). */
+  private delegationDepth(row: SessionRow): number {
+    let depth = 0
+    for (let cur: SessionRow | undefined = row; cur; ) {
+      const parent = this.parentOf(cur)
+      if (parent?.role !== 'delegate') break
+      depth++
+      cur = this.rows.get(parent.sessionId)
+    }
+    return depth
+  }
+
+  /** Ladder server tools for the session: advice does not hand off or delegate; a read-only delegation neither, but returns the outcome. */
+  private ladderToolsFor(row: SessionRow): LadderToolName[] {
+    const parent = this.parentOf(row)
+    if (!parent) return ['list_agents', 'handoff', 'delegate', 'report_result']
+    if (parent.role !== 'delegate') return ['list_agents']
+    return ['list_agents', 'report_result', ...(!this.isReadOnlyRow(row) && this.delegationDepth(row) < MAX_DELEGATION_DEPTH ? (['delegate'] as const) : [])]
+  }
+
+  /** Agent id from what the model wrote: id, ACP id without prefix or display name. */
+  private resolveAgent(input: string): AgentId | null {
+    const id = input.trim()
+    if (this.agents.has(id)) return id as AgentId
+    const key = agentKey(id)
+    if (this.agents.has(key)) return key as AgentId
+    const lower = id.toLowerCase()
+    for (const [agent, status] of this.agents) if (status.name.toLowerCase() === lower) return agent as AgentId
+    return null
+  }
+
+  private async ladderListAgents(sessionId: string): Promise<ToolOutcome> {
+    const row = this.mustRow(sessionId)
+    const settings = await loadProjectSettings(this.mustProject(row.project_id).path)
+    const agents = [...this.agents.values()]
+      .filter((a) => a.available && (!settings.agents.allowed.length || settings.agents.allowed.includes(a.agent)))
+      .map((a) => ({ id: a.agent, name: a.name, current: a.agent === row.agent, models: a.models.slice(0, 20).map((m) => ({ id: m.id, name: m.label, default: m.isDefault === true })) }))
+    const delegates = settings.agents.delegates.map((d) => ({ name: d.name, agent: d.agent, model: d.model, effort: d.effort, permission: d.permission, note: d.note }))
+    const text = JSON.stringify({ current: row.agent, agents, delegates, limits: { delegationsPerTurn: MAX_DELEGATIONS_PER_TURN, maxDepth: MAX_DELEGATION_DEPTH } })
+    return { text }
+  }
+
+  /** handoff: 'out' row 'pending' and delivery at end of turn with the agent's summary (same path as "Switch to…", without a summary turn). */
+  private async ladderHandoff(sessionId: string, args: HandoffArgs, _call: LadderCall, signal: AbortSignal): Promise<ToolOutcome> {
+    const fail = (text: string): ToolOutcome => ({ text, isError: true })
+    const row = this.rows.get(sessionId)
+    const runtime = this.runtimes.get(sessionId)
+    if (!row || !runtime?.turnId || this.isGone(sessionId)) return fail(t('The session is not working right now.'))
+    if (row.parent || row.mode !== 'chat') return fail(t('This session cannot hand its work over.'))
+    if (runtime.handoff || row.handoff || this.handoffStarting.has(sessionId)) return fail(t('A handoff is already scheduled for this session.'))
+    const agent = this.resolveAgent(args.agent)
+    if (!agent) return fail(t('Unknown agent “{agent}”. Call list_agents to see which agents you can use.', { agent: stripControl(args.agent).slice(0, 40) }))
+    if (agent === row.agent) return fail(t('The session already uses {agent}: pick a different agent.', { agent: this.agentName(agent) }))
+    const turnId = runtime.turnId
+    try {
+      this.assertHandoffAgent(await loadProjectSettings(this.mustProject(row.project_id).path), agent)
+    } catch (error) {
+      return fail((error as Error).message)
+    }
+    const summary = stripControl(args.summary)
+    const note = args.note ? stripControl(args.note) : null
+    // Plan and Ask: the user confirms, with the same card as the other requests.
+    if (row.permission === 'plan' || row.permission === 'ask') {
+      const response = await this.openRequest(
+        sessionId,
+        {
+          requestType: 'permission',
+          toolName: 'ladder:handoff',
+          title: t('Hand over to {agent}', { agent: this.agentName(agent) }),
+          command: null,
+          path: null,
+          reason: `${t('{from} wants to continue this work with {agent} in a new session on the same folder. The handoff starts when this turn ends.', { from: this.agentName(row.agent), agent: this.agentName(agent) })} ${t('Summary written by the agent: {summary}', { summary: summary.replace(/\s+/g, ' ').slice(0, 400) })}`,
+          options: [
+            { id: 'allow', label: t('Approve'), kind: 'allow' },
+            { id: 'deny', label: t('Deny'), kind: 'deny' }
+          ],
+          questions: null
+        },
+        signal
+      )
+      if (signal.aborted) return fail(t('The handoff was interrupted.'))
+      if (!('optionId' in response) || response.optionId !== 'allow') return fail(t('The user declined the handoff. Keep working on the task here, or ask them what they prefer.'))
+    }
+    // After the wait the situation may have changed.
+    const live = this.runtimes.get(sessionId)
+    if (live !== runtime || live.turnId !== turnId || this.isGone(sessionId)) return fail(t('The handoff was interrupted.'))
+    if (runtime.handoff || this.mustRow(sessionId).handoff) return fail(t('A handoff is already scheduled for this session.'))
+    const run: HandoffRun = { itemId: `${turnId}:handoff-out`, turnId, agent, model: null, effort: null, note, reason: 'agent', summary }
+    this.upsertItem(sessionId, { kind: 'handoff', id: run.itemId, turnId, at: Date.now(), reason: 'agent', direction: 'out', agent, peerSessionId: null, state: 'pending', note, summary, checkpoint: null, files: [], error: null })
+    this.updateRow(sessionId, { handoff: JSON.stringify(run) })
+    this.saveRun(run)
+    runtime.handoff = run
+    this.flush()
+    this.emitSummary(sessionId)
+    return { text: t('Handoff to {agent} scheduled: it starts when your turn ends, with the summary you wrote. Stop now: end your turn with one short sentence and no more tool calls.', { agent: this.agentName(agent) }) }
+  }
+
+  /** Id of the 'tool' row of the delegate MCP call in the parent (the UI links it to the child with parent.itemId). */
+  private async delegateRowId(motherId: string, turnId: string, call: LadderCall): Promise<string> {
+    const name = /ladder[._]{1,2}delegate$/i
+    for (let attempt = 0; attempt < 5; attempt++) {
+      // Claude gives the tool_use id: reliable. The others do not.
+      const exact = call.toolUseId ? this.itemById(motherId, call.toolUseId) : undefined
+      if (exact?.kind === 'tool' && !this.claimedToolRows.has(exact.id)) {
+        this.claimedToolRows.add(exact.id)
+        return exact.id
+      }
+      if (!call.toolUseId) {
+        // Without an id: the only in-progress 'tool' row of this turn with the tool name and not already taken by another delegation.
+        const open = this.loadItems(motherId).filter((i) => i.kind === 'tool' && i.turnId === turnId && i.status === 'running' && name.test(i.name) && !this.claimedToolRows.has(i.id))
+        if (open.length === 1) {
+          this.claimedToolRows.add(open[0].id)
+          return open[0].id
+        }
+        if (open.length > 1) break
+      }
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    // With the tool_use id the row is that one even if it has not appeared yet (reliable: the agent says so).
+    if (call.toolUseId && !this.claimedToolRows.has(call.toolUseId)) {
+      this.claimedToolRows.add(call.toolUseId)
+      return call.toolUseId
+    }
+    // Not reliable (parallel calls, agent that gives no id): the MCP request id, the 'tool' row is not linked.
+    return `delegate:${call.requestId}`
+  }
+
+  private similarTask(a: string, b: string): boolean {
+    const norm = (v: string) => v.toLowerCase().replace(/\s+/g, ' ').trim()
+    const [x, y] = [norm(a), norm(b)]
+    if (x === y) return true
+    const [short, long] = x.length <= y.length ? [x, y] : [y, x]
+    return short.length >= 40 && long.includes(short)
+  }
+
+  /** delegate: child session (parent.role 'delegate') in the same folder; the call waits for the end of its first turn. */
+  private async ladderDelegate(motherId: string, args: DelegateArgs, call: LadderCall, signal: AbortSignal): Promise<ToolOutcome> {
+    const fail = (text: string): ToolOutcome => ({ text, isError: true })
+    const mother = this.rows.get(motherId)
+    const runtime = this.runtimes.get(motherId)
+    if (!mother || !runtime?.turnId || this.isGone(motherId)) return fail(t('The session is not working right now.'))
+    if (this.isReadOnlyRow(mother)) return fail(t('A read-only session cannot delegate.'))
+    const turnId = runtime.turnId
+    if (this.delegationDepth(mother) >= MAX_DELEGATION_DEPTH) return fail(t('Delegation is at most {n} levels deep: do this task yourself.', { n: MAX_DELEGATION_DEPTH }))
+    const counted = this.delegateCounts.get(motherId)
+    if ((counted?.turnId === turnId ? counted.n : 0) >= MAX_DELEGATIONS_PER_TURN) return fail(t('At most {n} delegations per turn: finish with the results you have or do the rest yourself.', { n: MAX_DELEGATIONS_PER_TURN }))
+    const project = this.mustProject(mother.project_id)
+    const settings = await loadProjectSettings(project.path)
+    // The agent is an id or the name of a project delegate ([[agents.delegates]]), which carries model, effort and maximum permission.
+    const preset = settings.agents.delegates.find((d) => d.name.toLowerCase() === args.agent.toLowerCase())
+    const agent = preset ? preset.agent : this.resolveAgent(args.agent)
+    if (!agent) return fail(t('Unknown agent “{agent}”. Call list_agents to see which agents you can use.', { agent: stripControl(args.agent).slice(0, 40) }))
+    try {
+      this.assertHandoffAgent(settings, agent)
+    } catch (error) {
+      return fail((error as Error).message)
+    }
+    // The same provider already has its own sub-agents: delegating to itself is pointless.
+    if (agent === mother.agent) return fail(t('{agent} is your own agent: use your own subagent tool for that, and delegate only to a different agent.', { agent: this.agentName(agent) }))
+    // Model: if the agent declares its models, the requested one must be among them.
+    const wanted = args.model ?? preset?.model ?? null
+    const known = this.agents.get(agent)?.models ?? []
+    if (wanted && known.length && !known.some((m) => m.id === wanted || m.label.toLowerCase() === wanted.toLowerCase())) {
+      return fail(t('{agent} has no model “{model}”. Available models: {models}.', { agent: this.agentName(agent), model: stripControl(wanted).slice(0, 60), models: known.slice(0, 12).map((m) => m.id).join(', ') }))
+    }
+    // No bouncing: along the chain, going back to the agent that delegated with the same task.
+    for (let cur: SessionRow | undefined = mother; cur; ) {
+      const parent = this.parentOf(cur)
+      if (parent?.role !== 'delegate') break
+      const up = this.rows.get(parent.sessionId)
+      const task = this.delegations.get(cur.id)?.task
+      if (up && task && up.agent === agent && this.similarTask(args.prompt, task)) return fail(t('{agent} delegated this same task to you: do it yourself instead of sending it back.', { agent: this.agentName(agent) }))
+      cur = up
+    }
+    // After the awaits the turn may have ended or the session been archived.
+    if (this.runtimes.get(motherId) !== runtime || runtime.turnId !== turnId || this.isGone(motherId) || signal.aborted) return fail(t('The delegation was stopped.'))
+    // Permission: never higher than the parent's; read_only and the project delegate lower it.
+    const lower = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (LEVELS.indexOf(a) <= LEVELS.indexOf(b) ? a : b)
+    let level = mother.permission as PermissionLevel
+    if (args.readOnly) level = lower(level, 'plan')
+    if (preset) level = lower(level, preset.permission)
+    level = clampPermission(level, settings.agents.permissionsMax)
+    const readOnly = level === 'plan'
+    // The worktree is for whoever writes; with read-only there is nothing to isolate.
+    if (args.worktree && readOnly) return fail(t('A worktree is for a delegate that writes files: it cannot be combined with read-only.'))
+    if (args.worktree && !project.isGit) return fail(t('A worktree requires a git repository.'))
+    const itemId = await this.delegateRowId(motherId, turnId, call)
+    let prompt: string
+    try {
+      prompt = await renderDelegatePrompt(project.path, { agent: this.agentName(mother.agent), task: args.prompt, readOnly })
+    } catch (error) {
+      this.claimedToolRows.delete(itemId)
+      return fail((error as Error).message)
+    }
+    if (this.runtimes.get(motherId) !== runtime || runtime.turnId !== turnId || this.isGone(motherId) || signal.aborted) {
+      this.claimedToolRows.delete(itemId)
+      return fail(t('The delegation was stopped.'))
+    }
+    // The counter is consumed only now that the delegation starts (and checked again, for parallel calls).
+    const again = this.delegateCounts.get(motherId)
+    const used = again?.turnId === turnId ? again.n : 0
+    if (used >= MAX_DELEGATIONS_PER_TURN) {
+      this.claimedToolRows.delete(itemId)
+      return fail(t('At most {n} delegations per turn: finish with the results you have or do the rest yourself.', { n: MAX_DELEGATIONS_PER_TURN }))
+    }
+    this.delegateCounts.set(motherId, { turnId, n: used + 1 })
+    // New worktree from the real HEAD of the parent's folder (work not yet committed stays out), only now that the delegation starts.
+    let worktree: WorktreeInfo | null = null
+    if (args.worktree) {
+      try {
+        const title = t('Delegate · {title}', { title: mother.title })
+        const created = await createWorktree(project, `${title} ${randomUUID().slice(0, 4)}`, settings.worktree.copy, null, { dir: this.prefs.worktreesDir, branchPrefix: this.prefs.branchPrefix, startCommit: (await resolveCommit(this.cwdOf(mother), 'HEAD')) ?? undefined })
+        worktree = created.info
+        await this.ports.reserve(worktree.path)
+        void ensureExcluded(project.path, PERSONAL_PATTERNS).catch(() => undefined)
+      } catch (error) {
+        this.claimedToolRows.delete(itemId)
+        // Created but without ports (or anything else): no orphan worktree is left.
+        if (worktree) {
+          await removeWorktree(project, worktree.path, { skipCleanup: true }).catch(() => undefined)
+          this.ports.release(worktree.path)
+        }
+        const counter = this.delegateCounts.get(motherId)
+        if (counter?.turnId === turnId && counter.n > 0) counter.n--
+        return fail(t('Could not create the worktree for the delegate: {error}', { error: error instanceof Error ? error.message : String(error) }))
+      }
+      if (this.runtimes.get(motherId) !== runtime || runtime.turnId !== turnId || this.isGone(motherId) || signal.aborted) {
+        this.claimedToolRows.delete(itemId)
+        await removeWorktree(project, worktree.path, { skipCleanup: true }).catch(() => undefined)
+        this.ports.release(worktree.path)
+        return fail(t('The delegation was stopped.'))
+      }
+    }
+    const child = this.derivedRow(mother, {
+      agent,
+      model: args.model ?? preset?.model ?? null,
+      effort: args.effort ?? preset?.effort ?? null,
+      permission: level,
+      title: t('Delegate · {title}', { title: mother.title }),
+      titleSource: 'generated',
+      handoffFrom: null,
+      parent: JSON.stringify({ sessionId: motherId, role: 'delegate', itemId })
+    })
+    if (worktree) {
+      child.cwd = worktree.path
+      child.worktree = JSON.stringify(worktree)
+    }
+    this.insertSession(child)
+    let resolve!: (outcome: ToolOutcome) => void
+    const done = new Promise<ToolOutcome>((r) => (resolve = r))
+    this.delegations.set(child.id, { motherId, itemId, agent, task: args.prompt, ended: false, report: null, resolve, done, branch: worktree?.branch ?? null })
+    // Sub-agent in the parent's map: kind = agent name, the rest is filled in when the delegation ends.
+    this.subagents.update(motherId, { id: child.id, title: stripControl(args.prompt).split('\n')[0].slice(0, 80) || t('Delegated task'), kind: this.agentName(agent), model: child.model, effort: child.effort as Effort | null, toolId: itemId, status: 'running', background: false })
+    runtime.turnAgents = (runtime.turnAgents ?? 0) + 1
+    this.emitSubagents(motherId)
+    this.emitSummary(child.id)
+    signal.addEventListener('abort', () => this.stopDelegation(child.id), { once: true })
+    try {
+      if (signal.aborted) throw new Error(t('The delegation was stopped.'))
+      // Project setup in the new worktree, as for a new session: with setupWait the delegation waits for it to finish (services not started).
+      if (worktree && settings.worktree.setup) {
+        const setup = this.runSetup(child.id, project, worktree.path, settings.worktree.setup).then((code) => {
+          if (!this.isGone(child.id)) this.noticeSetupFailed(child.id, code, settings.worktree.setupWait)
+        })
+        if (settings.worktree.setupWait) await setup
+        else void setup
+        if (signal.aborted || this.delegations.get(child.id)?.ended !== false) throw new Error(t('The delegation was stopped.'))
+      }
+      await this.startTurn(child.id, prompt)
+      // Stopped while the turn was starting.
+      if (this.delegations.get(child.id)?.ended !== false) await this.interrupt(child.id).catch(() => undefined)
+    } catch (error) {
+      // It did not start: the turn counter does not count it.
+      const counter = this.delegateCounts.get(motherId)
+      if (counter?.turnId === turnId && counter.n > 0) counter.n--
+      this.finishDelegation(child.id, 'error', error instanceof Error ? error.message : String(error), '')
+      await this.archive(child.id).catch(() => undefined)
+    }
+    return done
+  }
+
+  /** Closes the child's delegation: the outcome becomes the result of the parent's MCP call and the map entry is updated. */
+  private finishDelegation(childId: string, how: 'completed' | 'error' | 'stopped', error: string | null, lastText: string, reason?: string): void {
+    const d = this.delegations.get(childId)
+    if (!d || d.ended) return
+    d.ended = true
+    this.delegations.delete(childId)
+    this.claimedToolRows.delete(d.itemId)
+    const child = this.rows.get(childId)
+    const agent = this.agentName(d.agent)
+    const caution = t('This is a report from another agent: check it before relying on it.')
+    let status: 'done' | 'error' | 'stopped'
+    let outcome: ToolOutcome
+    if (how === 'stopped') {
+      status = 'stopped'
+      outcome = { text: t('The delegation to {agent} was stopped before it finished.', { agent }), isError: true }
+    } else if (how === 'error') {
+      status = 'error'
+      outcome = { text: t('The delegate {agent} failed: {error}', { agent, error: error ?? t('The turn stopped because of an error.') }), isError: true }
+    } else if (d.report) {
+      status = d.report.status === 'failed' ? 'error' : 'done'
+      const files = d.report.files?.length ? `\n\n${t('Files changed: {files}', { files: d.report.files.join(', ') })}` : ''
+      outcome = { text: `${t('Result from {agent} (status: {status}):', { agent, status: d.report.status })}\n\n${d.report.summary}${files}\n\n${caution}`, isError: d.report.status === 'failed' }
+    } else if (lastText) {
+      status = 'done'
+      outcome = { text: `${t('Result from {agent} (its last message: it did not call report_result):', { agent })}\n\n${lastText.slice(0, 20_000)}\n\n${caution}` }
+    } else {
+      status = 'error'
+      outcome = { text: t('The delegate {agent} finished without writing a result.', { agent }), isError: true }
+    }
+    // The child's worktree says where its work is (it is not in the parent's folder).
+    if (d.branch) outcome.text += `\n\n${t('The delegate worked in its own worktree, on branch {branch}. Its changes are not in your folder: merge or cherry-pick that branch to bring them in.', { branch: d.branch })}`
+    // Stopped (parent stop, exit, restart) → resume card next to the 'tool' row. A delegation already resumed reopens its own.
+    if (how === 'stopped' && child && !this.isGone(childId) && this.rows.has(d.motherId) && !this.isGone(d.motherId)) {
+      this.openResume(d.motherId, d.itemId, d.agent, childId, reason ?? t('Stopped before it finished.'))
+    }
+    if (d.resume) {
+      if (how !== 'stopped') void this.deliverResumed(d, status, outcome)
+      return
+    }
+    const context = child?.context ? (JSON.parse(child.context) as { used?: number }) : null
+    if (this.rows.has(d.motherId)) {
+      this.subagents.update(d.motherId, { id: childId, status, ...(child?.model ? { model: child.model } : {}), ...(typeof context?.used === 'number' ? { tokens: context.used } : {}) })
+      this.emitSubagents(d.motherId)
+    }
+    d.resolve(outcome)
+  }
+
+  /** Stops a delegation's child (parent Stop, cancelled MCP call) and closes the call with an error. */
+  private stopDelegation(childId: string): void {
+    const d = this.delegations.get(childId)
+    if (!d || d.ended) return
+    this.finishDelegation(childId, 'stopped', null, '')
+    // After the interruption (and the end of the turn) the child's process closes: onTurnEnd already does it, this is the safety net.
+    const runtime = this.runtimes.get(childId)
+    void this.interrupt(childId)
+      .then(() => runtime?.ending)
+      .then(() => {
+        if (runtime && this.runtimes.get(childId) === runtime && !runtime.adapter.isRunning) this.closeRuntime(childId)
+      })
+      .catch(() => undefined)
+  }
+
+  private stopDelegations(motherId: string): void {
+    // Delegations resumed by the user (d.resume) do not depend on a parent turn: its Stop does not stop them.
+    for (const [childId, d] of [...this.delegations]) if (d.motherId === motherId && !d.resume) this.stopDelegation(childId)
+  }
+
+  // ── Interrupted delegations: resume or dismiss ─────────────────────────────
+
+  /** The session has its own folder: a normal session with a worktree, or a delegated child with `worktree: true` (folder different from the parent's). */
+  private ownsWorktree(row: SessionRow): boolean {
+    if (!row.worktree) return false
+    const parent = this.parentOf(row)
+    if (!parent) return true
+    const mother = this.rows.get(parent.sessionId)
+    return !!mother && this.cwdOf(mother) !== this.cwdOf(row)
+  }
+
+  /** Resume card in the parent, with the same turn as the call's 'tool' row. */
+  private openResume(motherId: string, toolItemId: string, agent: AgentId, childId: string, reason: string): void {
+    const tool = this.itemById(motherId, toolItemId)
+    this.upsertItem(motherId, { kind: 'resume', id: `${toolItemId}:resume`, turnId: tool?.turnId ?? 'system', at: Date.now(), toolItemId, agent, childSessionId: childId, reason, state: 'open', error: null })
+    this.flush()
+  }
+
+  /** 'resume': restarts the child's turn with a resume message; at the end of the turn the result goes to the coordinator (deliverResumed). 'dismiss': closes the card. */
+  private async resumeDelegation(sessionId: string, itemId: string, action: 'resume' | 'dismiss'): Promise<void> {
+    this.mustRow(sessionId)
+    const item = this.itemById(sessionId, itemId)
+    if (item?.kind !== 'resume') throw new Error(t('Resume card not found.'))
+    if (item.state !== 'open' && item.state !== 'error') throw new Error(t('This delegation was already handled.'))
+    const patch = (change: Partial<ResumeRow>) => {
+      this.upsertItem(sessionId, { ...item, ...change })
+      this.flush()
+    }
+    if (action === 'dismiss') return patch({ state: 'dismissed', error: null })
+    const child = item.childSessionId ? this.rows.get(item.childSessionId) : undefined
+    if (!child || child.archived || this.isGone(child.id) || child.mode !== 'chat') {
+      const message = t('The delegate session is gone: there is nothing to resume.')
+      patch({ state: 'error', error: message })
+      throw new Error(message)
+    }
+    if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+    if (this.isBusy(child.id) || (child.run_state !== 'idle' && child.run_state !== 'error')) throw new Error(t('Wait for the delegate to stop before resuming it.'))
+    const project = this.mustProject(child.project_id)
+    // Marked immediately, synchronously: a second click during the awaits finds the card already 'resumed' and does not open a second turn.
+    let resolve!: (outcome: ToolOutcome) => void
+    const done = new Promise<ToolOutcome>((r) => (resolve = r))
+    this.delegations.set(child.id, { motherId: sessionId, itemId: item.toolItemId, agent: child.agent as AgentId, task: '', ended: false, report: null, resolve, done, resume: { itemId }, branch: this.ownsWorktree(child) ? (JSON.parse(child.worktree!) as WorktreeInfo).branch : null })
+    patch({ state: 'resumed', error: null })
+    try {
+      // Agents that do not resume the conversation (ACP) start from scratch: the original task is in the child's first message.
+      const first = RESTARTABLE_AGENTS.has(child.agent) ? null : this.loadItems(child.id).find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user')
+      const text = await renderDelegateResume(project.path, { task: first?.text ?? null })
+      if (this.isGone(child.id) || this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+      await this.startTurn(child.id, text)
+    } catch (error) {
+      this.delegations.delete(child.id)
+      patch({ state: 'open', error: error instanceof Error ? error.message : String(error) })
+      throw error
+    }
+  }
+
+  /** Resumed delegation finished: the result goes to the coordinator as a user message (session.send rules), the card becomes 'done' or 'error'. */
+  private async deliverResumed(d: Delegation, status: 'done' | 'error' | 'stopped', outcome: ToolOutcome): Promise<void> {
+    const itemId = d.resume!.itemId
+    const settle = (state: 'done' | 'error', error: string | null) => {
+      const item = this.itemById(d.motherId, itemId)
+      if (item?.kind !== 'resume') return
+      this.upsertItem(d.motherId, { ...item, state, error })
+      this.flush()
+    }
+    try {
+      if (!this.rows.has(d.motherId) || this.isGone(d.motherId)) throw new Error(t('The session is archived.'))
+      const project = this.mustProject(this.mustRow(d.motherId).project_id)
+      await this.send(d.motherId, await renderDelegateResumed(project.path, { agent: this.agentName(d.agent), result: outcome.text }))
+      settle(status === 'error' ? 'error' : 'done', status === 'error' ? outcome.text : null)
+    } catch (error) {
+      settle('error', error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /** report_result: for a delegation it is the result of the parent's call; for a session born from a handoff it updates the origin's 'out' row. */
+  private async ladderReport(sessionId: string, args: ReportArgs): Promise<ToolOutcome> {
+    const row = this.mustRow(sessionId)
+    const result: AgentResult = { status: args.status, summary: stripControl(args.summary), files: args.files.map((f) => stripControl(f)).filter(Boolean), at: Date.now() }
+    const delegation = this.delegations.get(sessionId)
+    if (delegation && !delegation.ended) {
+      if (delegation.report) return { text: t('You already reported a result.'), isError: true }
+      delegation.report = result
+      return { text: t('Result recorded: it goes back to {agent}. End your turn now.', { agent: this.agentName(this.mustRow(delegation.motherId).agent) }) }
+    }
+    // Handoff: the latest 'in' row says who it comes from and which 'out' row to update.
+    let inRow: Extract<ChatItem, { kind: 'handoff' }> | null = null
+    for (const item of this.loadItems(sessionId)) if (item.kind === 'handoff' && item.direction === 'in' && item.peerSessionId) inRow = item
+    const fromId = inRow?.peerSessionId
+    const from = fromId ? this.rows.get(fromId) : undefined
+    if (!inRow || !from) return { text: t('Nobody is waiting for a result from this session: report_result is only for delegated tasks and handoffs. Write your answer in the chat.'), isError: true }
+    const outId = inRow.id.replace(/:in$/, '')
+    const out = this.itemById(from.id, outId)
+    if (out?.kind !== 'handoff') return { text: t('The handoff this session came from is no longer there.'), isError: true }
+    if (out.result) return { text: t('You already reported a result.'), isError: true }
+    this.patchHandoffItem(from.id, outId, { result })
+    // Light notification to the origin: reuses the finished sub-agents notice.
+    const project = this.projects.get(from.project_id)
+    if (project && !from.archived) {
+      const ok = result.status === 'done'
+      this.attention({ kind: 'agents', sessionId: from.id, projectId: project.id, projectName: project.name, itemId: outId, outcome: ok ? 'done' : 'failed', finished: 1, failed: ok ? 0 : 1, title: ok ? t('{project}: {agent} reported back', { project: project.name, agent: this.agentName(row.agent) }) : t('{project}: {agent} reported a problem', { project: project.name, agent: this.agentName(row.agent) }), body: from.title })
+    }
+    return { text: t('Result recorded: it is on the handoff in the original session. End your turn now.') }
+  }
+
+  // ── Advice from other agents and "Implement with…" ──────────────
+
+  private parentOf(row: SessionRow): NonNullable<SessionSummary['parent']> | null {
+    try {
+      return row.parent ? (JSON.parse(row.parent) as NonNullable<SessionSummary['parent']>) : null
+    } catch {
+      return null
+    }
+  }
+
+  /** Child sessions are read-only: handoffs, implementations and permission changes are refused. */
+  private assertNotChild(sessionId: string, message: string): void {
+    if (this.mustRow(sessionId).parent) throw new Error(message)
+  }
+
+  /** A row of the session (live or on disk) without loading the whole chat. */
+  private itemById(sessionId: string, id: string): ChatItem | undefined {
+    const live = this.liveItems.get(sessionId)
+    if (live) return live.get(id)
+    const saved = this.db.prepare('select json from items where session_id = ? and id = ?').get(sessionId, id) as { json: string } | undefined
+    return saved ? (JSON.parse(saved.json) as ChatItem) : undefined
+  }
+
+  private adviceItem(sessionId: string, itemId: string): Extract<ChatItem, { kind: 'advice' }> {
+    this.mustRow(sessionId)
+    const item = this.itemById(sessionId, itemId)
+    if (item?.kind !== 'advice') throw new Error(t('Advice not found.'))
+    return item
+  }
+
+  /** New row for a session that starts from another: same folder and worktree (no new worktree or setup), project profile. */
+  private derivedRow(from: SessionRow, init: { agent: AgentId; model: string | null; effort: Effort | null; permission: PermissionLevel; title: string; titleSource: string; handoffFrom: string | null; parent: string | null }): SessionRow {
+    const profileId = this.profiles.resolve(init.agent, from.project_id)
+    const defaults = init.model ? null : this.agentDefaults(init.agent, from.project_id, profileId ?? undefined)
+    const now = Date.now()
+    return {
+      id: randomUUID(),
+      project_id: from.project_id,
+      title: init.title,
+      agent: init.agent,
+      model: init.model ?? defaults?.model ?? null,
+      // Only the given model: the effort is decided by the agent (the default belongs to another model).
+      effort: init.effort ?? defaults?.effort ?? null,
+      permission: init.permission,
+      created_at: now,
+      updated_at: now,
+      archived: 0,
+      external_id: null,
+      run_state: 'idle',
+      last_seq: 0,
+      last_activity_seq: 0,
+      last_read_seq: 0,
+      queue: '[]',
+      context: null,
+      mode: 'chat',
+      command: null,
+      cwd: from.cwd,
+      worktree: from.worktree,
+      estimated: 0,
+      agent_ref: null,
+      activity_at: now,
+      source: null,
+      title_source: init.titleSource,
+      profile_id: profileId,
+      permission_next: null,
+      merged_via: null,
+      merged_at: null,
+      handoff_from: init.handoffFrom,
+      handoff: null,
+      parent: init.parent
+    }
+  }
+
+  /** Updates an entry of the parent's card (if still there) and sends it to the UI. */
+  private writeAdvice(motherId: string, item: Extract<ChatItem, { kind: 'advice' }>, entries: AdviceItem['entries'], extra: Partial<AdviceItem> = {}): void {
+    if (!this.rows.has(motherId)) return
+    this.upsertItem(motherId, { ...item, ...extra, entries })
+    this.flush()
+  }
+
+  /**
+   * A child finished (or was stopped): updates its entry on the parent's card. Valid only if the entry is still
+   * 'running' (the first turn counts; what happens afterwards does not touch it). When all entries are finished it notifies the parent.
+   */
+  private settleAdvice(childId: string, patch: Partial<AdviceItem['entries'][number]>): void {
+    const child = this.rows.get(childId)
+    const parent = child ? this.parentOf(child) : null
+    if (!parent || (parent.role !== 'advisor' && parent.role !== 'review') || !this.rows.has(parent.sessionId)) return
+    const item = this.itemById(parent.sessionId, parent.itemId)
+    if (item?.kind !== 'advice') return
+    const index = item.entries.findIndex((e) => e.sessionId === childId)
+    if (index < 0 || item.entries[index].state !== 'running') return
+    const entries = item.entries.map((e, i) => (i === index ? { ...e, ...patch } : e))
+    // Cross-review: the verdict is in the first line of the advice.
+    const verdict = item.mode === 'review' && patch.state === 'done' ? parseVerdict(patch.text ?? '') : undefined
+    this.writeAdvice(parent.sessionId, item, entries, verdict !== undefined ? { verdict } : {})
+    if (entries.every((e) => e.state !== 'running')) this.adviceReady(parent.sessionId, item.id, entries)
+    if (verdict === 'serious') void this.forwardReview(parent.sessionId, item.id).catch(() => undefined)
+    if (item.mode === 'review' && entries.every((e) => e.state !== 'running')) this.startQueuedReview(parent.sessionId)
+  }
+
+  /** All entries finished: a light notice for the parent (reuses 'agents'). If the user stopped them, nothing. */
+  private adviceReady(motherId: string, itemId: string, entries: AdviceItem['entries']): void {
+    const row = this.rows.get(motherId)
+    const project = row ? this.projects.get(row.project_id) : undefined
+    if (!row || !project || this.isGone(motherId)) return
+    const done = entries.filter((e) => e.state === 'done').length
+    const failed = entries.filter((e) => e.state === 'error').length
+    if (done + failed === 0) return
+    // An automatic review notifies only if it finds something serious.
+    const advice = this.itemById(motherId, itemId)
+    if (advice?.kind === 'advice' && advice.mode === 'review' && advice.verdict !== 'serious') return
+    const title = done > 0 ? t('{project}: advice ready', { project: project.name }) : t('{project}: advice failed', { project: project.name })
+    this.attention({ kind: 'agents', sessionId: motherId, projectId: project.id, projectName: project.name, itemId, outcome: done > 0 ? 'done' : 'failed', finished: entries.length, failed, title, body: row.title })
+  }
+
+  /** /advisor and /committee: a read-only child session per agent, with the advice card in the parent. */
+  private async advise(command: Extract<HostCommand, { type: 'session.advise' }>): Promise<string> {
+    const { sessionId, agents } = command
+    const row = this.mustRow(sessionId)
+    if (row.mode === 'terminal') throw new Error(t('A terminal session cannot ask for advice.'))
+    if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+    if (row.parent) throw new Error(t('A child session (advice or delegation) cannot ask for advice.'))
+    if (agents.length < 1 || agents.length > 4) throw new Error(t('Pick between one and four agents.'))
+    if (new Set(agents.map((a) => a.agent)).size !== agents.length) throw new Error(t('Each agent can be picked only once.'))
+    const project = this.mustProject(row.project_id)
+    const settings = await loadProjectSettings(project.path)
+    for (const spec of agents) this.assertHandoffAgent(settings, spec.agent)
+    const question = command.question.trim()
+    const prompt = await renderAdvisorPrompt(project.path, { title: row.title, branch: this.branchOf(row), question, conversation: conversationExcerpt(this.loadItems(sessionId)) })
+    // After the awaits the session may have been archived.
+    if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+    const itemId = randomUUID()
+    this.upsertItem(sessionId, {
+      kind: 'advice',
+      id: itemId,
+      turnId: 'system',
+      at: Date.now(),
+      mode: agents.length > 1 ? 'committee' : 'advisor',
+      question,
+      entries: agents.map((a) => ({ agent: a.agent, model: a.model ?? null, sessionId: null, state: 'running' as const, text: null, error: null })),
+      forwarded: false
+    })
+    this.flush()
+    await Promise.all(agents.map((spec, index) => this.startAdvisor(row, itemId, index, spec, prompt, settings)))
+    return itemId
+  }
+
+  /** Creates the child session of an entry and starts its turn; a start error closes the entry, not the command. */
+  private async startAdvisor(mother: SessionRow, itemId: string, index: number, spec: { agent: AgentId; model?: string | null; effort?: Effort | null }, prompt: string, settings: ProjectSettings, role: 'advisor' | 'review' = 'advisor'): Promise<void> {
+    let child: SessionRow | null = null
+    const entryState = () => {
+      const item = this.itemById(mother.id, itemId)
+      return item?.kind === 'advice' ? item : null
+    }
+    const patch = (change: Partial<AdviceItem['entries'][number]>) => {
+      const item = entryState()
+      if (item) this.writeAdvice(mother.id, item, item.entries.map((e, i) => (i === index ? { ...e, ...change } : e)))
+    }
+    try {
+      child = this.derivedRow(mother, {
+        agent: spec.agent,
+        model: spec.model ?? null,
+        effort: spec.effort ?? null,
+        // Read-only: Codex has the read-only sandbox, Claude the Plan mode with write tools removed.
+        permission: clampPermission('plan', settings.agents.permissionsMax),
+        title: role === 'review' ? t('Review · {title}', { title: mother.title }) : t('Advice · {title}', { title: mother.title }),
+        titleSource: 'generated',
+        handoffFrom: null,
+        parent: JSON.stringify({ sessionId: mother.id, role, itemId })
+      })
+      this.insertSession(child)
+      patch({ sessionId: child.id, model: child.model })
+      this.emitSummary(child.id)
+      // Stopped (or parent archived) before the turn started: the child does not start.
+      const current = entryState()
+      if (!current || current.entries[index]?.state !== 'running' || this.isGone(mother.id)) throw new Error(t('The advice was stopped.'))
+      await this.startTurn(child.id, prompt)
+      // Stopped while the turn was starting: the child is interrupted right away.
+      if (entryState()?.entries[index]?.state !== 'running') await this.interrupt(child.id).catch(() => undefined)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (entryState()?.entries[index]?.state === 'running') patch({ state: 'error', error: message, sessionId: null })
+      if (child) await this.archive(child.id).catch(() => undefined)
+      const item = entryState()
+      if (item && item.entries.every((e) => e.state !== 'running')) {
+        this.adviceReady(mother.id, itemId, item.entries)
+        if (item.mode === 'review') this.startQueuedReview(mother.id)
+      }
+    }
+  }
+
+  /** When a review finishes, the pending one starts (if any). */
+  private startQueuedReview(sessionId: string): void {
+    const files = this.reviewQueued.get(sessionId)
+    if (!files) return
+    this.reviewQueued.delete(sessionId)
+    void this.startCrossReview(sessionId, files).catch(() => undefined)
+  }
+
+  /** Stops the entries still 'running': they become 'stopped' and the child sessions are interrupted (they stay open to be read). */
+  private async stopAdvice(sessionId: string, itemId: string): Promise<void> {
+    const item = this.adviceItem(sessionId, itemId)
+    const running = item.entries.filter((e) => e.state === 'running')
+    if (!running.length) return
+    this.writeAdvice(sessionId, item, item.entries.map((e) => (e.state === 'running' ? { ...e, state: 'stopped' as const, error: null } : e)))
+    await Promise.all(running.map((e) => (e.sessionId ? this.interrupt(e.sessionId).catch(() => undefined) : undefined)))
+  }
+
+  /** Sends the finished advice to the session's agent as a user message, with the session.send rules. */
+  private async forwardAdvice(sessionId: string, itemId: string, note: string | null, auto = false): Promise<void> {
+    const item = this.adviceItem(sessionId, itemId)
+    const opinions = item.entries.flatMap((e) => (e.state === 'done' && e.text?.trim() ? [{ agent: this.agentName(e.agent), model: e.model, text: e.text }] : []))
+    if (!opinions.length) throw new Error(t('There is no advice to send yet.'))
+    const project = this.mustProject(this.mustRow(sessionId).project_id)
+    const text = await renderAdviceForward(project.path, { opinions, note: note?.trim() || null })
+    // Automatic review forward: the turn it creates is not reviewed (see startTurn).
+    if (auto) this.reviewForwards.set(sessionId, text)
+    try {
+      await this.send(sessionId, text)
+    } catch (error) {
+      if (auto) this.reviewForwards.delete(sessionId)
+      throw error
+    }
+    const current = this.itemById(sessionId, itemId)
+    if (current?.kind === 'advice') {
+      this.upsertItem(sessionId, { ...current, forwarded: true })
+      this.flush()
+    }
+  }
+
+  /** "Implement with…": same agent = one message with the plan; other agent = delivery to a linked session, without a summary. */
+  private async implement(command: Extract<HostCommand, { type: 'session.implement' }>): Promise<string> {
+    const { sessionId, agent } = command
+    const row = this.mustRow(sessionId)
+    this.assertNotChild(sessionId, t('A child session (advice or delegation) cannot implement a plan.'))
+    if (row.mode === 'terminal') throw new Error(t('A terminal session cannot implement a plan.'))
+    if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+    // Only the tail is cleaned: the start stays as it is, or the comments' line numbers would shift.
+    const plan = command.plan.trimEnd()
+    if (!plan.trim()) throw new Error(t('The plan is empty.'))
+    const project = this.mustProject(row.project_id)
+    const settings = await loadProjectSettings(project.path)
+    const level = clampPermission(command.permission ?? 'edit', settings.agents.permissionsMax)
+    const prompt = await renderImplementPrompt(project.path, { plan, comments: command.comments })
+    if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+    if (agent === row.agent) {
+      // As session.permission.set (Codex mid-turn: from the next one), then as session.send.
+      if (row.permission === 'plan') await this.setPermission(sessionId, level)
+      await this.send(sessionId, prompt)
+      return sessionId
+    }
+    const busy = () => new Error(t('Wait for the session to finish before handing it over.'))
+    if (this.isBusy(sessionId) || row.handoff || this.handoffStarting.has(sessionId) || (row.run_state !== 'idle' && row.run_state !== 'error')) throw busy()
+    this.handoffStarting.add(sessionId)
+    const itemId = `implement:${randomUUID()}`
+    try {
+      this.assertHandoffAgent(settings, agent)
+      // Checkpoint at handoff time (as at end of turn): from there the files of the session chain are visible.
+      let checkpoint: string | null = null
+      const cwd = this.cwdOf(row)
+      if (project.isGit) {
+        checkpoint = await createCheckpoint(cwd, `refs/ladder/${sessionId}/${itemId.slice(10)}-implement`, 'ladder: implement handoff').catch(() => null)
+        if (checkpoint) recordCheckpoint(this.db, { session_id: sessionId, turn_id: null, kind: 'end', sha: checkpoint, root: cwd, label: null, at: Date.now() })
+      }
+      const files = await this.sessionFiles(row, checkpoint)
+      if (this.isGone(sessionId)) throw new Error(t('The handoff was interrupted.'))
+      if (this.isBusy(sessionId) || this.mustRow(sessionId).run_state === 'running') throw busy()
+      // The plan arrives with the comments, as the user wrote them.
+      const notes = command.comments.filter((c) => c.text.trim()).map((c) => t('- line {line}: {text}', { line: c.line, text: c.text.trim().replace(/\n+/g, ' ') }))
+      const summary = notes.length ? `${plan}\n\n## ${t('Comments on the plan')}\n\n${notes.join('\n')}` : plan
+      const run: HandoffRun = { itemId, turnId: 'system', agent, model: command.model ?? null, effort: command.effort ?? null, note: null, reason: 'implement', prompt, permission: level }
+      this.upsertItem(sessionId, { kind: 'handoff', id: itemId, turnId: 'system', at: Date.now(), reason: 'implement', direction: 'out', agent, peerSessionId: null, state: 'done', note: null, summary, checkpoint, files, error: null })
+      this.saveRun(run)
+      this.flush()
+      try {
+        const peerId = await this.deliverHandoff(row, run, summary, files, checkpoint)
+        this.patchHandoffItem(sessionId, itemId, { peerSessionId: peerId })
+        return peerId
+      } catch (error) {
+        this.patchHandoffItem(sessionId, itemId, { state: 'error', error: error instanceof Error ? error.message : String(error), peerSessionId: null, resumable: true })
+        throw error
+      }
+    } finally {
+      this.handoffStarting.delete(sessionId)
+    }
   }
 
   /** `all`: Stop (ferma anche i messaggi inseriti non ancora uniti); false per "invia ora", che li unisce al messaggio nuovo. */
@@ -3306,6 +5078,8 @@ export class Host {
     runtime.interrupting = true
     // Stop: ferma anche l'azione in corso nel browser dell'agente e ne revoca gli strumenti fino al turno dopo (stop implicito).
     this.browserAgent.stop(sessionId, 'interrupt')
+    // The parent's delegations stop with it (the MCP call returns with an error).
+    this.stopDelegations(sessionId)
     await runtime.adapter.interrupt(all)
   }
 
@@ -3632,11 +5406,13 @@ export class Host {
       request: open[0] ?? null,
       openRequests: run === 'waiting' ? Math.max(1, open.length) : 0,
       activityAt: row.activity_at || row.updated_at,
-      canSteer: this.canSteer(row),
+      canSteer: this.canSteer(row) && !runtime?.handoff,
       branch: this.branchOf(row),
       pr: this.prOf(row),
       source: row.source ? (JSON.parse(row.source) as SessionSource) : null,
       subagentCounts: this.subagents.counts(row.id, !!this.runtimes.get(row.id)?.turnId),
+      ...(row.handoff_from ? { handoffFrom: this.handoffFromOf(row) } : {}),
+      ...(row.parent ? { parent: this.parentOf(row) } : {}),
       agentsNotice: this.agentsNotices.get(row.id) ?? null
     }
   }
@@ -3831,6 +5607,8 @@ export class Host {
     const project = row ? this.projects.get(row.project_id) : undefined
     if (!pending || !row || !project) return false
     this.agentsPending.delete(sessionId)
+    // A child does not notify any of its sub-agents.
+    if (row.parent) return false
     const { finished, failed } = pending
     const title =
       outcome === 'failed'
@@ -3855,14 +5633,15 @@ export class Host {
   private errorAttention(sessionId: string, itemId: string, text: string): void {
     const row = this.rows.get(sessionId)
     const project = row ? this.projects.get(row.project_id) : undefined
-    if (row && project) this.attention({ kind: 'error', sessionId, projectId: project.id, itemId, title: `${project.name} · ${row.title}`, body: text })
+    // A child reports the error on the parent's card, not with a notification.
+    if (row && project && !row.parent) this.attention({ kind: 'error', sessionId, projectId: project.id, itemId, title: `${project.name} · ${row.title}`, body: text })
   }
 
   /** Badge: una per richiesta aperta, più le sessioni ferme per errore che non hai ancora visto. */
   private updateBadge(): void {
     let count = 0
     for (const row of this.rows.values()) {
-      if (row.archived || !this.projects.has(row.project_id)) continue
+      if (row.archived || row.parent || !this.projects.has(row.project_id)) continue
       if (row.run_state === 'waiting') count += Math.max(1, this.runtimes.get(row.id)?.pending.size ?? 0)
       else if ((row.run_state === 'error' && row.last_activity_seq > row.last_read_seq) || this.agentsNotices.has(row.id)) count++
     }
@@ -4060,7 +5839,7 @@ export class Host {
     }
     for (const row of [...this.rows.values()]) {
       const pr = this.prOf(row)
-      if (row.archived || !row.worktree || pr?.state !== 'merged' || this.mergedHandled.has(row.id)) continue
+      if (row.archived || row.parent || !row.worktree || pr?.state !== 'merged' || this.mergedHandled.has(row.id)) continue
       // Conta la data dell'unione, non l'ultimo aggiornamento: un commento su una PR vecchia non la rende della sessione.
       if ((pr.mergedAt ?? 0) < row.created_at || this.busySession(this.cwdOf(row))?.id === row.id) continue
       this.mergedHandled.add(row.id)
@@ -4076,10 +5855,16 @@ export class Host {
     this.db.prepare('update sessions set merged_via = ?, merged_at = ? where id = ?').run(via, at, row.id)
   }
 
+  /** Another non-archived chat session (not archiving) in the same folder: whoever inherits the services; null if none. */
+  private worktreeHeir(row: SessionRow): SessionRow | null {
+    const cwd = this.cwdOf(row)
+    return [...this.rows.values()].find((r) => r.id !== row.id && !r.archived && !r.parent && !this.archiving.has(r.id) && r.mode === 'chat' && this.cwdOf(r) === cwd) ?? null
+  }
+
   /** Un'altra sessione non archiviata usa la stessa cartella di lavoro. */
   private worktreeShared(row: SessionRow): boolean {
     const cwd = this.cwdOf(row)
-    return [...this.rows.values()].some((r) => r.id !== row.id && !r.archived && this.cwdOf(r) === cwd)
+    return [...this.rows.values()].some((r) => r.id !== row.id && !r.archived && !r.parent && this.cwdOf(r) === cwd)
   }
 
   /** Archivia la sessione di una PR unita (`pr`) o di un branch già nella base (null) e toglie il worktree se è pulito e nessun'altra sessione lo usa. */
@@ -4192,11 +5977,13 @@ export class Host {
     this.stopped = true
     if (this.prTimer) clearTimeout(this.prTimer)
     if (this.archiveTimer) clearTimeout(this.archiveTimer)
+    if (this.limitTimer) clearInterval(this.limitTimer)
     for (const timer of this.agentsWait.values()) clearTimeout(timer)
     this.agentsWait.clear()
     this.flush()
     for (const runtime of this.runtimes.values()) runtime.adapter.close()
     void this.browserAgent.shutdown()
+    void this.ladderMcp.close()
     this.connections.shutdown()
     this.shortcuts.close()
     this.terminals.shutdown()

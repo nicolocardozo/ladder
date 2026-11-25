@@ -172,7 +172,7 @@ function AllSessionsPanel({ project, autoFocus, panelRef, busy, onClose, onPoint
   busy.current = Boolean(query || agent || branch || status !== 'all' || checked.size > 0)
 
   const all = useMemo(
-    () => Object.values(sessions).filter((s) => s.projectId === project.id && !s.archived).sort((a, b) => lastTouched(b) - lastTouched(a)),
+    () => Object.values(sessions).filter((s) => s.projectId === project.id && !s.archived && !s.parent).sort((a, b) => lastTouched(b) - lastTouched(a)),
     [sessions, project.id]
   )
   const agentOptions = [...new Set(all.map((s) => s.agent))].map((id) => ({ id: id as string, label: agents.find((a) => a.agent === id)?.name ?? id }))

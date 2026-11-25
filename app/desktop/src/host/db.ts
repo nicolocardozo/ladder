@@ -138,7 +138,13 @@ const COLUMNS: [table: string, column: string, definition: string][] = [
   ['sessions', 'merged_at', 'integer'],
   // LAD-53: preferenze push del telefono (JSON di RemoteNotifyPrefs; null = predefinite) e lingua dell'app (RemoteClientHello.locale).
   ['devices', 'notify', 'text'],
-  ['devices', 'locale', 'text']
+  ['devices', 'locale', 'text'],
+  // JSON {sessionId, agent} of the session this one comes from ("Switch to…"); null = normal session.
+  ['sessions', 'handoff_from', 'text'],
+  // JSON of the handoff in progress (summary turn open); after a restart 'summarizing' stays only if this is still set, and must be closed.
+  ['sessions', 'handoff', 'text'],
+  // JSON {sessionId, role, itemId} of the parent session that launched this one (advice, delegation, review); null = normal session.
+  ['sessions', 'parent', 'text']
 ]
 
 function migrate(db: DatabaseSync): void {
@@ -215,6 +221,12 @@ export interface SessionRow {
   /** 'git' | 'pr' se la sessione è stata archiviata come unita (LAD-80); null altrimenti. */
   merged_via: string | null
   merged_at: number | null
+  /** JSON {sessionId, agent}: session this one comes from via "Switch to…"; null if normal. */
+  handoff_from: string | null
+  /** JSON of HandoffRun: handoff whose summary turn is in progress; null otherwise. */
+  handoff: string | null
+  /** JSON {sessionId, role, itemId}: parent session of a child session; null if normal. */
+  parent: string | null
 }
 
 export interface CheckpointRow {

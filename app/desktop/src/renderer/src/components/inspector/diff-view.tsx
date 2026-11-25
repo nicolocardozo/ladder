@@ -206,7 +206,7 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="px-3 py-3 text-sm text-muted-foreground">{children}</p>
 }
 
-function CommentEditor({ initial, onSave, onCancel }: { initial: string; onSave: (text: string) => void; onCancel: () => void }) {
+export function CommentEditor({ initial, onSave, onCancel }: { initial: string; onSave: (text: string) => void; onCancel: () => void }) {
   const [text, setText] = useState(initial)
   const ref = useRef<HTMLTextAreaElement>(null)
   const save = () => text.trim() && onSave(text.trim())
@@ -255,7 +255,7 @@ function CommentEditor({ initial, onSave, onCancel }: { initial: string; onSave:
   )
 }
 
-function CommentNote({ comment, onUpdate, onDelete }: { comment: LineComment; onUpdate: (text: string) => void; onDelete: () => void }) {
+export function CommentNote({ comment, onUpdate, onDelete }: { comment: LineComment; onUpdate: (text: string) => void; onDelete: () => void }) {
   const [editing, setEditing] = useState(false)
   if (editing)
     return (

@@ -6,6 +6,9 @@ import { CommandPalette } from '@/components/command-palette'
 import { NewChat, SessionView } from '@/components/main-views'
 import { Onboarding } from '@/components/connections/onboarding'
 import { NewFromDialog } from '@/components/new-from'
+import { AdviceDialog } from '@/components/advice-dialog'
+import { HandoffDialog } from '@/components/handoff-dialog'
+import { PlanDialog } from '@/components/plan-dialog'
 import { SavePresetDialog } from '@/components/preset-dialog'
 import { QuickOpen } from '@/components/quick-open'
 import { handleGlobalKeydown } from '@/lib/shortcuts'
@@ -243,6 +246,9 @@ export function App() {
       <NewFromDialog />
       <SettingsDialog />
       <SavePresetDialog />
+      <HandoffDialog />
+      <AdviceDialog />
+      <PlanDialog />
       <UnsavedFileDialog />
     </TooltipProvider>
   )

@@ -37,14 +37,25 @@ export function effortLabel(effort: SubagentInfo['effort']): string | null {
  * Il modello di un sotto-agente come lo mostra la UI: quello suo, o (se non noto) quello della sessione con "inherited".
  * Restituisce una funzione stabile finché non cambiano agente e modello della sessione.
  */
-export function useAgentModel(agent: AgentId, sessionModel: string | null): (a: Pick<SubagentInfo, 'model'>) => string | null {
-  const status = useApp((s) => s.agents.find((x) => x.agent === agent) ?? null)
+export function useAgentModel(agent: AgentId, sessionModel: string | null): (a: Pick<SubagentInfo, 'model'> & { kind?: string | null }) => string | null {
+  const agents = useApp((s) => s.agents)
   return useCallback(
     (a) => {
+      // A delegation has kind = the provider agent name: its model is read from that agent's catalog,
+      // and without a model it does not inherit the session one (it uses its agent default).
+      const own = a.kind ? agents.find((x) => x.name === a.kind && x.agent !== agent) : undefined
+      // Without a model the delegation uses its agent default, never the parent one.
+      if (own) return modelLabel(own, a.model) ?? t('Default model')
+      const status = agents.find((x) => x.agent === agent) ?? null
       if (a.model) return modelLabel(status, a.model)
       const inherited = modelLabel(status, sessionModel)
       return inherited ? t('{model} (inherited)', { model: inherited }) : null
     },
-    [status, sessionModel]
+    [agents, agent, sessionModel]
   )
+}
+
+/** Agent of a delegation: the subagent with kind = name of another installed agent; null for regular subagents. */
+export function useDelegateAgent(kind: string | null | undefined, sessionAgent: AgentId): AgentId | null {
+  return useApp((s) => (kind ? (s.agents.find((x) => x.name === kind && x.agent !== sessionAgent)?.agent ?? null) : null))
 }

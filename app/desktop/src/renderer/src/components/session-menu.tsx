@@ -1,6 +1,6 @@
 // Menu di sessioni e progetti: le stesse azioni per il clic destro (sidebar e tab) e per il pulsante "…" della riga.
 import { useMemo, useRef, useState } from 'react'
-import { Archive, ArrowDown, ArrowUp, Bookmark, Check, CheckCheck, CircleDot, Columns2, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, ListPlus, Pencil, RotateCw, Sparkles, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDown, ArrowRightLeft, ArrowUp, Bookmark, Check, CheckCheck, CircleDot, Columns2, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, ListPlus, MessagesSquare, Pencil, RotateCw, Sparkles, SquarePen, Trash2 } from 'lucide-react'
 import type { Project, SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,8 @@ import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuS
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@/components/ui/dropdown-menu'
 import { chooseEditor, EDITORS, EDITOR_NAME, openInEditor, useEditorOf, useInstalledEditors } from '@/components/inspector/open-file'
+import { adviceBlockedReason } from '@/lib/advice'
+import { handoffBlockedReason } from '@/lib/handoff'
 import { layoutProjects } from '@/lib/project-groups'
 import { openSavePreset } from '@/lib/session-presets'
 import { request } from '@/lib/host-client'
@@ -102,6 +104,25 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
         <Item className={itemClass} onClick={() => void request({ type: 'session.restartAgent', sessionId }).catch(() => undefined)}>
           <RotateCw />
           {t('Restart agent')}
+        </Item>
+      )}
+      {session.mode === 'chat' && !session.parent && (
+        // Hand the work off to another agent; only when idle, until the session is archived.
+        <Item className={itemClass} disabled={handoffBlockedReason(session) !== null} onClick={() => useApp.getState().setHandoffDialog({ sessionId })}>
+          <ArrowRightLeft />
+          {t('Hand off to…')}
+          {handoffBlockedReason(session) && (
+            <span className="ml-auto pl-3 text-xs text-muted-foreground" title={handoffBlockedReason(session) ?? undefined}>
+              {session.archived ? t('Archived') : t('Working')}
+            </span>
+          )}
+        </Item>
+      )}
+      {session.mode === 'chat' && !session.parent && (
+        // Read-only advice from other agents. Also available while the session works.
+        <Item className={itemClass} disabled={adviceBlockedReason(session) !== null} onClick={() => useApp.getState().setAdviceDialog({ sessionId, mode: 'advisor' })}>
+          <MessagesSquare />
+          {t('Ask for advice…')}
         </Item>
       )}
       <Item className={itemClass} disabled={!canSplit} onClick={() => openSplit(session.projectId, sessionId)}>
@@ -350,7 +371,7 @@ export function RemoveProjectDialog({ project, onClose }: { project: Project | n
   const target = shown.current
 
   const active = target
-    ? Object.values(sessions).filter((s) => s.projectId === target.id && !s.archived && s.run !== 'idle' && s.run !== 'error').length
+    ? Object.values(sessions).filter((s) => s.projectId === target.id && !s.archived && !s.parent && s.run !== 'idle' && s.run !== 'error').length
     : 0
 
   // Il nome del progetto sta in grassetto dentro la frase: si divide il testo tradotto attorno a {name}.

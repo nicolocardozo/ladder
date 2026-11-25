@@ -1,0 +1,60 @@
+// Italian translations: advice from other agents and the commentable plan with "Implement with…". Key = exact English text in the code.
+const it: Record<string, string> = {
+  // Advice commands, menus and dialogs
+  'Ask another agent for advice, or run /advisor <agent> [question]': 'Chiedi un parere a un altro agente, oppure scrivi /advisor <agente> [domanda]',
+  'Ask two to four different agents for advice': 'Chiedi un parere a due, tre o quattro agenti diversi',
+  'Ask for advice…': 'Chiedi un parere…',
+  'Ask for advice': 'Chiedi un parere',
+  'Ask a committee': 'Chiedi a un comitato',
+  'Another agent reads the work and the diff and gives an opinion. Nothing is edited.': 'Un altro agente legge il lavoro e le modifiche e dà un parere. Non viene modificato nulla.',
+  'Two to four different agents read the work and the diff, each on their own, and give an opinion. Nothing is edited.': 'Da due a quattro agenti diversi leggono il lavoro e le modifiche, ognuno per conto suo, e danno un parere. Non viene modificato nulla.',
+  'Agents ({n} of {max})': 'Agenti ({n} di {max})',
+  'Choose at least two agents.': 'Scegli almeno due agenti.',
+  'Up to {max} agents.': 'Fino a {max} agenti.',
+  'What should they look at? (optional)': 'Cosa devono guardare? (facoltativo)',
+  'e.g. Is this the right approach?': 'Es. È l’approccio giusto?',
+  'Without a question they give a general review of the current work.': 'Senza una domanda danno un parere generale sul lavoro attuale.',
+  'Asking…': 'Richiesta in corso…',
+  'Ask the committee': 'Chiedi al comitato',
+  'Ask': 'Chiedi',
+  'No agent is available here. Check Settings or the project’s allowed agents.': 'Nessun agente è disponibile qui. Controlla le Impostazioni o gli agenti ammessi dal progetto.',
+  'A committee needs at least two different agents, and only {agent} is available here. Check Settings or the project’s allowed agents.': 'Un comitato richiede almeno due agenti diversi e qui è disponibile solo {agent}. Controlla le Impostazioni o gli agenti ammessi dal progetto.',
+  'Only chat sessions can ask for advice.': 'Solo le sessioni chat possono chiedere un parere.',
+  'Restore this session to ask for advice.': 'Ripristina la sessione per chiedere un parere.',
+  'This session is itself advice for another session.': 'Questa sessione è già un parere per un’altra sessione.',
+  '{agent} is not available for advice here.': '{agent} non è disponibile per un parere qui.',
+
+  // Chat cards
+  'Advice from {agent}': 'Parere di {agent}',
+  'Committee of {n} agent': 'Comitato di {n} agente',
+  'Committee of {n} agents': 'Comitato di {n} agenti',
+  'General review of the current work': 'Parere generale sul lavoro attuale',
+  'Done': 'Concluso',
+  'Reading the code…': 'Legge il codice…',
+  'No advice was written.': 'Nessun parere scritto.',
+  'The advice could not be completed.': 'Il parere non è stato completato.',
+  'Show full advice': 'Mostra il parere intero',
+  'Open the session of {agent}': 'Apri la sessione di {agent}',
+  'Send to {agent}': 'Invia a {agent}',
+  'Sent to {agent}': 'Inviato a {agent}',
+  'Add a note for {agent} (optional)': 'Aggiungi una nota per {agent} (facoltativa)',
+  'e.g. Follow the first suggestion': 'Es. Segui il primo suggerimento',
+  'Advice for {title}': 'Parere per {title}',
+  'another session': 'un’altra sessione',
+  'Open the session this advice is for': 'Apri la sessione a cui serve questo parere',
+
+  // Plan
+  'Open plan': 'Apri il piano',
+  'Plan text': 'Testo del piano',
+  'Click a line to comment on it. Comments go with the plan.': 'Clicca una riga per commentarla. I commenti partono con il piano.',
+  'Implement with…': 'Implementa con…',
+  'Implement': 'Implementa',
+  'Permission': 'Permesso',
+  'The plan and {n} comment go to the agent.': 'Il piano e {n} commento vanno all’agente.',
+  'The plan and {n} comments go to the agent.': 'Il piano e {n} commenti vanno all’agente.',
+  'The plan goes to the agent, with no comments.': 'Il piano va all’agente, senza commenti.',
+  'Plan handed to {agent}': 'Piano passato a {agent}',
+  'Plan from {agent}': 'Piano da {agent}'
+}
+
+export default it

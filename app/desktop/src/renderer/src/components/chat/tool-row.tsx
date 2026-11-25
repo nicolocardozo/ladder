@@ -1,5 +1,6 @@
 // Riga compatta di uno strumento: icona del tipo, titolo, durata, stato. L'output si apre con un clic.
 import {
+  ArrowUpRight,
   Ban,
   Bot,
   Check,
@@ -7,6 +8,7 @@ import {
   FilePenLine,
   FileText,
   Globe,
+  Handshake,
   ListChecks,
   Search,
   SquareTerminal,
@@ -17,11 +19,18 @@ import {
 import { memo, type ReactNode } from 'react'
 import type { ToolKind } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
+import { AgentMark, modelLabel } from '@/components/agent-mark'
+import { usePeerSession } from '@/components/handoff-bits'
 import { browserToolOf, browserToolView } from '@/lib/browser-agent'
+import { ladderToolInput, ladderToolOf, ladderToolTitle, resolveAgent } from '@/lib/ladder-tools'
+import { planOfTool } from '@/lib/plan'
+import { findAgentForTool, useSubagentLists } from '@/lib/subagents'
 import { cn } from '@/lib/utils'
+import { useApp } from '@/store/app-store'
 import { AgentToolRow } from './agent-row'
 import { Spinner } from './bits'
-import { useToggle } from './chat-context'
+import { useChatActions, useToggle } from './chat-context'
+import { OpenPlanButton } from './plan-bits'
 import { formatShortDuration } from './format'
 import type { ToolItem } from './turns'
 
@@ -91,7 +100,14 @@ function ToolOutput({ item }: { item: ToolItem }) {
   return (
     <div className="chat-wide-sym mt-1 mb-1.5 overflow-hidden rounded-[7px] border border-border bg-[var(--chat-code-bg)] dark:border-input/60">
       {item.detail && (
-        <div className="border-b border-border px-2.5 py-1.5 font-mono text-xs leading-[1.5] break-all whitespace-pre-wrap text-foreground/85 last:border-b-0 dark:border-input/60">
+        // A long prompt (a delegation can reach ~4000 characters) is shown in full, in a scrolling block.
+        <div
+          tabIndex={item.detail.length > 600 ? 0 : undefined}
+          className={cn(
+            'border-b border-border px-2.5 py-1.5 font-mono text-xs leading-[1.5] break-all whitespace-pre-wrap text-foreground/85 last:border-b-0 dark:border-input/60',
+            item.detail.length > 600 && 'max-h-64 overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
+          )}
+        >
           {item.tool === 'command' ? <span className="text-faint select-none">$ </span> : null}
           {item.detail}
         </div>
@@ -121,8 +137,47 @@ function ToolOutput({ item }: { item: ToolItem }) {
 
 /** Un sotto-agente è una riga sola che apre il dettaglio; gli altri strumenti si espandono sul posto. */
 export const ToolRow = memo(function ToolRow({ item }: { item: ToolItem }) {
+  if (ladderToolOf(item.name)) return <LadderToolRow item={item} />
   return item.tool === 'agent' ? <AgentToolRow item={item} /> : <PlainToolRow item={item} />
 })
+
+/**
+ * Tools of the Ladder MCP server: a readable title instead of "Uses ladder · delegate". A delegation shows the logo and
+ * model of the agent and, if the child session still exists, a button to open it (the child has parent.itemId = id of this row).
+ */
+function LadderToolRow({ item: raw }: { item: ToolItem }) {
+  const tool = ladderToolOf(raw.name)!
+  const { sessionId } = useChatActions()
+  const agents = useApp((s) => s.agents)
+  const child = useApp((s) =>
+    tool === 'delegate' && sessionId ? (Object.values(s.sessions).find((x) => x.parent?.role === 'delegate' && x.parent.sessionId === sessionId && x.parent.itemId === raw.id) ?? null) : null
+  )
+  const info = useSubagentLists((s) => (tool === 'delegate' && sessionId ? findAgentForTool(s.lists[sessionId], raw.id) : null))
+  const input = ladderToolInput(raw.detail)
+  const agentId = child?.agent ?? resolveAgent(agents, input.agent)
+  const status = agents.find((a) => a.agent === agentId) ?? null
+  const agentName = status?.name ?? input.agent
+  const { open } = usePeerSession(child?.id)
+  const model = modelLabel(status, info?.model ?? child?.model ?? null) ?? (status ? t('Default model') : null)
+
+  // Delegation shows the full prompt in the detail; other tools do not show the raw input (summaries and JSON).
+  const item: ToolItem = { ...raw, title: ladderToolTitle(tool, agentName, input.prompt), detail: tool === 'delegate' ? input.prompt : null }
+  const icon =
+    tool === 'delegate' && agentId ? <AgentMark agent={agentId} size={13} className="text-muted-foreground" /> : <Handshake aria-hidden className="size-[13px] shrink-0" strokeWidth={1.8} />
+  const extra =
+    tool === 'delegate' && open ? (
+      <button
+        type="button"
+        onClick={open}
+        aria-label={t('Open the session of {agent}', { agent: agentName ?? t('another agent') })}
+        className="flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-xs font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <ArrowUpRight aria-hidden className="size-3" strokeWidth={2} />
+        {t('Open session')}
+      </button>
+    ) : null
+  return <PlainToolRow item={item} icon={icon} meta={tool === 'delegate' ? model : null} extra={extra} wrap={tool === 'delegate'} tooltip={tool === 'delegate' ? input.prompt : null} />
+}
 
 /** Strumenti del browser dell'agente: etichetta leggibile e niente testo digitato (né nel dettaglio né nell'esito). */
 function withBrowserLabel(item: ToolItem): ToolItem {
@@ -132,7 +187,7 @@ function withBrowserLabel(item: ToolItem): ToolItem {
   return { ...item, tool: 'web', title: view.title, detail: view.detail, output: view.hideOutput ? null : item.output }
 }
 
-function PlainToolRow({ item: raw }: { item: ToolItem }) {
+function PlainToolRow({ item: raw, icon, meta, extra, wrap, tooltip }: { item: ToolItem; icon?: ReactNode; meta?: string | null; extra?: ReactNode; wrap?: boolean; tooltip?: string | null }) {
   const item = withBrowserLabel(raw)
   const [open, toggle] = useToggle(`tool:${item.id}`)
   const expandable = Boolean(item.output || (item.detail && item.detail !== item.title))
@@ -141,25 +196,30 @@ function PlainToolRow({ item: raw }: { item: ToolItem }) {
 
   // Le righe senza dettagli non sono pulsanti: niente tappe inutili con Tab.
   const Row = expandable ? 'button' : 'div'
+  // A plan (ExitPlanMode) also opens as a commentable document: the button sits next to the row, never inside another button.
+  const plan = planOfTool(item)
   return (
     <div data-item-id={item.id} className="min-w-0">
+      <div className={cn('flex min-w-0 items-center gap-2', wrap && 'flex-wrap')}>
       <Row
         type={expandable ? 'button' : undefined}
         onClick={expandable ? toggle : undefined}
         aria-expanded={expandable ? open : undefined}
         className={cn(
-          'group flex h-[22px] w-full min-w-0 items-center gap-2 rounded-[5px] text-left text-sm text-muted-foreground outline-none',
+          'group flex min-w-0 gap-2 rounded-[5px] text-left text-sm text-muted-foreground outline-none',
+          wrap ? 'min-h-[22px] w-auto min-w-[12rem] flex-1 items-start py-[2px]' : 'h-[22px] w-full items-center',
           'focus-visible:ring-2 focus-visible:ring-ring/50',
           expandable && 'hover:text-foreground'
         )}
       >
-        <Icon aria-hidden className="size-[13px] shrink-0" strokeWidth={1.8} />
-        <span className={cn('min-w-0 truncate', item.status === 'running' && 'text-foreground/90')}>
+        <span className={cn('flex size-[13px] shrink-0 items-center justify-center', wrap && 'mt-[3px]')}>{icon ?? <Icon aria-hidden className="size-[13px] shrink-0" strokeWidth={1.8} />}</span>
+        <span title={tooltip ?? undefined} className={cn('min-w-0', wrap ? 'line-clamp-3 flex-1 break-words' : 'truncate', item.status === 'running' && 'text-foreground/90')}>
           <MonoTitle title={item.title} detail={item.detail} />
+          {meta ? <span className="text-faint"> · {meta}</span> : null}
         </span>
         {item.status === 'error' ? <span className="shrink-0 text-destructive">· {t('error')}</span> : null}
         {item.status === 'denied' ? <span className="shrink-0">· {t('denied')}</span> : null}
-        <span className="flex-1" />
+        {wrap ? null : <span className="flex-1" />}
         {duration ? <span className="shrink-0 font-mono text-xs text-faint tabular-nums">{duration}</span> : null}
         <StatusGlyph status={item.status} />
         <ChevronRight
@@ -172,6 +232,9 @@ function PlainToolRow({ item: raw }: { item: ToolItem }) {
           )}
         />
       </Row>
+      {plan ? <OpenPlanButton text={plan} /> : null}
+      {extra}
+      </div>
       {open && expandable ? <ToolOutput item={item} /> : null}
     </div>
   )

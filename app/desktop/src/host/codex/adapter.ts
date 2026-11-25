@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs'
 import { relative } from 'node:path'
 import { t } from '@shared/i18n'
 import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, SlashCommand } from '@shared/protocol'
-import { agentInstructions, BROWSER_MCP_NAME, clip, displayCommand, firstLine, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
+import { agentInstructions, BROWSER_MCP_NAME, LADDER_MCP_NAME, ladderDetail, clip, displayCommand, firstLine, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
 import { accountEmail, accountLabel, codexEnv, describeLimits, codexModels, describeUsage, parseModels, type CodexModel } from './environment'
 import { CodexRpc, type ServerReply, type ServerRequest } from './rpc'
 
@@ -177,6 +177,15 @@ export class CodexSession implements AgentSession {
               // Predefinito 60 s: una conferma dell'utente (fino a 10 minuti nel server) farebbe scadere la chiamata.
               [`mcp_servers.${BROWSER_MCP_NAME}.tool_timeout_sec`]: 660
             }
+          : {}),
+        // Ladder MCP server. A delegation lasts as long as the other agent's work (up to an hour); the server asks for handoff confirmation.
+        ...(this.options.ladderTools
+          ? {
+              [`mcp_servers.${LADDER_MCP_NAME}.url`]: this.options.ladderTools.url,
+              [`mcp_servers.${LADDER_MCP_NAME}.http_headers`]: { Authorization: `Bearer ${this.options.ladderTools.token}` },
+              [`mcp_servers.${LADDER_MCP_NAME}.default_tools_approval_mode`]: 'approve',
+              [`mcp_servers.${LADDER_MCP_NAME}.tool_timeout_sec`]: 3600
+            }
           : {})
       }
     }
@@ -185,7 +194,7 @@ export class CodexSession implements AgentSession {
       : await rpc.request<{ thread: { id: string }; model: string }>('thread/start', {
           ...common,
           // Solo su un thread nuovo: un thread ripreso tiene le istruzioni con cui è nato (e un cambio di permesso dopo non le cambia).
-          developerInstructions: agentInstructions(this.options.autonomyHint && (this.permission === 'edit' || this.permission === 'full'))
+          developerInstructions: agentInstructions(this.options.autonomyHint && (this.permission === 'edit' || this.permission === 'full'), this.options.delegateHint)
         })
     this.threadId = result.thread.id
     this.events.init({ externalId: result.thread.id, model: this.model ?? result.model ?? null })
@@ -518,8 +527,10 @@ export class CodexSession implements AgentSession {
       case 'mcpToolCall': {
         const name = `${item.server}.${item.tool}`
         const title = t('Uses {tool}', { tool: name })
-        this.items.set(id, { kind: 'mcp', title, detail: null, output: '', diff: null, paths: [] })
-        this.events.tool({ id, tool: 'other', name, title, detail: null, status: 'running', output: null })
+        // Ladder server tools: the input as JSON in detail (the UI derives the title from it).
+        const detail = item.server === LADDER_MCP_NAME ? ladderDetail(item.arguments) : null
+        this.items.set(id, { kind: 'mcp', title, detail, output: '', diff: null, paths: [] })
+        this.events.tool({ id, tool: 'other', name, title, detail, status: 'running', output: null })
         return
       }
       case 'webSearch': {

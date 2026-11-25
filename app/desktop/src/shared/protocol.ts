@@ -367,6 +367,14 @@ export interface SessionSummary {
    * qui: arriva con l'evento session.subagents (e con la richiesta subagent.list).
    */
   subagentCounts?: { total: number; running: number; runningForeground: number; error: number }
+  /** Session created by a handoff ("Switch to…"): from which session and agent. Absent or null = normal session. */
+  handoffFrom?: { sessionId: string; agent: AgentId } | null
+  /**
+   * Child session launched by another session (advice, delegation, review). It does not appear in the sidebar session list:
+   * it opens from the card or from the parent session's agent map. It is archived with the parent.
+   * itemId: parent row that launched it (AdviceItem, or the 'tool' row of the delegation).
+   */
+  parent?: { sessionId: string; role: 'advisor' | 'delegate' | 'review'; itemId: string } | null
 }
 
 /** Un sotto-agente avviato dalla sessione (Task di Claude Code, spawnAgent di Codex). */
@@ -550,6 +558,152 @@ export type ChatItem =
   | (ItemBase & { kind: 'agents-finished'; finished: number; failed: number; state: 'waiting' | 'resumed' | 'continued' | 'dismissed' })
   /** Contesto compattato (da /compact o automatico). Il testo lo compone la UI. */
   | (ItemBase & { kind: 'compacted'; trigger: 'manual' | 'auto'; preTokens: number | null; postTokens: number | null })
+  /** Handoff of the work to another agent. See HandoffItem. */
+  | (ItemBase & HandoffItem)
+  /** Card for /advisor (one agent) or /committee (several agents). See AdviceItem. */
+  | (ItemBase & AdviceItem)
+  /** Resume card for an interrupted delegation. See ResumeItem. */
+  | (ItemBase & ResumeItem)
+  /** Plan limit reached or reset. See LimitItem. */
+  | (ItemBase & LimitItem)
+
+/** Interrupted delegation (app restart, stop, exit): resumed or dismissed. System row in the parent. */
+export interface ResumeItem {
+  kind: 'resume'
+  /** 'tool' row of the delegate call in the parent. */
+  toolItemId: string
+  agent: AgentId
+  childSessionId: string | null
+  reason: string
+  state: 'open' | 'resumed' | 'done' | 'dismissed' | 'error'
+  error: string | null
+}
+
+/**
+ * Plan limit. 'reached': the session's agent is at its limit (UsageWindow 'limited' or a limit error at end of
+ * turn): proposes continuing with `target` (the project's autoSwitch, otherwise the first allowed and available agent of
+ * another provider); with autoSwitch the handoff starts on its own and the row is born 'switched'. 'reset': in the
+ * session handed over to, when the previous agent's limit resets, proposes going back.
+ */
+export interface LimitItem {
+  kind: 'limit'
+  phase: 'reached' | 'reset'
+  /** Agent at its limit (or reset). */
+  agent: AgentId
+  /** Window name: "5-hour limit", "Weekly limit". */
+  window: string
+  /** Unix seconds; null if unknown. */
+  resetsAt: number | null
+  target: AgentId | null
+  state: 'proposed' | 'switched' | 'returned' | 'dismissed' | 'error'
+  /** Destination session after 'switched' or 'returned'. */
+  peerSessionId: string | null
+  automatic: boolean
+  error: string | null
+}
+
+/**
+ * Read-only advice from other agents on the session's work. System row (turnId 'system'), it does not open a
+ * session turn and can be requested while the session is working. Each entry is a child session (parent.role
+ * 'advisor') in Plan mode in the same folder; `text` is its last text at the end of its first turn.
+ */
+export interface AdviceItem {
+  kind: 'advice'
+  /** 'review' = automatic cross-review at the end of a turn with changes. */
+  mode: 'advisor' | 'committee' | 'review'
+  /** User question; '' = general opinion on the work and the current diff. */
+  question: string
+  entries: {
+    agent: AgentId
+    model: string | null
+    /** Child session; null if it did not start. */
+    sessionId: string | null
+    state: 'running' | 'done' | 'error' | 'stopped'
+    text: string | null
+    error: string | null
+  }[]
+  /** The advice was sent to the session's agent with session.advice.forward. */
+  forwarded: boolean
+  /**
+   * Only for mode 'review': verdict read from the first line of the advice ("VERDICT: ok|minor|serious"); null while missing
+   * or if the reviewer does not write it. With 'serious' the advice goes to the coordinator on its own (forwarded true), at most once
+   * per user message.
+   */
+  verdict?: 'ok' | 'minor' | 'serious' | null
+}
+
+/**
+ * Ladder MCP server ("ladder"), exposed to every chat session (Claude, Codex, ACP with MCP over HTTP) like the agent's
+ * browser server: HTTP on 127.0.0.1, token per session. Tools (mcp__ladder__*):
+ * - list_agents(): agents that can be handed off to or delegated to in this project (available, allowed by [agents], with models),
+ *   and the project's preferred delegates ([[agents.delegates]]).
+ * - handoff({ agent, summary, note? }): the agent itself asks for the handoff, with the summary it already wrote (no summary
+ *   turn). Same rules as session.handoff; agent not allowed, same or unavailable → readable error as the
+ *   tool result. With permission 'plan' or 'ask' the user must confirm (a 'request' row like the others).
+ *   The handoff starts at the end of the session's turn (HandoffItem 'out' row with reason 'agent', state 'pending' until the
+ *   turn ends); the tool answers right away asking the agent to stop.
+ * - delegate({ agent, prompt, model?, effort?, read_only?, worktree? }): delegates to an agent of another provider inside the turn.
+ *   Creates a child session (parent.role 'delegate', itemId = 'tool' row of the call), same folder, permission never higher
+ *   than the parent's ('plan' with read_only), and waits for the end of its first turn: the tool result is the child's
+ *   report_result if present, otherwise its last text. In the parent's agent map the child appears as a
+ *   sub-agent (SubagentInfo with kind = agent name, model, status, tokens if known). Parent stop → child
+ *   stop. Guards: max depth 2 (a delegated child can delegate once), at most 4 delegations per turn, no
+ *   delegation back to the parent's agent in the same chain with the same task. `worktree: true` (only
+ *   with write permission) creates a new worktree for the child from the parent's HEAD, only at that moment; the result
+ *   states the branch. Without it, the child works in the parent's folder (which waits for the delegation to end).
+ * - report_result({ status, summary, files? }): a child session (delegate) or one reached by a handoff returns its outcome.
+ *   For a delegation it becomes the result of delegate. For a session reached by a handoff it updates the 'out' row of the
+ *   origin session (HandoffItem.result) and sends a light notification to the origin.
+ */
+export interface AgentResult {
+  status: 'done' | 'blocked' | 'failed'
+  /** Markdown written by the agent. */
+  summary: string
+  files?: string[]
+  at: number
+}
+
+/**
+ * "Switch to…": separator of a handoff between agents.
+ * - 'out', in the origin session: opens the turn in which the current agent writes the summary (in place of the 'user' row).
+ *   state 'summarizing' while the turn works; 'done' when the destination session has received the summary; 'error' or
+ *   'interrupted' if the turn does not end well or the summary is empty (no destination session).
+ * - 'in', in the destination session: opens the turn that delivers the summary to the other agent (in place of the 'user' row).
+ *   Born already 'done', with summary, files and checkpoint.
+ */
+export interface HandoffItem {
+  kind: 'handoff'
+  /**
+   * 'implement' = "Implement with…" to another agent: no summary turn, `summary` is the plan
+   * (with comments) and the 'out' row is born already 'done'. 'agent' = requested by the agent with the handoff tool,
+   * summary written by it. Absent = 'handoff' (handoff with summary).
+   */
+  /** 'limit' = plan limit reached: summary composed by Ladder (conversation and files), not by the agent. */
+  reason?: 'handoff' | 'implement' | 'agent' | 'limit'
+  direction: 'out' | 'in'
+  /** Agent on the other side: the receiver for 'out', the sender for 'in'. */
+  agent: AgentId
+  /** Session on the other side; null for 'out' until the destination session exists (or if the handoff failed). */
+  peerSessionId: string | null
+  /** 'pending': handoff requested by the agent with the handoff tool, starts at the end of the turn. */
+  state: 'pending' | 'summarizing' | 'done' | 'error' | 'interrupted'
+  /** Outcome returned with report_result by the destination session (only on the 'out' row). */
+  result?: AgentResult | null
+  /** Note written by the user in the "Switch to…" dialog; null if absent. */
+  note: string | null
+  /** Summary of goal, decisions and state written by the origin agent (markdown); null until available. */
+  summary: string | null
+  /** Git checkpoint taken at the handoff (sha at the end of the summary turn); null outside git or before the end. */
+  checkpoint: string | null
+  /** Files changed by the origin session since its first checkpoint, at the time of the handoff. */
+  files: FileChange[]
+  error: string | null
+  /**
+   * 'out' row in 'interrupted' or 'error' that can be resumed (session.handoff.resume): the saved summary, if
+   * any, is delivered without asking for it again; otherwise it is requested. Commands are never repeated: the summary turn is text only.
+   */
+  resumable?: boolean
+}
 
 /**
  * Comando / dichiarato dall'agente della sessione. I comandi di Ladder
@@ -920,6 +1074,19 @@ export interface RunAction {
   concurrent: boolean
 }
 
+/** A preferred delegate of the project. */
+export interface AgentDelegate {
+  /** Short name: "reviewer", "researcher". */
+  name: string
+  agent: AgentId
+  model: string | null
+  effort: Effort | null
+  /** Maximum permission of the delegate (never higher than the delegating session anyway). Default 'plan'. */
+  permission: PermissionLevel
+  /** What it is for, in words: "Reviews and second opinions". */
+  note: string
+}
+
 export interface ProjectSettings {
   /**
    * setup: script eseguito alla creazione del worktree, in un terminale "setup" della sessione (LADDER_PORT impostata).
@@ -951,7 +1118,21 @@ export interface ProjectSettings {
   run: RunAction[]
   prompts: Record<string, string>
   /** [agents]: agenti ammessi (vuoto = tutti), agente proposto, livello di permesso massimo. */
-  agents: { allowed: string[]; default: string | null; permissionsMax: PermissionLevel | null }
+  agents: {
+    allowed: string[]
+    default: string | null
+    permissionsMax: PermissionLevel | null
+    /**
+     * `[[agents.delegates]]`: the project's preferred delegates, given to the coordinator as context (list_agents and system
+     * prompt); it decides when and to whom to delegate. name unique; agent allowed; permission capped by permissionsMax.
+     * The two TOML files merge by name like services (personal wins); invalid entries in `errors`.
+     */
+    delegates: AgentDelegate[]
+    /** Agent to switch to on its own when the session's agent reaches the plan limit; null = proposal only. */
+    autoSwitch: AgentId | null
+    /** Agent that reviews the diff at the end of a turn with changes (read-only, different provider); null = off. */
+    crossReview: AgentId | null
+  }
   /** File letti, relativi alla radice del progetto. */
   sources: string[]
   errors: string[]
@@ -1206,6 +1387,86 @@ export type HostCommand =
    * Rifiutato con errore se la sessione sta lavorando o il comando è sconosciuto.
    */
   | { type: 'session.command'; sessionId: string; name: string; args: string }
+  /**
+   * "Switch to…": hands the session's work (chat only, idle, different agent from its own) to `agent`.
+   * 1. In the session opens a turn with the HandoffItem 'out' row (state 'summarizing') and asks the current agent for the
+   *    summary with the `handoff` prompt (project [prompts]).
+   * 2. At the end of the turn: summary = last assistant text; checkpoint = the end-of-turn one; files = session
+   *    changes since its first checkpoint.
+   * 3. Destination session: if the session was born from a handoff (handoffFrom) and the origin already has `agent`, is not
+   *    archived and is idle, it goes back there; otherwise a new one is created in the same project and folder
+   *    (same worktree, no new worktree), with handoffFrom, same permission level (capped by [agents]),
+   *    `model`/`effort` given or the defaults, project profile. There a turn starts that opens with the 'in' row and sends
+   *    the agent the `handoff_receive` prompt (summary, note, files, checkpoint, branch).
+   * 4. The 'out' row goes to 'done' with peerSessionId.
+   * Must be sent with rid: it answers right after the summary turn starts (data: null), not when the handoff is finished.
+   * Translated error, without touching the session, if: terminal session, working or archived; `agent` same as the
+   * session's, unknown, unavailable or not allowed by the project ([agents] allowed).
+   */
+  | { type: 'session.handoff'; sessionId: string; agent: AgentId; model?: string | null; effort?: Effort | null; note?: string | null }
+  /**
+   * /advisor and /committee: asks for read-only advice from one (advisor) or several agents (committee, 2-4, all
+   * different). Adds an AdviceItem row and, for each agent, a child session (parent.role 'advisor', permission
+   * 'plan', same folder, no worktree) to which it sends the `advisor` prompt ([prompts]): question, session title and
+   * branch, the latest conversation exchanges (cut, as data), the invitation to read `git diff` and the files without
+   * changing them. The session's own agent and agents not yet used are allowed; not allowed by the project → error.
+   * Also valid while the session is working. Must be sent with rid; data: id of the AdviceItem row.
+   */
+  | { type: 'session.advise'; sessionId: string; agents: { agent: AgentId; model?: string | null; effort?: Effort | null }[]; question: string }
+  /** Stops the card's entries still 'running' (interrupts the child sessions): they become 'stopped'. */
+  | { type: 'session.advice.stop'; sessionId: string; itemId: string }
+  /**
+   * Sends the card's 'done' advice to the session's agent as a user message (`advice_forward` prompt,
+   * advice as data), with the same rules as session.send (queued if working). forwarded becomes true.
+   */
+  | { type: 'session.advice.forward'; sessionId: string; itemId: string; note?: string | null }
+  /**
+   * Stops a handoff in 'pending' (cancelled before the turn ends) or 'summarizing' (interrupts the summary
+   * turn): the 'out' row becomes 'interrupted' with resumable true.
+   */
+  | { type: 'session.handoff.stop'; sessionId: string; itemId: string }
+  /**
+   * Resumes a resumable 'out' row. An `agent` different from the row's = reassign (same rules as
+   * session.handoff). With the summary already saved it delivers right away; otherwise it reopens the summary turn. Must be sent with rid.
+   */
+  | { type: 'session.handoff.resume'; sessionId: string; itemId: string; agent?: AgentId; model?: string | null; effort?: Effort | null }
+  /**
+   * Resumes an interrupted delegation (restart, stop): the parent's tool row has a ResumeItem next to it. Restarts the child's
+   * turn with a resume message and, at the end of the turn, sends the result to the coordinator as a user message
+   * (session.send rules). `dismiss` closes the card without doing anything.
+   */
+  | { type: 'session.delegation.resume'; sessionId: string; itemId: string; action: 'resume' | 'dismiss' }
+  /**
+   * Answers a LimitItem. 'switch' hands off to `agent` (or the proposed one) with reason 'limit'; 'return' (in the
+   * session reached after the reset) goes back to the previous agent with a normal handoff; 'dismiss' closes the card.
+   */
+  | { type: 'session.limit.respond'; sessionId: string; itemId: string; action: 'switch' | 'return' | 'dismiss'; agent?: AgentId }
+  /**
+   * Personal project switches, written in .ladder/settings.local.toml ([agents] auto_switch and
+   * cross_review). null turns off. Answers with the updated ProjectSettings.
+   */
+  | { type: 'project.agents.set'; projectId: string; patch: { autoSwitch?: AgentId | null; crossReview?: AgentId | null } }
+  /**
+   * "Implement with…": hands over a plan (markdown) with line comments.
+   * - `agent` same as the session's: if permission is 'plan' it moves to `permission` (default 'edit', capped
+   *   by [agents]) like session.permission.set, then sends the `implement` prompt (plan and comments as data) in the session,
+   *   with the session.send rules.
+   * - other agent: like session.handoff but without a summary turn: HandoffItem 'out' row with reason 'implement' already
+   *   'done', linked session (same arrival and return rules) that starts with the 'in' row reason 'implement' and the
+   *   `implement` prompt; permission `permission` (default 'edit') capped by [agents].
+   * Must be sent with rid; data: id of the implementing session. Errors as session.handoff (except "same agent").
+   */
+  | {
+      type: 'session.implement'
+      sessionId: string
+      plan: string
+      /** 1-based plan line and comment text. */
+      comments: { line: number; text: string }[]
+      agent: AgentId
+      model?: string | null
+      effort?: Effort | null
+      permission?: PermissionLevel
+    }
   /** Rinomina a mano: il titolo diventa 'user' e nessuna generazione automatica lo sovrascrive. */
   | { type: 'session.rename'; sessionId: string; title: string }
   /**

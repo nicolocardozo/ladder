@@ -12,7 +12,7 @@ import { WaitingAgentsLine } from './agents-lines'
 import { TurnRow } from './turn-row'
 import { useApp } from '@/store/app-store'
 import { CHAT_LAYOUT_WILL_CHANGE, DEFAULT_CHAT_FONT, DEFAULT_CHAT_WIDTH, DEFAULT_TEXT_SIZE } from '@/hooks/use-chat-font'
-import { chatColumn, createTurnCache, estimateTurnHeight, groupTurns, type Turn } from './turns'
+import { chatColumn, createTurnCache, estimateTurnHeight, groupTurns, isAdviceTurn, turnKey, type Turn } from './turns'
 
 /** Posizione di lettura: elemento in cima alla vista e quanti pixel ne sono già passati sopra il bordo. */
 export interface ChatAnchor {
@@ -82,7 +82,7 @@ function readAnchor(el: HTMLElement | null): ChatAnchor | null {
 function turnIndexOfItem(turns: Turn[], items: ChatItem[], itemId: string) {
   const item = items.find((i) => i.id === itemId)
   if (!item) return -1
-  return turns.findIndex((t) => t.id === item.turnId)
+  return turns.findIndex((t) => t.id === turnKey(item))
 }
 
 function ChatViewInner({
@@ -435,13 +435,15 @@ function ChatViewInner({
   }
 
   // Turno in corso e divisore "Nuovo".
-  const lastTurn = turns[turns.length - 1]
-  const liveIndex =
-    lastTurn && !lastTurn.end && (run === 'running' || run === 'starting' || run === 'waiting') ? turns.length - 1 : -1
+  // Advice cards also arrive while the session is working: the running turn is the last one that is not a card.
+  let lastIndex = turns.length - 1
+  while (lastIndex >= 0 && isAdviceTurn(turns[lastIndex])) lastIndex--
+  const lastTurn = turns[lastIndex]
+  const liveIndex = lastTurn && !lastTurn.end && (run === 'running' || run === 'starting' || run === 'waiting') ? lastIndex : -1
   const unread = useMemo(() => {
     if (firstUnreadSeq === null) return null
     const item = items.find((i) => i.seq >= firstUnreadSeq)
-    return item ? { itemId: item.id, turnId: item.turnId } : null
+    return item ? { itemId: item.id, turnId: turnKey(item) } : null
   }, [items, firstUnreadSeq])
 
   const openRequest = lastTurn?.open[lastTurn.open.length - 1] ?? null
@@ -510,6 +512,7 @@ function ChatViewInner({
                     activity={live ? activity : null}
                     dividerBefore={unread && unread.turnId === turn.id ? unread.itemId : null}
                     bgStartSeq={bgStartSeq}
+                    last={row.index === lastIndex}
                   />
                 </div>
               )

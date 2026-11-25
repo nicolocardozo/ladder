@@ -54,7 +54,7 @@ export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: 
   }
   // Una richiesta in un'altra sessione dello stesso progetto: niente notifica, un avviso qui con "Vai".
   const waitingHere = Object.values(sessions)
-    .filter((s) => s.projectId === projectId && !s.archived && s.run === 'waiting' && s.id !== activeSessionId)
+    .filter((s) => s.projectId === projectId && !s.archived && !s.parent && s.run === 'waiting' && s.id !== activeSessionId)
     .sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
 
   // Browser degli agenti di questo progetto: le loro pagine stanno nella colonna browser; qui resta solo l'avviso.

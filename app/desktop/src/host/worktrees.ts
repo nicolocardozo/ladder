@@ -50,6 +50,8 @@ export interface WorktreeOptions {
   branchPrefix?: string
   /** Branch locale da cui parte un worktree con un branch nuovo; assente = il commit attuale del checkout principale. Non esiste: errore. */
   startFrom?: string
+  /** Exact commit the worktree starts from with a new branch (takes precedence over `startFrom`): for example the real HEAD of another working folder. */
+  startCommit?: string
   /** Il nome del branch nuovo l'ha scelto l'utente: se esiste già (creato nel frattempo) è un errore, non lo si estrae in silenzio. */
   strictName?: boolean
 }
@@ -89,8 +91,9 @@ export async function createWorktree(
   const start = options.startFrom && !wanted?.existing ? options.startFrom : null
   // Il punto di partenza scelto è un branch locale: un nome valido, mai un'opzione o una revisione (`main~3`, `HEAD^`).
   if (start && !validBranchName(start)) throw new Error(t('The branch “{branch}” does not exist in this project.', { branch: start }))
-  const head = await resolveCommit(project.path, start ? `refs/heads/${start}` : 'HEAD')
-  if (start && !head) throw new Error(t('The branch “{branch}” does not exist in this project.', { branch: start }))
+  const exact = options.startCommit && !wanted?.existing ? await resolveCommit(project.path, options.startCommit) : null
+  const head = exact ?? (await resolveCommit(project.path, start ? `refs/heads/${start}` : 'HEAD'))
+  if (start && !head && !exact) throw new Error(t('The branch “{branch}” does not exist in this project.', { branch: start }))
   if (!head) throw new Error(t('The project has no commits yet: a worktree starts from a commit.'))
   const prefix = options.branchPrefix ?? DEFAULT_BRANCH_PREFIX
   const slug = slugify((wanted?.name.startsWith(prefix) && prefix ? wanted.name.slice(prefix.length) : wanted?.name.replace(/^ladder\//, '')) ?? title)
