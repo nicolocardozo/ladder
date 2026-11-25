@@ -15,6 +15,11 @@
         "ITSAppUsesNonExemptEncryption": true,
         "NSCameraUsageDescription": "Ladder uses the camera to scan the pairing code shown on your Mac.",
         "UIViewControllerBasedStatusBarAppearance": false
+      },
+      "icon": {
+        "light": "./assets/icon.png",
+        "dark": "./assets/icon-dark.png",
+        "tinted": "./assets/icon-tinted.png"
       }
     },
     "android": {
@@ -54,9 +59,10 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#181424",
-          "image": "./assets/splash-icon.png",
-          "imageWidth": 140
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "backgroundColor": "#181424"
+          }
         }
       ],
       "@react-native-community/datetimepicker"

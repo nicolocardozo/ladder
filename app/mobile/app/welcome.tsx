@@ -1,10 +1,12 @@
 import { useRouter } from 'expo-router'
-import { Image, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '@shared/i18n'
 import { startDemo } from '@/host/controller'
 import { useTheme } from '@/theme/theme'
 import { Button } from '@/ui/Button'
+import { introState } from '@/ui/Intro'
+import { Logo } from '@/ui/Logo'
 import { Text } from '@/ui/Text'
 
 /** Prima schermata: abbinare il Mac o provare la demo (anche in produzione: è quella per App Review). */
@@ -15,7 +17,9 @@ export default function Welcome() {
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 28, paddingTop: insets.top + 24, paddingBottom: 24 }}>
-        <Image source={require('../assets/icon.png')} style={{ width: 84, height: 84, borderRadius: 20 }} accessibilityIgnoresInvertColors />
+        {/* Il logo col suo accento: sale a gradini solo se l'intro è già chiusa (altrimenti ha appena fatto lo stesso), poi un'onda lenta. */}
+        {/* Solo il simbolo: il nome compare già nel titolo qui sotto. */}
+        <Logo variant="mark" size={96} enter={introState.done} idle />
         <Text variant="display" style={{ marginTop: 28 }} accessibilityRole="header">
           {t('Ladder in your pocket')}
         </Text>

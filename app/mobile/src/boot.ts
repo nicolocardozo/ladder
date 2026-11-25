@@ -24,3 +24,13 @@ export function useBoot(): boolean {
   }, [])
   return ready
 }
+
+/** Le preferenze (tema compreso) sono state lette dal disco: da qui il tema è quello scelto dall'utente. */
+export function usePrefsHydrated(): boolean {
+  const [done, setDone] = useState(usePrefs.persist.hasHydrated())
+  useEffect(() => {
+    if (usePrefs.persist.hasHydrated()) return setDone(true)
+    return usePrefs.persist.onFinishHydration(() => setDone(true))
+  }, [])
+  return done
+}

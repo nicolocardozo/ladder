@@ -19,13 +19,13 @@ if (!d) throw new Error('Simbolo non trovato in ' + brand)
 const GLYPH_W = 275
 const GLYPH_H = 177
 
-function glyphSvg({ size, scale, background }) {
+function glyphSvg({ size, scale, background, fill = '#FFFFFF' }) {
   const x = (size - GLYPH_W * scale) / 2
   const y = (size - GLYPH_H * scale) / 2
   const bg = background ? `<rect width="${size}" height="${size}" fill="${background}"/>` : ''
   return Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${bg}` +
-      `<path fill="#FFFFFF" fill-rule="evenodd" transform="translate(${x} ${y}) scale(${scale})" d="${d}"/></svg>`
+      `<path fill="${fill}" fill-rule="evenodd" transform="translate(${x} ${y}) scale(${scale})" d="${d}"/></svg>`
   )
 }
 
@@ -37,4 +37,12 @@ await sharp(glyphSvg({ size: 1024, scale: 2.6, background: BG })).flatten({ back
 // Android: il simbolo largo circa metà dell'icona, così resta dentro l'area sicura anche con le maschere rotonde.
 await sharp(glyphSvg({ size: 1024, scale: 1.9, background: null })).png().toFile(out('adaptive-icon.png'))
 
-console.log('icon.png e adaptive-icon.png rigenerate')
+// iOS 18+: varianti scura e "tinted" (app.json -> ios.icon). La scura ha fondo scuro e simbolo nell'accento di Circuit;
+// la tinted è il simbolo in scala di grigi su fondo nero opaco: iOS la colora da sé con la tinta scelta dall'utente.
+const DARK_BG = '#181424'
+const ACCENT = '#AC97FF'
+const tinted = (fill, bg) => glyphSvg({ size: 1024, scale: 2.6, background: bg, fill })
+await sharp(tinted(ACCENT, DARK_BG)).flatten({ background: DARK_BG }).removeAlpha().png().toFile(out('icon-dark.png'))
+await sharp(tinted('#FFFFFF', '#000000')).flatten({ background: '#000000' }).removeAlpha().greyscale().png().toFile(out('icon-tinted.png'))
+
+console.log('icon.png, adaptive-icon.png, icon-dark.png e icon-tinted.png rigenerate')

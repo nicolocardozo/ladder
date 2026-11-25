@@ -10,7 +10,7 @@ import { Appearance, Platform, View, useWindowDimensions } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { useBoot } from '@/boot'
+import { useBoot, usePrefsHydrated } from '@/boot'
 import { startDevDriver } from '@/dev-driver'
 import { installForegroundHook } from '@/host/controller'
 import { configureNotifications, ensureChannel } from '@/host/push'
@@ -23,6 +23,7 @@ import { GLASS } from '@/lib/platform'
 import { usePrefs } from '@/store/prefs'
 import { useApp } from '@/store/app'
 import { ThemeProvider, useTheme } from '@/theme/theme'
+import { Intro } from '@/ui/Intro'
 import { ToastHost } from '@/ui/ToastHost'
 import { WIDE } from '@/ui/Sheet'
 
@@ -49,18 +50,18 @@ export default function RootLayout() {
   const booted = useBoot()
   useEffect(() => installForegroundHook(), [])
   useEffect(() => startDevDriver(), [])
-  const ready = (fontsLoaded || !!fontError) && booted
-  useEffect(() => {
-    if (ready) void SplashScreen.hideAsync()
-  }, [ready])
-  if (!ready) return null
+  // Con font e preferenze (quindi il tema) pronti si toglie lo splash nativo e parte l'intro animata (`Intro`), anche se l'avvio
+  // non è finito: la Shell compare sotto il velo quando `booted` è vero.
+  const hydrated = usePrefsHydrated()
+  if (!(fontsLoaded || !!fontError) || !hydrated) return null
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <KeyboardProvider>
           <ThemeProvider>
-            <Shell />
+            {booted ? <Shell /> : null}
             <ToastHost />
+            <Intro ready={booted} />
           </ThemeProvider>
         </KeyboardProvider>
       </SafeAreaProvider>
