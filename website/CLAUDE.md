@@ -12,7 +12,7 @@ Sito pubblico di Ladder su itsladder.dev: Next.js (App Router, TypeScript), shad
 - Componenti React Bits solo quando il brief li nomina, con colori e densità del brand.
 - Ogni animazione rispetta `prefers-reduced-motion` con uno stato statico leggibile.
 - SEO: metadata per ogni pagina, testi reali nel markup, un solo h1, niente layout shift.
-- Testi del sito in inglese, commenti nel codice in italiano.
+- Testi del sito e commenti nel codice in inglese (il repo diventa pubblico).
 - I download (`/download`, `/download/apple-silicon`, `/download/intel`) sono redirect in `next.config.ts` verso le release di `nicolocardozo/ladder-releases`.
 
 ## Verifica

@@ -32,6 +32,15 @@ pnpm --filter @ladder/website build
 - `app/docs/backlog.md`, `app/docs/piano.html`: piano e fasi.
 - `docs/`: note di lavoro (strategia di rilascio, richieste ad Anthropic).
 
+## Repository pubblico
+
+Il repo sta per diventare pubblico (Apache-2.0): tutto ciò che si committa, storia compresa, sarà visibile.
+- Tutto in inglese: commenti, documenti, messaggi di commit, output degli script. L'italiano resta solo in `app/desktop/src/shared/locales/it` e nelle varianti italiane dei prompt.
+- Niente di privato: nomi di altri progetti o clienti, percorsi personali (`/Users/<nome>/…`), email personali, token, appunti interni. Dati di esempio, fixture e test usano nomi generici (`acme-monorepo`, `/Users/dev/…`).
+- I commenti non citano issue Linear (`LAD-…`) né fasi.
+- Codice di terzi solo se la licenza permette di ridistribuirlo sotto Apache-2.0.
+- Un hook `pre-commit` locale blocca nomi privati, segreti ed email diversa dalla noreply di GitHub: se blocca, si corregge il contenuto, mai `--no-verify`.
+
 ## Agenti di progetto
 
 `ui` (renderer), `host` (main e host), `web` (sito), `linear` (backlog). Verifica, revisione e ricerca le fanno `verifier`, `reviewer` e `researcher` del livello personale, leggendo questi file.

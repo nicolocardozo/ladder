@@ -24,7 +24,7 @@ Il contratto tra host e renderer è `src/shared/protocol.ts`: cambia solo quando
 - Interfaccia: prima leggi `app/DESIGN.md` e riusa i componenti in `src/renderer/src/components` (`ui/`, `composer/`, `chat/`). Colori a token, elementi raggiungibili da tastiera, `aria-label` sui bottoni a icona, focus visibile.
 - API degli agenti: la fonte prima sono i tipi installati in `node_modules` (`@anthropic-ai/claude-agent-sdk/*.d.ts` alla versione fissata in `package.json`, lo schema dell'app-server di Codex). Gli adapter dipendono da campi che cambiano tra versioni; il web viene dopo.
 - Casi limite da tenere presenti, in sviluppo e in revisione: agente non disponibile, richieste concorrenti, sessione chiusa a metà, listener o processi che restano vivi.
-- Commenti brevi in italiano, nello stile del codice intorno.
+- Commenti brevi in inglese (il repo diventa pubblico): spiegano il perché o un comportamento non ovvio, senza riferimenti a issue Linear o fasi. Il codice più vecchio ha ancora commenti in italiano, in traduzione.
 
 ## Verifica
 
