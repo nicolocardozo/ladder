@@ -66,8 +66,9 @@ export default function Page() {
         <Section id="phone" title="The phone app and access from your phone">
           <Prose className="mt-5">
             <p>
-              The Ladder app for iPhone and Android is a remote control for Ladder on your Mac. Access from your phone is off
-              until you turn it on in Ladder&apos;s settings.
+              The Ladder app for iPhone and Android, coming soon, is a remote control for Ladder on your Mac. It isn&apos;t
+              available yet: this section describes how it works once it ships. Access from your phone is off until you turn
+              it on in Ladder&apos;s settings.
             </p>
             <ul>
               <li>
