@@ -1,4 +1,4 @@
-// Pubblica la versione di package.json su github.com/nicolocardozo/ladder-releases (pubblico; il codice resta privato).
+// Publishes the package.json version to github.com/nicolocardozo/ladder-releases.
 // Prima: `pnpm run release:mac`, che lascia in dist/release i DMG e gli zip firmati e notarizzati di entrambe le architetture.
 //
 // Carica:

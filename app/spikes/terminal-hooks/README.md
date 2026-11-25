@@ -1,108 +1,108 @@
-# S6 · Stato delle sessioni terminale tramite hook
+# S6 · Terminal session state via hooks
 
-Domanda: Blue può sapere se una sessione terminale (la CLI originale in un PTY) sta lavorando, aspetta te o ha finito, iniettando gli hook per processo e senza toccare la configurazione globale?
+Question: can Blue know whether a terminal session (the original CLI in a PTY) is working, waiting for you or finished, by injecting hooks per process and without touching the global configuration?
 
-**Sì per Claude Code, sì con riserve per Codex.** Per Claude Code bastano gli hook inline in `--settings`, che sono immediati e precisi. Per Codex funzionano `notify` e OSC 9 passati con `-c`. Gli hook di Codex invece richiedono la fiducia salvata in `config.toml`, oppure `--dangerously-bypass-hook-trust`. In entrambe le CLI il rifiuto di un permesso con Esc non produce alcun segnale.
+**Yes for Claude Code, yes with caveats for Codex.** For Claude Code, inline hooks in `--settings` are enough, and they are immediate and precise. For Codex, `notify` and OSC 9 passed with `-c` work. Codex hooks, on the other hand, require the trust saved in `config.toml`, or `--dangerously-bypass-hook-trust`. In both CLIs, rejecting a permission with Esc produces no signal.
 
-## Come si esegue
+## How to run
 
 ```sh
-npm install              # postinstall: chmod +x dello spawn-helper di node-pty (vedi sotto)
-npm run pty:check        # node-pty carica e apre un PTY 120×40
-npm run hash             # SHA-256 di ~/.claude/settings.json e ~/.codex/config.toml (solo hash)
+npm install              # postinstall: chmod +x of node-pty's spawn-helper (see below)
+npm run pty:check        # node-pty loads and opens a 120×40 PTY
+npm run hash             # SHA-256 of ~/.claude/settings.json and ~/.codex/config.toml (hash only)
 
-npm run claude                        # fiducia → permesso consentito → AskUserQuestion → permesso negato → 75 s di attesa → /exit
-SCENARIO=idle npm run claude          # un turno, poi attesa di Notification idle_prompt
-IDLE_WAIT_MS=3000 npm run claude      # come sopra, con un'attesa finale breve
+npm run claude                        # trust → permission allowed → AskUserQuestion → permission denied → 75 s wait → /exit
+SCENARIO=idle npm run claude          # one turn, then wait for Notification idle_prompt
+IDLE_WAIT_MS=3000 npm run claude      # as above, with a short final wait
 
-npm run codex                                          # OSC 9 + notify: approvazione consentita, poi negata
-CODEX_NOTIF_METHOD=bel npm run codex                   # BEL al posto di OSC 9
-CODEX_HOOKS=1 npm run codex                            # hook via -c, senza fiducia: modale "Hooks need review"
-CODEX_HOOKS=1 CODEX_BYPASS_HOOK_TRUST=1 npm run codex  # hook con --dangerously-bypass-hook-trust
-CODEX_DOTTED_REPO=1 CODEX_TRUST_FORM=table npm run codex  # fiducia per un percorso che contiene un punto
+npm run codex                                          # OSC 9 + notify: approval allowed, then denied
+CODEX_NOTIF_METHOD=bel npm run codex                   # BEL instead of OSC 9
+CODEX_HOOKS=1 npm run codex                            # hooks via -c, without trust: "Hooks need review" modal
+CODEX_HOOKS=1 CODEX_BYPASS_HOOK_TRUST=1 npm run codex  # hooks with --dangerously-bypass-hook-trust
+CODEX_DOTTED_REPO=1 CODEX_TRUST_FORM=table npm run codex  # trust for a path containing a dot
 ```
 
-Ogni esecuzione scrive in `results/<scenario>-<ora>/` questi file: `hooks.jsonl` con gli hook ricevuti, `pty.raw` con il transcript grezzo del PTY, `pty-timeline.jsonl` con i chunk temporizzati (input, output, risposte del terminale, OSC, BEL), `screens/` con lo schermo renderizzato da `@xterm/headless` nei momenti chiave e `summary.json`.
+Each run writes these files in `results/<scenario>-<time>/`: `hooks.jsonl` with the hooks received, `pty.raw` with the raw PTY transcript, `pty-timeline.jsonl` with the timed chunks (input, output, terminal responses, OSC, BEL), `screens/` with the screen rendered by `@xterm/headless` at key moments, and `summary.json`.
 
-Script: `src/claude.ts`, `src/codex.ts`, `src/notify.mjs` (programma `notify` di Codex), `src/lib.ts` (PTY + schermo headless + server degli hook), `src/toml-keys.ts` (elenca le chiavi di `config.toml` con un hash corto dei valori, senza mai mostrarli). I repo di prova stanno in `os.tmpdir()`. L'ambiente del figlio è una whitelist (HOME, PATH, LANG…), senza `ANTHROPIC_*`, `CLAUDE*` e `OPENAI_*`, così vale il login in abbonamento.
+Scripts: `src/claude.ts`, `src/codex.ts`, `src/notify.mjs` (Codex's `notify` program), `src/lib.ts` (PTY + headless screen + hook server), `src/toml-keys.ts` (lists the keys of `config.toml` with a short hash of the values, never showing them). The test repos live in `os.tmpdir()`. The child's environment is a whitelist (HOME, PATH, LANG…), without `ANTHROPIC_*`, `CLAUDE*` and `OPENAI_*`, so the subscription login applies.
 
 ## PTY
 
-- **`node-pty` 1.1.0 funziona** su Node 24.20 / macOS arm64 con il prebuild incluso, senza compilare. È un modulo N-API (`napi_register_module_v1`), quindi in Electron non dovrebbe servire `electron-rebuild`: da verificare nello scaffold F0. `@homebridge/node-pty-prebuilt-multiarch` non è servito.
-- Insidia: nel tarball `prebuilds/darwin-arm64/spawn-helper` arriva con i permessi `644`, e il primo `spawn` fallisce con `posix_spawnp failed`. Il rimedio è il `chmod +x` nel postinstall. npm 11 blocca gli script di installazione delle dipendenze (`allowScripts`) e pnpm fa lo stesso: il chmod va fatto dal progetto. In Electron lo `spawn-helper` deve stare fuori dall'asar (`asarUnpack`).
-- Le risposte del terminale (DA1, DSR, colori) vanno restituite al processo collegando `term.onData` di xterm a `pty.write`, come farà Blue con xterm.js.
+- **`node-pty` 1.1.0 works** on Node 24.20 / macOS arm64 with the included prebuild, without compiling. It is an N-API module (`napi_register_module_v1`), so in Electron `electron-rebuild` should not be needed: to be verified in the F0 scaffold. `@homebridge/node-pty-prebuilt-multiarch` was not needed.
+- Pitfall: in the tarball `prebuilds/darwin-arm64/spawn-helper` arrives with `644` permissions, and the first `spawn` fails with `posix_spawnp failed`. The remedy is the `chmod +x` in postinstall. npm 11 blocks dependencies' install scripts (`allowScripts`) and pnpm does the same: the chmod must be done by the project. In Electron the `spawn-helper` must be outside the asar (`asarUnpack`).
+- The terminal's responses (DA1, DSR, colors) must be returned to the process by connecting xterm's `term.onData` to `pty.write`, as Blue will do with xterm.js.
 
-## Risultati
+## Results
 
-Esecuzioni di riferimento: Claude `claude-…T13-08-41` (completa, 75 s di attesa), `claude-…T13-11-13` (idle), `claude-…T13-23-18` (finale); Codex `codex-osc9-…T13-15-24`, `codex-bel-…T13-16-24`, `codex-osc9-hooks-…T13-19-31`, `codex-osc9-hooks-bypass-…T13-20-10`, `codex-osc9-…T13-23-56` (finale). Latenza = istante dell'hook meno istante del cambio di schermo (negativo = l'hook arriva prima).
+Reference runs: Claude `claude-…T13-08-41` (complete, 75 s wait), `claude-…T13-11-13` (idle), `claude-…T13-23-18` (final); Codex `codex-osc9-…T13-15-24`, `codex-bel-…T13-16-24`, `codex-osc9-hooks-…T13-19-31`, `codex-osc9-hooks-bypass-…T13-20-10`, `codex-osc9-…T13-23-56` (final). Latency = time of the hook minus time of the screen change (negative = the hook arrives first).
 
-| # | Criterio | Esito | Evidenza |
+| # | Criterion | Outcome | Evidence |
 |---|---|---|---|
-| A1 | Hook inline con `--settings '<json>'` (tipo `command` + curl) | ✅ | Arrivano SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Notification, Stop, SessionEnd; `session_id` = `--session-id` in ogni payload |
-| A1b | Handler `http` | ✅ | Funziona senza altre impostazioni (UserPromptSubmit, PermissionRequest, Notification, Stop). Arriva ~10 ms prima del curl. Header `X-Blue-Token: $BLUE_HOOK_TOKEN` con `allowedEnvVars`: token verificato in ogni chiamata. SessionStart non supporta `http` |
-| A1c | StopFailure | ⚪ | Chiave accettata, mai scattata (nessun errore API) |
-| A2 | Fiducia della cartella | ✅ | Gestita via PTY. In 2.1.316/319 l'opzione preselezionata è **"No, exit"**: Invio chiude Claude (exit 1). Serve ↓ e poi Invio. Prima della conferma non arriva **nessun** hook; SessionStart arriva ~95 ms dopo |
-| A3 | "In attesa di permesso" | ✅ | `PermissionRequest` (tool_name, tool_input.command/description, permission_suggestions) arriva **6–8 ms prima** del dialogo. `Notification permission_prompt` ("Claude needs your permission") arriva **+6,0 s** dopo, con un ritardo fisso in 3 esecuzioni su 3 |
-| A3b | Consenso via PTY | ✅ | Invio su "1. Yes": il dialogo si chiude in ~25 ms. Nessun hook segnala la risposta; il primo è `PostToolUse` a +400 ms, a comando finito |
-| A3c | Fine turno | ✅ | `Stop` con `last_assistant_message: "ok"` arriva **11–14 ms prima** che sparisca lo spinner |
-| A3d | Domanda (AskUserQuestion) | ✅ | `PreToolUse` + `PermissionRequest` con `tool_name: AskUserQuestion` ~13 ms prima del dialogo; nessuna Notification entro 3 s |
-| A3e | Permesso negato con Esc | ❌ | **Nessun hook**: niente Stop, PostToolUseFailure o PermissionDenied. Il transcript JSONL (`transcript_path`) registra invece `[Request interrupted by user for tool use]` e `system/turn_duration` |
-| A4 | `idle_prompt` | ⚠️ | Arriva esattamente **60,0 s dopo Stop** ("Claude is waiting for your input"), anche senza eventi di focus. Dopo un rifiuto non arriva (75 s di attesa). Non indica un blocco |
-| B5 | `notify` via `-c` | ✅⚠️ | `agent-turn-complete` con `thread-id`, `turn-id`, `cwd`, `client: codex-tui`, `input-messages`, `last-assistant-message`; token ok. **Falso positivo**: al primo turno scatta anche per il thread interno che genera il titolo (thread-id diverso, input "Generate a concise, single-line task title…"), 0,4–2 s prima della fine reale |
-| B5b | OSC 9 (`tui.notification_method="osc9"`, `notification_condition="always"`) | ✅ | All'approvazione `Approval requested: /bin/zsh -lc 'date > now.txt'` (troncato se lungo) arriva nello stesso chunk del dialogo (0/−1 ms); a fine turno OSC 9 con l'ultimo messaggio, ~40 ms prima di notify. Solo thread principale |
-| B5c | BEL | ✅ | BEL all'approvazione e a fine turno, ma senza testo: non distingue i due casi |
-| B5d | Approvazione via PTY | ✅ | `y` approva. Esc nega e **non emette nessun segnale** (né notify, né OSC, né hook Stop) |
-| B5e | Fiducia del progetto per processo | ✅ | `-c projects.<percorso>.trust_level="trusted"` funziona senza virgolette. Con le virgolette ricompare il prompt "Trust this folder?", perché il percorso `-c` è diviso sui punti. Per percorsi con un punto funziona la forma tabella `-c 'projects={"<percorso>"={trust_level="trusted"}}'` |
-| B6 | Hook di Codex via `-c` | ⚠️ | Senza fiducia compare una **modale bloccante** "Hooks need review · 4 hooks are new or changed" (Review / Trust all and continue / Continue without trusting). Con "Continue without trusting" gli hook non girano. Con `--dangerously-bypass-hook-trust` (**usato solo nello scenario `CODEX_BYPASS_HOOK_TRUST=1`**) arrivano: SessionStart al primo prompt, con `session_id` = thread-id principale di notify; UserPromptSubmit; PermissionRequest (tool_name Bash, tool_input.command) ~8 ms prima del dialogo; Stop con last_assistant_message ~40 ms prima di notify. Dopo un rifiuto: nessuno Stop |
-| C | Config globale invariata | ✅ Claude / ⚠️ Codex | `~/.claude/settings.json` resta `8eb54ad5…` per tutto lo spike. `~/.codex/config.toml`: i valori iniettati (notify, tui.notification*, hooks, projects) non vengono mai scritti. La **TUI però scrive il proprio stato di interfaccia**: il primo avvio riuscito ha aggiunto `[tui.model_availability_nux] "gpt-6.1-sol" = 1` (certo, diff delle chiavi); probabile anche `tui.screen_reader_detection_done` all'avvio del 13:11:18Z. Dopo aver aggiunto `-c 'tui.model_availability_nux={"gpt-6.1-sol"=99}'`, sei esecuzioni successive lasciano hash e chiavi invariati (finale `76a5b567…` → `76a5b567…`). Nello stesso periodo lo spike `codex-app-server` aggiungeva `[projects."…/blue-spike-codex-*"]`: i suoi cambi non dipendono da questo spike |
+| A1 | Inline hooks with `--settings '<json>'` (type `command` + curl) | ✅ | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Notification, Stop, SessionEnd arrive; `session_id` = `--session-id` in every payload |
+| A1b | `http` handler | ✅ | Works without other settings (UserPromptSubmit, PermissionRequest, Notification, Stop). Arrives ~10 ms before the curl. Header `X-Blue-Token: $BLUE_HOOK_TOKEN` with `allowedEnvVars`: token verified on every call. SessionStart does not support `http` |
+| A1c | StopFailure | ⚪ | Key accepted, never fired (no API error) |
+| A2 | Folder trust | ✅ | Handled via PTY. In 2.1.316/319 the preselected option is **"No, exit"**: Enter closes Claude (exit 1). ↓ and then Enter are needed. Before confirmation **no** hook arrives; SessionStart arrives ~95 ms later |
+| A3 | "Waiting for permission" | ✅ | `PermissionRequest` (tool_name, tool_input.command/description, permission_suggestions) arrives **6–8 ms before** the dialog. `Notification permission_prompt` ("Claude needs your permission") arrives **+6.0 s** later, with a fixed delay in 3 runs out of 3 |
+| A3b | Consent via PTY | ✅ | Enter on "1. Yes": the dialog closes in ~25 ms. No hook signals the answer; the first is `PostToolUse` at +400 ms, when the command is done |
+| A3c | End of turn | ✅ | `Stop` with `last_assistant_message: "ok"` arrives **11–14 ms before** the spinner disappears |
+| A3d | Question (AskUserQuestion) | ✅ | `PreToolUse` + `PermissionRequest` with `tool_name: AskUserQuestion` ~13 ms before the dialog; no Notification within 3 s |
+| A3e | Permission denied with Esc | ❌ | **No hook**: no Stop, PostToolUseFailure or PermissionDenied. The JSONL transcript (`transcript_path`) instead records `[Request interrupted by user for tool use]` and `system/turn_duration` |
+| A4 | `idle_prompt` | ⚠️ | Arrives exactly **60.0 s after Stop** ("Claude is waiting for your input"), even without focus events. After a rejection it does not arrive (75 s wait). It does not indicate a block |
+| B5 | `notify` via `-c` | ✅⚠️ | `agent-turn-complete` with `thread-id`, `turn-id`, `cwd`, `client: codex-tui`, `input-messages`, `last-assistant-message`; token ok. **False positive**: on the first turn it also fires for the internal thread that generates the title (different thread-id, input "Generate a concise, single-line task title…"), 0.4–2 s before the real end |
+| B5b | OSC 9 (`tui.notification_method="osc9"`, `notification_condition="always"`) | ✅ | On approval, `Approval requested: /bin/zsh -lc 'date > now.txt'` (truncated if long) arrives in the same chunk as the dialog (0/−1 ms); at the end of the turn OSC 9 with the last message, ~40 ms before notify. Main thread only |
+| B5c | BEL | ✅ | BEL on approval and at the end of the turn, but without text: it does not distinguish the two cases |
+| B5d | Approval via PTY | ✅ | `y` approves. Esc denies and **emits no signal** (no notify, no OSC, no Stop hook) |
+| B5e | Per-process project trust | ✅ | `-c projects.<path>.trust_level="trusted"` works without quotes. With quotes the "Trust this folder?" prompt reappears, because the `-c` path is split on dots. For paths with a dot the table form works: `-c 'projects={"<path>"={trust_level="trusted"}}'` |
+| B6 | Codex hooks via `-c` | ⚠️ | Without trust a **blocking modal** "Hooks need review · 4 hooks are new or changed" appears (Review / Trust all and continue / Continue without trusting). With "Continue without trusting" the hooks do not run. With `--dangerously-bypass-hook-trust` (**used only in the `CODEX_BYPASS_HOOK_TRUST=1` scenario**) these arrive: SessionStart at the first prompt, with `session_id` = main thread-id from notify; UserPromptSubmit; PermissionRequest (tool_name Bash, tool_input.command) ~8 ms before the dialog; Stop with last_assistant_message ~40 ms before notify. After a rejection: no Stop |
+| C | Global config unchanged | ✅ Claude / ⚠️ Codex | `~/.claude/settings.json` keeps the same hash throughout the spike. `~/.codex/config.toml`: the injected values (notify, tui.notification*, hooks, projects) are never written. The **TUI, however, writes its own interface state**: the first successful launch added `[tui.model_availability_nux] "gpt-6.1-sol" = 1` (certain, key diff); probably also `tui.screen_reader_detection_done` at the 13:11:18Z launch. After adding `-c 'tui.model_availability_nux={"gpt-6.1-sol"=99}'`, six subsequent runs leave hash and keys unchanged (final `76a5b567…` → `76a5b567…`). In the same period the `codex-app-server` spike was adding `[projects."…/blue-spike-codex-*"]`: its changes do not depend on this spike |
 
-## Macchina a stati per Claude Code
+## State machine for Claude Code
 
-Blue la ricava solo dagli hook `command` (o `http`, non entrambi). La chiave è `session_id`, che Blue sceglie con `--session-id`.
+Blue derives it only from the `command` hooks (or `http`, not both). The key is `session_id`, which Blue chooses with `--session-id`.
 
-| Evento | Stato |
+| Event | State |
 |---|---|
-| (avvio, nessun hook) | `starting`. Se resta così, probabilmente c'è il dialogo di fiducia: si mostra "apri il terminale" |
-| SessionStart | `idle` (pronta) |
-| UserPromptSubmit, PreToolUse(≠AskUserQuestion), PostToolUse, PostToolUseFailure | `running` (dettaglio: tool_name) |
-| PermissionRequest(tool ≠ AskUserQuestion) | `waiting:permission` (comando, descrizione) |
+| (startup, no hook) | `starting`. If it stays that way, there is probably the trust dialog: show "open the terminal" |
+| SessionStart | `idle` (ready) |
+| UserPromptSubmit, PreToolUse(≠AskUserQuestion), PostToolUse, PostToolUseFailure | `running` (detail: tool_name) |
+| PermissionRequest(tool ≠ AskUserQuestion) | `waiting:permission` (command, description) |
 | PreToolUse / PermissionRequest(AskUserQuestion) | `waiting:question` |
-| Notification permission_prompt | solo conferma, arriva 6 s dopo PermissionRequest; usarla se manca PermissionRequest |
-| Notification idle_prompt | nessun cambio di stato (falso "in attesa": la sessione è già `done`) |
-| Stop | `done` (last_assistant_message per l'anteprima) |
-| StopFailure | `error` (campo `error`: rate_limit, authentication_failed…) |
-| SessionEnd / uscita del PTY | `exited` |
-| **Rifiuto o interruzione (Esc)** | nessun hook: serve un ripiego (vedi raccomandazioni) |
+| Notification permission_prompt | confirmation only, arrives 6 s after PermissionRequest; use it if PermissionRequest is missing |
+| Notification idle_prompt | no state change (false "waiting": the session is already `done`) |
+| Stop | `done` (last_assistant_message for the preview) |
+| StopFailure | `error` (`error` field: rate_limit, authentication_failed…) |
+| SessionEnd / PTY exit | `exited` |
+| **Rejection or interruption (Esc)** | no hook: a fallback is needed (see recommendations) |
 
-## Macchina a stati per Codex
+## State machine for Codex
 
-| Segnale | Stato |
+| Signal | State |
 |---|---|
-| Input del prompt nel PTY (o hook UserPromptSubmit se fidato) | `running` |
-| OSC 9 che inizia con `Approval requested:` (o hook PermissionRequest) | `waiting:permission` |
-| OSC 9 con altro testo, notify `agent-turn-complete` del thread principale, o hook Stop | `done` |
-| notify di un altro thread-id (titolo) | da ignorare |
-| Esc su un'approvazione, Ctrl-C | nessun segnale |
-| Uscita del PTY | `exited` |
+| Prompt input in the PTY (or UserPromptSubmit hook if trusted) | `running` |
+| OSC 9 starting with `Approval requested:` (or PermissionRequest hook) | `waiting:permission` |
+| OSC 9 with other text, notify `agent-turn-complete` of the main thread, or Stop hook | `done` |
+| notify from another thread-id (title) | to ignore |
+| Esc on an approval, Ctrl-C | no signal |
+| PTY exit | `exited` |
 
-Senza hook Blue non conosce in anticipo il thread-id principale: Codex non ha un `--session-id`. Il criterio più pratico è usare OSC 9 come fonte primaria, che riguarda solo il thread principale, e notify come conferma, scartando gli input "Generate a concise, single-line task title…". Con gli hook fidati, il `session_id` di SessionStart risolve il problema.
+Without hooks Blue does not know the main thread-id in advance: Codex has no `--session-id`. The most practical approach is to use OSC 9 as the primary source, which concerns only the main thread, and notify as confirmation, discarding the inputs "Generate a concise, single-line task title…". With trusted hooks, the `session_id` of SessionStart solves the problem.
 
-## Insidie
+## Pitfalls
 
-- **Claude:** il dialogo di fiducia ha "No, exit" preselezionato, e finché non lo accetti non arriva nessun hook. Accettarlo scrive la cartella in `~/.claude.json` (`projects[…].hasTrustDialogAccepted`): lo spike ha lasciato 3 voci per cartelle temporanee `blue-s6-claude-*`.
-- **Claude:** senza `DISABLE_AUTOUPDATER=1` la CLI si aggiorna da sola durante la sessione. Lo spike l'ha aggiornata da **2.1.316 a 2.1.319** (symlink `~/.local/bin/claude`, 14:06) prima che aggiungessi la variabile. Le esecuzioni successive girano su 2.1.319, con lo stesso comportamento.
-- **Claude:** la Notification `permission_prompt` ha un ritardo di ~6 s, quindi lo stato immediato va preso da PermissionRequest. Gli hook PermissionRequest sono bloccanti e possono decidere: il server di Blue deve rispondere 200 **senza corpo**, e curl deve usare `-o /dev/null`, altrimenti l'output diventa una decisione.
-- **Claude:** il token va nell'ambiente (`$BLUE_HOOK_TOKEN`) e non negli argomenti, che sono visibili con `ps`.
-- **Codex:** `approval_policy="untrusted"` non è più supportato in 0.167 ed esce con un errore all'avvio. Per avere un'approvazione serve `-a on-request` con una sandbox che la richieda.
-- **Codex:** `tui.notification_condition` ha come default `unfocused`. In un PTY senza eventi di focus conviene `always`, oppure Blue invia `CSI O`/`CSI I` (modo 1004) quando il pannello perde o prende il focus.
-- **Codex:** lo spike usa `--no-daemon`, così gli override `-c` valgono per questo processo. Il comportamento con il server condiviso (`daemon_auto_start`) non è stato verificato.
-- **Codex:** la TUI salva in `config.toml` lo stato dei propri avvisi (NUX dei modelli, rilevamento screen reader), come farebbe con un avvio manuale. Blue non può impedirlo in generale: solo caso per caso, con override `-c`.
-- **Codex:** la fiducia degli hook viene salvata in `config.toml` (dalle stringhe del binario risulta `hooks.state.<id>.trusted_hash`, non verificato). Scegliere "Trust all" scriverebbe quindi nella configurazione globale.
+- **Claude:** the trust dialog has "No, exit" preselected, and until you accept it no hook arrives. Accepting it writes the folder to `~/.claude.json` (`projects[…].hasTrustDialogAccepted`): the spike left 3 entries for temporary `blue-s6-claude-*` folders.
+- **Claude:** without `DISABLE_AUTOUPDATER=1` the CLI updates itself during the session. The spike updated it from **2.1.316 to 2.1.319** (symlink `~/.local/bin/claude`, 14:06) before I added the variable. Subsequent runs use 2.1.319, with the same behavior.
+- **Claude:** the `permission_prompt` Notification has a delay of ~6 s, so the immediate state must be taken from PermissionRequest. PermissionRequest hooks are blocking and can decide: Blue's server must answer 200 **with no body**, and curl must use `-o /dev/null`, otherwise the output becomes a decision.
+- **Claude:** the token goes in the environment (`$BLUE_HOOK_TOKEN`) and not in the arguments, which are visible with `ps`.
+- **Codex:** `approval_policy="untrusted"` is no longer supported in 0.167 and exits with an error at startup. To get an approval you need `-a on-request` with a sandbox that requires it.
+- **Codex:** `tui.notification_condition` defaults to `unfocused`. In a PTY without focus events `always` is advisable, or Blue sends `CSI O`/`CSI I` (mode 1004) when the panel loses or gains focus.
+- **Codex:** the spike uses `--no-daemon`, so the `-c` overrides apply to this process. Behavior with the shared server (`daemon_auto_start`) was not verified.
+- **Codex:** the TUI saves the state of its own notices (model NUX, screen reader detection) in `config.toml`, as it would with a manual launch. Blue cannot prevent this in general: only case by case, with `-c` overrides.
+- **Codex:** hook trust is saved in `config.toml` (from the binary's strings it appears to be `hooks.state.<id>.trusted_hash`, not verified). Choosing "Trust all" would therefore write to the global configuration.
 
-## Raccomandazione per TerminalService
+## Recommendation for TerminalService
 
-1. **Claude Code:** hook inline con `--settings`, un handler per evento (`http` dove supportato, `command`+curl per SessionStart e SessionEnd), `--session-id` generato da Blue, token nell'ambiente, server locale che risponde 200 vuoto e scarta i payload senza token valido.
-2. **Ripiego per rifiuti e interruzioni:** quando lo stato è `waiting:*` e non arriva un hook, Blue legge la coda di `transcript_path` (da SessionStart). La voce `system/turn_duration` chiude ogni turno, anche interrotto. È un formato interno, quindi va trattato come euristica con l'etichetta "stato stimato". In aggiunta: input dell'utente nel PTY mentre lo stato è `waiting:permission` e dialogo scomparso → `running?`.
-3. **Fiducia:** prima di avviare, Blue controlla `~/.claude.json` (solo `hasTrustDialogAccepted` per il cwd). Se la cartella non è fidata, la sessione nasce con l'etichetta "serve conferma nel terminale" invece di "in corso".
-4. **Codex:** `-c` per notify, `tui.notifications=["agent-turn-complete","approval-requested"]`, `tui.notification_method="osc9"`, `tui.notification_condition="always"`, fiducia del progetto in forma tabella e `--no-daemon`. Lo stato viene da OSC 9 letto con `term.parser.registerOscHandler(9, …)` di xterm.js, più notify filtrato per thread. Gli hook di Codex non vanno usati finché la fiducia richiede la scrittura in `config.toml` o il bypass "dangerous"; si possono riconsiderare se Blue accetta di far fidare i propri hook una volta tramite `/hooks`.
-5. Il piano va aggiornato (sezione S6): per Codex le approvazioni si leggono già da OSC 9, quindi gli hook non servono. Per entrambe le CLI va previsto lo stato "stimato" dopo un Esc.
+1. **Claude Code:** inline hooks with `--settings`, one handler per event (`http` where supported, `command`+curl for SessionStart and SessionEnd), `--session-id` generated by Blue, token in the environment, local server that answers an empty 200 and discards payloads without a valid token.
+2. **Fallback for rejections and interruptions:** when the state is `waiting:*` and no hook arrives, Blue reads the tail of `transcript_path` (from SessionStart). The `system/turn_duration` entry closes every turn, even an interrupted one. It is an internal format, so it must be treated as a heuristic with the label "estimated state". In addition: user input in the PTY while the state is `waiting:permission` and the dialog is gone → `running?`.
+3. **Trust:** before starting, Blue checks `~/.claude.json` (only `hasTrustDialogAccepted` for the cwd). If the folder is not trusted, the session starts with the label "confirmation needed in the terminal" instead of "running".
+4. **Codex:** `-c` for notify, `tui.notifications=["agent-turn-complete","approval-requested"]`, `tui.notification_method="osc9"`, `tui.notification_condition="always"`, project trust in table form and `--no-daemon`. The state comes from OSC 9 read with xterm.js's `term.parser.registerOscHandler(9, …)`, plus notify filtered by thread. Codex hooks should not be used as long as trust requires writing to `config.toml` or the "dangerous" bypass; they can be reconsidered if Blue accepts having its own hooks trusted once through `/hooks`.
+5. The initial plan needs updating (section S6): for Codex, approvals can already be read from OSC 9, so hooks are not needed. For both CLIs an "estimated" state after an Esc must be provided for.

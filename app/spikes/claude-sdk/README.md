@@ -1,110 +1,110 @@
 # S2 · Claude Agent SDK
 
-Domanda: l’Agent SDK TypeScript regge le sessioni lunghe e interattive della chat di Blue, con il login Max già fatto nella CLI?
+Question: does the TypeScript Agent SDK sustain the long, interactive sessions of Blue's chat, with the Max login already done in the CLI?
 
-Risposta breve: **sì**. Tutti i criteri passano con `@anthropic-ai/claude-agent-sdk@0.3.319`, modello `haiku`, `settingSources: []` e login dell’abbonamento. Servono però tre accorgimenti che il piano non prevede (ambiente ripulito, connettori claude.ai spenti, variabile per `session_state_changed`) e una gestione dei processi orfani.
+Short answer: **yes**. All criteria pass with `@anthropic-ai/claude-agent-sdk@0.3.319`, model `haiku`, `settingSources: []` and the subscription login. Three precautions that the initial plan did not anticipate are needed, though (a cleaned environment, claude.ai connectors turned off, a variable for `session_state_changed`), along with handling of orphan processes.
 
-## Come si esegue
+## How to run
 
 ```sh
-cd spikes/claude-sdk
+cd app/spikes/claude-sdk
 npm install
-npm start            # run.ts: una sessione, 10 turni (criteri 1-6, 8, 9), ~2 min (approvazione tenuta 65 s)
-npm run resume       # resume.ts: riprende l'ultima sessione in un nuovo processo + `claude --resume` (criterio 7)
-npm run kill         # kill.ts: SIGKILL dell'host a metà turno; poi `npm run resume`
-node probe.ts        # connettori claude.ai ed effort a metà sessione
+npm start            # run.ts: one session, 10 turns (criteria 1-6, 8, 9), ~2 min (approval held for 65 s)
+npm run resume       # resume.ts: resumes the last session in a new process + `claude --resume` (criterion 7)
+npm run kill         # kill.ts: SIGKILL of the host mid-turn; then `npm run resume`
+node probe.ts        # claude.ai connectors and mid-session effort
 ```
 
-Variabili utili: `HOLD_MS` (durata dell’approvazione in sospeso, default 65000), `TOOL_WAIT_MS` (attesa prima dell’interruzione del comando, default 32000), `ONLY=stream,approvals,question,controls,interrupt`, `CLAUDE_BIN` (usa una CLI installata invece di quella inclusa nell’SDK), `SPIKE_MODEL`.
+Useful variables: `HOLD_MS` (duration of the pending approval, default 65000), `TOOL_WAIT_MS` (wait before interrupting the command, default 32000), `ONLY=stream,approvals,question,controls,interrupt`, `CLAUDE_BIN` (uses an installed CLI instead of the one bundled with the SDK), `SPIKE_MODEL`.
 
-I repository di prova vengono creati in `.tmp/`; i log grezzi (JSONL, un evento per riga) e i riepiloghi in `results/`. Entrambi sono ignorati da git. Le trascrizioni delle sessioni finiscono, come sempre, in `~/.claude/projects/-Users-…-spikes-claude-sdk--tmp-repo-*`: si possono cancellare a mano.
+The test repositories are created in `.tmp/`; the raw logs (JSONL, one event per line) and the summaries in `results/`. Both are ignored by git. Session transcripts end up, as always, in `~/.claude/projects/-Users-…-spikes-claude-sdk--tmp-repo-*`: they can be deleted by hand.
 
-## Risultati
+## Results
 
-Esecuzione del 7/11/2026, CLI inclusa nell’SDK 2.1.319, `claude` installato 2.1.316 → 2.1.319 (aggiornato da solo durante lo spike). Log: `results/run-2026-11-07T13-08-59-291Z.jsonl`, `results/resume-*.jsonl`.
+Run of November 7, 2026, CLI bundled with the SDK 2.1.319, installed `claude` 2.1.316 → 2.1.319 (updated itself during the spike). Logs: `results/run-2026-11-07T13-08-59-291Z.jsonl`, `results/resume-*.jsonl`.
 
-| # | Criterio | Esito | Evidenza |
+| # | Criterion | Outcome | Evidence |
 |---|---|---|---|
-| 1 | `query()` con input in streaming, più turni | ✅ | 10 turni nello stesso processo e nella stessa `session_id`; al turno 2 ricorda l’ultima parola del turno 1 (“twelve”) |
-| 2 | Streaming con `includePartialMessages` | ✅ | 34 `text_delta` in sessione; primo delta 1,47 s dopo l’invio al turno 1 (compreso l’avvio del processo), 1,2–1,5 s nei turni brevi successivi; `result.ttft_ms` 1,6 s. Haiku manda pezzi grossi: una risposta corta arriva in 1 delta; la storia del 6a ne aveva mandati 21 quando è stata interrotta |
-| 3 | Approvazioni con `canUseTool` | ✅ | Sequenza `Write:allow → Bash:deny → Bash:allow`; il messaggio del rifiuto arriva al modello come `tool_result` d’errore, il modello riprova, `notes.txt` risulta in stage; `result.permission_denials` elenca la chiamata rifiutata |
-| 3b | Promessa in sospeso ≥ 60 s | ✅ | Approvazione di `Write` tenuta 65 s, `signal.aborted=false`, il turno finisce con `success`. Durante l’attesa non arriva **nessun** messaggio (niente battito). Anche **10 minuti** (600 s) passano: vedi sotto |
-| 4 | `AskUserQuestion` | ✅ | Arriva in `canUseTool` con `input.questions`; risposta con `updatedInput: { ...input, answers: { "Which color do you prefer?": "Green" } }`; il modello risponde “GREEN” |
-| 5 | `setPermissionMode('acceptEdits')` | ✅ | `Write` successivo senza `canUseTool`; arriva `system/status` con `permissionMode: "acceptEdits"` |
-| 5 | `setModel('sonnet')` | ✅ | `assistant.message.model = claude-sonnet-5-5`; `modelUsage` con due chiavi (haiku e sonnet) |
-| 5 | `supportedModels()` | ✅ | `default`/`opus` → claude-opus-5-5 “Opus 5.5”, `fable` → claude-fable-5-1, `sonnet` → claude-sonnet-5-5, `haiku` → claude-haiku-5-5, più id espliciti (Opus 5, Sonnet 5, Fable 5, Opus 4.8/4.7/4.6, Sonnet 4.6, Haiku 4.5). Effort low…max su tutti tranne Haiku 4.5 (nessuno) e i 4.6 (senza xhigh) |
-| 5 | Effort a metà sessione | ⚠️ | Non c’è `setEffort()`. `applyFlagSettings({ effortLevel: 'low' })` viene accettato senza errori, ma nessun evento conferma il valore applicato (`init.effort` è `null` o assente in questo trasporto). All’avvio c’è l’opzione `effort` |
-| 6 | `interrupt()` | ✅ | **Durante il testo**: `result` `error_during_execution`, `terminal_reason: aborted_streaming`, 9 ms dopo la chiamata, 0 delta dopo. **Durante un comando** (Bash da 32 s): `terminal_reason: aborted_tools` in 7 ms, processi del comando terminati entro 72 ms, `task_notification` con `status: stopped`. Il turno dopo risponde “still here” |
-| 7 | Ripresa in un nuovo processo | ✅ | `resume: <id>` in un processo nuovo: stessa `session_id` (nessun fork), risponde “notes.txt, edits.txt” in 2,1 s |
-| 7 | `claude --resume <id> -p … --model haiku` | ✅ | Exit 0, stessa `session_id`, ricorda i file e conta anche la domanda fatta dall’SDK: SDK e CLI scrivono la stessa trascrizione (147 → 171 righe). Funziona sia con 2.1.319 sia con 2.1.316, e l’SDK 0.3.319 guida anche la CLI 2.1.316 (`CLAUDE_BIN`) |
-| 7 | Ripresa dopo SIGKILL dell’host | ✅ con riserva | Riprende e ricorda `a.txt`. Il figlio `claude` sopravvive circa 8 s al padre ucciso: se Blue riprende subito, due processi scrivono la stessa sessione |
-| 8 | Tipi di messaggio | ✅ | Elenco e mappatura sotto |
-| 9 | Abbonamento o chiave API | ✅ | `init.apiKeySource: "none"` (login claude.ai, nessuna chiave); `accountInfo()`: `subscriptionType: "Claude Ultra"`, `apiProvider: "firstParty"`; c’è `rate_limit_event`, che esiste solo con i piani. Funziona anche con `settingSources: []` |
+| 1 | `query()` with streaming input, multiple turns | ✅ | 10 turns in the same process and the same `session_id`; at turn 2 it remembers the last word of turn 1 ("twelve") |
+| 2 | Streaming with `includePartialMessages` | ✅ | 34 `text_delta` in the session; first delta 1.47 s after sending on turn 1 (including process startup), 1.2–1.5 s on the following short turns; `result.ttft_ms` 1.6 s. Haiku sends large chunks: a short reply arrives in 1 delta; the story in 6a had sent 21 when it was interrupted |
+| 3 | Approvals with `canUseTool` | ✅ | Sequence `Write:allow → Bash:deny → Bash:allow`; the rejection message reaches the model as an error `tool_result`, the model retries, `notes.txt` ends up staged; `result.permission_denials` lists the rejected call |
+| 3b | Pending promise ≥ 60 s | ✅ | `Write` approval held 65 s, `signal.aborted=false`, the turn ends with `success`. During the wait **no** message arrives (no heartbeat). Even **10 minutes** (600 s) go by: see below |
+| 4 | `AskUserQuestion` | ✅ | Arrives in `canUseTool` with `input.questions`; answer with `updatedInput: { ...input, answers: { "Which color do you prefer?": "Green" } }`; the model replies "GREEN" |
+| 5 | `setPermissionMode('acceptEdits')` | ✅ | Subsequent `Write` without `canUseTool`; `system/status` arrives with `permissionMode: "acceptEdits"` |
+| 5 | `setModel('sonnet')` | ✅ | `assistant.message.model = claude-sonnet-5-5`; `modelUsage` with two keys (haiku and sonnet) |
+| 5 | `supportedModels()` | ✅ | `default`/`opus` → claude-opus-5-5 "Opus 5.5", `fable` → claude-fable-5-1, `sonnet` → claude-sonnet-5-5, `haiku` → claude-haiku-5-5, plus explicit ids (Opus 5, Sonnet 5, Fable 5, Opus 4.8/4.7/4.6, Sonnet 4.6, Haiku 4.5). Effort low…max on all except Haiku 4.5 (none) and the 4.6 models (no xhigh) |
+| 5 | Mid-session effort | ⚠️ | There is no `setEffort()`. `applyFlagSettings({ effortLevel: 'low' })` is accepted without errors, but no event confirms the applied value (`init.effort` is `null` or absent in this transport). At startup there is the `effort` option |
+| 6 | `interrupt()` | ✅ | **During text**: `result` `error_during_execution`, `terminal_reason: aborted_streaming`, 9 ms after the call, 0 deltas after. **During a command** (32 s Bash): `terminal_reason: aborted_tools` in 7 ms, command processes terminated within 72 ms, `task_notification` with `status: stopped`. The next turn answers "still here" |
+| 7 | Resume in a new process | ✅ | `resume: <id>` in a new process: same `session_id` (no fork), answers "notes.txt, edits.txt" in 2.1 s |
+| 7 | `claude --resume <id> -p … --model haiku` | ✅ | Exit 0, same `session_id`, remembers the files and also counts the question asked by the SDK: SDK and CLI write the same transcript (147 → 171 lines). Works with both 2.1.319 and 2.1.316, and SDK 0.3.319 also drives CLI 2.1.316 (`CLAUDE_BIN`) |
+| 7 | Resume after SIGKILL of the host | ✅ with a caveat | Resumes and remembers `a.txt`. The `claude` child survives about 8 s after the killed parent: if Blue resumes immediately, two processes write the same session |
+| 8 | Message types | ✅ | List and mapping below |
+| 9 | Subscription or API key | ✅ | `init.apiKeySource: "none"` (claude.ai login, no key); `accountInfo()`: `subscriptionType: "Claude Ultra"`, `apiProvider: "firstParty"`; there is `rate_limit_event`, which exists only with plans. Also works with `settingSources: []` |
 
-Prova da 10 minuti, come chiede il piano (`ONLY=approvals HOLD_MS=600000 node run.ts`, output in `results/hold-10min.out`): ✅ approvazione di `Write` in sospeso per 600 s, `signal.aborted=false`, poi `Bash:deny → Bash:allow` e turno chiuso con `success` 5 s dopo il rilascio. Nel frattempo girava in parallelo un’altra sessione (`npm start`) senza problemi.
+10-minute test, as the initial plan requires (`ONLY=approvals HOLD_MS=600000 node run.ts`, output in `results/hold-10min.out`): ✅ `Write` approval pending for 600 s, `signal.aborted=false`, then `Bash:deny → Bash:allow` and the turn closed with `success` 5 s after the release. Meanwhile another session (`npm start`) ran in parallel without problems.
 
-## Tipi di messaggio osservati
+## Observed message types
 
-Conteggi di una sessione completa (`run.ts`). I campi principali sono nei log.
+Counts from a full session (`run.ts`). The main fields are in the logs.
 
-| Tipo | N | Note |
+| Type | N | Notes |
 |---|---|---|
-| `system/init` | 10 | **Uno per turno**, non uno per sessione. `apiKeySource`, `model`, `permissionMode`, `claude_code_version`, `cwd`, `tools`, `mcp_servers`, `skills`, `agents`, `plugins`, `slash_commands`, `capabilities` (es. `interrupt_receipt_v1`, `ask_user_question_unanswered_v1`), `fast_mode_state`, `effort` (null) |
-| `system/session_state_changed` | 30 | `running` / `requires_action` / `idle`. Solo con `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` |
-| `system/status` | 16 | `status: "requesting"` a ogni chiamata API; `permissionMode` dopo `setPermissionMode`; `compacting` quando compatta |
+| `system/init` | 10 | **One per turn**, not one per session. `apiKeySource`, `model`, `permissionMode`, `claude_code_version`, `cwd`, `tools`, `mcp_servers`, `skills`, `agents`, `plugins`, `slash_commands`, `capabilities` (e.g. `interrupt_receipt_v1`, `ask_user_question_unanswered_v1`), `fast_mode_state`, `effort` (null) |
+| `system/session_state_changed` | 30 | `running` / `requires_action` / `idle`. Only with `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` |
+| `system/status` | 16 | `status: "requesting"` on every API call; `permissionMode` after `setPermissionMode`; `compacting` when compacting |
 | `system/thinking_tokens` | 2 | `estimated_tokens`, `estimated_tokens_delta` |
-| `system/task_started`, `system/task_notification` | 1+1 | Comando Bash come task: `task_id`, `tool_use_id`, `description`, `status: stopped` dopo l’interruzione |
+| `system/task_started`, `system/task_notification` | 1+1 | Bash command as a task: `task_id`, `tool_use_id`, `description`, `status: stopped` after the interruption |
 | `stream_event` | 230 | `message_start`, `content_block_start` (text, thinking, tool_use), `content_block_delta` (`text_delta`, `thinking_delta`, `input_json_delta`, `signature_delta`), `content_block_stop`, `message_delta` (stop_reason, usage), `message_stop` |
-| `assistant` | 18 | **Un messaggio per blocco** (thinking, text, tool_use), raggruppabili per `message.id`; `message.usage` per chiamata |
-| `user` con `tool_result` | 6 | `tool_use_id`, `is_error`, più `tool_use_result` strutturato (es. `{stdout, stderr, interrupted}` per Bash, patch per Write) |
-| `user` con testo | 2 | Sintetici: “[Request interrupted by user]”, “[Request interrupted by user for tool use]” |
-| `user` con `isReplay` | 2 | Dopo `setModel`: `<local-command-stdout>Set model to …</local-command-stdout>` |
-| `tool_progress` | 1 | Battito ogni 30 s: `tool_use_id` = `<id>-heartbeat-0`, l’id vero è in `parent_tool_use_id`; `elapsed_time_seconds` |
-| `rate_limit_event` | 1 | Solo alla prima richiesta: `status`, `resetsAt`, `rateLimitType` (`seven_day`), `unifiedWindows.seven_day.utilization` (0,09), stato dell’overage |
-| `result/success` | 8 | `result`, `num_turns`, `duration_ms`, `ttft_ms`, `usage` (del turno), `modelUsage` (per modello, con `contextWindow` 1M e `maxOutputTokens`), `total_cost_usd` (**cumulativo** e a prezzo di listino, `costBasis: "list"`), `permission_denials`, `terminal_reason`, `subagent_stats` |
-| `result/error_during_execution` | 2 | Interruzioni: `is_error: true`, `terminal_reason` `aborted_streaming` / `aborted_tools`, `errors` con una diagnostica interna |
+| `assistant` | 18 | **One message per block** (thinking, text, tool_use), groupable by `message.id`; `message.usage` per call |
+| `user` with `tool_result` | 6 | `tool_use_id`, `is_error`, plus structured `tool_use_result` (e.g. `{stdout, stderr, interrupted}` for Bash, patch for Write) |
+| `user` with text | 2 | Synthetic: "[Request interrupted by user]", "[Request interrupted by user for tool use]" |
+| `user` with `isReplay` | 2 | After `setModel`: `<local-command-stdout>Set model to …</local-command-stdout>` |
+| `tool_progress` | 1 | Heartbeat every 30 s: `tool_use_id` = `<id>-heartbeat-0`, the real id is in `parent_tool_use_id`; `elapsed_time_seconds` |
+| `rate_limit_event` | 1 | Only on the first request: `status`, `resetsAt`, `rateLimitType` (`seven_day`), `unifiedWindows.seven_day.utilization` (0.09), overage state |
+| `result/success` | 8 | `result`, `num_turns`, `duration_ms`, `ttft_ms`, `usage` (for the turn), `modelUsage` (per model, with `contextWindow` 1M and `maxOutputTokens`), `total_cost_usd` (**cumulative** and at list price, `costBasis: "list"`), `permission_denials`, `terminal_reason`, `subagent_stats` |
+| `result/error_during_execution` | 2 | Interruptions: `is_error: true`, `terminal_reason` `aborted_streaming` / `aborted_tools`, `errors` with an internal diagnostic |
 
-Previsti dai tipi ma non visti qui: `system/compact_boundary`, `system/api_retry`, `system/permission_denied`, `system/hook_*`, `system/notification`, `auth_status`, `result/error_max_turns`, `error_max_budget_usd`, eventi dei sotto-agenti.
+Expected from the types but not seen here: `system/compact_boundary`, `system/api_retry`, `system/permission_denied`, `system/hook_*`, `system/notification`, `auth_status`, `result/error_max_turns`, `error_max_budget_usd`, subagent events.
 
-### Mappatura verso gli eventi di Blue
+### Mapping to Blue's events
 
-| Evento Blue | Da Agent SDK |
+| Blue event | From the Agent SDK |
 |---|---|
-| `turn.started` | Lo emette l’host quando mette il messaggio nella coda; conferma con `session_state_changed: running`. Il `system/init` del turno aggiorna modello, modalità e strumenti |
-| `message.delta` | `stream_event` → `content_block_delta` con `text_delta` e `parent_tool_use_id: null` (con un valore, è un sotto-agente). `thinking_delta` → `reasoning.delta` |
-| `message.completed` | `assistant` con blocco `text`, raggruppato per `message.id` |
-| `tool.started` | `assistant` con blocco `tool_use` (`id`, `name`, `input`); `content_block_start` di tipo `tool_use` per mostrare subito lo spinner |
-| `tool.output` | `tool_progress` (usa `parent_tool_use_id`), `task_started` / `task_notification` |
-| `tool.completed` | `user` con `tool_result` per lo stesso `tool_use_id`, più `tool_use_result` strutturato |
-| `request.opened` | Chiamata di `canUseTool` (`toolUseID`, `title`, `displayName`, `description`, `decisionReason`, `suggestions`, `blockedPath`); poco prima arriva `session_state_changed: requires_action` |
-| `request.resolved` | Promessa risolta da Blue; poi `session_state_changed: running`. I rifiuti finiscono anche in `result.permission_denials` |
-| `question.opened` / `resolved` | `canUseTool` con `toolName === "AskUserQuestion"`; risposta in `updatedInput.answers` (chiave: testo della domanda, valore: etichetta; più scelte separate da virgola) |
-| `usage` / `limits` | `result.usage` (turno), `result.modelUsage` (contesto massimo), `total_cost_usd` solo come “equivalente”, `rate_limit_event` per i limiti del piano |
-| `turn.completed` | `result/success`; il segnale definitivo di fine è `session_state_changed: idle` |
-| `turn.interrupted` | `result/error_during_execution` con `terminal_reason` `aborted_*` dopo un `interrupt()` di Blue |
-| `turn.failed` | Altri `result` con `is_error` (`error_max_turns`, `error_max_budget_usd`, errori API) |
-| `session.config` | `system/status` con `permissionMode`; `user` con `isReplay` dopo `setModel` (da nascondere in chat) |
+| `turn.started` | Emitted by the host when it puts the message in the queue; confirm with `session_state_changed: running`. The turn's `system/init` updates model, mode and tools |
+| `message.delta` | `stream_event` → `content_block_delta` with `text_delta` and `parent_tool_use_id: null` (with a value, it is a subagent). `thinking_delta` → `reasoning.delta` |
+| `message.completed` | `assistant` with a `text` block, grouped by `message.id` |
+| `tool.started` | `assistant` with a `tool_use` block (`id`, `name`, `input`); `content_block_start` of type `tool_use` to show the spinner immediately |
+| `tool.output` | `tool_progress` (uses `parent_tool_use_id`), `task_started` / `task_notification` |
+| `tool.completed` | `user` with `tool_result` for the same `tool_use_id`, plus structured `tool_use_result` |
+| `request.opened` | `canUseTool` call (`toolUseID`, `title`, `displayName`, `description`, `decisionReason`, `suggestions`, `blockedPath`); shortly before, `session_state_changed: requires_action` arrives |
+| `request.resolved` | Promise resolved by Blue; then `session_state_changed: running`. Rejections also end up in `result.permission_denials` |
+| `question.opened` / `resolved` | `canUseTool` with `toolName === "AskUserQuestion"`; answer in `updatedInput.answers` (key: question text, value: label; multiple choices comma-separated) |
+| `usage` / `limits` | `result.usage` (turn), `result.modelUsage` (maximum context), `total_cost_usd` only as an "equivalent", `rate_limit_event` for the plan limits |
+| `turn.completed` | `result/success`; the definitive end signal is `session_state_changed: idle` |
+| `turn.interrupted` | `result/error_during_execution` with `terminal_reason` `aborted_*` after a Blue `interrupt()` |
+| `turn.failed` | Other `result` with `is_error` (`error_max_turns`, `error_max_budget_usd`, API errors) |
+| `session.config` | `system/status` with `permissionMode`; `user` with `isReplay` after `setModel` (to hide in chat) |
 
-## Insidie
+## Pitfalls
 
-1. **Ambiente ereditato.** Se Blue parte da un terminale di Claude Code (per esempio `pnpm dev`), l’ambiente contiene `CLAUDECODE`, `CLAUDE_CODE_SIMPLE` (equivale a `--bare`), `ANTHROPIC_BASE_URL` (il proxy dell’app ospite) e una trentina di altre variabili. Non basta togliere `ANTHROPIC_API_KEY`: lo spike toglie tutte le `ANTHROPIC_*` e `CLAUDE*` (`lib.ts`, `cleanEnv`).
-2. **Connettori claude.ai.** Con il login dell’abbonamento la CLI collega anche i connettori dell’account claude.ai (qui Gmail, Calendar, Drive, Linear, Bank, …), **anche con `settingSources: []`**. Gli strumenti passano da 29 a 315 e il costo equivalente della sessione da 0,034 a 0,090 USD. Soprattutto, l’agente di un progetto può leggere la posta. Blue deve passare `settings: { disableClaudeAiConnectors: true }` (verificato: `mcp_servers: []`) oppure `strictMcpConfig: true`.
-3. **`session_state_changed` non arriva** senza `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` nell’ambiente: l’SDK chiede gli stati per uso interno e li scarta.
-4. **`permissionMode` omesso vale `auto`** (classificatore) dove disponibile. Per avere le approvazioni va passato `'default'`.
-5. **`canUseTool` non vede tutto.** I comandi di sola lettura (visto con `cat notes.txt`) e le modifiche in `acceptEdits` passano senza chiamarlo. L’hook `PreToolUse` registrato in `run.ts` vede anche queste chiamate (verificato con la `Write` in `acceptEdits`): serve per il registro, come previsto dal piano.
-6. **Nessun battito durante un’approvazione.** In 65 s (e in 10 minuti) di attesa non arriva alcun messaggio: lo stato “in attesa” lo deve tenere Blue. Le richieste non scadono: i tipi dell’SDK dicono che i prompt di permesso non hanno scadenza, e i 10 minuti lo confermano.
-7. **La CLI blocca `sleep N` in primo piano** (“use Monitor…”): il modello rinuncia e il turno finisce da solo. Nei test servono altri comandi lunghi.
-8. **Due binari.** L’SDK installa una sua CLI (`@anthropic-ai/claude-agent-sdk-darwin-arm64`, 2.1.319, 321 MB) diversa da `~/.local/bin/claude`, che si aggiorna da sola. Condividono login (portachiavi) e trascrizioni. Per Electron il binario va lasciato fuori dall’asar e moltiplicato per architettura, oppure si usa la CLI dell’utente con `pathToClaudeCodeExecutable`.
-9. **Orfani.** Dopo un SIGKILL dell’host il figlio `claude` resta vivo circa 8 s. Blue deve ricordare il PID (o usare `spawnClaudeCodeProcess`) e, al riavvio, aspettarlo o ucciderlo prima di riprendere la stessa sessione.
-10. **Rumore nel flusso.** `system/init` a ogni turno, un `assistant` per blocco, messaggi `user` sintetici dopo interruzioni e `setModel`. L’adapter deve filtrarli prima della UI.
-11. **Costi.** `total_cost_usd` è cumulativo e a prezzo di listino anche con l’abbonamento. Va mostrato, se si mostra, come equivalente.
-12. **Strumenti in più.** Anche con `settingSources: []` restano 20 skill incluse, 4 plugin interni e strumenti come `CronCreate`, `RemoteTrigger`, `PushNotification`, `SendToProject`, `Workflow`. Conviene una lista `tools` o `disallowedTools` decisa da Blue.
+1. **Inherited environment.** If Blue starts from a Claude Code terminal (for example `pnpm dev`), the environment contains `CLAUDECODE`, `CLAUDE_CODE_SIMPLE` (equivalent to `--bare`), `ANTHROPIC_BASE_URL` (the host app's proxy) and about thirty other variables. It is not enough to remove `ANTHROPIC_API_KEY`: the spike removes all `ANTHROPIC_*` and `CLAUDE*` variables (`lib.ts`, `cleanEnv`).
+2. **claude.ai connectors.** With the subscription login the CLI also attaches the connectors of the claude.ai account, **even with `settingSources: []`**. Tools go from 29 to 315 and the session's equivalent cost from 0.034 to 0.090 USD. Above all, a project's agent can read the mail. Blue must pass `settings: { disableClaudeAiConnectors: true }` (verified: `mcp_servers: []`) or `strictMcpConfig: true`.
+3. **`session_state_changed` does not arrive** without `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` in the environment: the SDK requests the states for internal use and discards them.
+4. **An omitted `permissionMode` means `auto`** (classifier) where available. To get approvals, `'default'` must be passed.
+5. **`canUseTool` does not see everything.** Read-only commands (seen with `cat notes.txt`) and edits in `acceptEdits` pass without calling it. The `PreToolUse` hook registered in `run.ts` also sees these calls (verified with the `Write` in `acceptEdits`): it is needed for the log, as planned.
+6. **No heartbeat during an approval.** In 65 s (and in 10 minutes) of waiting no message arrives: the "waiting" state must be kept by Blue. Requests do not expire: the SDK types say that permission prompts have no expiry, and the 10 minutes confirm it.
+7. **The CLI blocks a foreground `sleep N`** ("use Monitor…"): the model gives up and the turn ends on its own. Other long commands are needed in tests.
+8. **Two binaries.** The SDK installs its own CLI (`@anthropic-ai/claude-agent-sdk-darwin-arm64`, 2.1.319, 321 MB) different from `~/.local/bin/claude`, which updates itself. They share login (keychain) and transcripts. For Electron the binary must be left outside the asar and multiplied per architecture, or the user's CLI is used with `pathToClaudeCodeExecutable`.
+9. **Orphans.** After a SIGKILL of the host the `claude` child stays alive about 8 s. Blue must remember the PID (or use `spawnClaudeCodeProcess`) and, on restart, wait for it or kill it before resuming the same session.
+10. **Noise in the stream.** `system/init` on every turn, one `assistant` per block, synthetic `user` messages after interruptions and `setModel`. The adapter must filter them before the UI.
+11. **Costs.** `total_cost_usd` is cumulative and at list price even with the subscription. It should be shown, if shown at all, as an equivalent.
+12. **Extra tools.** Even with `settingSources: []` there remain 20 bundled skills, 4 internal plugins and tools such as `CronCreate`, `RemoteTrigger`, `PushNotification`, `SendToProject`, `Workflow`. A `tools` or `disallowedTools` list decided by Blue is advisable.
 
-## Raccomandazione per l’adapter Claude Code
+## Recommendation for the Claude Code adapter
 
-- Un `query()` per thread, con una coda asincrona come `prompt` (`InputQueue` in `lib.ts`), tenuto vivo tra i turni. Fine del turno su `result`, fine reale su `session_state_changed: idle`. Chiusura della coda per terminare; `resume: sessionId` per riaprire (la `session_id` resta la stessa).
-- Opzioni di base: `permissionMode` esplicito, `includePartialMessages: true`, `settings: { disableClaudeAiConnectors: true }`, `env` ripulito con `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` e `CLAUDE_AGENT_SDK_CLIENT_APP`, hook `PreToolUse` per il registro, `canUseTool` che crea una richiesta persistente e risponde quando l’utente decide (anche dopo minuti).
-- `settingSources`: lo spike usa `[]` e il login funziona lo stesso. Per l’uso reale servono almeno `project` (CLAUDE.md e regole del progetto); `user` porterebbe anche gli hook personali dentro le sessioni di Blue, da decidere.
-- Modello: `supportedModels()` all’avvio per popolare il selettore, `setModel()` a metà sessione. Effort: opzione `effort` all’avvio; a metà sessione `applyFlagSettings({ effortLevel })`, da verificare quando ci sarà un modo di leggerlo (oppure riavvio con `resume` e nuovo `effort`).
-- Interruzione: `interrupt()` basta; mappare `terminal_reason` `aborted_*` su `turn.interrupted`.
-- Usare la CLI inclusa nell’SDK, versione fissata insieme al pacchetto, e lasciare `pathToClaudeCodeExecutable` come opzione. La compatibilità delle trascrizioni con la CLI dell’utente è verificata in entrambe le direzioni (2.1.316 e 2.1.319).
+- One `query()` per thread, with an async queue as `prompt` (`InputQueue` in `lib.ts`), kept alive between turns. End of turn on `result`, real end on `session_state_changed: idle`. Close the queue to terminate; `resume: sessionId` to reopen (the `session_id` stays the same).
+- Base options: explicit `permissionMode`, `includePartialMessages: true`, `settings: { disableClaudeAiConnectors: true }`, cleaned `env` with `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` and `CLAUDE_AGENT_SDK_CLIENT_APP`, `PreToolUse` hook for the log, `canUseTool` that creates a persistent request and answers when the user decides (even after minutes).
+- `settingSources`: the spike uses `[]` and the login works all the same. For real use at least `project` is needed (the project's CLAUDE.md and rules); `user` would also bring personal hooks into Blue's sessions, to be decided.
+- Model: `supportedModels()` at startup to populate the selector, `setModel()` mid-session. Effort: `effort` option at startup; mid-session `applyFlagSettings({ effortLevel })`, to be verified once there is a way to read it (or restart with `resume` and a new `effort`).
+- Interruption: `interrupt()` is enough; map `terminal_reason` `aborted_*` to `turn.interrupted`.
+- Use the CLI bundled with the SDK, version pinned together with the package, and leave `pathToClaudeCodeExecutable` as an option. Transcript compatibility with the user's CLI is verified in both directions (2.1.316 and 2.1.319).

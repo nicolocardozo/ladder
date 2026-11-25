@@ -1,45 +1,45 @@
-# App desktop
+# Desktop app
 
-Electron per macOS (electron-vite, TypeScript, node:sqlite), pacchetto `@ladder/desktop`. I comandi qui sotto si lanciano dalla radice del repo con `pnpm --filter @ladder/desktop …`, salvo dove è scritto "da `app/desktop`".
+Electron for macOS (electron-vite, TypeScript, node:sqlite), package `@ladder/desktop`. The commands below run from the repository root with `pnpm --filter @ladder/desktop …`, except where it says "from `app/desktop`".
 
-## Struttura
+## Structure
 
 ```
-src/main/      processo main: finestre, menu, aggiornamenti, notifiche
-src/host/      lavoro con gli agenti: Claude (Agent SDK), Codex (app-server), ACP, login e limiti, SQLite, git e worktree, file, terminale
-src/preload/   ponte tra main e renderer
-src/renderer/  interfaccia: React 19, Tailwind 4, shadcn su Base UI, stato in zustand (src/renderer/src/store/app-store.ts)
-src/shared/    contratto host-renderer (protocol.ts), i18n, cataloghi italiani (locales/it)
-scripts/       postinstall, brand, rilascio
+src/main/      main process: windows, menus, updates, notifications
+src/host/      work with the agents: Claude (Agent SDK), Codex (app-server), ACP, sign-in and limits, SQLite, git and worktrees, files, terminal
+src/preload/   bridge between main and renderer
+src/renderer/  interface: React 19, Tailwind 4, shadcn on Base UI, state in zustand (src/renderer/src/store/app-store.ts)
+src/shared/    host-renderer contract (protocol.ts), i18n, Italian catalogs (locales/it)
+scripts/       postinstall, brand, release
 ```
 
-Il contratto tra host e renderer è `src/shared/protocol.ts`: cambia solo quando serve davvero, e host e renderer lo usano allo stesso modo.
+The contract between host and renderer is `src/shared/protocol.ts`: change it only when really needed, and host and renderer use it the same way.
 
-## Regole
+## Rules
 
-- Le variabili `ANTHROPIC_*` e `CLAUDE*` ereditate non passano mai ai processi figli: l'ambiente parte sempre da `cleanEnv()` (`src/shared/env.ts`). Ladder poi aggiunge di proposito le sue, per esempio `CLAUDE_CONFIG_DIR` in `claudeEnv` (`src/host/claude/environment.ts`) per i profili non predefiniti. Il terminale ha un filtro suo, più ampio (`src/host/terminals.ts`).
-- Mai leggere, stampare, loggare o copiare credenziali, token o contenuti del Portachiavi.
-- Testi per l'utente in inglese dentro `t('…')` (l'inglese è la lingua di partenza), con la voce nel catalogo italiano in `src/shared/locales/it`. La chiave è il testo inglese esatto: se cambi il testo inglese, cambia anche la chiave, o la traduzione sparisce senza errori. Un file di catalogo nuovo va registrato in `locales/it/index.ts`.
-- Niente trattini lunghi nei testi.
-- Interfaccia: prima leggi `app/DESIGN.md` e riusa i componenti in `src/renderer/src/components` (`ui/`, `composer/`, `chat/`). Colori a token, elementi raggiungibili da tastiera, `aria-label` sui bottoni a icona, focus visibile.
-- API degli agenti: la fonte prima sono i tipi installati in `node_modules` (`@anthropic-ai/claude-agent-sdk/*.d.ts` alla versione fissata in `package.json`, lo schema dell'app-server di Codex). Gli adapter dipendono da campi che cambiano tra versioni; il web viene dopo.
-- Casi limite da tenere presenti, in sviluppo e in revisione: agente non disponibile, richieste concorrenti, sessione chiusa a metà, listener o processi che restano vivi.
-- Commenti brevi in italiano, nello stile del codice intorno.
+- Inherited `ANTHROPIC_*` and `CLAUDE*` variables never reach child processes: the environment always starts from `cleanEnv()` (`src/shared/env.ts`). Ladder then adds its own on purpose, for example `CLAUDE_CONFIG_DIR` in `claudeEnv` (`src/host/claude/environment.ts`) for non-default profiles. The terminal has its own, wider filter (`src/host/terminals.ts`).
+- Never read, print, log or copy credentials, tokens or Keychain contents.
+- User-facing text in English inside `t('…')` (English is the source language), with the entry in the Italian catalog in `src/shared/locales/it`. The key is the exact English text: if you change the English text, change the key too, or the translation disappears without errors. A new catalog file must be registered in `locales/it/index.ts`.
+- No em dashes in user-facing text.
+- Interface: first read `app/DESIGN.md` and reuse the components in `src/renderer/src/components` (`ui/`, `composer/`, `chat/`). Colors as tokens, elements reachable by keyboard, `aria-label` on icon buttons, visible focus.
+- Agent APIs: the first source is the types installed in `node_modules` (`@anthropic-ai/claude-agent-sdk/*.d.ts` at the version pinned in `package.json`, the Codex app-server schema). The adapters depend on fields that change between versions; the web comes after.
+- Edge cases to keep in mind, in development and in review: agent not available, concurrent requests, session closed halfway, listeners or processes left alive.
+- Short comments in English that explain why or a non-obvious behavior. Older code still has Italian comments that are being translated: in a file you rewrite, don't mix the two languages.
 
-## Verifica
+## Verification
 
 1. `pnpm --filter @ladder/desktop typecheck`.
-2. `pnpm --filter @ladder/desktop build` se la modifica tocca host o main.
-3. Modifiche visibili: anteprima `ladder-web` (in `.claude/launch.json` alla radice del repo, porta 5199, pagina `/preview.html`). Se la 5199 è già occupata da un vite di questo progetto, usa quello e non riavviarlo. L'anteprima non avvia l'host: i dati vengono dalle fixture in `src/renderer/src/dev/fixtures.ts` e dalle anteprime in `src/renderer/src/dev/`. Parametri utili: `?lang=it` per le traduzioni, `?view=connections|agents|terminals|new` per le altre viste. Per uno stato particolare, dalla console: `const { useApp } = await import('/src/store/app-store.ts'); useApp.setState({...})` (percorso relativo alla radice di vite, `src/renderer`).
-4. Prova l'interazione chiesta, tastiera compresa; console senza errori; tema chiaro e scuro se cambiano i colori. Uno screenshot dello stato finale.
-5. Ciò che passa dall'host (agenti veri, login, git, terminale) non si vede nell'anteprima: si prova nell'app di sviluppo con un profilo di prova, `LADDER_USER_DATA=<cartella> LADDER_WORKTREES=<cartella> pnpm --filter @ladder/desktop dev`. Il main non si ricarica a caldo: dopo modifiche a host o main si riavvia.
-6. Nel resoconto, cosa non hai potuto verificare e perché.
+2. `pnpm --filter @ladder/desktop build` if the change touches host or main.
+3. Visible changes: the browser preview, `pnpm --filter @ladder/desktop dev:web` (port 5199, page `/preview.html`; in the maintainer's setup it is the `ladder-web` entry of `.claude/launch.json`). If port 5199 is already taken by a vite of this project, use it and don't restart it. The preview doesn't start the host: data comes from the fixtures in `src/renderer/src/dev/fixtures.ts` and from the previews in `src/renderer/src/dev/`. Useful parameters: `?lang=it` for translations, `?view=connections|agents|terminals|new` for the other views. For a particular state, from the console: `const { useApp } = await import('/src/store/app-store.ts'); useApp.setState({...})` (path relative to the vite root, `src/renderer`).
+4. Try the requested interaction, keyboard included; console without errors; light and dark theme if colors change. A screenshot of the final state.
+5. What goes through the host (real agents, sign-in, git, terminal) doesn't show in the preview: try it in the development app with a test profile, `LADDER_USER_DATA=<folder> LADDER_WORKTREES=<folder> pnpm --filter @ladder/desktop dev`. Main doesn't hot-reload: restart after changes to host or main.
+6. In the report, what you couldn't verify and why.
 
-## Rilascio
+## Release
 
-Solo su richiesta dell'utente.
-1. Versione in `app/desktop/package.json`, commit.
-2. L'utente lancia `pnpm --filter @ladder/desktop release:mac`: build, firma e notarizzazione per arm64 e x64. `--arch=arm64|x64` e `--dmg-only` servono solo a rifare una build fallita: per pubblicare servono entrambe le architetture.
-3. Da `app/desktop`: `node scripts/publish-release.mjs` pubblica DMG, zip e `latest-mac.yml` su `nicolocardozo/ladder-releases`.
-4. Tag `vX.Y.Z` sul repo, push.
-5. Controlla `/download/apple-silicon` e `/download/intel` sul sito (dimensione del file).
+Only when the user asks.
+1. Version in `app/desktop/package.json`, commit.
+2. The maintainer runs `pnpm --filter @ladder/desktop release:mac`: build, signing and notarization for arm64 and x64. `--arch=arm64|x64` and `--dmg-only` only serve to redo a failed build: publishing needs both architectures.
+3. From `app/desktop`: `node scripts/publish-release.mjs` publishes the DMG, zip and `latest-mac.yml` to `nicolocardozo/ladder-releases`.
+4. Tag `vX.Y.Z` on the repository, push.
+5. Check `/download/apple-silicon` and `/download/intel` on the website (file size).

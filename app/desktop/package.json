@@ -2,7 +2,8 @@
   "name": "@ladder/desktop",
   "version": "0.1.3",
   "private": true,
-  "description": "Ladder: workspace macOS per agenti di sviluppo",
+  "license": "Apache-2.0",
+  "description": "Ladder: a macOS workspace for coding agents",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

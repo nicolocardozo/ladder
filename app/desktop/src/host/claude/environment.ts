@@ -1,4 +1,4 @@
-// Come l'host avvia Claude Code: CLI dell'utente e ambiente filtrato (regole della fase 0, vedi docs/fase-0.md).
+// How the host starts Claude Code: the user's CLI and a filtered environment.
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'

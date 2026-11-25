@@ -1,76 +1,77 @@
 # Ladder
 
-Workspace desktop per macOS in cui lavori su più repository insieme, con Claude Code, Codex e altri agenti di sviluppo in chat o in terminale.
+A macOS workspace for working on several repositories at once with coding agents: Claude Code, Codex and any agent that speaks the Agent Client Protocol (ACP), in chat or in a terminal.
 
-Il piano di prodotto e architettura è in [`app/docs/piano.html`](app/docs/piano.html).
+The agent chat sits in the middle, with files, diffs and a terminal at hand, and one view of who is waiting for you in which project. At any moment you can see what is happening in every project (who is working, with which agent and model, who needs you) and step in with one or two actions.
 
-## Struttura
+Website: [itsladder.dev](https://itsladder.dev)
 
-| Cartella | Contenuto |
-|---|---|
-| `app/desktop` | App Electron con React, TypeScript, Tailwind v4 e shadcn/ui (base Base UI) |
-| `app/docs` | Piano, backlog e note di fase dell’app |
-| `website` | Sito di Ladder |
-| `brand` | Temi, logo, icone dell’app e tavole: condivisi da app e sito |
-| `docs` | Documenti trasversali: strategia di rilascio, richieste esterne |
-| `app/spikes/` | Prototipi della fase 0, pacchetti npm autonomi fuori dal workspace |
-| `docs/` | Piano, rapporto della fase 0 e documenti di lavoro |
+> Ladder is an independent project. It is not affiliated with or endorsed by Anthropic, OpenAI, Google or the makers of the other agents it works with. Product names belong to their respective owners.
 
-## Avvio
+## History
 
-Serve Node 24 e pnpm.
+Ladder has been in development since November 7, 2026. The first public release, v0.1.0, shipped on November 23, 2026. The commit history in this repository goes back to the first day.
 
-```bash
-pnpm install
-```
+## Status
 
-```bash
-pnpm dev
-```
+Early and moving fast. Ladder is built and used every day by its author; expect rough edges and breaking changes between versions.
 
-`pnpm dev` apre l’app Electron. Per provare solo l’interfaccia nel browser, su `http://localhost:5199`:
+## Install
 
-```bash
-pnpm --filter @ladder/desktop dev:web
-```
+Download the latest build for Apple Silicon or Intel from [Releases](https://github.com/nicolocardozo/ladder-releases/releases). Builds are signed and notarized, and update themselves.
 
-Se Electron non parte perché manca il binario, lo scarica lo script `postinstall` dell’app; in alternativa:
+Ladder works with the agents' own sign-in and your own subscriptions:
 
-```bash
-node app/desktop/node_modules/electron/install.js
-```
+- **Claude Code** through the official Claude Agent SDK, which runs the unmodified `claude` binary. You sign in with Anthropic's own flow; Ladder never reads, stores or forwards agent credentials.
+- **Codex** through `codex app-server`. Ladder looks for the Codex already on your Mac first (the CLI on your `PATH`, the Codex app, or the one bundled with the Cursor and VS Code extensions).
+- **ACP agents** from the official registry (via `npx`, `uvx` or a binary to download) or from a command you write.
+- **Terminal sessions** for `claude`, `codex` or any other command, in a real PTY.
 
-## Stato
+If Codex, the `gh` CLI or an ACP agent's binary is missing, Ladder can download it for you, only after a confirmation that shows the version, host, size and full SHA-256 checksum, which is verified before anything runs.
 
-Fase 1 completata. Funziona:
+GitHub goes through the `gh` CLI and its own sign-in. Linear uses a personal API key, stored encrypted in the macOS Keychain; it is the only secret Ladder stores.
 
-- progetti reali (si aggiungono scegliendo la cartella) e sessioni Claude Code con il tuo login, nella sidebar con il loro stato;
-- chat con streaming, riepilogo dell’attività, blocchi di codice con copia, riferimenti ai file che si aprono in Cursor alla riga giusta, file modificati per turno (checkpoint git);
-- approvazioni e domande con scorciatoie, coda dei messaggi modificabile, stop, modello, effort e quattro livelli di permesso (⇧Tab);
-- `@` per citare i file del progetto, immagini incollate, trascinate o scelte con `+`;
-- menu delle sessioni (rinomina, segna come da leggere, archivia, apri in Cursor o nel Finder), ⌘K per cercare sessioni, progetti e azioni, ⌘B per la sidebar, ⌘[ e ⌘] per tornare indietro e avanti, ⌘⇧A per la prossima sessione che ti aspetta;
-- tab per progetto (⌘1…⌘9, ⌘W), bozze, posizione di lettura e ripresa delle sessioni dopo il riavvio.
+There is no Ladder server, no Ladder account and no telemetry. Ladder talks to the network only for what you use: the agents' own services, GitHub (including app updates from GitHub Releases), the ACP registry, Linear, and downloads you confirm.
 
-Fase 1.5 completata: identità Circuit e dodici temi, scelti in Impostazioni → Aspetto (⌘,). Il tema vale per tutta l’app, si salva in `settings.json` nella cartella dati e si applica prima del primo paint; un valore sconosciuto torna a Circuit.
+## Features
 
-Fase 2 completata: file, diff e terminale.
+**Projects and sessions**
+- One project at a time, with its tabs, files, terminal and new chat; sessions show their state (running, queued, waiting for approval, unread, error).
+- Live, unread and draft sessions stay in the sidebar; the rest is in "All sessions", with search, filters, groups and bulk archive.
+- ⌘1…⌘9 switch projects and ⌘W closes a tab; drafts, reading position and sessions are kept across restarts.
+- A configurable limit of active sessions per agent: past the limit a session waits "Queued" and starts on its own when there is room.
+- ⌘⇧N starts a session from a GitHub issue or PR, a Linear issue or a branch, with the prompt already written and the worktree on the right branch.
 
-- Ispettore a destra (icona nella barra o ⌘⌥1, ⌘⌥2, ⌘⌥3):
-  - **Modifiche**: per turno, per sessione o non committate, in vista unificata o affiancata. Puoi commentare le righe e inviare i commenti all’agente in un solo messaggio. Puoi ripristinare un file o tutto, e annullare il ripristino.
-  - **File**: albero con stato git e turno che ha toccato il file, viewer con evidenziazione e “Aggiungi alla chat” sulla selezione.
-  - **Cronologia**: checkpoint, ripristini e commit in un’unica linea del tempo.
-- Riferimenti ai file:
-  - nella chat, un clic apre il file nel viewer e ⌥clic lo apre nell’editor del progetto (Cursor o VS Code, da scegliere accanto ad “Apri in…”);
-  - ⌘P apre un file per nome, anche con `percorso:riga`.
-- Terminale (⌃`): xterm.js con node-pty nell’host, schede per progetto. I terminali restano vivi cambiando progetto e dopo un riavvio la shell riparte nella stessa cartella. `@terminal` nel composer allega l’output di un terminale al messaggio.
-- Sessioni terminale: `claude`, `codex` o qualunque comando, scelti nella nuova chat. Lo stato arriva così:
-  - da `claude`, tramite hook iniettati per processo, quindi compare in “In attesa” quando chiede un permesso;
-  - da `codex`, tramite le notifiche della TUI;
-  - per gli altri comandi è stimato.
-- `.ladder/settings.toml` del progetto (più `settings.local.toml` personale, escluso da git tramite `.git/info/exclude`):
-  - worktree con setup, file da copiare e comando di archivio;
-  - azioni `[[run]]` come pulsanti nella barra, nel terminale della sessione;
-  - un blocco di porte per cartella in `LADDER_PORT`: 4100 per il primo progetto, poi 4200 e così via, con un blocco a parte per ogni worktree.
+**Chat**
+- Streaming, an activity summary, code blocks, clickable file references, files changed per turn (git checkpoints).
+- Approvals and questions as cards with shortcuts, an editable message queue, stop, model, effort and four permission levels shared by every agent (Plan, Ask, Edit, Full access; ⇧Tab).
+- `@` to mention project files, `@terminal` to attach terminal output, pasted or dropped images, `/` commands for each agent.
+- Model and effort can change mid-session; a composer button shows the agent's usage windows and when they reset.
+- Subagents started by the main agent (Claude Code's Agent/Task, Codex's `spawnAgent`) appear in an agent map with state, duration, model, tokens and tools.
+
+**Waiting for you**
+- "Waiting" collects requests from every project with their actions, then errors and replies to read. You approve or answer without leaving the session in front of you; edits over 40 lines are approved from the session, after reading them.
+- ⌘⇧A jumps to the oldest request; ⌘[ takes you back with the cursor where it was.
+- macOS notifications, a Dock badge, and a "while you were away" line when you come back to a project after more than 30 minutes.
+
+**Files, diffs and terminal**
+- Inspector: changes per turn, per session or uncommitted, unified or side by side, with line comments sent to the agent and restore with undo; a file tree with git state; a timeline of checkpoints, restores and commits.
+- ⌘P opens a file by name, also as `path:line`; files open in a light editor tab (CodeMirror 6, ⌘S) or in Cursor or VS Code.
+- An integrated terminal (xterm.js and node-pty, ⌃\`) whose shells survive project switches and restarts.
+
+**Worktrees and merge**
+- A worktree per session, with setup commands, files to copy and an archive command.
+- Merge panel: branch state, PR, CI and review comments; conflicts with the base are computed without touching the folder. "Create PR", "Fix CI", "Resolve conflicts" and "Send comments" send the agent a prompt you can edit first.
+- "Ask for a review from…": another agent reviews the changes read-only, and its comments land in the diff.
+
+**Look and feel**
+- Fifteen light and dark themes around the Circuit identity, Mona Sans and Monaspace Neon, keyboard shortcuts everywhere (customizable, with VS Code and Cursor presets).
+- English by default, with an Italian translation (Settings → Appearance → Language).
+- WCAG AA contrast checked by a script for every theme, no text under 12 px, states that don't rely on color alone, reduced motion respected.
+
+## Project configuration
+
+A project can carry `.ladder/settings.toml` (shared) and `.ladder/settings.local.toml` (personal, kept out of git through `.git/info/exclude`):
 
 ```toml
 [worktree]
@@ -82,117 +83,97 @@ archive = "docker compose down"
 name    = "dev"
 command = "pnpm dev --port $LADDER_PORT"
 default = true
-```
 
-I worktree nascono in `~/Developer/.ladder/worktrees/<progetto>/<slug>` su un branch `ladder/<slug>`.
+[agents]
+allowed = ["claude-code", "codex"]
+default = "claude-code"
+permissions_max = "edit"
 
-Fase 3 completata: più progetti insieme e merge.
-
-- **In attesa** (sidebar): le richieste di tutti i progetti con le loro azioni, poi gli errori e le risposte da leggere.
-  - Approvi o rispondi senza lasciare la sessione che hai davanti: la bozza e il cursore restano dove erano.
-  - Le modifiche oltre 40 righe si approvano dalla sessione, dopo averle lette.
-  - ⌘⇧A porta alla richiesta più vecchia con il focus su Approva; ⌘[ ti riporta indietro con il cursore al suo posto.
-- **Notifiche di macOS**:
-  - approvazioni e domande arrivano subito, tranne se stai guardando quella sessione; se sei nel suo progetto compare un avviso nella barra delle tab, con “Vai”;
-  - un errore, una notifica per sessione;
-  - le risposte pronte solo per turni oltre un minuto, se non sei nel progetto, raccolte per progetto (“acme-vet: 2 risposte pronte”).
-
-  Il clic apre la sessione sull’elemento, e aprire una sessione ritira le sue notifiche. Il badge del Dock conta le richieste e gli errori non ancora visti. “Non disturbare per 1 ora” si attiva dal menu Ladder, da ⌘K o dalle Impostazioni.
-- **Mentre eri via**: tornando su un progetto dopo più di 30 minuti, una riga riassume risposte, richieste ed errori arrivati nel frattempo.
-- **Concluse**: le sessioni ferme da 3 giorni, senza niente da leggere e senza bozza, scendono in un gruppo chiuso.
-- **⌘K**: cerca anche nel testo delle conversazioni, nei comandi e nei file toccati, in tutti i progetti e senza badare agli accenti.
-- **Limite di sessioni attive** (Impostazioni → Agenti, 3 per Claude Code): oltre il limite la sessione aspetta “In coda” e parte da sola appena c’è posto.
-- **⌘⇧N**: nuova sessione da una issue o una PR di GitHub, da una issue di Linear o da un branch. Il prompt è già scritto e il worktree è sul branch giusto.
-- **Merge** (⌘⌥4):
-  - stato del branch, PR, CI e commenti di review;
-  - i conflitti con la base sono calcolati senza toccare la cartella;
-  - “Crea PR”, “Correggi la CI”, “Risolvi i conflitti” e “Invia i commenti” mandano all’agente un prompt che puoi modificare prima.
-
-  Sulla riga della sessione compare lo stato della PR: unita, CI fallita, conflitti. Quando la PR viene unita, la sessione nel worktree si archivia e il worktree, se è pulito, si toglie; il branch resta.
-
-GitHub passa dalla CLI `gh` con il suo login: Ladder non conserva token. Linear usa una chiave API personale, salvata cifrata nel portachiavi di macOS (Impostazioni → Integrazioni).
-
-I prompt dei pulsanti si cambiano in `.ladder/settings.toml`, con un percorso o con il testo stesso:
-
-```toml
 [prompts]
 create_pr = ".ladder/prompts/pr.md"
 fix       = ".ladder/prompts/fix.md"
 ```
 
-I nomi sono `create_pr`, `fix`, `conflicts`, `comments`, `issue`, `pull_request` e `review`. Le variabili si scrivono come `{{branch}}`, `{{base}}`, `{{pr}}`, `{{checks}}`, `{{conflicts}}`, `{{comments}}`, `{{ref}}`, `{{title}}`, `{{url}}` e `{{body}}`.
+- `[[run]]` actions become buttons in the toolbar and run in the session's terminal.
+- Each folder gets a block of ports in `LADDER_PORT`: 4100 for the first project, then 4200 and so on, with a separate block for each worktree.
+- Worktrees are created in `~/Developer/.ladder/worktrees/<project>/<slug>` (or `~/.ladder/worktrees` if `~/Developer` doesn't exist) on a `ladder/<slug>` branch; folder and branch prefix can be changed in Settings.
+- Prompt names are `create_pr`, `fix`, `conflicts`, `comments`, `issue`, `pull_request` and `review`, as a path or as the text itself. Variables: `{{branch}}`, `{{base}}`, `{{pr}}`, `{{checks}}`, `{{conflicts}}`, `{{comments}}`, `{{ref}}`, `{{title}}`, `{{url}}` and `{{body}}`; `create_pr` also gets `{{base_arg}}`, `{{title_file}}` and `{{body_file}}` (the title and description are passed as files, never pasted into a command).
 
-Fase 4 completata: Codex e altri agenti.
+## Building from source
 
-- **Codex** in chat, con l’adapter nativo sull’App Server:
-  - approvazioni con le decisioni di Codex: Approva, Consenti per la sessione, Rifiuta (il motivo del rifiuto arriva al turno in corso);
-  - testo, comandi e modifiche in streaming, modello ed effort a ogni turno, interruzione anche con un comando ancora in corso, ripresa del thread dopo un riavvio;
-  - account, modelli e limiti d’uso in Impostazioni → Agenti.
+You need macOS, Node 24 and pnpm (the version is pinned in `package.json`; `corepack enable` picks it up).
 
-  Ladder usa il Codex installato: la CLI nel `PATH`, l’app Codex o quello delle estensioni per Cursor e VS Code. Non ne porta una copia, perché il binario pesa circa 350 MB.
-- **Agenti ACP** (Agent Client Protocol): Impostazioni → Agenti → “Aggiungi un agente ACP”, dal registro ufficiale (npx o uvx) o con un comando scritto a mano. Non serve codice per agente:
-  - modello e modalità vengono dalle sue opzioni;
-  - le richieste di permesso mostrano le opzioni con i nomi dell’agente;
-  - il diff del turno lo calcola Ladder da git.
-- **Nuova chat**: un menu sceglie l’agente, con i modelli, l’effort e i permessi di ciascuno. Propone l’ultimo usato nel progetto.
-- **Regole di progetto** in `.ladder/settings.toml`: agenti ammessi, agente proposto e livello di permesso massimo.
+```bash
+pnpm install
+```
 
-  ```toml
-  [agents]
-  allowed = ["claude-code", "codex"]
-  default = "claude-code"
-  permissions_max = "edit"
-  ```
+```bash
+pnpm dev
+```
 
-- **Chiedi una review a…** nel pannello Modifiche: un altro agente rilegge le modifiche in sola lettura, con il prompt `review` del progetto. I suoi commenti arrivano nel diff, pronti da inviare all’agente che ha scritto il codice.
+`pnpm dev` opens the Electron app. To try only the interface in a browser, at `http://localhost:5199/preview.html` with sample data:
 
-Fase 4.5, revisione dell’interfaccia: approvata l’8/11 (da riguardare dopo il periodo di prova).
+```bash
+pnpm --filter @ladder/desktop dev:web
+```
 
-- **Caratteri**: Mona Sans per l’interfaccia, Monaspace Neon per codice, diff e terminale, inclusi nell’app (OFL).
-- **Scala**: sei passi da 12 a 26 px (`text-xs`…`text-2xl` in `globals.css`), al posto delle dimensioni scritte a mano.
-- **Pulizia**: niente maiuscoletti spaziati né barre laterali colorate, meno linee, nessun titolo ripetuto.
-- **Chi lavora**: segno del provider e modello ovunque compaia una sessione (sidebar su due righe, tab, intestazione, “In attesa”, ⌘K, menu, composer).
-- `app/PRODUCT.md` e `app/DESIGN.md` descrivono personalità, principi e sistema visivo: valgono per ogni modifica all’interfaccia.
-- **Lingua**: l’inglese è la lingua predefinita, l’italiano si sceglie in Settings → Appearance → Language. Il testo nel codice è inglese dentro `t()` e `plural()` (`src/shared/i18n.ts`); le traduzioni italiane stanno in `src/shared/locales/it/`, con la frase inglese come chiave. Anche host e menu seguono la lingua scelta, e i prompt predefiniti per gli agenti esistono in tutte e due.
-- **Stati vuoti e account**: la nuova chat ha il logo solo simbolo, grande e inciso tono su tono; in fondo alla sidebar c'è l'account con cui lavorano gli agenti (email e piani, dall'SDK di Claude Code e dall'App Server di Codex, senza toccare i file delle credenziali).
-- **Navigazione per progetto**: si apre un progetto alla volta e tab, file, terminale e nuova chat lo seguono. Nella sidebar restano le sessioni vive, da leggere o con una bozza e le ultime 5 ferme; il resto è in "All sessions", una seconda sidebar che si apre al passaggio del mouse, con ricerca, filtri e archiviazione multipla. Le chat si raccolgono in gruppi dal loro menu. Il terminale può stare in basso o a destra.
-- **Modello ed effort** si cambiano anche a sessione avviata, dal menu del composer: valgono dal messaggio dopo.
-- **Limiti del piano**: un pulsante nel composer mostra le finestre di utilizzo dell'agente e quando si azzerano.
-- **File nelle tab**: doppio clic su un file, o "Edit file" nel viewer, lo apre come tab con un editor leggero (CodeMirror 6, ⌘S). Se il file cambia su disco mentre lo modifichi, un avviso offre Compare, Reload e Keep mine.
-- **Mappa degli agenti**: quando una sessione avvia sotto-agenti (Agent/Task di Claude Code, `spawnAgent` di Codex) sopra il composer compare il chip “N agents”; apre un albero con stato, durata, modello, token e strumenti di ciascuno. La riga della sessione nella sidebar dice quanti ne stanno lavorando.
+If Electron doesn't start because its binary is missing, the app's `postinstall` script downloads it; otherwise:
 
-Prossime fasi: il passaggio tra agenti (5) e i piani eseguibili (6). L’open source (7) viene dopo un periodo di prova nell’uso quotidiano.
+```bash
+node app/desktop/node_modules/electron/install.js
+```
 
-## Brand e temi
-
-- `brand/themes.json` è la fonte dei token dei temi; `brand/themes.css` è il riferimento per le variabili.
-- `pnpm --filter @ladder/desktop sync-brand` rigenera dal JSON e dagli SVG in `brand/logo/svg/` i file usati dall’app: `themes.generated.css`, `src/shared/themes.generated.ts` e i tracciati del logo.
-- `node app/desktop/scripts/check-contrast.mjs` verifica il contrasto di ogni tema: 4,5:1 per il testo, 3:1 per focus, bordi dei controlli e indicatori.
-- Icone in `brand/app-icon/` (la build usa `brand/app-icon/macos/ladder-circuit.icns`), logo in `brand/logo/`, tavole in `brand/reference/`.
-
-## Build da installare
+A local build to install:
 
 ```bash
 pnpm --filter @ladder/desktop dist
 ```
 
-Crea `app/desktop/dist/mac-arm64/Ladder.app` con l’icona Circuit (`brand/app-icon/macos/ladder-circuit.icns`), firmata solo per questo Mac: trascinala in Applicazioni.
+It creates `app/desktop/dist/mac-arm64/Ladder.app`, signed only for this Mac: drag it to Applications.
 
-## Architettura in breve
+The website (`pnpm --filter @ladder/website dev` or `build`) downloads two background components from the [React Bits](https://reactbits.dev) registry before it starts. They are used under React Bits' own license and are not part of this repository.
 
-- `src/main`: finestre, menu, dialoghi; avvia l’host e gli passa una MessagePort per finestra. Notifiche e badge del Dock (`attention.ts`), link `ladder://`, Linear (`linear.ts`).
-- `src/host`: host delle sessioni in un `utilityProcess`, con SQLite (`node:sqlite`), adapter Claude Code (Agent SDK), checkpoint e diff git (`git.ts`, `workspace.ts`), file (`files.ts`), terminali con node-pty e xterm headless (`terminals.ts`), worktree e porte (`worktrees.ts`), configurazione del progetto (`project-settings.ts`), GitHub con gh (`github.ts`), ricerca (`search.ts`) e prompt dei pulsanti (`prompts.ts`). Gli agenti: interfaccia comune in `agents/common.ts`, Claude Code in `claude/`, Codex sull’App Server in `codex/`, agenti ACP in `acp/`, review in `review.ts`.
-- `src/shared/protocol.ts`: tipi e messaggi tra host e interfaccia.
-- `src/renderer`: React; lo stato arriva dall’host (`store/app-store.ts`), la chat è in `components/chat`, l’ispettore in `components/inspector`, i terminali in `components/terminal` e `lib/terminal-registry.ts`.
+node-pty is the only native module: it uses the bundled N-API prebuild (no node-gyp), `postinstall` makes `spawn-helper` executable, and the build keeps it outside the asar.
 
-Per il debug:
-- la pagina espone `window.__ladder` (`request`, `send`, `store`, `settings`);
-- `LADDER_USER_DATA=<cartella>` usa un archivio separato;
-- `LADDER_LOCALE=en|it` sceglie la lingua iniziale di un profilo nuovo (poi vale quella salvata);
-- `LADDER_WORKTREES=<cartella>` sposta i worktree;
-- `LADDER_EDITOR_TRACE=<file>` registra le aperture nell’editor invece di eseguirle, per le prove automatiche;
-- `LADDER_NOTIFY_TRACE=<file>` registra notifiche e badge invece di mostrarli;
-- `LADDER_GH=<eseguibile>` sostituisce gh, `LADDER_LINEAR_API=<url>` l’API di Linear e `LADDER_PR_POLL_MS` l’intervallo di lettura delle PR (90 s);
-- `LADDER_CODEX=<binario>` indica quale Codex usare e `LADDER_ACP_REGISTRY=<url>` sostituisce il registro ACP.
+### Repository layout
 
-node-pty è l’unico modulo nativo: usa il prebuild N-API incluso (niente node-gyp), il `postinstall` rende eseguibile lo `spawn-helper` e nella build resta fuori dall’asar.
+| Folder | Contents |
+|---|---|
+| `app/desktop` | The Electron app: React 19, TypeScript, Tailwind 4, shadcn/ui on Base UI |
+| `app/spikes` | Phase 0 technical prototypes, standalone npm packages outside the workspace |
+| `website` | The website (Next.js) |
+| `brand` | Themes, logo, app icons and boards, shared by the app and the website |
+
+`app/PRODUCT.md` and `app/DESIGN.md` describe the product rules and the visual system; they apply to every interface change.
+
+### Architecture
+
+- `src/main`: windows, menus, dialogs; starts the host and hands it a MessagePort per window. Notifications and the Dock badge (`attention.ts`), `ladder://` links, Linear (`linear.ts`).
+- `src/host`: the session host in a `utilityProcess`, with SQLite (`node:sqlite`), git checkpoints and diffs (`git.ts`, `workspace.ts`), files (`files.ts`), terminals with node-pty and headless xterm (`terminals.ts`), worktrees and ports (`worktrees.ts`), project configuration (`project-settings.ts`), GitHub through gh (`github.ts`), search (`search.ts`) and button prompts (`prompts.ts`). Agents share an interface in `agents/common.ts`: Claude Code in `claude/`, Codex on the App Server in `codex/`, ACP agents in `acp/`, reviews in `review.ts`.
+- `src/shared/protocol.ts`: types and messages between the host and the interface.
+- `src/renderer`: React; state comes from the host (`store/app-store.ts`), the chat is in `components/chat`, the inspector in `components/inspector`, terminals in `components/terminal` and `lib/terminal-registry.ts`.
+
+User-facing text is English inside `t()` and `plural()` (`src/shared/i18n.ts`); Italian translations live in `src/shared/locales/it/`, keyed by the English sentence.
+
+### Themes
+
+- `brand/themes.json` is the source of the theme tokens; `brand/themes.css` is the reference for the variables.
+- `pnpm --filter @ladder/desktop sync-brand` regenerates the files the app uses from the JSON and the SVGs in `brand/logo/svg/`: `themes.generated.css`, `src/shared/themes.generated.ts` and the logo paths.
+- `node app/desktop/scripts/check-contrast.mjs` checks every theme's contrast: 4.5:1 for text, 3:1 for focus, control borders and indicators.
+
+### Debugging
+
+- The page exposes `window.__ladder` (`request`, `send`, `store`, `settings`).
+- `LADDER_USER_DATA=<folder>` uses a separate data folder; `LADDER_WORKTREES=<folder>` moves the worktrees.
+- `LADDER_LOCALE=en|it` sets the initial language of a new profile (after that, the saved one wins).
+- `LADDER_EDITOR_TRACE=<file>` and `LADDER_NOTIFY_TRACE=<file>` record editor launches and notifications instead of performing them, for automated tests.
+- `LADDER_GH=<executable>` replaces gh, `LADDER_LINEAR_API=<url>` the Linear API and `LADDER_PR_POLL_MS` the PR polling interval (90 s).
+- `LADDER_CODEX=<binary>` picks the Codex to use; `LADDER_ACP_REGISTRY=<url>` replaces the ACP registry (development builds only).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: see [SECURITY.md](SECURITY.md).
+
+## License
+
+Ladder is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE).

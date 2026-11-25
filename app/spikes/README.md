@@ -1,15 +1,15 @@
-# Spike della fase 0
+# Phase 0 spikes
 
-Prototipi da riga di comando che verificano le ipotesi tecniche del piano (`docs/piano.html`, sezione 4.10).
-Ogni cartella è un pacchetto npm autonomo, fuori dal workspace pnpm, con versioni fissate e un README con risultati e conclusioni.
+Command-line prototypes that verify the technical hypotheses of the initial plan. "Blue" in these files was Ladder's working name.
+Each folder is a standalone npm package, outside the pnpm workspace, with pinned versions and a README with results and conclusions.
 
-| Cartella | Verifica |
+| Folder | Verifies |
 |---|---|
-| `claude-sdk/` | S2 · Agent SDK: streaming, approvazioni, domande, interruzione, ripresa |
-| `codex-app-server/` | S1 · Codex App Server: ciclo completo con login ChatGPT |
-| `acp/` | S5 · client ACP generico con un agente reale |
-| `terminal-hooks/` | S6 · stato delle sessioni terminale tramite hook |
-| `git-checkpoint/` | S4 · checkpoint con indice temporaneo |
+| `claude-sdk/` | S2 · Agent SDK: streaming, approvals, questions, interruption, resume |
+| `codex-app-server/` | S1 · Codex App Server: full lifecycle with ChatGPT login |
+| `acp/` | S5 · generic ACP client with a real agent |
+| `terminal-hooks/` | S6 · terminal session state via hooks |
+| `git-checkpoint/` | S4 · checkpoints with a temporary index |
 
-Gli script sono in TypeScript e girano con `node` (Node 24 rimuove i tipi da solo): niente enum, namespace o altra sintassi non cancellabile.
-I repository di prova vengono creati in cartelle temporanee: nessuno spike tocca i progetti reali.
+The scripts are in TypeScript and run with `node` (Node 24 strips the types by itself): no enums, namespaces or other non-erasable syntax.
+The test repositories are created in temporary folders: no spike touches the real projects.

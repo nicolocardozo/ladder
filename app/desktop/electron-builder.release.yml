@@ -15,7 +15,7 @@ mac:
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   notarize: true
-# Aggiornamenti automatici: l'app legge latest-mac.yml dalle release pubbliche di ladder-releases (il codice resta privato).
+# Auto-updates: the app reads latest-mac.yml from the public releases of ladder-releases.
 # Pubblica scripts/publish-release.mjs, non electron-builder.
 publish:
   provider: github

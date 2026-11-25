@@ -1,109 +1,109 @@
-# S1 · Codex App Server con login ChatGPT
+# S1 · Codex App Server with ChatGPT login
 
-Domanda: `codex app-server` (JSON-RPC 2.0 su stdio, JSONL, senza campo `jsonrpc`) copre tutto il ciclo di una sessione di Blue usando il login ChatGPT già presente?
-**Risposta: sì.** Tutti i 10 criteri passano con `@openai/codex@0.167.0`, piano Plus. Ci sono però alcune sorprese che cambiano il piano (vedi “Cosa cambia nel piano”).
+Question: does `codex app-server` (JSON-RPC 2.0 over stdio, JSONL, without the `jsonrpc` field) cover the whole lifecycle of a Blue session using the ChatGPT login already present?
+**Answer: yes.** All 10 criteria pass with `@openai/codex@0.167.0`, Plus plan. There are some surprises, though, that change the plan (see "What changes in the plan").
 
-Verificato il 7/11/2026 su macOS 26.6 (arm64), Node 24.20.
+Verified on November 7, 2026 on macOS 26.6 (arm64), Node 24.20.
 
-## Come si esegue
+## How to run
 
 ```sh
-npm install          # versioni esatte, fuori dal workspace pnpm
-npm run generate     # tipi in generated/stable e generated/experimental (ignorati da git)
+npm install          # exact versions, outside the pnpm workspace
+npm run generate     # types in generated/stable and generated/experimental (ignored by git)
 npm run typecheck
-npm run all          # oppure i singoli script, nell'ordine sotto
+npm run all          # or the individual scripts, in the order below
 ```
 
-| Script | Cosa fa | Thread |
+| Script | What it does | Thread |
 |---|---|---|
-| `probe` | handshake, `account/read`, `account/rateLimits/read`, `model/list`, sceglie il modello più economico | nessuno |
-| `run` | `thread/start` in un repo git temporaneo, turno con file e comandi, approvazioni, streaming; alla fine `SIGKILL` del processo | 1 persistente, “blue-spike S1 lifecycle” |
-| `resume` | nuovo processo, `thread/list`, `thread/read`, `thread/resume`, domanda sul file creato | riusa quello di `run` |
-| `steer` | latenza del primo delta, `turn/steer`, `turn/interrupt` su un comando lungo, turno successivo | effimero |
-| `schema` | `outputSchema` su un turno, poi un turno senza schema | effimero |
-| `reasoning` | un turno con effort high per vedere i delta di ragionamento | effimero |
-| `bgclean` | dopo un interrupt chiude il comando rimasto vivo con `thread/backgroundTerminals/clean` (sperimentale) | effimero |
-| `features` | elenco dei feature flag (diagnostica) | nessuno |
-| `events` | metodi distinti visti nei log e mappatura verso gli eventi di Blue | nessuno |
+| `probe` | handshake, `account/read`, `account/rateLimits/read`, `model/list`, picks the cheapest model | none |
+| `run` | `thread/start` in a temporary git repo, turn with files and commands, approvals, streaming; at the end `SIGKILL` of the process | 1 persistent, "blue-spike S1 lifecycle" |
+| `resume` | new process, `thread/list`, `thread/read`, `thread/resume`, question about the created file | reuses the one from `run` |
+| `steer` | first-delta latency, `turn/steer`, `turn/interrupt` on a long command, next turn | ephemeral |
+| `schema` | `outputSchema` on a turn, then a turn without schema | ephemeral |
+| `reasoning` | a turn with high effort to see the reasoning deltas | ephemeral |
+| `bgclean` | after an interrupt, closes the command left alive with `thread/backgroundTerminals/clean` (experimental) | ephemeral |
+| `features` | list of feature flags (diagnostics) | none |
+| `events` | distinct methods seen in the logs and mapping to Blue's events | none |
 
-Il client è `src/client.ts`: spawn, JSONL, richieste con id e timeout, notifiche tipizzate, risposte alle richieste del server, log JSONL in `results/` (email e id account oscurati). I tipi vengono da `generated/stable` con `import type`, quindi Node non li carica a runtime. `src/util.ts` ha repo temporaneo, scelta del modello, `runTurn` con i conteggi. Esiti in `results/checks.json`, metodi in `results/methods.json`.
+The client is `src/client.ts`: spawn, JSONL, requests with id and timeout, typed notifications, responses to server requests, JSONL log in `results/` (email and account ids redacted). The types come from `generated/stable` with `import type`, so Node does not load them at runtime. `src/util.ts` has the temporary repo, model selection, `runTurn` with the counts. Outcomes in `results/checks.json`, methods in `results/methods.json`.
 
-Il login resta quello di `~/.codex` (CODEX_HOME di default). Gli script non leggono `auth.json` né `config.toml`; dall'account stampano solo tipo e piano.
-Ogni `npm run run` aggiunge un thread alla cronologia di Codex; gli altri thread sono effimeri. Durante lo spike ne ho creati 2, entrambi “blue-spike S1 lifecycle”.
+The login remains the one in `~/.codex` (default CODEX_HOME). The scripts do not read `auth.json` or `config.toml`; from the account they print only type and plan.
+Each `npm run run` adds a thread to Codex's history; the other threads are ephemeral. During the spike I created 2, both "blue-spike S1 lifecycle".
 
-## Risultati
+## Results
 
-Modello usato: `gpt-6-luna`, effort `low`, tier `default` (vedi gotcha sul tier).
+Model used: `gpt-6-luna`, effort `low`, tier `default` (see the gotcha on the tier).
 
-| # | Criterio | Esito | Evidenza |
+| # | Criterion | Outcome | Evidence |
 |---|---|---|---|
-| 1 | Handshake | ✅ | `initialize` → `userAgent: blue/0.167.0 …`, `codexHome`, poi `initialized`. Un secondo `initialize` → `-32600 Already initialized` |
-| 2 | Account e limiti | ✅ | `account/read` → `type: chatgpt`, `planType: plus`. `account/rateLimits/read` → bucket `codex`: 14 % della finestra di 300 min, 11 % di quella settimanale, con `resetsAt`. `account/rateLimits/updated` arriva dopo ogni chiamata al modello |
-| 3 | `model/list` | ✅ | 8 modelli: `gpt-6.1-sol` (default), `gpt-6-astra`, `gpt-6.1-terra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`. Effort `low`…`max`, più `ultra` tranne i luna; default `low` o `medium`; un solo tier extra, `priority` (“Fast, 2x speed, increased usage”). Nessun prezzo: scelto `gpt-6-luna` (“Fast and affordable”) |
-| 4 | `thread/start` | ✅ | cwd del repo temporaneo, `sandbox: workspaceWrite`, `approvalPolicy: untrusted`. Nome impostato con `thread/name/set` |
-| 5 | Approvazioni | ✅ | 3 richieste: modifica file accettata (file creato), `git add` rifiutato (item `declined`, file non nell'index), comando successivo accettato (exit 0); il turno continua dopo il rifiuto e termina `completed`. Ordine sempre: `item/started` → `…/requestApproval` → risposta → `serverRequest/resolved` (entro 1 ms) → `item/completed` |
-| 6 | Streaming | ✅ | Turno con strumenti: 41 `item/agentMessage/delta`, 2 `item/commandExecution/outputDelta`, 5 `turn/diff/updated`, 1 `turn/plan/updated`, 5 `thread/tokenUsage/updated`, 5 `account/rateLimits/updated`. Ragionamento: 0 delta con effort low; con high 2 `summaryPartAdded` e 2 `summaryTextDelta`, 204 token di ragionamento. Primo delta di testo su un turno semplice: 1,7–2,7 s |
-| 7 | Steer e interrupt | ✅ | `turn/steer` con `expectedTurnId` → stesso `turnId`, nessun nuovo `turn/started`, elenco fermato dopo 1 riga, risposta finale “STEERED”. Id sbagliato → `-32600 expected active turn id …`; senza turno attivo → `-32600 no active turn to steer`. `turn/interrupt` → `{}` e `turn/completed` con `interrupted` in circa 100 ms; il turno dopo funziona. **Ma il comando resta vivo** (vedi gotcha) |
-| 8 | Ripresa dopo kill | ✅ | `SIGKILL` del processo, nuovo processo, `thread/read` → `notLoaded`, `thread/resume` (con `excludeTurns`) + `thread/turns/list` → 2 turni, risposta “blue-spike.txt”. `approvalPolicy: untrusted` ed effort persistono. `thread/list` trova il thread, ma con `sourceKinds: ["appServer"]` **no**: il thread è registrato come `vscode` |
-| 9 | `outputSchema` | ✅ | Messaggio finale `{"verdict":"pass","summary":"…","filesTouched":2}`, valido rispetto allo schema; il turno successivo senza schema torna a testo libero (“Hello!”) |
-| 10 | Mappatura eventi | ✅ | 22 notifiche distinte, 2 tipi di richiesta dal server, 10 combinazioni item/tipo, tutte classificate (tabella sotto) |
+| 1 | Handshake | ✅ | `initialize` → `userAgent: blue/0.167.0 …`, `codexHome`, then `initialized`. A second `initialize` → `-32600 Already initialized` |
+| 2 | Account and limits | ✅ | `account/read` → `type: chatgpt`, `planType: plus`. `account/rateLimits/read` → bucket `codex`: 14 % of the 300 min window, 11 % of the weekly one, with `resetsAt`. `account/rateLimits/updated` arrives after every model call |
+| 3 | `model/list` | ✅ | 8 models: `gpt-6.1-sol` (default), `gpt-6-astra`, `gpt-6.1-terra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`. Effort `low`…`max`, plus `ultra` except the luna models; default `low` or `medium`; a single extra tier, `priority` ("Fast, 2x speed, increased usage"). No prices: picked `gpt-6-luna` ("Fast and affordable") |
+| 4 | `thread/start` | ✅ | cwd of the temporary repo, `sandbox: workspaceWrite`, `approvalPolicy: untrusted`. Name set with `thread/name/set` |
+| 5 | Approvals | ✅ | 3 requests: file edit accepted (file created), `git add` rejected (item `declined`, file not in the index), following command accepted (exit 0); the turn continues after the rejection and ends `completed`. Order always: `item/started` → `…/requestApproval` → response → `serverRequest/resolved` (within 1 ms) → `item/completed` |
+| 6 | Streaming | ✅ | Turn with tools: 41 `item/agentMessage/delta`, 2 `item/commandExecution/outputDelta`, 5 `turn/diff/updated`, 1 `turn/plan/updated`, 5 `thread/tokenUsage/updated`, 5 `account/rateLimits/updated`. Reasoning: 0 deltas with low effort; with high 2 `summaryPartAdded` and 2 `summaryTextDelta`, 204 reasoning tokens. First text delta on a simple turn: 1.7–2.7 s |
+| 7 | Steer and interrupt | ✅ | `turn/steer` with `expectedTurnId` → same `turnId`, no new `turn/started`, listing stopped after 1 line, final answer "STEERED". Wrong id → `-32600 expected active turn id …`; without an active turn → `-32600 no active turn to steer`. `turn/interrupt` → `{}` and `turn/completed` with `interrupted` in about 100 ms; the next turn works. **But the command stays alive** (see gotcha) |
+| 8 | Resume after kill | ✅ | `SIGKILL` of the process, new process, `thread/read` → `notLoaded`, `thread/resume` (with `excludeTurns`) + `thread/turns/list` → 2 turns, answer "blue-spike.txt". `approvalPolicy: untrusted` and effort persist. `thread/list` finds the thread, but with `sourceKinds: ["appServer"]` it does **not**: the thread is registered as `vscode` |
+| 9 | `outputSchema` | ✅ | Final message `{"verdict":"pass","summary":"…","filesTouched":2}`, valid against the schema; the next turn without a schema goes back to free text ("Hello!") |
+| 10 | Event mapping | ✅ | 22 distinct notifications, 2 server request types, 10 item/type combinations, all classified (table below) |
 
-Non verificati, per tempo o perché costano quota: turno `failed` per limite d'uso (`codexErrorInfo: usageLimitExceeded`), notifica `error` con `willRetry`, `item/permissions/requestApproval`, `item/tool/requestUserInput`, chiamate MCP e ricerca web, decisioni `cancel` e `acceptForSession`, login da zero, più thread in parallelo sullo stesso processo.
+Not verified, for lack of time or because they cost quota: `failed` turn due to usage limit (`codexErrorInfo: usageLimitExceeded`), `error` notification with `willRetry`, `item/permissions/requestApproval`, `item/tool/requestUserInput`, MCP calls and web search, `cancel` and `acceptForSession` decisions, login from scratch, multiple threads in parallel on the same process.
 
-## Mappatura verso gli eventi di Blue
+## Mapping to Blue's events
 
-| Evento Blue | Da Codex 0.167.0 | Note |
+| Blue event | From Codex 0.167.0 | Notes |
 |---|---|---|
-| turn.started | `turn/started` | La risposta a `turn/start` arriva prima, già con il `turnId` |
+| turn.started | `turn/started` | The response to `turn/start` arrives first, already with the `turnId` |
 | message.delta | `item/agentMessage/delta` | |
-| message.completed | `item/completed` con `agentMessage` | `phase`: `commentary` (preambolo prima degli strumenti) o `final_answer`. Utile per la gerarchia della chat |
-| reasoning | `item/reasoning/summaryPartAdded`, `item/reasoning/summaryTextDelta`, `item/reasoning/textDelta`; item `reasoning` | I summary arrivano come titoli interi, non token per token |
-| tool.started / completed | `item/started` e `item/completed` per `commandExecution`, `fileChange` (e `mcpToolCall`, `webSearch`, `dynamicToolCall`) | Stato finale `completed`, `failed`, `declined` |
-| tool.output | `item/commandExecution/outputDelta` | Non completo: vedi gotcha. L'autorità è `aggregatedOutput` in `item/completed` |
-| request.opened | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval` (`item/permissions/requestApproval`) | Per i file il diff sta nell'`item/started` precedente (`changes[].diff`), non nella richiesta |
-| question.opened | `item/tool/requestUserInput` | Non osservato |
-| request.resolved | `serverRequest/resolved` | Arriva anche quando la fine del turno annulla una richiesta pendente |
-| diff.updated | `turn/diff/updated` | Diff unificato aggregato del turno |
-| plan.updated | `turn/plan/updated` | Solo con `tools.update_plan.enabled` |
-| usage / limits | `thread/tokenUsage/updated`, `account/rateLimits/updated` | Il secondo è parziale: va fuso con l'ultimo `account/rateLimits/read` |
-| turn.completed / failed | `turn/completed` con `status` `completed`, `interrupted`, `failed` (+ `error`) | |
-| stato sessione | `thread/status/changed` | `activeFlags: ["waitingOnApproval"]` è il segnale per “Richiede te” |
-| metadati | `thread/started`, `thread/name/updated`, `account/updated` | |
-| diagnostica | `mcpServer/startupStatus/updated`, `deprecationNotice`, `warning`, `configWarning`, stderr | Solo log |
-| ignorati | `remoteControl/status/changed`, `thread/goal/cleared`, `turn/moderationMetadata` | L'ultima arriva solo con `experimentalApi` |
+| message.completed | `item/completed` with `agentMessage` | `phase`: `commentary` (preamble before the tools) or `final_answer`. Useful for the chat hierarchy |
+| reasoning | `item/reasoning/summaryPartAdded`, `item/reasoning/summaryTextDelta`, `item/reasoning/textDelta`; `reasoning` item | Summaries arrive as whole titles, not token by token |
+| tool.started / completed | `item/started` and `item/completed` for `commandExecution`, `fileChange` (and `mcpToolCall`, `webSearch`, `dynamicToolCall`) | Final status `completed`, `failed`, `declined` |
+| tool.output | `item/commandExecution/outputDelta` | Not complete: see gotcha. The authority is `aggregatedOutput` in `item/completed` |
+| request.opened | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval` (`item/permissions/requestApproval`) | For files the diff is in the preceding `item/started` (`changes[].diff`), not in the request |
+| question.opened | `item/tool/requestUserInput` | Not observed |
+| request.resolved | `serverRequest/resolved` | Also arrives when the end of the turn cancels a pending request |
+| diff.updated | `turn/diff/updated` | Aggregated unified diff of the turn |
+| plan.updated | `turn/plan/updated` | Only with `tools.update_plan.enabled` |
+| usage / limits | `thread/tokenUsage/updated`, `account/rateLimits/updated` | The second is partial: it must be merged with the last `account/rateLimits/read` |
+| turn.completed / failed | `turn/completed` with `status` `completed`, `interrupted`, `failed` (+ `error`) | |
+| session state | `thread/status/changed` | `activeFlags: ["waitingOnApproval"]` is the signal for "Needs you" |
+| metadata | `thread/started`, `thread/name/updated`, `account/updated` | |
+| diagnostics | `mcpServer/startupStatus/updated`, `deprecationNotice`, `warning`, `configWarning`, stderr | Log only |
+| ignored | `remoteControl/status/changed`, `thread/goal/cleared`, `turn/moderationMetadata` | The last one arrives only with `experimentalApi` |
 
-## Gotcha
+## Gotchas
 
-- **Versione.** I tipi generati valgono solo per la versione che li genera. `generate-ts --experimental` aggiunge circa 70 metodi (`process/*`, `thread/backgroundTerminals/*`, `thread/queue/*`…) che senza `experimentalApi: true` nell'handshake vengono rifiutati. Il server manda comunque campi fuori dai tipi stabili: `availableDecisions` nelle richieste di approvazione e `emittedAtMs` su ogni notifica.
-- **Binario.** `node_modules/.bin/codex` è un launcher JS che su Node 24 fa `execve` del binario nativo (stesso PID, i segnali arrivano diretti). In Electron conviene lanciare direttamente `@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex`.
-- **sourceKinds.** I thread creati dall'app-server sono registrati con `source: "vscode"`, non `appServer`. Il `thread/list` di default (cli + vscode) li trova già; con `sourceKinds: ["appServer"]` non trova niente. Compaiono quindi anche nella cronologia di Codex e dell'estensione VS Code.
-- **Effort del thread.** `thread/start` non accetta l'effort: il thread parte con quello di `config.toml` (qui `high`). Va passato a ogni `turn/start` o con `config: { model_reasoning_effort: "low" }`. Gli override di `turn/start` restano per i turni dopo; `outputSchema` no.
-- **Tier.** Ogni modello offre `priority` (2x consumo). Lo spike passa `serviceTierForTurn: "default"` per non ereditare un eventuale tier veloce dalla configurazione.
-- **Piano.** In 0.167.0 lo strumento `update_plan` è spento: senza `config: { "tools.update_plan.enabled": true }` in `thread/start` il modello dice che lo strumento non c'è e `turn/plan/updated` non arriva mai.
-- **Ragionamento.** Con effort low `gpt-6-luna` non ragiona (`reasoningOutputTokens: 0`), quindi niente delta di ragionamento. Con high arrivano, ma sono pochi titoli.
-- **Output dei comandi.** Il primo blocco di output non arriva come delta (“tick 1” solo in `aggregatedOutput`); i comandi brevi non producono delta.
-- **Interrupt.** `turn/interrupt` chiude il turno ma non il comando: il processo resta vivo come terminale in background, l'item `commandExecution` non riceve `item/completed` e gli `outputDelta` continuano ad arrivare con il `turnId` vecchio, anche durante il turno successivo. Si chiude con `thread/backgroundTerminals/clean` (sperimentale) o all'uscita dell'app-server.
-- **Steer.** L'`agentMessage` in corso resta senza `item/completed`; l'input dello steer arriva come secondo `userMessage` nello stesso turno.
-- **Approvazioni.** Con `untrusted` chiede conferma per quasi tutto, anche per un `true` lanciato dal modello all'avvio della shell. `availableDecisions` non elenca `decline`, che però funziona. Gli id delle richieste del server partono da 0 a ogni connessione.
-- **Cronologia.** Dopo la ripresa il comando rifiutato non c'è più: la cronologia di Codex contiene solo quello completato. La reidratazione completa in `thread/resume` è deprecata (`deprecationNotice`): si usa `excludeTurns: true` con `thread/turns/list` e `thread/items/list`.
-- **Percorsi.** Su macOS la cartella temporanea `/var/…` diventa `/private/var/…`, e il filtro `cwd` di `thread/list` vuole il percorso esatto: si passa sempre il realpath.
-- **Costo base.** Ogni turno parte da circa 15k token in ingresso (prompt di sistema e strumenti), in gran parte in cache. Ogni thread avvia anche il server MCP `codex_apps`.
-- **stderr.** Log con colori ANSI (per esempio `exec_command failed … rejected by user` dopo un rifiuto): va registrato, non interpretato.
+- **Version.** The generated types are valid only for the version that generates them. `generate-ts --experimental` adds about 70 methods (`process/*`, `thread/backgroundTerminals/*`, `thread/queue/*`…) that are rejected without `experimentalApi: true` in the handshake. The server nonetheless sends fields outside the stable types: `availableDecisions` in the approval requests and `emittedAtMs` on every notification.
+- **Binary.** `node_modules/.bin/codex` is a JS launcher that on Node 24 does an `execve` of the native binary (same PID, signals arrive directly). In Electron it is better to launch `@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex` directly.
+- **sourceKinds.** Threads created by the app-server are registered with `source: "vscode"`, not `appServer`. The default `thread/list` (cli + vscode) already finds them; with `sourceKinds: ["appServer"]` it finds nothing. They therefore also show up in the history of Codex and of the VS Code extension.
+- **Thread effort.** `thread/start` does not accept effort: the thread starts with the one from `config.toml` (here `high`). It must be passed on every `turn/start` or with `config: { model_reasoning_effort: "low" }`. The `turn/start` overrides persist for later turns; `outputSchema` does not.
+- **Tier.** Every model offers `priority` (2x consumption). The spike passes `serviceTierForTurn: "default"` so as not to inherit a fast tier from the configuration.
+- **Plan.** In 0.167.0 the `update_plan` tool is off: without `config: { "tools.update_plan.enabled": true }` in `thread/start` the model says the tool does not exist and `turn/plan/updated` never arrives.
+- **Reasoning.** With low effort `gpt-6-luna` does not reason (`reasoningOutputTokens: 0`), so there are no reasoning deltas. With high they arrive, but they are just a few titles.
+- **Command output.** The first output block does not arrive as a delta ("tick 1" only in `aggregatedOutput`); short commands produce no deltas.
+- **Interrupt.** `turn/interrupt` closes the turn but not the command: the process stays alive as a background terminal, the `commandExecution` item does not receive `item/completed` and the `outputDelta`s keep arriving with the old `turnId`, even during the next turn. It is closed with `thread/backgroundTerminals/clean` (experimental) or when the app-server exits.
+- **Steer.** The in-progress `agentMessage` is left without `item/completed`; the steer input arrives as a second `userMessage` in the same turn.
+- **Approvals.** With `untrusted` it asks for confirmation for almost everything, even for a `true` launched by the model at shell startup. `availableDecisions` does not list `decline`, which nevertheless works. Server request ids start from 0 on every connection.
+- **History.** After resume the rejected command is gone: Codex's history contains only the completed one. Full rehydration in `thread/resume` is deprecated (`deprecationNotice`): use `excludeTurns: true` with `thread/turns/list` and `thread/items/list`.
+- **Paths.** On macOS the temporary folder `/var/…` becomes `/private/var/…`, and the `cwd` filter of `thread/list` wants the exact path: always pass the realpath.
+- **Base cost.** Every turn starts from about 15k input tokens (system prompt and tools), largely cached. Every thread also starts the `codex_apps` MCP server.
+- **stderr.** Logs with ANSI colors (for example `exec_command failed … rejected by user` after a rejection): it should be recorded, not interpreted.
 
-## Raccomandazione per l'adapter Codex
+## Recommendation for the Codex adapter
 
-1. Un processo `codex app-server` per progetto, come da piano: binario nativo dalla versione fissata, stdio JSONL, `experimentalApi: false`. Supervisione: se il processo muore, Blue lo riavvia e riprende i thread attivi con `thread/resume` (`excludeTurns`).
-2. Client generato dai tipi stabili più una piccola mappa metodo → risposta (i binding non la includono). Al cambio di versione: rigenerare, `typecheck`, rieseguire questi script.
-3. `thread/start` con `cwd`, `sandbox`, `approvalPolicy`, `config: { "tools.update_plan.enabled": true, model_reasoning_effort }`. Ogni `turn/start` con `model`, `effort` e `serviceTierForTurn` espliciti.
-4. Nell'adapter, una macchina a stati per item: alla fine del turno chiude gli item rimasti aperti (steer, interrupt) e scarta i delta con un `turnId` diverso da quello attivo.
-5. Richieste pendenti indicizzate per processo e id, chiuse da `serverRequest/resolved`. La card di approvazione prende comando o diff dall'`item/started` con lo stesso `itemId`.
-6. La cronologia la tiene Blue con il proprio registro eventi (rifiuti, piani, output). Gli id dei thread creati da Blue stanno nel database di Blue; `thread/list` con filtro `cwd` serve solo a importare i thread nati nel terminale.
-7. Dopo un interrupt: se resta un comando vivo, la prima soluzione è riavviare il processo del progetto. Se serve spesso, si attiva `experimentalApi` solo per `thread/backgroundTerminals/clean`.
+1. One `codex app-server` process per project, as planned: native binary from the pinned version, stdio JSONL, `experimentalApi: false`. Supervision: if the process dies, Blue restarts it and resumes the active threads with `thread/resume` (`excludeTurns`).
+2. Client generated from the stable types plus a small method → response map (the bindings do not include it). On a version change: regenerate, `typecheck`, rerun these scripts.
+3. `thread/start` with `cwd`, `sandbox`, `approvalPolicy`, `config: { "tools.update_plan.enabled": true, model_reasoning_effort }`. Every `turn/start` with explicit `model`, `effort` and `serviceTierForTurn`.
+4. In the adapter, a per-item state machine: at the end of the turn it closes the items left open (steer, interrupt) and discards deltas with a `turnId` different from the active one.
+5. Pending requests indexed by process and id, closed by `serverRequest/resolved`. The approval card takes the command or diff from the `item/started` with the same `itemId`.
+6. The history is kept by Blue with its own event log (rejections, plans, output). The ids of threads created by Blue are in Blue's database; `thread/list` with a `cwd` filter is only for importing threads born in the terminal.
+7. After an interrupt: if a command is left alive, the first solution is to restart the project's process. If it is needed often, enable `experimentalApi` only for `thread/backgroundTerminals/clean`.
 
-## Cosa cambia nel piano
+## What changes in the plan
 
-- Sezione 4.6, “Per vedere anche i thread creati da Blue va passato `sourceKinds`”: in 0.167.0 è il contrario. I thread dell'app-server risultano `vscode`, compaiono di default e anche nella cronologia di Codex. Blue deve riconoscere i propri thread dal suo database, non da `source`.
-- `turn/interrupt` non ferma i comandi in corso: serve una delle due strategie del punto 7.
-- `turn/plan/updated` richiede di attivare `tools.update_plan.enabled`.
-- Il ragionamento visibile dipende dall'effort: con low spesso non c'è, quindi la UI non deve aspettarselo.
-- Le approvazioni con `untrusted` sono molto frequenti; per l’uso normale resta giusto `on-request`, come nell’esempio di `thread/start` del piano.
+- The initial plan assumed that "to also see threads created by Blue, `sourceKinds` must be passed": in 0.167.0 it is the opposite. App-server threads show up as `vscode`, appear by default and also in Codex's history. Blue must recognize its own threads from its database, not from `source`.
+- `turn/interrupt` does not stop running commands: one of the two strategies in point 7 is needed.
+- `turn/plan/updated` requires enabling `tools.update_plan.enabled`.
+- Visible reasoning depends on effort: with low it is often absent, so the UI must not expect it.
+- Approvals with `untrusted` are very frequent; for normal use `on-request` remains the right choice, as in the `thread/start` example of the initial plan.
