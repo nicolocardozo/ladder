@@ -1,6 +1,6 @@
 {
   "name": "@ladder/desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "license": "Apache-2.0",
   "description": "Ladder: a macOS workspace for coding agents",

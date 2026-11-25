@@ -10,9 +10,9 @@ export type Entry = {
 
 export const ENTRIES: Entry[] = [
   {
-    date: "2026-11-25",
+    date: "2026-11-26",
     title: "Agents that work together, executable plans and a ladder command",
-    summary: "Everything since 0.1.3: hand work from one agent to another, run plans task by task, drive Ladder from the terminal, and one more agent.",
+    summary: "Ladder 0.1.4: hand work from one agent to another, run plans task by task, drive Ladder from the terminal, and one more agent.",
     items: [
       "Hand a session over to another agent with /handoff: the current agent writes a summary and the work continues in a linked session. Hand it back to resume the first one.",
       "Ask another agent for advice with /advisor, or two to four with /committee. They read the work read-only and answer in a card you can send to your agent.",
@@ -29,7 +29,7 @@ export const ENTRIES: Entry[] = [
       "A notification for a waiting request now arrives unless that very session is on screen, even if another one in the same project is open.",
       "Claude and Codex keep answering in the language you write in, also when a turn starts from a background task.",
       "The bottom of the sidebar shows your linked subscriptions, and an expired sign-in turns red.",
-      "Ladder is open source under the Apache License 2.0.",
+      "Ladder is open source under the Apache License 2.0, and the app includes the licenses of the third-party software it ships with.",
     ],
   },
   {
