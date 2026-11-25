@@ -4,21 +4,24 @@ export type AgentId = keyof typeof AGENT_ICON_PATHS | (string & {})
 
 type AgentIconProps = {
   agent: AgentId
-  /** Nome mostrato, usato per l'iniziale di fallback */
+  /** Display name, used for the fallback initial */
   name?: string
   className?: string
 }
 
-// Icona dell'agente in inline SVG con currentColor; senza icona nota mostra l'iniziale
+// Third-party logos stay off until their owners' brand guidelines are checked: every agent shows its initial.
+const SHOW_AGENT_LOGOS = false
+
+// Agent icon as inline SVG with currentColor; without a known icon (or with logos off) it shows the initial
 export function AgentIcon({ agent, name, className = "size-5" }: AgentIconProps) {
-  const paths = AGENT_ICON_PATHS[agent]
+  const paths = SHOW_AGENT_LOGOS ? AGENT_ICON_PATHS[agent] : undefined
 
   if (!paths) {
     const initial = (name ?? agent).trim().charAt(0).toUpperCase()
     return (
       <span
         aria-hidden
-        className={`inline-flex items-center justify-center rounded-sm border border-current text-[0.6em] font-semibold leading-none ${className}`}
+        className={`inline-flex flex-none items-center justify-center rounded-sm border border-current text-[0.6em] font-semibold leading-none ${className}`}
       >
         {initial}
       </span>

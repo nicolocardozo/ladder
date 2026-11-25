@@ -1,7 +1,7 @@
-// Voci del changelog, dalla più recente. Usate dalla pagina e dal feed RSS.
-// Finché Ladder è in anteprima privata le voci sono le tappe dello sviluppo, con le date dei commit.
+// Changelog entries, newest first. Used by the page and by the RSS feed.
+// Entries before the first public release (v0.1.0) are development milestones, with their commit dates.
 export type Entry = {
-  /** Data ISO (aaaa-mm-gg), usata anche come ancora */
+  /** ISO date (yyyy-mm-dd), also used as the anchor */
   date: string
   title: string
   summary: string
@@ -9,6 +9,20 @@ export type Entry = {
 }
 
 export const ENTRIES: Entry[] = [
+  {
+    date: "2026-11-24",
+    title: "Intel Macs, updates on their own and a branch map",
+    summary: "Ladder 0.1.1 to 0.1.3: builds for every Mac that keep themselves up to date.",
+    items: [
+      "Builds for Intel Macs as well as Apple Silicon.",
+      "Installed copies update on their own, with a notice when an update is ready.",
+      "A branch map: switch branches from the top bar, and see the main checkout and the history with the same graphics.",
+      "The built-in browser opens in a column next to the chat.",
+      "Restart agent, for when an agent gets stuck.",
+      "Shortcut labels follow your keyboard layout.",
+      "Two new dark themes, Carbon and Fern.",
+    ],
+  },
   {
     date: "2026-11-23",
     title: "Merge with one main action, previews and calmer limits",

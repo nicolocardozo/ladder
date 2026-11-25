@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# React Bits components, fetched by scripts/fetch-react-bits.mjs (their license forbids redistributing the source)
+/src/components/react-bits/
