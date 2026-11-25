@@ -1,4 +1,4 @@
-// Parti comuni agli adapter degli agenti: interfaccia della sessione, ambiente filtrato, PATH della shell di login.
+// Parts shared by the agent adapters: session interface, filtered environment, login shell PATH.
 import { execFile } from 'node:child_process'
 import { readFileSync, statSync } from 'node:fs'
 import { promisify } from 'node:util'
@@ -10,30 +10,30 @@ export type { AdapterEvents, ToolUpdate, TurnResult, UserRequest } from '../clau
 
 const run = promisify(execFile)
 
-/** Una sessione con un agente: Claude Code, Codex o un agente ACP. L'host la usa sempre allo stesso modo. */
+/** A session with an agent: Claude Code, Codex or an ACP agent. The host always uses it the same way. */
 export interface AgentSession {
   readonly isRunning: boolean
   start(): void
   send(text: string, attachments?: Attachment[]): void
-  /** Esegue un comando della lista: come send(), parte un turno. */
+  /** Runs a command from the list: like send(), starts a turn. */
   command(name: string, args: string): void
-  /** Inserisce un messaggio nel turno in corso, senza aprirne uno nuovo. Assente o false: l'host lo accoda. */
+  /** Inserts a message into the running turn without opening a new one. Absent or false: the host queues it. */
   steer?(text: string, attachments?: Attachment[], id?: string): Promise<boolean>
-  /** Messaggi inseriti che l'agente non ha ancora unito al turno (Claude): dopo un'interruzione girano da soli. */
+  /** Inserted messages the agent hasn't merged into the turn yet (Claude): after an interruption they run on their own. */
   readonly pendingSteerCount?: number
-  /** Turno aperto per messaggi inseriti che l'agente non ha ancora fatto partire (Claude). */
+  /** Turn opened for inserted messages the agent hasn't started yet (Claude). */
   readonly idleImplicitTurn?: boolean
-  /** `all`: Stop, ferma anche ciò che l'agente ha in coda; senza, "invia ora" lo lascia unire al messaggio nuovo. */
+  /** `all`: Stop also stops what the agent has queued; without it, "send now" lets it merge with the new message. */
   interrupt(all?: boolean): Promise<void>
-  /** Interrompe e mette subito dopo la ricevuta un messaggio nello stream (Claude, "invia ora" con messaggi pendenti). */
+  /** Interrupts and puts a message in the stream right after the receipt (Claude, "send now" with pending messages). */
   interruptThenSend?(text: string, attachments: Attachment[], id: string, beforePush: () => void): Promise<boolean>
   setPermission(level: PermissionLevel): Promise<void>
   setModel(model: string): Promise<void>
-  /** Vale dal prossimo messaggio. */
+  /** Applies from the next message. */
   setEffort(effort: Effort): Promise<void>
-  /** Voci dei sotto-agenti che l'agente dà per vivi (Claude, background_tasks_changed). Assente o null: a turno chiuso vale solo il tempo dall'ultimo aggiornamento. */
+  /** Sub-agent entries the agent considers alive (Claude, background_tasks_changed). Absent or null: once the turn is closed only the time since the last update counts. */
   liveAgentIds?(): Set<string> | null
-  /** Task in background ancora vivi di qualsiasi tipo (comandi, monitor, sotto-agenti; Claude). Chiudere il processo li ucciderebbe. */
+  /** Background tasks of any kind still alive (commands, monitors, sub-agents; Claude). Closing the process would kill them. */
   readonly hasBackgroundWork?: boolean
   close(): void
 }
@@ -43,13 +43,13 @@ export interface SessionOptions {
   model: string | null
   effort: Effort | null
   permission: PermissionLevel
-  /** Id della conversazione dell'agente da riprendere. */
+  /** Id of the agent conversation to resume. */
   resume: string | null
-  /** Cartella di configurazione del profilo (CLAUDE_CONFIG_DIR / CODEX_HOME); null = quella della CLI. */
+  /** Configuration folder of the profile (CLAUDE_CONFIG_DIR / CODEX_HOME); null = the CLI's own. */
   configDir?: string | null
-  /** Istruzione di autonomia (HostPrefs.autonomyHint): prompt di sistema di Claude e developerInstructions di Codex. */
+  /** Autonomy instruction (HostPrefs.autonomyHint): Claude's system prompt and Codex's developerInstructions. */
   autonomyHint?: boolean
-  /** LAD-57 parte 2: server MCP del browser dell'agente (URL e token della sessione); assente = interruttore spento, nessuna registrazione. */
+  /** MCP server of the agent's browser (session URL and token); absent = switch off, no registration. */
   browserTools?: { url: string; token: string } | null
   /** The session's `ladder` MCP server (handoff, delegation, plans, sessions, report_result), URL and token; absent = not registered. */
   ladderTools?: { url: string; token: string } | null
@@ -80,16 +80,16 @@ export function ladderDetail(input: unknown, tool?: string): string | null {
   return JSON.stringify(out)
 }
 
-/** LAD-57 parte 2: nome con cui il server MCP del browser dell'agente si registra negli adapter (in Claude: `mcp__ladder-browser__browser_*`). */
+/** Name under which the agent's browser MCP server registers in the adapters (in Claude: `mcp__ladder-browser__browser_*`). */
 export const BROWSER_MCP_NAME = 'ladder-browser'
 
-/** Istruzione di autonomia (HostPrefs.autonomyHint) per Edit e Full access, nel prompt di sistema di Claude e nelle developerInstructions di Codex: compiti lunghi senza fermarsi per prudenza. */
+/** Autonomy instruction (HostPrefs.autonomyHint) for Edit and Full access, in Claude's system prompt and Codex's developerInstructions: long tasks without stopping out of caution. */
 export const AUTONOMY_HINT =
   'When the user gives you a long or multi-step task, work through it autonomously until it is done. Do not stop to ask for confirmation or out of caution when the next step is clear. If you do stop, say why and what you need from the user to continue.'
 
 /**
- * Sempre, con ogni permesso: i turni che l'agente apre da solo (fine di un sotto-agente in background, resoconti) arrivano con
- * avvisi in inglese, e senza questa riga il modello risponderebbe in inglese anche a chi gli scrive in italiano.
+ * Always, with every permission: the turns the agent opens on its own (end of a background sub-agent, reports) arrive with
+ * English notices, and without this line the model would answer in English even to someone writing to it in Italian.
  */
 export const LANGUAGE_HINT =
   'Always write to the user in the language they write to you in. This applies to every text the user sees: replies, questions and answer options you ask through tools, plans and summaries. Keep that language in every turn, including turns that start from background task notifications, tool results or subagent reports written in another language.'
@@ -118,7 +118,7 @@ export function agentInstructions(autonomy: boolean | undefined, delegates?: str
 
 let loginPath: Promise<string> | null = null
 
-/** PATH della shell di login: le app aperte dal Finder non vedono npx, uvx e le CLI installate. */
+/** PATH of the login shell: apps opened from Finder don't see npx, uvx and the installed CLIs. */
 export function shellPath(): Promise<string> {
   loginPath ??= run(process.env.SHELL || '/bin/zsh', ['-lc', 'printf %s "$PATH"'], { timeout: 5000, env: cleanEnv() })
     .then(({ stdout }) => stdout.trim() || process.env.PATH || '')
@@ -126,7 +126,7 @@ export function shellPath(): Promise<string> {
   return loginPath
 }
 
-/** Percorso di un comando secondo la shell di login; null se non c'è. */
+/** Path of a command according to the login shell; null if missing. */
 export async function whichInShell(name: string): Promise<string | null> {
   if (name.includes('/')) return name
   try {
@@ -138,12 +138,12 @@ export async function whichInShell(name: string): Promise<string | null> {
   }
 }
 
-/** Percorsi di più comandi con una sola shell di login (una per comando costerebbe molto di più). Solo nomi semplici; manca chi non c'è. */
+/** Paths of several commands with a single login shell (one per command would cost much more). Simple names only; missing ones are absent. */
 export async function whichManyInShell(names: string[]): Promise<Map<string, string>> {
   const found = new Map<string, string>()
   const safe = names.filter((n) => /^[\w.-]+$/.test(n))
   if (!safe.length) return found
-  // `; true`: senza, l'ultimo nome mancante dà stato 1 a tutto lo script e execFile scarta anche i percorsi già trovati.
+  // `; true`: without it, the last missing name gives status 1 to the whole script and execFile discards the paths already found.
   const script = `for n in ${safe.join(' ')}; do p=$(command -v -- "$n") && printf '%s\\t%s\\n' "$n" "$p"; done; true`
   try {
     const { stdout } = await run(process.env.SHELL || '/bin/zsh', ['-lc', script], { timeout: 8000, env: cleanEnv() })
@@ -152,7 +152,7 @@ export async function whichManyInShell(names: string[]): Promise<Map<string, str
       if (name && path?.startsWith('/') && safe.includes(name)) found.set(name, path)
     }
   } catch {
-    // Shell che non risponde: nessuna CLI rilevata.
+    // Shell that doesn't respond: no CLI detected.
   }
   return found
 }
@@ -160,8 +160,8 @@ export async function whichManyInShell(names: string[]): Promise<Map<string, str
 export { cleanEnv }
 
 /**
- * Ambiente per un agente: senza le variabili di Claude Code, di Electron e di Ladder, e senza chiavi API
- * che scavalcherebbero il login dell'abbonamento. Il PATH è quello della shell di login.
+ * Environment for an agent: without Claude Code, Electron and Ladder variables, and without API keys
+ * that would override the subscription login. PATH is the login shell's.
  */
 export async function agentEnv(strip: string[] = [], extra: Record<string, string> = {}): Promise<Record<string, string>> {
   const env: Record<string, string> = {}
@@ -172,7 +172,7 @@ export async function agentEnv(strip: string[] = [], extra: Record<string, strin
     env[key] = value
   }
   env.PATH = await shellPath()
-  // Anche `extra` (ambiente di una voce del registro o dell'utente) non può rimettere ciò che sopra si toglie né caricare librerie.
+  // `extra` (environment of a registry or user entry) can't put back what is removed above, nor load libraries.
   for (const [key, value] of Object.entries(extra)) {
     if (/^(ANTHROPIC_|CLAUDE|DYLD_|LD_)/.test(key) || key === 'NODE_OPTIONS') continue
     env[key] = value
@@ -193,8 +193,8 @@ export function clip(text: string | null | undefined): string | null {
 }
 
 /**
- * Comando da mostrare: Codex lo avvolge in `/bin/zsh -lc '…'` e alcuni adapter ACP lo passano come stringa JSON.
- * La card mostra il comando vero, quello che hai chiesto.
+ * Command to show: Codex wraps it in `/bin/zsh -lc '…'` and some ACP adapters pass it as a JSON string.
+ * The card shows the real command, the one you asked for.
  */
 export function displayCommand(raw: string | null | undefined): string | null {
   if (!raw) return null
@@ -203,7 +203,7 @@ export function displayCommand(raw: string | null | undefined): string | null {
     try {
       cmd = JSON.parse(cmd) as string
     } catch {
-      // Non era JSON: resta com'è.
+      // Not JSON: stays as is.
     }
   }
   const wrapped = /^(?:\/bin\/)?(?:zsh|bash|sh)\s+-l?c\s+'([\s\S]*)'$/.exec(cmd)
@@ -213,7 +213,7 @@ export function displayCommand(raw: string | null | undefined): string | null {
   return cmd
 }
 
-/** Legge un file di config solo se è un file normale e non enorme (tetto 1 MB): mai una lettura che possa bloccare. */
+/** Reads a config file only if it is a regular file and not huge (1 MB cap): never a read that could block. */
 export function readSmallFile(path: string, maxBytes = 1_000_000): string | null {
   try {
     const stat = statSync(path)

@@ -1,5 +1,5 @@
-// Conversazione di una sessione: lista virtualizzata di turni, segue il fondo mentre l'agente scrive,
-// ricorda la posizione di lettura e mostra "In fondo" quando sei più su.
+// A session's conversation: virtualized list of turns, follows the bottom while the agent writes,
+// remembers the reading position and shows "Jump to bottom" when you are further up.
 import './chat.css'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowDown } from 'lucide-react'
@@ -14,7 +14,7 @@ import { useApp } from '@/store/app-store'
 import { CHAT_LAYOUT_WILL_CHANGE, DEFAULT_CHAT_FONT, DEFAULT_CHAT_WIDTH, DEFAULT_TEXT_SIZE } from '@/hooks/use-chat-font'
 import { chatColumn, createTurnCache, estimateTurnHeight, groupTurns, isAdviceTurn, turnKey, type Turn } from './turns'
 
-/** Posizione di lettura: elemento in cima alla vista e quanti pixel ne sono già passati sopra il bordo. */
+/** Reading position: the element at the top of the view and how many pixels of it are already above the edge. */
 export interface ChatAnchor {
   itemId: string
   offset: number
@@ -22,52 +22,52 @@ export interface ChatAnchor {
 
 export interface ChatViewProps {
   sessionId: string
-  /** Ordinati per seq. L'ultimo messaggio dell'agente può cambiare circa 30 volte al secondo. */
+  /** Sorted by seq. The agent's last message can change about 30 times per second. */
   items: ChatItem[]
   run: RunState
-  /** Attività corrente mentre lavora: "Esegue pnpm test". */
+  /** Current activity while working: "Running pnpm test". */
   activity: string | null
-  /** Il divisore "Nuovo" va prima del primo elemento con seq >= di questo. */
+  /** The "New" divider goes before the first element with seq >= this. */
   firstUnreadSeq: number | null
   /** null: parte dal fondo. */
   initialAnchor: ChatAnchor | null
   /**
-   * Con debounce di 300 ms e un ultimo invio allo smontaggio. Se eri in fondo l'ancora è l'elemento in cima
-   * alla vista: alla riapertura ritrovi lo stesso punto e, se nel frattempo non è arrivato altro, il fondo.
+   * Debounced by 300 ms with a final send on unmount. If you were at the bottom the anchor is the element at the top
+   * of the view: on reopening you find the same spot and, if nothing else arrived in the meantime, the bottom.
    */
   onAnchorChange: (anchor: ChatAnchor) => void
   onRespond: (requestId: string, response: RequestResponse) => void
   onOpenFile: (path: string, line?: number, external?: boolean) => void
   onOpenDiff?: (turnId: string, path?: string) => void
-  /** Elemento da raggiungere (⌘⇧A, notifica, ricerca): la vista ci scorre e mette il focus sulla sua prima azione. */
+  /** Element to reach (⌘⇧A, notification, search): the view scrolls to it and puts focus on its first action. */
   focusRequest?: { itemId: string | null; nonce: number } | null
   onFocusDone?: (nonce: number) => void
-  /** Colonna stretta: margini ridotti e card degli strumenti chiuse (restano apribili con un clic). */
+  /** Narrow column: reduced margins and tool cards closed (they can still be opened with a click). */
   compact?: boolean
-  /** Sotto-agenti in background ancora al lavoro con il coordinatore fermo: sotto l'ultimo turno compare "Waiting for N background agents". */
+  /** Background sub-agents still working with the coordinator idle: "Waiting for N background agents" appears below the last turn. */
   waitingAgents?: number
-  /** "Continue" sulla riga dei sotto-agenti finiti: invia session.continue. Rifiuta con il messaggio d'errore dell'host. */
+  /** "Continue" on the finished sub-agents row: sends session.continue. Rejects with the host's error message. */
   onContinue?: (itemId: string) => Promise<unknown>
-  /** Mette del testo nel composer senza inviarlo. */
+  /** Puts text in the composer without sending it. */
   onPrefill?: (text: string) => void
-  /** Colonna attiva (default: sì). Una colonna non attiva non porta via il focus a chi sta scrivendo altrove. */
+  /** Active column (default: yes). An inactive column doesn't steal focus from whoever is typing elsewhere. */
   active?: boolean
 }
 
 const PADDING_START = 20
 const PADDING_END = 28
-/** Spazio sotto l'ultimo turno per la riga "in attesa di N agenti" (22 px). */
+/** Space below the last turn for the "waiting for N agents" row (22 px). */
 const WAITING_ROW = 22
 const AT_END_PX = 8
 const JUMP_PX = 240
 const ANCHOR_DEBOUNCE_MS = 300
 
-/** Lo stato interno (sezioni aperte, misure, ancora) riparte da zero a ogni cambio di sessione. */
+/** Internal state (open sections, measurements, anchor) restarts from zero on every session change. */
 export function ChatView(props: ChatViewProps) {
   return <ChatViewInner key={props.sessionId} {...props} />
 }
 
-/** Elemento in cima alla vista e quanti pixel ne sono già passati sopra il bordo. */
+/** Element at the top of the view and how many pixels of it are already above the edge. */
 function readAnchor(el: HTMLElement | null): ChatAnchor | null {
   if (!el || !el.isConnected) return null
   const top = el.getBoundingClientRect().top
@@ -120,7 +120,7 @@ function ChatViewInner({
   const itemsRef = useRef(items)
   itemsRef.current = items
 
-  // Le sezioni aperte non dipendono da `compact`: l'archivio resta lo stesso quando la colonna cambia larghezza.
+  // Open sections don't depend on `compact`: the archive stays the same when the column changes width.
   const [toggles] = useState(createToggleStore)
   const hasContinue = Boolean(onContinue)
   const hasPrefill = Boolean(onPrefill)
@@ -142,7 +142,7 @@ function ChatViewInner({
     }),
     [toggles, compact, sessionId, hasContinue, hasPrefill]
   )
-  // Passando alla vista compatta le card degli strumenti si chiudono.
+  // Switching to the compact view closes the tool cards.
   useEffect(() => {
     if (compact) toggles.closeAll(['tool:', 'out:'])
   }, [compact, toggles])
@@ -150,12 +150,12 @@ function ChatViewInner({
   const chatFont = useApp((s) => s.prefs?.chatFont) ?? DEFAULT_CHAT_FONT
   const chatWidth = useApp((s) => s.prefs?.chatWidth) ?? DEFAULT_CHAT_WIDTH
   const chatSize = useApp((s) => s.prefs?.chatTextSize) ?? DEFAULT_TEXT_SIZE
-  // Colonna di testo effettiva (caratteri per riga): si misura in modo sincrono al primo layout e poi a ogni resize,
-  // ma lo stato cambia solo se cambiano chars, userChars o line, non a ogni pixel di una finestra più larga del limite.
+  // Effective text column (characters per line): measured synchronously at first layout and then on every resize,
+  // but the state changes only if chars, userChars or line change, not on every pixel of a window wider than the limit.
   const [column, setColumn] = useState(() => chatColumn(chatFont, chatWidth, 0, compact, chatSize))
   const [measured, setMeasured] = useState(false)
-  // Ultima posizione di lettura vista PRIMA di un eventuale cambio di layout: si aggiorna a ogni scroll, a ogni resize e a ogni
-  // passo del ripristino. Al cambio di larghezza o font non si rilegge il DOM (che a quel punto è già quello nuovo).
+  // Last reading position seen BEFORE any layout change: updated on every scroll, every resize and every
+  // restore step. On a width or font change the DOM is not re-read (it is already the new one by then).
   const liveAnchorRef = useRef<ChatAnchor | null>(null)
   const captureAnchor = () => {
     liveAnchorRef.current = readAnchor(scrollRef.current) ?? liveAnchorRef.current
@@ -177,9 +177,9 @@ function ChatViewInner({
     return () => observer.disconnect()
   }, [chatFont, chatWidth, compact, chatSize])
 
-  // Chiavi e stime cambiano solo quando cambia la sequenza dei turni (non a ogni pezzo di streaming) o la colonna.
-  // `column` è anche tra le dipendenze di getItemKey: virtual-core ricalcola le misure solo quando cambiano le sue opzioni
-  // (estimateSize non conta), e così gli elementi non ancora misurati prendono la stima nuova senza perdere quelli misurati.
+  // Keys and estimates change only when the sequence of turns changes (not on every streaming chunk) or the column does.
+  // `column` is also among the dependencies of getItemKey: virtual-core recomputes measurements only when its options change
+  // (estimateSize doesn't count), so unmeasured items get the new estimate without losing the measured ones.
   const idsKey = useMemo(() => turns.map((t) => t.id).join('\u0001'), [turns])
   const getItemKey = useCallback((index: number) => turnsRef.current[index]?.id ?? index, [idsKey, column])
   const estimateSize = useCallback(
@@ -187,7 +187,7 @@ function ChatViewInner({
     [idsKey, column]
   )
 
-  // La riga "in attesa" compare con gli agenti al lavoro e sparisce da sé quando finiscono o parte un turno (run non più idle).
+  // The "waiting" row appears with agents working and disappears by itself when they finish or a turn starts (run no longer idle).
   const showWaiting = waitingAgents > 0 && run === 'idle' && turns.length > 0
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: turns.length,
@@ -214,7 +214,7 @@ function ChatViewInner({
   const userMovedRef = useRef(false)
   const [showJump, setShowJump] = useState(false)
 
-  // Ancora di lettura, con debounce e un ultimo invio allo smontaggio.
+  // Reading anchor, debounced with a final send on unmount.
   const lastAnchorRef = useRef<string | undefined>(undefined)
   const anchorTimerRef = useRef<number | undefined>(undefined)
   const computeAnchor = useCallback(() => {
@@ -256,12 +256,12 @@ function ChatViewInner({
     inputSeqRef.current++
   }
 
-  // Cambio di larghezza o di font a metà lettura: le altezze cambiano, la posizione di lettura no. Si prende l'ancora
-  // prima che il DOM cambi (durante il render, dove ancora c'è il layout vecchio) e la si ritrova dopo, rifinita sulle misure reali.
+  // Width or font change mid-reading: heights change, the reading position doesn't. The anchor is taken
+  // before the DOM changes (during render, where the old layout is still there) and found again afterwards, refined on the real measurements.
   const layoutKey = `${chatFont}|${chatWidth}|${chatSize}`
   const layoutKeyRef = useRef(layoutKey)
   const pendingRef = useRef<{ anchor: ChatAnchor | null; end: boolean } | null>(null)
-  // Di norma l'ancora è già stata presa dall'evento (useChatFont lo manda prima di cambiare il layout); questo è il ripiego.
+  // Normally the anchor was already taken from the event (useChatFont sends it before changing the layout); this is the fallback.
   useLayoutEffect(() => {
     const onWillChange = () => {
       pendingRef.current = { anchor: atEndRef.current ? null : readAnchor(scrollRef.current), end: atEndRef.current }
@@ -279,7 +279,7 @@ function ChatViewInner({
     if (!pending) return
     const seq = inputSeqRef.current
     if (pending.end || !pending.anchor) {
-      // In fondo si resta in fondo, finché le misure delle righe non smettono di cambiare l'altezza totale.
+      // At the bottom you stay at the bottom, until row measurements stop changing the total height.
       let last = -1
       let calm = 0
       let n = 0
@@ -321,10 +321,10 @@ function ChatViewInner({
     return () => cancelAnimationFrame(raf)
   }, [layoutKey, virtualizer])
 
-  // Posizione iniziale: il fondo, oppure l'ancora salvata (rifinita sugli elementi reali per qualche frame).
+  // Initial position: the bottom, or the saved anchor (refined on the real elements for a few frames).
   const positionedRef = useRef(false)
   useLayoutEffect(() => {
-    // Si parte a larghezza misurata: stime e posizione iniziale usano la colonna reale.
+    // It starts at measured width: estimates and initial position use the real column.
     if (positionedRef.current || turns.length === 0 || !measured) return
     positionedRef.current = true
     const anchor = initialAnchor
@@ -356,16 +356,16 @@ function ChatViewInner({
     raf = requestAnimationFrame(tick)
     return () => {
       cancelAnimationFrame(raf)
-      // In StrictMode l'effetto riparte subito: il ripristino deve poter ricominciare.
+      // In StrictMode the effect restarts immediately: the restore must be able to start over.
       positionedRef.current = false
     }
-    // Solo alla prima comparsa degli elementi.
+    // Only the first time the elements appear.
   }, [turns.length > 0 && measured])
 
-  // Quando l'utente invia un messaggio si torna in fondo, anche se stava leggendo più su.
+  // When the user sends a message the view goes back to the bottom, even if they were reading further up.
   const lastUserIdRef = useRef<string | null>(null)
   const lastUserId = useMemo(() => {
-    // Vale anche un messaggio inserito nel turno (steered): l'ultimo 'user' di tutti, nei passi o in testa.
+    // A message inserted into the turn (steered) counts too: the very last 'user' one, in the steps or at the top.
     for (let i = turns.length - 1; i >= 0; i--) {
       const steps = turns[i].steps
       for (let j = steps.length - 1; j >= 0; j--) if (steps[j].kind === 'user') return steps[j].id
@@ -382,7 +382,7 @@ function ChatViewInner({
     }
   }, [lastUserId, virtualizer])
 
-  // Se la vista cambia altezza (finestra, composer che cresce) e eri in fondo, resti in fondo.
+  // If the view changes height (window, growing composer) and you were at the bottom, you stay at the bottom.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -396,7 +396,7 @@ function ChatViewInner({
     return () => observer.disconnect()
   }, [virtualizer])
 
-  // Elemento richiesto da fuori: si scorre al suo turno, poi all'elemento, e il focus va sulla prima azione.
+  // Element requested from outside: scroll to its turn, then to the element, and focus goes to the first action.
   const hasTurns = turns.length > 0
   useEffect(() => {
     const target = focusRequest
@@ -405,7 +405,7 @@ function ChatViewInner({
     const lastOpen = list[list.length - 1]?.open.at(-1)?.id ?? null
     const itemId = target.itemId ?? lastOpen
     const index = itemId ? turnIndexOfItem(list, itemsRef.current, itemId) : -1
-    // Ferma il ripristino della posizione di lettura: adesso conta l'elemento.
+    // Stops the reading position restore: now the element counts.
     userMovedRef.current = true
     atEndRef.current = index < 0 || index === list.length - 1
     if (index >= 0) virtualizer.scrollToIndex(index, { align: 'center' })
@@ -434,7 +434,7 @@ function ChatViewInner({
     virtualizer.scrollToEnd({ behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
   }
 
-  // Turno in corso e divisore "Nuovo".
+  // Turn in progress and "New" divider.
   // Advice cards also arrive while the session is working: the running turn is the last one that is not a card.
   let lastIndex = turns.length - 1
   while (lastIndex >= 0 && isAdviceTurn(turns[lastIndex])) lastIndex--
@@ -453,7 +453,7 @@ function ChatViewInner({
       : t('Approval requested: {target}', { target: openRequest.command ?? openRequest.path ?? openRequest.title })
     : ''
 
-  // Seq dell'ultima riga di avvio "dopo la fine degli agenti": le righe "picked up" che la precedono sarebbero un doppione.
+  // Seq of the last start row "after the agents finished": the "picked up" rows before it would be a duplicate.
   const bgStartSeq = useMemo(() => {
     let seq = -1
     for (const item of items) if (item.kind === 'agent-start' && item.reason === 'background-agents' && item.seq > seq) seq = item.seq
@@ -529,7 +529,7 @@ function ChatViewInner({
           </div>
         </div>
 
-        {/* Il testo sfuma sotto l'intestazione invece di finirci contro: un velo del colore del fondo, non una linea.
+        {/* Text fades under the header instead of running into it: a veil in the background color, not a line.
             Un velo sopra costa meno di una maschera sul contenitore che scorre. */}
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-5 bg-gradient-to-b from-background to-transparent" />
 

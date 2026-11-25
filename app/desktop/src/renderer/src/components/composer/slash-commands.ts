@@ -1,10 +1,10 @@
-// Comandi / del composer: quelli dell'agente (dall'host) più quelli di Ladder, che gestisce la UI.
+// Composer / commands: the agent's (from the host) plus Ladder's, which the UI handles.
 import { t } from '@shared/i18n'
 import type { SlashCommand } from '@shared/protocol'
 
 export type CommandSource = SlashCommand['source'] | 'ladder'
 
-/** Comandi che Ladder risolve da sé: aprono i selettori o cambiano sessione, non vanno all'agente. */
+/** Commands Ladder resolves itself: they open pickers or change session, they don't go to the agent. */
 export type LadderCommandName = 'model' | 'effort' | 'new' | 'restart' | 'handoff' | 'advisor' | 'committee'
 
 export interface CommandEntry {
@@ -15,7 +15,7 @@ export interface CommandEntry {
   aliases?: string[]
 }
 
-// Testi in inglese: si mostrano con commandDescription(), che ha le chiavi t() letterali.
+// English texts: shown through commandDescription(), which has literal t() keys.
 const LADDER_COMMANDS: (CommandEntry & { name: LadderCommandName })[] = [
   { name: 'model', description: 'Choose the model, or set it with /model <name>', hint: '<model>', source: 'ladder' },
   { name: 'effort', description: 'Choose the effort, or set it with /effort <level>', hint: '<level>', source: 'ladder' },
@@ -26,7 +26,7 @@ const LADDER_COMMANDS: (CommandEntry & { name: LadderCommandName })[] = [
   { name: 'committee', description: 'Ask two to four different agents for advice', hint: '[question]', source: 'ladder' }
 ]
 
-/** Descrizione da mostrare: quelle di Ladder passano dal catalogo, quelle dell'agente arrivano già nella sua lingua. */
+/** Description to show: Ladder's go through the catalog, the agent's arrive already in its language. */
 export function commandDescription(entry: CommandEntry): string {
   if (entry.source !== 'ladder') return entry.description
   switch (entry.name) {
@@ -51,7 +51,7 @@ export function commandDescription(entry: CommandEntry): string {
 
 export const isLadderCommand = (entry: Pick<CommandEntry, 'source'>) => entry.source === 'ladder'
 
-/** Elenco completo: prima Ladder, poi l'agente. Un comando dell'agente con lo stesso nome di uno di Ladder è nascosto. */
+/** Full list: Ladder's first, then the agent's. An agent command with the same name as one of Ladder's is hidden. */
 export function mergeCommands(agent: SlashCommand[] | undefined, available: Record<LadderCommandName, boolean>): CommandEntry[] {
   const own = LADDER_COMMANDS.filter((c) => available[c.name])
   const taken = new Set(LADDER_COMMANDS.map((c) => c.name.toLowerCase()))
@@ -62,7 +62,7 @@ export function mergeCommands(agent: SlashCommand[] | undefined, available: Reco
   return [...own, ...rest]
 }
 
-/** Filtro per prefisso su nome e alias: prima chi inizia col nome, poi chi corrisponde per alias. */
+/** Prefix filter on name and alias: first those starting with the name, then those matching by alias. */
 export function rankCommands(list: CommandEntry[], query: string): CommandEntry[] {
   const q = query.toLowerCase()
   if (!q) return list
@@ -76,17 +76,17 @@ export function rankCommands(list: CommandEntry[], query: string): CommandEntry[
 }
 
 export interface SlashTrigger {
-  /** Sempre 0: il comando sta all'inizio del messaggio. */
+  /** Always 0: the command is at the start of the message. */
   start: 0
-  /** Testo tra la / e il cursore. */
+  /** Text between the / and the cursor. */
   query: string
-  /** Fine del primo token (prima dello spazio o in fondo al testo). */
+  /** End of the first token (before the space or at the end of the text). */
   end: number
 }
 
 const SPACE = /\s/
 
-/** Comando in corso: la / è il primo carattere e il cursore è ancora dentro il primo token. */
+/** Command in progress: the / is the first character and the cursor is still inside the first token. */
 export function findSlash(text: string, caret: number): SlashTrigger | null {
   if (text[0] !== '/' || caret < 1) return null
   let end = 1
@@ -95,7 +95,7 @@ export function findSlash(text: string, caret: number): SlashTrigger | null {
   return { start: 0, query: text.slice(1, caret), end }
 }
 
-/** Testo che inizia con "/nome" noto (nome o alias, senza distinguere le maiuscole): comando e argomenti. */
+/** A text starting with a known "/name" (name or alias, case-insensitive): command and arguments. */
 export function parseSlash(text: string, list: CommandEntry[]): { entry: CommandEntry; args: string } | null {
   const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim())
   if (!match) return null
@@ -104,7 +104,7 @@ export function parseSlash(text: string, list: CommandEntry[]): { entry: Command
   return entry ? { entry, args: (match[2] ?? '').trim() } : null
 }
 
-/** Argomenti già scritti dopo il primo token, per eseguire il comando evidenziato con Invio. */
+/** Arguments already typed after the first token, to run the highlighted command with Enter. */
 export function argsAfterToken(text: string, trigger: SlashTrigger): string {
   return text.slice(trigger.end).trim()
 }

@@ -1,21 +1,21 @@
-// Stato visivo di sessioni e progetti, derivato dai riepiloghi dell'host.
+// Visual state of sessions and projects, derived from the host's summaries.
 import type { SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 
 export type SessionState = 'idle' | 'running' | 'unread' | 'agents' | 'agents-failed' | 'agents-running' | 'waiting' | 'error'
 
-/** Sotto-agenti in background finiti a sessione ferma: il coordinatore sta per rispondere (o ha già risposto). */
+/** Background sub-agents finished while the session is idle: the coordinator is about to reply (or already has). */
 export function agentsNotice(session: SessionSummary): { finished: number; failed: number } | null {
   const notice = session.agentsNotice
   return notice && notice.finished + notice.failed > 0 ? notice : null
 }
 
-/** Sotto-agenti ancora al lavoro a coordinatore fermo: la sessione aspetta loro, non te. */
+/** Sub-agents still at work with the coordinator idle: the session is waiting for them, not for you. */
 export function agentsRunning(session: SessionSummary): number {
   return session.run === 'idle' ? (session.subagentCounts?.running ?? 0) : 0
 }
 
-/** Stati che dicono "c'è qualcosa da leggere": risposta non letta o avviso dei sotto-agenti. */
+/** States that say "there is something to read": an unread reply or a sub-agents notice. */
 export const isUnreadState = (state: SessionState) => state === 'unread' || state === 'agents' || state === 'agents-failed'
 
 /** The session is waiting for you: an agent request (run 'waiting') or a plan in review or paused (`planWaiting`, with `run` left as it really is). */
@@ -25,7 +25,7 @@ export function sessionState(session: SessionSummary): SessionState {
   if (needsYou(session)) return 'waiting'
   if (session.run === 'error') return 'error'
   if (session.run === 'running' || session.run === 'starting') return 'running'
-  // Finché dei sotto-agenti lavorano la sessione aspetta loro: vale più dell'avviso di quelli già finiti.
+  // While sub-agents are working the session waits for them: that counts more than the notice about those already finished.
   if (agentsRunning(session) > 0) return 'agents-running'
   const notice = agentsNotice(session)
   if (notice) return notice.failed > 0 ? 'agents-failed' : 'agents'
@@ -33,17 +33,17 @@ export function sessionState(session: SessionSummary): SessionState {
   return 'idle'
 }
 
-/** Ultima volta che è successo qualcosa nella sessione: ordina "All sessions" e sceglie le recenti. */
+/** Last time something happened in the session: sorts "All sessions" and picks the recent ones. */
 export function lastTouched(session: SessionSummary): number {
   return Math.max(session.activityAt, session.createdAt)
 }
 
-/** Sessioni ferme mostrate nella sidebar, oltre a quelle vive. */
+/** Idle sessions shown in the sidebar, besides the live ones. */
 export const RECENT_SESSIONS = 5
 
 /**
- * Righe della sidebar: quelle che ti aspettano, al lavoro, da leggere o con una bozza, più le ultime ferme.
- * Le altre stanno in "All sessions": così la lista resta corta anche con 50 sessioni. L'ordine resta quello di `all`.
+ * Sidebar rows: those waiting for you, at work, to read or with a draft, plus the latest idle ones.
+ * The others are in "All sessions": so the list stays short even with 50 sessions. The order stays that of `all`.
  */
 export function sidebarSessions(all: SessionSummary[], keep: (session: SessionSummary) => boolean): SessionSummary[] {
   const pinned = all.filter((s) => keep(s) || sessionState(s) !== 'idle')
@@ -54,10 +54,10 @@ export function sidebarSessions(all: SessionSummary[], keep: (session: SessionSu
   return all.filter((s) => pinned.includes(s) || recent.includes(s))
 }
 
-/** Dopo 3 giorni senza attività e senza niente da leggere una sessione scende in "Concluse". */
+/** After 3 days without activity and with nothing to read a session drops to "Done". */
 export const CONCLUDED_AFTER_MS = 3 * 24 * 60 * 60_000
 
-/** Una sessione da leggere, ferma per errore, in attesa o con una bozza non viene mai raccolta. */
+/** A session to read, idle because of an error, waiting or with a draft is never collected. */
 export function isConcluded(session: SessionSummary, hasDraft: boolean, now = Date.now()): boolean {
   return sessionState(session) === 'idle' && !hasDraft && now - Math.max(session.activityAt, session.createdAt) > CONCLUDED_AFTER_MS
 }
@@ -67,7 +67,7 @@ export interface ProjectAttention {
   unread: number
   running: boolean
   error: boolean
-  /** Sessione da aprire con un clic sul simbolo: la richiesta più vecchia, poi l'errore, poi la risposta più recente. */
+  /** Session to open with a click on the symbol: the oldest request, then the error, then the most recent reply. */
   target: SessionSummary | null
 }
 
@@ -85,7 +85,7 @@ export function projectAttention(sessions: SessionSummary[]): ProjectAttention {
   }
 }
 
-/** Che cosa dice la nota della riga: il codice serve per il tono, il testo si mostra. */
+/** What the row's note says: the code is for the tone, the text is shown. */
 export type PrNoteCode = 'merged' | 'pr-closed' | 'conflicts' | 'ci-failed'
 export type SessionNoteCode = 'waiting' | 'error' | 'agents' | 'agents-failed' | 'agents-running' | 'draft' | 'age' | PrNoteCode
 
@@ -94,7 +94,7 @@ export interface Note<Code extends string> {
   text: string
 }
 
-/** Testo breve per la riga della sessione: richiesta, coda, errore, PR, bozza o età. */
+/** Short text for the session row: request, queue, error, PR, draft or age. */
 export function sessionNote(session: SessionSummary, hasDraft: boolean, now = Date.now()): Note<SessionNoteCode> {
   if (needsYou(session)) return { code: 'waiting', text: session.waitingLabel ?? t('Needs you') }
   if (session.run === 'error') return { code: 'error', text: t('Error') }
@@ -112,7 +112,7 @@ export function sessionNote(session: SessionSummary, hasDraft: boolean, now = Da
   return { code: 'age', text: relativeAge(session.updatedAt, now) }
 }
 
-/** Stato della PR in poche lettere, solo quando chiede qualcosa o è finita: unita, CI fallita, conflitti. */
+/** PR state in a few letters, only when it asks for something or is finished: merged, failed CI, conflicts. */
 export function prNote(session: SessionSummary): Note<PrNoteCode> | null {
   const pr = session.pr
   if (!pr) return null
@@ -123,7 +123,7 @@ export function prNote(session: SessionSummary): Note<PrNoteCode> | null {
   return null
 }
 
-/** Tono della nota nella riga: ambra per ciò che chiede te, rosso per ciò che è andato storto, verde per la PR unita. */
+/** Tone of the note in the row: amber for what asks for you, red for what went wrong, green for the merged PR. */
 export function noteTone(code: SessionNoteCode): 'attention' | 'destructive' | 'success' | null {
   switch (code) {
     case 'waiting':

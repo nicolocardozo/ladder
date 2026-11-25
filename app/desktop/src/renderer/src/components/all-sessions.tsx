@@ -1,4 +1,4 @@
-// Tutte le sessioni del progetto, in una seconda sidebar che si apre al passaggio sul pulsante: la chat resta dov'è.
+// All the project's sessions, in a second sidebar that opens on hover over the button: the chat stays where it is.
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import { Archive, Check, ChevronDown, ChevronRight, GitFork, Search, X } from 'lucide-react'
 import type { Project, SessionSummary } from '@shared/protocol'
@@ -16,7 +16,7 @@ import { useApp } from '@/store/app-store'
 
 type StatusFilter = 'all' | 'attention' | 'running' | 'unread' | 'idle'
 
-// Testi inglesi: si traducono dove si mostrano.
+// English texts: they are translated where they are shown.
 const STATUS: { id: StatusFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'attention', label: 'Needs you' },
@@ -34,7 +34,7 @@ function matchesStatus(session: SessionSummary, filter: StatusFilter): boolean {
   return true
 }
 
-/** Solo le sessioni ferme si archiviano in blocco: una al lavoro o in attesa va prima chiusa da sola. */
+/** Only idle sessions are archived in bulk: one that is working or waiting must be closed on its own first. */
 const canArchive = (session: SessionSummary) => session.run === 'idle' || session.run === 'error'
 
 function dayKey(at: number): string {
@@ -152,7 +152,7 @@ interface PanelProps {
   project: Project
   autoFocus: boolean
   panelRef: RefObject<HTMLElement | null>
-  /** Con una ricerca, dei filtri o una selezione in corso il pannello non si chiude da solo. */
+  /** With a search, filters or a selection in progress the panel doesn't close by itself. */
   busy: MutableRefObject<boolean>
   onClose: () => void
   onPointerEnter: () => void
@@ -196,7 +196,7 @@ function AllSessionsPanel({ project, autoFocus, panelRef, busy, onClose, onPoint
     else days.push({ key, label: dayLabel(lastTouched(session), now), items: [session] })
   }
 
-  // Una sessione archiviata o ripartita nel frattempo esce dalla selezione.
+  // A session archived or restarted in the meantime drops out of the selection.
   const selected = all.filter((s) => checked.has(s.id) && canArchive(s))
   const eligible = shown.filter(canArchive)
   const allChecked = eligible.length > 0 && eligible.every((s) => checked.has(s.id))
@@ -321,7 +321,7 @@ function AllSessionsPanel({ project, autoFocus, panelRef, busy, onClose, onPoint
   )
 }
 
-/** Riga "All sessions · N": al passaggio apre il pannello, un clic lo tiene aperto e porta il cursore nella ricerca. */
+/** "All sessions · N" row: hover opens the panel, a click keeps it open and moves the cursor to the search. */
 export function AllSessionsButton({ project, count }: { project: Project; count: number }) {
   const [open, setOpen] = useState(false)
   const [pinned, setPinned] = useState(false)
@@ -344,7 +344,7 @@ export function AllSessionsButton({ project, count }: { project: Project; count:
     window.clearTimeout(timer.current)
     if (pinned) return
     timer.current = window.setTimeout(() => {
-      // Un menu aperto dal pannello sta fuori dal pannello: non conta come "uscito".
+      // A menu opened from the panel sits outside the panel: it doesn't count as "left".
       if (busy.current || panel.current?.querySelector('[data-popup-open]')) return
       setOpen(false)
     }, 240)

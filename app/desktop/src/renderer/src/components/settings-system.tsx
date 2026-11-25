@@ -1,4 +1,4 @@
-// Impostazioni → Data and system: archiviazione automatica, dati di Ladder (cartella, copie e esportazione), avvio al login, Mac sveglio e aggiornamenti.
+// Settings → Data and system: automatic archiving, Ladder data (folder, copies and export), launch at login, keep Mac awake and updates.
 import { useCallback, useEffect, useState } from 'react'
 import { Download, FolderOpen } from 'lucide-react'
 import { localeTag, plural, t } from '@shared/i18n'
@@ -22,7 +22,7 @@ export function SystemSection() {
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
         {t('What Ladder keeps on this Mac, and how it behaves alongside the rest of the system.')}
       </DialogDescription>
-      {/* Da 820 px: archiviazione e sistema a sinistra, i dati a destra. */}
+      {/* From 820 px: archiving and system on the left, data on the right. */}
       <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
         <div className="min-w-0">
           <ArchiveBlock />
@@ -42,7 +42,7 @@ function ArchiveBlock() {
   const [prefs, update] = usePrefs()
   if (!prefs) return null
   const days = prefs.autoArchiveDays
-  // Un valore scritto a mano nel file delle preferenze resta una voce valida dell'elenco.
+  // A value written by hand in the preferences file stays a valid entry of the list.
   const options = days !== null && !ARCHIVE_DAYS.includes(days) ? [...ARCHIVE_DAYS, days].sort((a, b) => a - b) : ARCHIVE_DAYS
   const dayLabel = (n: number) => plural(n, '{n} day', '{n} days')
   return (
@@ -68,7 +68,7 @@ function ArchiveBlock() {
   )
 }
 
-/** AAAAMMGG-HHMMSS, come il nome delle copie dell'host. */
+/** YYYYMMDD-HHMMSS, like the name of the host's copies. */
 function stamp(date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
@@ -173,7 +173,7 @@ function SystemBlock() {
   )
 }
 
-/** Versione installata e aggiornamenti: Ladder controlla da solo ogni qualche ora; qui si può controllare subito o riavviare. */
+/** Installed version and updates: Ladder checks by itself every few hours; here you can check right away or restart. */
 function UpdatesBlock() {
   const update = useUpdate()
   const version = update?.version ?? '…'

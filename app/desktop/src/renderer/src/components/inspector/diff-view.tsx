@@ -1,5 +1,5 @@
-// Diff di un file: vista unificata o affiancata, evidenziazione del tema, commenti sulle righe.
-// Le righe aggiunte e tolte hanno sempre anche il segno + o −: si distinguono senza colore (temi Mono).
+// Diff of a file: unified or side-by-side view, theme highlighting, comments on lines.
+// Added and removed lines always carry a + or − sign too: they can be told apart without color (Mono themes).
 import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
 import type { FileChange, FilePatch } from '@shared/protocol'
@@ -18,11 +18,11 @@ interface DiffViewProps {
   patch: FilePatch
   mode: 'unified' | 'split'
   comments: LineComment[]
-  /** Senza callback i commenti sono spenti (sessione terminale o nessuna sessione). */
+  /** Without a callback, comments are off (terminal session or no session). */
   onAddComment?: (line: DiffLine, text: string) => void
   onUpdateComment: (id: string, text: string) => void
   onDeleteComment: (id: string) => void
-  /** Per file binari e SVG: root, file e revisioni da cui mostrare prima e dopo. */
+  /** For binary files and SVG: root, file and revisions to show before and after from. */
   media?: { root: string; file: FileChange; from: string; to: string }
 }
 
@@ -45,7 +45,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
     return map
   }, [comments])
 
-  // Immagini, PDF e media: prima e dopo al posto del testo. Un SVG è testo: ha il confronto e, sotto, il diff del codice.
+  // Images, PDFs and media: before and after instead of text. An SVG is text: it gets the comparison and, below it, the code diff.
   const compare = media ? <MediaCompare root={media.root} file={media.file} from={media.from} to={media.to} /> : null
   if (patch.binary) return compare ?? <Empty>{t('Binary file. Its contents can’t be compared here.')}</Empty>
   const lead = compare && /\.svg$/i.test(patch.path) ? compare : null
@@ -155,7 +155,7 @@ export function DiffView({ patch, mode, comments, onAddComment, onUpdateComment,
         const side = (line: DiffLine | null, which: 'left' | 'right') => (
           <>
             <td className={cn(num, 'relative', bg(line))}>
-              {/* Commento: righe tolte a sinistra, tutte le altre a destra. */}
+              {/* Comment: removed lines on the left, all the others on the right. */}
               {line && (line.kind === 'del' || which === 'right') ? addButton(line) : null}
               {line ? (which === 'left' ? line.oldNo : line.newNo) : ''}
             </td>

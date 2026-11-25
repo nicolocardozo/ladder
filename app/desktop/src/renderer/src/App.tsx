@@ -31,7 +31,7 @@ export function App() {
   const clearSidebarNotice = useApp((s) => s.clearSidebarNotice)
   const onboarding = useApp((s) => s.onboarding)
 
-  // Tema cambiato da un'altra finestra e "Impostazioni…" dal menu dell'app (⌘,).
+  // Theme changed from another window and "Settings…" from the app menu (⌘,).
   useEffect(() => {
     const offTheme = window.ladder?.theme.onChange((id) => useSettings.getState().receiveTheme(id))
     const offSettings = window.ladder?.onOpenSettings(() => useSettings.getState().setSettingsOpen(true))
@@ -41,11 +41,11 @@ export function App() {
     }
   }, [])
 
-  // Browser integrato: gli stati delle tab (anche di quelle non aperte) arrivano dal main e vanno nello store.
+  // Built-in browser: tab states (including tabs that aren't open) come from main and go into the store.
   useEffect(() => window.ladder?.browser?.onEvent((state) => useApp.getState().setBrowserState(state)), [])
 
-  // Browser dell'agente: a ogni (ri)connessione si rilegge lo stato di tutte le sessioni (finestra appena aperta o host ripartito);
-  // i cambiamenti arrivano dall'evento `browser.agent`, gestito nello store. Senza app (anteprima web) non c'è nulla da leggere.
+  // Agent browser: on every (re)connection the state of all sessions is re-read (new window or restarted host);
+  // changes arrive via the `browser.agent` event, handled in the store. Without the app (web preview) there is nothing to read.
   useEffect(
     () =>
       onHostConnect(() => {
@@ -57,7 +57,7 @@ export function App() {
     []
   )
 
-  // Preferenze (notifiche) e clic sulle notifiche o sui link ladder://.
+  // Preferences (notifications) and clicks on notifications or ladder:// links.
   useEffect(() => {
     void window.ladder?.prefs.get().then((prefs) => useApp.getState().setPrefs(prefs))
     const offPrefs = window.ladder?.prefs.onChange((prefs) => {
@@ -67,12 +67,12 @@ export function App() {
     const tryOpen = () => {
       const target = waitingOpen
       if (!target) return
-      // Si svuota prima di aprire: l'apertura aggiorna lo store, che altrimenti richiamerebbe tryOpen.
+      // Cleared before opening: opening updates the store, which would otherwise call tryOpen again.
       waitingOpen = null
       if (!useApp.getState().openSessionAt(target.sessionId, target.itemId)) waitingOpen = target
     }
     const offOpen = window.ladder?.onOpenSession((target) => {
-      // Con la finestra appena aperta la sessione arriva con lo snapshot: si riprova quando c'è.
+      // With a freshly opened window the session arrives with the snapshot: retry when it is there.
       waitingOpen = target
       tryOpen()
     })
@@ -86,15 +86,15 @@ export function App() {
     }
   }, [])
 
-  // Cosa stai guardando: il main non notifica la sessione che hai davanti. Entrare e uscire da un progetto
-  // aggiorna "Mentre eri via": se torni dopo più di 30 minuti compare il riepilogo.
+  // What you are looking at: main doesn't notify the session in front of you. Entering and leaving a project
+  // updates "While you were away": if you come back after more than 30 minutes the summary appears.
   useEffect(() => {
     let sent = ''
     const report = () => {
       const state = useApp.getState()
       const { selection } = state
       const sessionId = selection.kind === 'session' ? selection.sessionId : null
-      // Con le colonne affiancate sono visibili tutte, non solo l'attiva.
+      // With side-by-side columns all of them are visible, not just the active one.
       const columns = selection.projectId && sessionId ? liveColumns(state, selection.projectId) : []
       const visibleSessionIds = columns.length > 1 && sessionId && columns.includes(sessionId) ? columns : sessionId ? [sessionId] : []
       const key = JSON.stringify([selection.projectId, sessionId, visibleSessionIds])
@@ -125,7 +125,7 @@ export function App() {
       const projectId = current()
       if (projectId) useApp.getState().markSeen(projectId)
     }
-    // Mentre guardi il progetto con la finestra attiva, l'ultima visita avanza.
+    // While you look at the project with the window active, the last visit advances.
     const timer = window.setInterval(() => {
       const projectId = current()
       if (projectId && document.hasFocus()) useApp.getState().markSeen(projectId)
@@ -140,7 +140,7 @@ export function App() {
     }
   }, [])
 
-  // Collegamento con l'host: eventi in arrivo e istantanea completa a ogni (ri)connessione.
+  // Connection with the host: incoming events and a full snapshot on every (re)connection.
   useEffect(() => {
     const { applyEvent } = useApp.getState()
     const offEvent = onHostEvent(applyEvent)
@@ -148,9 +148,9 @@ export function App() {
       request<Extract<HostEvent, { type: 'snapshot' }>>({ type: 'hello' })
         .then((snapshot) => {
           applyEvent(snapshot)
-          // Le sessioni già caricate si ricaricano: l'host potrebbe essere stato riavviato.
+          // Sessions already loaded are reloaded: the host may have been restarted.
           for (const sessionId of Object.keys(useApp.getState().items)) send({ type: 'session.open', sessionId })
-          // Lo snapshot porta già i collegamenti; se mancano (host senza), si chiedono.
+          // The snapshot already carries the connections; if they are missing (host without them), they are requested.
           if (!snapshot.connections) refreshConnections()
         })
         .catch(() => undefined)
@@ -161,8 +161,8 @@ export function App() {
     }
   }, [])
 
-  // Primo avvio: se nessun agente è collegato compare "Collega i tuoi abbonamenti". Una volta aperta resta finché non si
-  // preme Continua o Salta, anche se nel frattempo un agente si collega; fino al prossimo avvio non ricompare.
+  // First launch: if no agent is connected, "Connect your subscriptions" appears. Once open it stays until
+  // Continue or Skip is pressed, even if an agent connects in the meantime; it doesn't reappear until the next launch.
   useEffect(() => {
     const check = () => {
       const state = useApp.getState()
@@ -173,10 +173,10 @@ export function App() {
     return useApp.subscribe(check)
   }, [])
 
-  // Scorciatoie globali: il registro è in shared/shortcuts.ts, le azioni in lib/shortcuts.ts.
+  // Global shortcuts: the registry is in shared/shortcuts.ts, the actions in lib/shortcuts.ts.
   useEffect(() => {
     window.addEventListener('keydown', handleGlobalKeydown)
-    // Con il focus nella pagina nativa del browser la tastiera non passa dal renderer: il main inoltra le scorciatoie di app.
+    // With focus in the native browser page the keyboard doesn't go through the renderer: main forwards the app shortcuts.
     const offForwarded = window.ladder?.browser?.onShortcut?.((e) => handleGlobalKeydown({ key: e.key, code: e.code, metaKey: e.meta, ctrlKey: e.ctrl, altKey: e.alt, shiftKey: e.shift }))
     return () => {
       window.removeEventListener('keydown', handleGlobalKeydown)
@@ -185,7 +185,7 @@ export function App() {
   }, [])
 
   if (!isElectron) {
-    // Il comando sta in un <code> dentro la frase: si divide il testo tradotto attorno a {command}.
+    // The command sits in a <code> inside the sentence: the translated text is split around {command}.
     const [before, after = ''] = t('Ladder runs inside Electron: start it with {command}. For the chat components, use /preview.html.').split('{command}')
     return (
       <div className="grid h-full place-items-center p-8 text-center text-sm text-muted-foreground">
@@ -196,7 +196,7 @@ export function App() {
     )
   }
 
-  // Con file non salvati la chiusura si ferma: il processo main chiede cosa fare.
+  // With unsaved files the close stops: the main process asks what to do.
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => {
       if (!Object.values(useApp.getState().dirtyFiles).some(Boolean)) return

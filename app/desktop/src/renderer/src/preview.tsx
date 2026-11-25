@@ -1,4 +1,4 @@
-// Anteprima della chat senza Electron: pnpm dev:web e poi http://localhost:5199/preview.html
+// Chat preview without Electron: pnpm dev:web and then http://localhost:5199/preview.html
 import { THEMES, applyTheme, useSettings } from '@/hooks/use-theme'
 import '@shared/locales/it'
 import { LOCALES, isLocale, plural, setLocale, type Locale } from '@shared/i18n'
@@ -93,7 +93,7 @@ import { countsOf, setSubagentDetailLoader, useSubagentLists } from './lib/subag
 
 applyTheme(useSettings.getState().theme)
 
-// Lingua dell'anteprima: ?lang=it (o en); altrimenti inglese, come l'app.
+// Preview language: ?lang=it (or en); otherwise English, like the app.
 const initialLang = new URLSearchParams(location.search).get('lang')
 const INITIAL_LOCALE: Locale = isLocale(initialLang) ? initialLang : 'en'
 setLocale(INITIAL_LOCALE)
@@ -104,7 +104,7 @@ type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question' | 'command' |
 /** Modes with sessions on the other side (handoff, advice, plan): the "Open" links and the current agent are read from the store. */
 const withPeers = (mode: Mode) => mode.startsWith('handoff') || mode === 'advice' || mode === 'plan' || mode.startsWith('implement') || mode.startsWith('ladder') || mode === 'limit' || mode === 'review'
 
-// Sessione finta con cento sotto-agenti: la board, il popover e il dialogo leggono da qui come nell'app.
+// Fake session with a hundred sub-agents: the board, the popover and the dialog read from here as in the app.
 const PREVIEW_SESSION = 'preview-agents'
 const ADVICE_PREVIEW_A = '**In short**: the direction is right. Two points: the `pageCount === 0` case and the query string name.'
 const ADVICE_PREVIEW_B = 'I agree. Update the `PaymentsTable` tests in the same commit too.'
@@ -113,12 +113,12 @@ setSubagentDetailLoader(
     new Promise((resolve) => window.setTimeout(() => resolve(previewSubagentDetail(useSubagentLists.getState().lists[PREVIEW_SESSION] ?? [], id)), 250))
 )
 
-// Il composer cita i file di questo progetto finto: niente host nell'anteprima.
+// The composer mentions files of this fake project: no host in the preview.
 const PREVIEW_PROJECT = 'preview'
 seedProjectFiles(PREVIEW_PROJECT, previewProjectFiles())
 
-// Il predefinito dell'agente è Opus (isDefault) con effort medium; il bottone "Default Ladder" lo sposta su Sonnet (globale o di progetto) o lo toglie.
-// Tre casi del composer: Claude Code, Codex, e un agente che non dichiara predefiniti (nessun isDefault, nessun defaultEffort, effortEffective assente: resta "Default").
+// The agent default is Opus (isDefault) with medium effort; the "Default Ladder" button moves it to Sonnet (global or per project) or removes it.
+// Three composer cases: Claude Code, Codex, and an agent that declares no defaults (no isDefault, no defaultEffort, effortEffective absent: it stays "Default").
 const CONTEXT_CASES = [
   { label: 'lontano dalla soglia', value: { used: 64_000, window: 200_000, compactAt: 167_000 } },
   { label: 'vicino alla soglia', value: { used: 155_000, window: 200_000, compactAt: 167_000 } },
@@ -129,12 +129,12 @@ const CONTEXT_CASES = [
 
 type PreviewCase = 'claude' | 'codex' | 'unknown'
 const PREVIEW_CASES: PreviewCase[] = ['claude', 'codex', 'unknown']
-// Limiti d'uso (LAD-67): sotto soglia niente, 85% avviso sull'icona, 96% anche il bannerino, limite esaurito. Il profilo Work segue il caso, il predefinito resta basso.
-// 'mixed' (LAD-82): pannello con tutti gli abbonamenti, sessioni in corso su più account, Codex senza dati e Work vicino al limite.
+// Usage limits: nothing below the threshold, 85% a warning on the icon, 96% the small banner too, limit exhausted. The Work profile follows the case, the default stays low.
+// 'mixed': panel with all subscriptions, sessions running on several accounts, Codex without data and Work near its limit.
 type UsageCase = 'below' | '85%' | '96%' | 'limited' | 'mixed'
 const USAGE_CASES: UsageCase[] = ['below', '85%', '96%', 'limited', 'mixed']
 const USAGE_PERCENTS: Record<UsageCase, [number, number]> = { below: [34, 62], '85%': [85, 62], '96%': [40, 96], limited: [100, 71], mixed: [91, 62] }
-/** Sessione di prova con i soli campi che servono ai limiti (agente, profilo, stato), il resto ai valori neutri. */
+/** Test session with only the fields the limits need (agent, profile, state), the rest at neutral values. */
 function usageSession(id: string, agent: 'claude-code' | 'codex', profileId: string | undefined, run: SessionSummary['run'], at: number): SessionSummary {
   return {
     id, projectId: PREVIEW_PROJECT, title: id, titleSource: 'generated', agent, profileId, model: null, effort: null, permission: 'edit', createdAt: at, updatedAt: at, run,
@@ -149,7 +149,7 @@ function previewModels(kind: PreviewCase): AgentStatus['models'] {
   return kind === 'codex' ? PREVIEW_AGENTS[1].models : kind === 'unknown' ? stripDefaults(claude) : claude
 }
 
-// Store finto per le impostazioni "New sessions": agenti, progetti, predefiniti (uno non più valido) e tasto di invio.
+// Fake store for the "New sessions" settings: agents, projects, defaults (one no longer valid) and send key.
 const PREVIEW_AGENTS: AgentStatus[] = [
   {
     agent: 'claude-code',
@@ -173,12 +173,12 @@ const PREVIEW_AGENTS: AgentStatus[] = [
   { agent: 'acp:gemini', name: 'Gemini CLI', kind: 'acp', available: false, version: null, account: null, models: [], error: 'Command not found' }
 ]
 const PREVIEW_PROJECTS: Project[] = [
-  // Il monorepo usa l'account "Work" di Claude per le nuove sessioni; acme-api il predefinito.
+  // The monorepo uses Claude's "Work" account for new sessions; acme-api the default.
   { id: PREVIEW_PROJECT, name: 'acme-monorepo', path: '/tmp/acme', branch: 'main', isGit: true, addedAt: 1, profiles: { 'claude-code': PREVIEW_CLAUDE_WORK } },
   { id: 'api', name: 'acme-api', path: '/tmp/api', branch: 'main', isGit: true, addedAt: 2 }
 ]
 const PREVIEW_PREFS: AppPrefs = { notifications: true, sound: true, dndUntil: null, locale: 'en', defaults: { agent: 'claude-code', models: { 'claude-code': 'claude-sonnet-5' }, permission: 'ask' },
-  // Profili di sessione (LAD-60): uno solo di lettura, uno con account e worktree, uno Codex e uno con l'agente non disponibile (si vede la nota di ripiego).
+  // Session profiles: one read-only, one with account and worktree, one Codex and one with the agent unavailable (the fallback note shows).
   presets: [
     { id: 'preset-review', name: 'Quick review', note: 'Read only pass over a diff before merging.', agent: 'claude-code', model: 'claude-sonnet-5', effort: 'low', permission: 'plan', worktree: false },
     { id: 'preset-feature', name: 'Long feature', note: 'Plans first, then works in its own worktree.', agent: 'claude-code', profileId: PREVIEW_CLAUDE_WORK, model: 'claude-opus-5-5', effort: 'high', permission: 'edit', worktree: true, prompt: 'Read the issue, propose a plan and wait for my go before editing.' },
@@ -190,15 +190,15 @@ const PREVIEW_PREFS: AppPrefs = { notifications: true, sound: true, dndUntil: nu
 const PREVIEW_PROFILE_CONNECTIONS = previewProfileConnections('connected')
 useApp.setState({
   agents: PREVIEW_AGENTS,
-  // Due account Claude (predefinito e Work) e uno Codex: la sidebar, il composer e le impostazioni mostrano il profilo in uso.
+  // Two Claude accounts (default and Work) and one Codex: the sidebar, composer and settings show the profile in use.
   profiles: PREVIEW_PROFILES,
   profileConnections: PREVIEW_PROFILE_CONNECTIONS,
   profileAgents: previewProfileAgents(PREVIEW_PROFILE_CONNECTIONS),
-  // Collegamenti dei tre servizi: Impostazioni → Abbonamenti e il footer della sidebar si provano anche da qui.
+  // Connections of the three services: Settings → Subscriptions and the sidebar footer can be tried from here too.
   connections: connectionScenario('connected'),
   projects: PREVIEW_PROJECTS,
   prefs: PREVIEW_PREFS,
-  // acme-api ha un modello che l'agente non offre più e un agente non disponibile: si vedono come non validi.
+  // acme-api has a model the agent no longer offers and an unavailable agent: they show as invalid.
   ui: { api: { tabs: [], activeTab: null, scroll: {}, defaults: { agent: 'acp:gemini', models: { 'claude-code': 'claude-opus-4-old' }, efforts: { 'claude-code': 'max' } } } }
 })
 
@@ -217,7 +217,7 @@ const INITIAL_QUEUE: QueuedMessage[] = [
   }
 ]
 
-/** Come appare la sessione nella sidebar: simbolo di stato e nota. */
+/** How the session appears in the sidebar: status symbol and note. */
 function NoticeSample() {
   const session = useApp((s) => s.sessions[PREVIEW_SESSION])
   if (!session) return null
@@ -231,10 +231,10 @@ function NoticeSample() {
   )
 }
 
-/** Nuova sessione di un progetto git con script di setup: il menu del worktree offre di partire senza aspettarlo (installa l'host finto). */
+/** New session of a git project with a setup script: the worktree menu offers to start without waiting for it (installs the fake host). */
 function NewSessionPreview() {
-  // L'host finto si installa prima del mount e la nuova chat compare solo quando la porta è arrivata (arriva con postMessage,
-  // in modo asincrono): così la sua prima richiesta delle impostazioni non cade nel vuoto.
+  // The fake host is installed before mount and the new chat appears only when the port has arrived (it arrives with postMessage,
+  // asynchronously): this way its first settings request does not fall into the void.
   const [connected, setConnected] = useState(false)
   useState(() => installSettingsPreview())
   useEffect(() => onHostConnect(() => setConnected(true)), [])
@@ -281,7 +281,7 @@ const MODES: { id: Mode; label: string }[] = [
   { id: 'review', label: 'Cross-review: severe forwarded, minor, ok, in progress' }
 ]
 
-/** Avviso dei sotto-agenti sulla sessione di anteprima: stesso stato e nota della riga in sidebar. */
+/** Sub-agents notice on the preview session: same state and note as the sidebar row. */
 const NOTICES: Partial<Record<Mode, NonNullable<SessionSummary['agentsNotice']>>> = {
   'notice-done': { finished: 3, failed: 0, at: Date.now() },
   'notice-failed': { finished: 3, failed: 1, at: Date.now() }
@@ -357,7 +357,7 @@ function load(mode: Mode): Fixture {
   }
 }
 
-/** Sequenza dello streaming simulato: uno strumento, il testo a 30 fps, un comando, la risposta finale. */
+/** Simulated streaming sequence: a tool, text at 30 fps, a command, the final reply. */
 function useStreamingSimulation(enabled: boolean, setFixture: (update: (f: Fixture) => Fixture) => void, runId: number) {
   useEffect(() => {
     if (!enabled) return
@@ -469,9 +469,9 @@ function useStreamingSimulation(enabled: boolean, setFixture: (update: (f: Fixtu
 
 function Preview() {
   const [mode, setMode] = useState<Mode>('normal')
-  // Come in App.tsx: gli eventi dell'host finto (per esempio sessions.autoArchived) arrivano allo store.
+  // As in App.tsx: events from the fake host (for example sessions.autoArchived) reach the store.
   useEffect(() => onHostEvent(useApp.getState().applyEvent), [])
-  // Chat e composer, oppure collegamenti e primo avvio (stessa pagina di anteprima).
+  // Chat and composer, or connections and first launch (same preview page).
   const [view, setView] = useState<'chat' | 'connections' | 'agents' | 'new' | 'terminals'>(() => {
     const param = new URLSearchParams(location.search).get('view')
     return param === 'connections' || param === 'agents' || param === 'terminals' || param === 'new' ? param : 'chat'
@@ -481,11 +481,11 @@ function Preview() {
   const [runId, setRunId] = useState(0)
   const [mountId, setMountId] = useState(0)
   const [fixture, setFixtureState] = useState<Fixture>(() => load('normal'))
-  // Colonna stretta: composer e chat in versione compact, per vedere il badge col solo numero.
-  // Larghezza della colonna della chat: stretta (compatta), normale, ultrawide; e quante colonne affiancate.
+  // Narrow column: composer and chat in compact version, to see the badge with the number only.
+  // Width of the chat column: narrow (compact), normal, ultrawide; and how many columns side by side.
   const [colWidth, setColWidth] = useState<'narrow' | 'normal' | 'ultrawide'>('normal')
   const [twoColumns, setTwoColumns] = useState(false)
-  // La larghezza è quella della finestra; con due colonne ognuna ne ha la metà (min 320, come in app).
+  // The width is the window's; with two columns each gets half (min 320, as in the app).
   const windowWidth = { narrow: 380, normal: 900, ultrawide: 1800 }[colWidth]
   const frameWidth = twoColumns ? Math.max(MIN_COLUMN_WIDTH, Math.floor(windowWidth / 2)) : windowWidth
   const narrow = frameWidth < COMPACT_WIDTH
@@ -510,7 +510,7 @@ function Preview() {
     const state = useApp.getState()
     const mixed = usageCase === 'mixed'
     const stamp = Date.now()
-    // Sessioni in corso su più account, solo nel caso 'mixed'.
+    // Sessions running on several accounts, only in the 'mixed' case.
     const others = Object.fromEntries(Object.entries(state.sessions).filter(([id]) => !id.startsWith('usage-run-')))
     const running = Object.fromEntries(
       RUNNING_PREVIEW.map(([agent, profileId], i) => {
@@ -529,7 +529,7 @@ function Preview() {
   const [permission, setPermission] = useState<PermissionLevel>('edit')
   const [permissionNext, setPermissionNext] = useState<PermissionLevel | null>(null)
   const [permissionError, setPermissionError] = useState<string | null>(null)
-  // Risposta simulata dell'host a session.permission.set (LAD-44).
+  // Simulated host reply to session.permission.set.
   const [permissionHost, setPermissionHost] = useState<'accept' | 'reject' | 'next-turn' | 'approve-card'>('accept')
   const counter = useRef(0)
   const sendKey = useApp((s) => s.prefs?.sendKey ?? 'enter')
@@ -539,7 +539,7 @@ function Preview() {
   const chatWidth = useApp((s) => s.prefs?.chatWidth ?? DEFAULT_CHAT_WIDTH)
   useChatFont()
   const fixtureSeq = useRef(10_000)
-  // Agente che accetta messaggi nel turno (Claude, Codex) o no (ACP), e sotto-agenti al lavoro.
+  // Agent that accepts messages during the turn (Claude, Codex) or not (ACP), and sub-agents at work.
   const [canSteer, setCanSteer] = useState(true)
   const [agentsWorking, setAgentsWorking] = useState(3)
 
@@ -790,7 +790,7 @@ function Preview() {
     setRunId((n) => n + 1)
   }
 
-  // Host finto per session.continue: dopo mezzo secondo la riga passa a "continued"; con la riga "Seconda prova" fallisce.
+  // Fake host for session.continue: after half a second the row goes to "continued"; with the "Seconda prova" row it fails.
   const onContinue = (itemId: string) =>
     new Promise<void>((resolve, reject) => {
       window.setTimeout(() => {
@@ -859,7 +859,7 @@ function Preview() {
 
   const running = fixture.run === 'running' || fixture.run === 'starting' || fixture.run === 'waiting'
 
-  // In corso il messaggio va in coda, altrimenti diventa un turno nuovo con i nomi degli allegati.
+  // While running the message is queued, otherwise it becomes a new turn with the attachment names.
   const addUser = (id: string, text: string, steered: boolean, attachments: { name: string; mediaType: string }[] = []) =>
     setFixtureState((f) => {
       const seq = (f.items[f.items.length - 1]?.seq ?? 0) + 1
@@ -903,7 +903,7 @@ function Preview() {
     })
   }
 
-  // Comando dell'agente: come farebbe l'host, una riga 'command' (mai 'user') che passa da in corso a fatta.
+  // Agent command: as the host would do, a 'command' row (never 'user') that goes from running to done.
   const onCommand = (name: string, args: string) => {
     console.log('[composer] onCommand', name, args)
     setLast(`onCommand /${name} ${JSON.stringify(args)}`)
@@ -912,7 +912,7 @@ function Preview() {
     const add = (item: ChatItem) => setFixtureState((f) => ({ ...f, items: [...f.items, item] }))
     const next = () => (fixtureSeq.current += 1)
     add({ id, turnId, seq: next(), at: Date.now(), kind: 'command', name, args, status: 'running', error: null })
-    // Anteprima: un comando con argomento "interrupt" finisce interrotto, per vedere lo stato neutro.
+    // Preview: a command with argument "interrupt" ends interrupted, to see the neutral state.
     const final = args.trim() === 'interrupt' ? ('interrupted' as const) : ('done' as const)
     window.setTimeout(() => {
       setFixtureState((f) => ({
@@ -996,7 +996,7 @@ function Preview() {
           className={btn}
           onClick={() => {
             installShortcutsHost({ warnings: ['Entry #3 ignored: unknown command “tab.nope”'] })
-            // La porta arriva con postMessage, in modo asincrono: la sezione si apre dopo, così il primo shortcuts.get la trova.
+            // The port arrives with postMessage, asynchronously: the section opens afterwards, so the first shortcuts.get finds it.
             window.setTimeout(() => useSettings.getState().openSection('shortcuts'), 50)
           }}
         >
@@ -1118,7 +1118,7 @@ function Preview() {
             className={btn}
             onClick={() => {
               installSettingsPreview()
-              // La porta dell'host finto arriva con postMessage, in modo asincrono: la sezione si apre dopo, così la prima richiesta la trova.
+              // The fake host's port arrives with postMessage, asynchronously: the section opens afterwards, so the first request finds it.
               window.setTimeout(() => useSettings.getState().openSection(section), 50)
             }}
           >
@@ -1215,7 +1215,7 @@ function Preview() {
             </span>
           )}
           {(NOTICES[mode] || mode === 'agents-waiting') && <NoticeSample />}
-          {/* Lo stesso indicatore della barra in alto dell'app: compare con almeno un telefono collegato. */}
+          {/* The same indicator as the app's top bar: it appears with at least one phone connected. */}
           <span className="ml-auto" />
           <PhoneIndicator />
           {taskSession?.plan && <PlanTaskMark className="ml-auto text-[12px] text-muted-foreground" />}
@@ -1241,7 +1241,7 @@ function Preview() {
           onPrefill={(text) => useApp.getState().insertIntoComposer('preview', text)}
         />
         </div>
-        {/* Composer vero: @ per i file finti, immagini incollate o trascinate, coda modificabile. */}
+        {/* Real composer: @ for the fake files, pasted or dragged images, editable queue. */}
         <div className="chat-col chat-gutter shrink-0 pb-4" data-compact={narrow ? '' : undefined}>
           <div className="chat-measure chat-bleed">
           <div className="chat-reset">
@@ -1338,7 +1338,7 @@ function Preview() {
   )
 }
 
-// Con l'HMR il modulo può essere rieseguito: si riusa la stessa radice.
+// With HMR the module may be re-run: the same root is reused.
 const container = document.getElementById('root') as HTMLElement & { __chatRoot?: ReturnType<typeof createRoot> }
 container.__chatRoot ??= createRoot(container)
 container.__chatRoot.render(

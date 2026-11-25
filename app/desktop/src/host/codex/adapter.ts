@@ -1,6 +1,6 @@
-// Adapter Codex su `codex app-server` (JSON-RPC su stdio), con le regole dello spike S1:
-// effort e livello di servizio espliciti a ogni turno, piano attivato su thread/start, item lasciati aperti
-// chiusi a fine turno, delta di turni vecchi scartati, processo riavviato se un comando sopravvive all'interruzione.
+// Codex adapter on `codex app-server` (JSON-RPC over stdio), with the rules from the spike:
+// explicit effort and service tier on every turn, plan mode enabled on thread/start, items left open
+// closed at the end of the turn, deltas from old turns discarded, process restarted if a command survives the interruption.
 import { realpathSync } from 'node:fs'
 import { relative } from 'node:path'
 import { t } from '@shared/i18n'
@@ -12,16 +12,16 @@ import { CodexRpc, type ServerReply, type ServerRequest } from './rpc'
 export interface CodexOptions extends SessionOptions {
   cli: string
   version: string
-  /** Schema JSON della risposta finale (per la review: commenti strutturati). */
+  /** JSON schema of the final answer (for review: structured comments). */
   outputSchema?: unknown
 }
 
-/** Finestra dopo uno Stop in cui un turn/started senza turno host si considera il turno appena fermato. */
+/** Window after a Stop in which a turn/started with no host turn is taken as the turn just stopped. */
 const STOP_WINDOW_MS = 15_000
 
 type Policy = { approvalPolicy: string; sandbox: string; sandboxPolicy: Record<string, unknown> }
 
-/** Livelli di Ladder → policy di approvazione e sandbox di Codex. */
+/** Ladder levels → Codex approval policy and sandbox. */
 function policyFor(level: PermissionLevel, cwd: string): Policy {
   const workspace = { type: 'workspaceWrite', writableRoots: [cwd], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
   switch (level) {
@@ -45,7 +45,7 @@ interface OpenItem {
   paths: string[]
 }
 
-/** Opzioni delle approvazioni: etichette nella lingua attuale, quindi calcolate a ogni richiesta. */
+/** Approval options: labels in the current language, so computed on every request. */
 function approveOptions(): RequestOption[] {
   return [
     { id: 'accept', label: t('Approve'), kind: 'allow' },
@@ -54,10 +54,10 @@ function approveOptions(): RequestOption[] {
   ]
 }
 
-/** Oltre questo tempo senza risposta, un /compact senza turno si chiude con errore. */
+/** Past this time without a reply, a /compact with no turn ends with an error. */
 const COMPACT_TIMEOUT_MS = 180_000
 
-/** Comandi che Codex ha sempre, con o senza processo: le skill si aggiungono quando è avviato. */
+/** Commands Codex always has, with or without a process: skills are added once it is started. */
 export function codexFixedCommands(): SlashCommand[] {
   return [
     { name: 'compact', description: t('Summarize the conversation to free up context'), hint: null, source: 'builtin' },
@@ -69,15 +69,15 @@ export class CodexSession implements AgentSession {
   private rpc: CodexRpc | null = null
   private ready: Promise<void> | null = null
   private threadId: string | null
-  /** Thread dei sotto-agenti avviati con spawnAgent: i loro eventi vanno alla mappa, non alla chat. */
+  /** Threads of sub-agents started with spawnAgent: their events go to the map, not to the chat. */
   private subThreads = new Set<string>()
-  /** Thread del sotto-agente → id dell'item collab (la riga tool in chat) che l'ha avviato. */
+  /** Sub-agent thread → id of the collab item (the tool row in chat) that started it. */
   private threadItems = new Map<string, string>()
   private subToolUses = new Map<string, number>()
   private turnId: string | null = null
   private running = false
   private interrupted = false
-  /** Istante dell'ultimo Stop: un turn/started subito dopo è il turno fermato, non una ripresa da sola. */
+  /** Instant of the last Stop: a turn/started right after it is the stopped turn, not a resume on its own. */
   private stopAt = 0
   private turnStartedAt = 0
   private permission: PermissionLevel
@@ -86,26 +86,26 @@ export class CodexSession implements AgentSession {
   private texts = new Map<string, string>()
   private items = new Map<string, OpenItem>()
   private context: { used: number; window: number } | null = null
-  /** Richieste del server aperte: si chiudono quando Codex le risolve da sé (fine turno). */
+  /** Open server requests: they close when Codex resolves them itself (end of turn). */
   private requests = new Map<string, AbortController>()
   private closed = false
-  /** thread/compact/start in corso: la fine è l'item contextCompaction. */
+  /** thread/compact/start in progress: the end is the contextCompaction item. */
   private compacting = false
-  /** /compact lanciato da Ladder: sopravvive a finishTurn, così una 'compacted' tardiva resta manuale. */
+  /** /compact launched by Ladder: survives finishTurn, so a late 'compacted' stays manual. */
   private manualCompact = false
   private compactTimer: NodeJS.Timeout | null = null
-  /** Testi (senza spazi ai lati) degli agentMessage chiusi nel turno e testo della review già mostrata: evitano il doppio. */
+  /** Texts (trimmed) of the agentMessages closed in the turn and text of the review already shown: they avoid duplicates. */
   private doneTexts = new Set<string>()
-  /** Review già mostrata da exitedReviewMode (id della riga e testo) e review rimandata finché un agentMessage è aperto. */
+  /** Review already shown by exitedReviewMode (row id and text) and review deferred while an agentMessage is open. */
   private reviewShown: { id: string; text: string } | null = null
   private reviewPending: { id: string; text: string } | null = null
-  /** Numero del turno avviato da begin(): le azioni asincrone di un turno vecchio si fermano. */
+  /** Number of the turn started by begin(): async actions from an old turn stop. */
   private turnSeq = 0
-  /** Caricamento delle skill in corso: i comandi skill lo aspettano. */
+  /** Skill loading in progress: skill commands wait for it. */
   private skillsReady: Promise<void> | null = null
-  /** Un elenco di comandi è già stato emesso: dopo un riavvio non si torna ai soli fissi. */
+  /** A command list has already been emitted: after a restart we don't fall back to the fixed ones only. */
   private commandsKnown = false
-  /** Skill dell'agente: nome → percorso, che turn/start vuole per invocarle. */
+  /** Agent skills: name → path, which turn/start needs to invoke them. */
   private skills = new Map<string, string>()
   private readonly cwd: string
 
@@ -116,12 +116,12 @@ export class CodexSession implements AgentSession {
     this.threadId = options.resume
     this.permission = options.permission
     this.model = options.model
-    // Su macOS /var diventa /private/var: Codex confronta i percorsi esatti.
+    // On macOS /var becomes /private/var: Codex compares exact paths.
     let cwd = options.cwd
     try {
       cwd = realpathSync(options.cwd)
     } catch {
-      // La cartella può non esistere più: l'errore arriva da Codex.
+      // The folder may no longer exist: the error comes from Codex.
     }
     this.cwd = cwd
   }
@@ -131,7 +131,7 @@ export class CodexSession implements AgentSession {
   }
 
   start(): void {
-    // I comandi fissi non aspettano il processo: ci sono anche se skills/list fallisce o non risponde.
+    // Fixed commands don't wait for the process: they are there even if skills/list fails or doesn't answer.
     if (!this.commandsKnown) {
       this.commandsKnown = true
       this.events.commands(codexFixedCommands())
@@ -166,7 +166,7 @@ export class CodexSession implements AgentSession {
       approvalPolicy: policy.approvalPolicy,
       sandbox: policy.sandbox,
       ...(this.model ? { model: this.model } : {}),
-      // LAD-57 parte 2: browser dell'agente come server MCP http; la policy (conferme, livello) è del server, quindi Codex non chiede una seconda volta.
+      // The agent's browser as an http MCP server; the policy (confirmations, level) belongs to the server, so Codex doesn't ask a second time.
       config: {
         'tools.update_plan.enabled': true,
         ...(this.options.browserTools
@@ -174,7 +174,7 @@ export class CodexSession implements AgentSession {
               [`mcp_servers.${BROWSER_MCP_NAME}.url`]: this.options.browserTools.url,
               [`mcp_servers.${BROWSER_MCP_NAME}.http_headers`]: { Authorization: `Bearer ${this.options.browserTools.token}` },
               [`mcp_servers.${BROWSER_MCP_NAME}.default_tools_approval_mode`]: 'approve',
-              // Predefinito 60 s: una conferma dell'utente (fino a 10 minuti nel server) farebbe scadere la chiamata.
+              // Default 60 s: a user confirmation (up to 10 minutes in the server) would make the call time out.
               [`mcp_servers.${BROWSER_MCP_NAME}.tool_timeout_sec`]: 660
             }
           : {}),
@@ -193,7 +193,7 @@ export class CodexSession implements AgentSession {
       ? await rpc.request<{ thread: { id: string }; model: string }>('thread/resume', { threadId: this.threadId, excludeTurns: true, ...common })
       : await rpc.request<{ thread: { id: string }; model: string }>('thread/start', {
           ...common,
-          // Solo su un thread nuovo: un thread ripreso tiene le istruzioni con cui è nato (e un cambio di permesso dopo non le cambia).
+          // Only on a new thread: a resumed thread keeps the instructions it was born with (and a later permission change doesn't alter them).
           developerInstructions: agentInstructions(this.options.autonomyHint && (this.permission === 'edit' || this.permission === 'full'), this.options.delegateHint)
         })
     this.threadId = result.thread.id
@@ -214,7 +214,7 @@ export class CodexSession implements AgentSession {
       }
       this.events.account({ account: accountLabel(account.account), email: accountEmail(account.account), models: codexModels(this.models, this.options.configDir ?? null), limits })
     } catch {
-      // Senza account e modelli la sessione funziona comunque.
+      // Without account and models the session works anyway.
     }
   }
 
@@ -227,7 +227,7 @@ export class CodexSession implements AgentSession {
     )
   }
 
-  /** Inserisce un messaggio nel turno in corso (turn/steer). False se non si può: l'host lo mette in coda. */
+  /** Inserts a message into the running turn (turn/steer). False if it can't: the host queues it. */
   async steer(text: string, attachments: Attachment[] = []): Promise<boolean> {
     if (!this.running || this.interrupted || this.compacting || !this.rpc || !this.threadId || !this.turnId) return false
     try {
@@ -242,20 +242,20 @@ export class CodexSession implements AgentSession {
       )
       return true
     } catch (error) {
-      // Solo il timeout è ambiguo: potrebbe essere entrato, e accodarlo lo duplicherebbe. Ogni altro errore è un rifiuto.
+      // Only the timeout is ambiguous: it may have gone in, and queuing it would duplicate it. Every other error is a refusal.
       if ((error as Error).message !== t('Codex did not respond to {method}.', { method: 'turn/steer' })) return false
       this.events.notice('error', t('Codex did not confirm the message. It may not have reached the running turn.'))
       return true
     }
   }
 
-  /** compact e review hanno una richiesta loro; le skill sono un turno con l'input "skill". */
+  /** compact and review have their own request; skills are a turn with the "skill" input. */
   command(name: string, args: string): void {
     if (name === 'compact') {
       this.begin(async () => {
         this.compacting = true
         this.manualCompact = true
-        // Rete di sicurezza: se Codex non conferma la compattazione il comando non resta appeso.
+        // Safety net: if Codex doesn't confirm the compaction, the command doesn't hang.
         this.compactTimer = setTimeout(() => {
           if (!this.compacting || this.turnId) return
           this.manualCompact = false
@@ -271,7 +271,7 @@ export class CodexSession implements AgentSession {
       })
     } else {
       this.begin(async (live) => {
-        // Le skill si cercano a Codex pronto, dopo il caricamento dell'elenco.
+        // Skills are looked up once Codex is ready, after the list has loaded.
         await this.skillsReady
         if (!live()) return
         const path = this.skills.get(name)
@@ -284,7 +284,7 @@ export class CodexSession implements AgentSession {
     }
   }
 
-  /** Segna l'inizio di un turno e lancia l'azione quando Codex è pronto. */
+  /** Marks the start of a turn and launches the action when Codex is ready. */
   private begin(action: (live: () => boolean) => Promise<void>): void {
     const seq = ++this.turnSeq
     const live = (): boolean => seq === this.turnSeq && this.running && !this.interrupted
@@ -318,14 +318,14 @@ export class CodexSession implements AgentSession {
       sandboxPolicy: policy.sandboxPolicy,
       ...(this.model ? { model: this.model } : {}),
       ...(effort ? { effort } : {}),
-      // Il livello "priority" consuma il doppio della quota: mai ereditarlo dalla configurazione.
+      // The "priority" tier uses double the quota: never inherit it from the configuration.
       serviceTierForTurn: 'default',
       ...(this.options.outputSchema ? { outputSchema: this.options.outputSchema } : {})
     })
     this.turnId ??= result.turn.id
   }
 
-  /** Skill dell'agente per questa cartella: si ricaricano con skills/changed. */
+  /** Agent skills for this folder: reloaded on skills/changed. */
   private async loadSkills(rpc: CodexRpc): Promise<void> {
     try {
       type Skill = { name: string; description: string; shortDescription?: string; interface?: { shortDescription?: string }; path: string; enabled: boolean }
@@ -342,11 +342,11 @@ export class CodexSession implements AgentSession {
       this.commandsKnown = true
       this.events.commands([...fixed, ...found])
     } catch {
-      // Senza le skill restano compact e review.
+      // Without skills, compact and review remain.
     }
   }
 
-  /** L'effort di Ladder vale solo se il modello lo supporta; altrimenti decide Codex. */
+  /** Ladder's effort applies only if the model supports it; otherwise Codex decides. */
   private effortFor(): string | null {
     const effort = this.options.effort
     if (!effort) return null
@@ -357,7 +357,7 @@ export class CodexSession implements AgentSession {
 
   async interrupt(): Promise<void> {
     this.interrupted = true
-    // Solo uno Stop con turn/start ancora in volo (nessun turnId) può far arrivare un turn/started da scartare.
+    // Only a Stop with a turn/start still in flight (no turnId) can cause a turn/started to discard.
     this.stopAt = this.turnId ? 0 : Date.now()
     if (!this.rpc || !this.threadId || !this.turnId) {
       if (this.running) this.finishTurn({ status: 'interrupted', error: null })
@@ -371,7 +371,7 @@ export class CodexSession implements AgentSession {
   }
 
   async setPermission(level: PermissionLevel): Promise<void> {
-    // Vale dal prossimo turno: Codex accetta policy e sandbox in turn/start.
+    // Applies from the next turn: Codex accepts policy and sandbox in turn/start.
     this.permission = level
   }
 
@@ -380,7 +380,7 @@ export class CodexSession implements AgentSession {
   }
 
   async setEffort(effort: Effort): Promise<void> {
-    // Codex riceve l'effort a ogni turno.
+    // Codex gets the effort on every turn.
     this.options.effort = effort
   }
 
@@ -394,15 +394,15 @@ export class CodexSession implements AgentSession {
     this.rpc = null
   }
 
-  // ── Eventi da Codex ──────────────────────────────────────────────────────
+  // ── Events from Codex ────────────────────────────────────────────────────
 
   private isCurrent(params: Record<string, unknown>): boolean {
-    // Dopo un'interruzione un comando rimasto vivo continua a mandare output con il turno vecchio.
+    // After an interruption a command left alive keeps sending output with the old turn.
     return !params.turnId || !this.turnId || params.turnId === this.turnId
   }
 
   private onNotification(method: string, params: Record<string, unknown>): void {
-    // Eventi di un altro thread (un sotto-agente): non toccano il turno della sessione.
+    // Events from another thread (a sub-agent): they don't touch the session's turn.
     const thread = typeof params.threadId === 'string' ? params.threadId : null
     if (thread && this.threadId && thread !== this.threadId && method !== 'serverRequest/resolved') {
       if (this.subThreads.has(thread)) this.onSubagentNotification(thread, method, params)
@@ -411,9 +411,9 @@ export class CodexSession implements AgentSession {
     switch (method) {
       case 'turn/started':
         this.turnId = ((params.turn as { id?: string }) ?? {}).id ?? this.turnId
-        // Turno del thread principale che non abbiamo aperto noi (ripresa da sola dopo i sotto-agenti): l'host ne apre uno implicito.
+        // Main-thread turn we didn't open (resumed on its own after the sub-agents): the host opens an implicit one.
         if (!this.running && !this.closed) {
-          // Subito dopo uno Stop è il turno che l'utente ha appena fermato, ripartito in ritardo: si interrompe, non si mostra.
+          // Right after a Stop it is the turn the user just stopped, restarted late: it is interrupted, not shown.
           if (this.interrupted && this.stopAt > 0 && Date.now() - this.stopAt < STOP_WINDOW_MS && this.rpc && this.threadId && this.turnId) {
             void this.rpc.request('turn/interrupt', { threadId: this.threadId, turnId: this.turnId }, 10000).catch(() => undefined)
           } else this.openImplicit()
@@ -430,7 +430,7 @@ export class CodexSession implements AgentSession {
         const id = String(params.itemId)
         const text = (this.texts.get(id) ?? '') + String(params.delta ?? '')
         this.texts.set(id, text)
-        // Se è l'inizio della review già mostrata, la riga c'è: niente seconda riga in streaming.
+        // If this is the start of the review already shown, the row exists: no second streaming row.
         if (this.reviewShown?.text.startsWith(text.trim())) return
         this.events.assistant(id, text, true)
         return
@@ -453,7 +453,7 @@ export class CodexSession implements AgentSession {
         return
       }
       case 'serverRequest/resolved': {
-        // Codex ha chiuso una richiesta da sé (per esempio a fine turno): la card diventa "scaduta".
+        // Codex closed a request itself (for example at the end of the turn): the card becomes "expired".
         const key = String(params.requestId ?? '')
         this.requests.get(key)?.abort()
         this.requests.delete(key)
@@ -474,7 +474,7 @@ export class CodexSession implements AgentSession {
         if (this.turnId && turn.id && turn.id !== this.turnId) return
         const status = turn.status === 'failed' ? 'error' : turn.status === 'interrupted' || this.interrupted ? 'interrupted' : 'completed'
         this.finishTurn({ status, error: turn.error?.message ?? null, durationMs: turn.durationMs ?? undefined })
-        // Un comando vivo dopo l'interruzione: si riavvia il processo, il thread si riprende al prossimo messaggio.
+        // A command alive after the interruption: the process restarts, the thread resumes at the next message.
         if (status === 'interrupted' && [...this.items.values()].some((i) => i.kind === 'command')) this.restart()
         return
       }
@@ -554,7 +554,7 @@ export class CodexSession implements AgentSession {
     }
   }
 
-  /** spawnAgent, wait, closeAgent…: i nuovi sotto-agenti entrano nella mappa, gli stati noti la aggiornano. */
+  /** spawnAgent, wait, closeAgent…: new sub-agents enter the map, known states update it. */
   private collabCall(item: Record<string, unknown>, started: boolean): void {
     const id = String(item.id)
     const tool = String(item.tool ?? '')
@@ -565,14 +565,14 @@ export class CodexSession implements AgentSession {
     if (tool === 'spawnAgent') {
       for (const thread of receivers) {
         this.subThreads.add(thread)
-        // La riga tool in chat c'è solo per gli spawn della sessione: quelli annidati non ne hanno una.
+        // The tool row in chat exists only for the session's own spawns: nested ones don't have one.
         if (!parentId) this.threadItems.set(thread, id)
         const effort = typeof item.reasoningEffort === 'string' ? item.reasoningEffort : null
         this.events.subagent({
           id: thread,
           parentId,
           ...(!parentId ? { toolId: id } : {}),
-          // Il titolo serve a far nascere la voce: senza prompt, quello generico.
+          // The title is what makes the entry appear: without a prompt, the generic one.
           ...(prompt ? { title: firstLine(prompt, 80), prompt } : { title: t('Subagent') }),
           ...(typeof item.model === 'string' ? { model: item.model } : {}),
           ...(effort && ['low', 'medium', 'high', 'xhigh', 'max'].includes(effort) ? { effort: effort as Effort } : {}),
@@ -653,7 +653,7 @@ export class CodexSession implements AgentSession {
     }
   }
 
-  /** Riga breve per l'attività di un sotto-agente: come i titoli delle righe della chat. */
+  /** Short line for a sub-agent's activity: like the titles of chat rows. */
   private describeItem(item: Record<string, unknown>): string | null {
     switch (item.type) {
       case 'commandExecution':
@@ -678,20 +678,20 @@ export class CodexSession implements AgentSession {
     if (item.type === 'collabAgentToolCall') this.collabCall(item, false)
     else if (item.type === 'subAgentActivity') return this.subAgentActivity(item)
     if (item.type === 'contextCompaction') {
-      // La compattazione chiesta da noi è manuale; quella che Codex fa da sé a metà turno, automatica.
+      // Compaction requested by us is manual; the one Codex does by itself mid-turn is automatic.
       this.events.compacted({ trigger: this.manualCompact ? 'manual' : 'auto', preTokens: null, postTokens: null })
       this.manualCompact = false
-      // Senza un turno suo (nessun turn/started) la fine della compattazione chiude il comando.
+      // Without a turn of its own (no turn/started) the end of compaction closes the command.
       const closes = this.compacting && !this.turnId
       this.compacting = false
       if (closes) this.finishTurn({ status: 'completed', error: null })
       return
     }
     if (item.type === 'exitedReviewMode') {
-      // Il risultato della review arriva qui, come testo dell'agente, salvo che sia già in chat come agentMessage.
+      // The review result arrives here, as agent text, unless it is already in chat as an agentMessage.
       const review = String(item.review ?? '').trim()
       if (!review || this.doneTexts.has(review)) return
-      // Un agentMessage aperto può essere la review stessa: si decide alla sua chiusura.
+      // An open agentMessage may be the review itself: decided when it closes.
       if (this.texts.size > 0) this.reviewPending = { id, text: review }
       else this.showReview(id, review)
       return
@@ -700,7 +700,7 @@ export class CodexSession implements AgentSession {
       const text = String(item.text ?? this.texts.get(id) ?? '')
       this.texts.delete(id)
       this.doneTexts.add(text.trim())
-      // Review già mostrata con lo stesso testo: si finalizza quella riga, senza duplicarla.
+      // Review already shown with the same text: that row is finalized, without duplicating it.
       if (this.reviewShown && text.trim() === this.reviewShown.text) this.events.assistant(this.reviewShown.id, text, false)
       else this.events.assistant(id, text, false)
       const pending = this.reviewPending
@@ -721,7 +721,7 @@ export class CodexSession implements AgentSession {
     this.events.activity(t('Thinking…'))
   }
 
-  /** Apre un turno che Codex ha cominciato da solo: l'host lo mostra come turno implicito. */
+  /** Opens a turn Codex started on its own: the host shows it as an implicit turn. */
   private openImplicit(): void {
     this.running = true
     this.interrupted = false
@@ -746,10 +746,10 @@ export class CodexSession implements AgentSession {
     this.compactTimer = null
     for (const controller of this.requests.values()) controller.abort()
     this.requests.clear()
-    // I messaggi rimasti senza item/completed (steer, interruzione) si chiudono con il testo arrivato.
+    // Messages left without item/completed (steer, interruption) are closed with the text received.
     for (const [id, text] of this.texts) {
       const trimmed = text.trim()
-      // Frammento della review già mostrata (stesso controllo dei delta): non si lascia una riga a metà.
+      // Fragment of the review already shown (same check as the deltas): no half row is left.
       if (this.reviewShown?.text.startsWith(trimmed)) {
         if (trimmed === this.reviewShown.text) this.events.assistant(this.reviewShown.id, text, false)
         this.doneTexts.add(trimmed)
@@ -759,7 +759,7 @@ export class CodexSession implements AgentSession {
       this.events.assistant(id, text, false)
     }
     this.texts.clear()
-    // Review rimandata e mai pareggiata da un messaggio: si mostra ora.
+    // Review deferred and never matched by a message: it is shown now.
     if (this.reviewPending && !this.doneTexts.has(this.reviewPending.text)) this.showReview(this.reviewPending.id, this.reviewPending.text)
     this.reviewPending = null
     this.events.activity(null)
@@ -780,7 +780,7 @@ export class CodexSession implements AgentSession {
     rpc?.kill()
   }
 
-  // ── Richieste di Codex: approvazioni e domande ───────────────────────────
+  // ── Codex requests: approvals and questions ──────────────────────────────
 
   private async onRequest(request: ServerRequest): Promise<ServerReply> {
     const params = request.params
@@ -842,10 +842,10 @@ export class CodexSession implements AgentSession {
           if ('answers' in response) for (const q of raw) answers[q.id] = { answers: response.answers[q.question] ? [response.answers[q.question]] : [] }
           return { result: { answers } }
         }
-        // LAD-57 parte 2: un server MCP chiede conferma (approvazione di uno strumento): stessa card dei permessi. Moduli con campi: rifiutati.
+        // An MCP server asks for confirmation (tool approval): same card as permissions. Forms with fields: refused.
         case 'mcpServer/elicitation/request': {
           const server = String(params.serverName ?? 'MCP')
-          // Un modulo con campi non si compila da qui: rifiuto subito, senza card.
+          // A form with fields can't be filled in from here: refused at once, no card.
           if (params.mode === 'form') return { result: { action: 'decline', content: null, _meta: null } }
           const message = typeof params.message === 'string' ? params.message : ''
           const response = await this.events.request(
@@ -862,7 +862,7 @@ export class CodexSession implements AgentSession {
     }
   }
 
-  /** Decisione per Codex; un rifiuto con messaggio arriva anche come istruzione al turno in corso. */
+  /** Decision for Codex; a refusal with a message also arrives as an instruction to the running turn. */
   private decision(response: RequestResponse): string {
     if (!('optionId' in response)) return 'decline'
     if (response.optionId === 'decline' && response.message && this.rpc && this.threadId && this.turnId) {
@@ -877,7 +877,7 @@ export class CodexSession implements AgentSession {
   }
 }
 
-/** Diff unificato di Codex → righe - e + per la card (come l'anteprima di Claude Code). */
+/** Unified diff from Codex → - and + lines for the card (like Claude Code's preview). */
 function collabStatus(status: string | undefined): 'running' | 'done' | 'error' | 'stopped' | null {
   switch (status) {
     case 'pendingInit':

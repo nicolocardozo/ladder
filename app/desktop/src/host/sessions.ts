@@ -1,4 +1,4 @@
-// Cuore dell'host: progetti, sessioni, elementi della chat e collegamento con adapter, terminali e git.
+// Core of the host: projects, sessions, chat items and the link to adapters, terminals and git.
 import { randomUUID } from 'node:crypto'
 import { constants as fsConstants, existsSync, statSync } from 'node:fs'
 import { open, realpath } from 'node:fs/promises'
@@ -117,13 +117,13 @@ import { BRANCH_SYSTEM, BRANCH_TIMEOUT_MS, COMMIT_LABEL, COMMIT_SYSTEM, COMMIT_T
 
 
 type Broadcast = (event: HostEvent) => void
-/** Evento a una sola connessione (porta). */
+/** Event for a single connection (port). */
 type SendTo = (origin: object, event: HostEvent) => void
 type Notify = (message: HostToMain) => void
 
-/** Ogni quanto si rilegge lo stato delle PR dei branch con sessioni aperte. */
+/** How often the PR state of branches with open sessions is re-read. */
 const PR_POLL_MS = Number(process.env.LADDER_PR_POLL_MS) || 90_000
-/** Ogni quanto si cercano le sessioni da archiviare (AppPrefs.autoArchiveDays). */
+/** How often to look for sessions to archive (AppPrefs.autoArchiveDays). */
 const AUTO_ARCHIVE_EVERY_MS = 60 * 60_000
 type ItemInput = ChatItem extends infer T ? (T extends ChatItem ? Omit<T, 'seq'> : never) : never
 
@@ -132,7 +132,7 @@ interface PendingRequest {
   resolve: (response: RequestResponse) => void
 }
 
-/** Agenti che dopo la chiusura del processo riprendono la stessa conversazione (Claude con resume, Codex con thread/resume). */
+/** Agents that resume the same conversation after the process closes (Claude with resume, Codex with thread/resume). */
 const RESTARTABLE_AGENTS = new Set(['claude-code', 'codex'])
 
 /** Handoff in progress in the origin session, from the summary turn to the delivery. Saved in `sessions.handoff`. */
@@ -223,30 +223,30 @@ interface Runtime {
   turnCounts: { commands: number; edits: number; reads: number; searches: number }
   activity: string | null
   pending: Map<string, PendingRequest>
-  /** Riga 'command' del turno avviato da un comando /: si chiude a fine turno. */
+  /** 'command' row of a turn started by a / command: closes at the end of the turn. */
   command: { id: string; at: number; name: string; args: string } | null
   /** Handoff ("Switch to…") whose summary the current turn is writing; it closes at the end of the turn. */
   handoff?: HandoffRun | null
-  /** L'utente ha chiesto l'interruzione del turno in corso. */
+  /** The user asked to interrupt the current turn. */
   interrupting: boolean
-  /** Il turno in corso lo ha aperto l'agente da solo (risposta a un sotto-agente in background, messaggio inserito). */
+  /** The agent opened the current turn on its own (reply to a background subagent, inserted message). */
   implicit?: boolean
-  /** Sotto-agenti avviati e richieste aperte nel turno in corso: servono a turn-end.stalled. */
+  /** Subagents started and open requests in the current turn: needed by turn-end.stalled. */
   turnAgents?: number
   turnRequests?: number
-  /** Chiusure di turno in corso o in coda: onTurnEnd gira una alla volta per sessione. */
+  /** Turn endings in progress or queued: onTurnEnd runs one at a time per session. */
   closing: number
-  /** L'agente è uscito: niente nuovi turni su questo runtime, la coda riparte con uno nuovo. */
+  /** The agent has exited: no new turns on this runtime, the queue restarts with a new one. */
   exited?: boolean
-  /** Codex: passato a Full access a turno in corso, ogni nuova richiesta di questo turno si approva da sola. */
+  /** Codex: switched to Full access mid-turn, every new request in this turn approves itself. */
   approveAll?: boolean
-  /** Nome del comando / eseguito dal turno in corso o dall'ultimo turno (null se era un messaggio). */
+  /** Name of the / command run by the current turn or the last turn (null if it was a message). */
   lastCommand?: string | null
   startedAt: number
   ending: Promise<void>
 }
 
-/** Stato di una sessione terminale che non sta nel database: etichetta dell'attesa, attività e turno in corso. */
+/** State of a terminal session that is not in the database: wait label, activity and current turn. */
 interface TerminalStatus {
   label: string | null
   activity: string | null
@@ -255,12 +255,12 @@ interface TerminalStatus {
 }
 
 const FLUSH_MS = 33
-/** Dopo l'ultimo background finito: se il coordinatore non riparte entro questo tempo, la chat offre "Continue". */
+/** After the last background task finishes: if the coordinator does not restart within this time, the chat offers "Continue". */
 const AGENTS_WAIT_MS = 8_000
-/** A turno chiuso, un sotto-agente "in corso" senza aggiornamenti da tanto (e che l'adapter non conosce) risulta fermato. */
+/** After the turn closes, a "running" subagent with no updates for a long time (and unknown to the adapter) is marked stopped. */
 const STALE_AGENT_MS = 10 * 60_000
 
-/** Errore di una generazione di testo: uno strumento tentato (LAD-59) arriva all'utente com'è, ogni altro errore è "non ha risposto". */
+/** Error from a text generation: a tool attempt arrives to the user as is, any other error is "did not answer". */
 const keepBlocked = (error: unknown): null => {
   if (isTextBlocked(error)) throw error
   return null
@@ -293,34 +293,34 @@ export class Host {
   private readonly reviewQueued = new Map<string, Extract<ChatItem, { kind: 'handoff' }>['files']>()
   /** Project delegates for the system prompt, read before the session runtime is created. */
   private readonly delegateHints = new Map<string, string | null>()
-  /** Quando è arrivato l'ultimo evento context per sessione: il ripiego di un turnEnd più vecchio non lo sovrascrive. */
+  /** When the last context event arrived per session: the fallback of an older turnEnd does not overwrite it. */
   private contextAt = new Map<string, number>()
-  /** Livello chiesto a turno in corso che l'agente applica solo dal turno successivo (Codex). */
-  /** Cambi di livello in corso per sessione: si eseguono uno alla volta. */
+  /** Level requested mid-turn that the agent applies only from the next turn (Codex). */
+  /** Level changes in progress per session: they run one at a time. */
   private permissionLocks = new Map<string, Promise<unknown>>()
-  /** Ultimo elenco dei comandi / di ogni sessione, mandato dall'agente. */
+  /** Last list of / commands per session, sent by the agent. */
   private commandLists = new Map<string, SlashCommand[]>()
-  /** Ultimo elenco noto per (agente, cartella di lavoro): serve a una sessione che non ha ancora un processo. */
+  /** Last known list per (agent, working folder): used by a session that has no process yet. */
   private lastCommands = new Map<string, SlashCommand[]>()
-  /** Elementi in memoria delle sessioni attive, per aggiornare lo streaming senza rileggere il database. */
+  /** In-memory items of active sessions, to update streaming without re-reading the database. */
   private liveItems = new Map<string, Map<string, ChatItem>>()
   private dirty = new Map<string, Map<string, ChatItem>>()
   private flushTimer: NodeJS.Timeout | null = null
   private claudeCli: string | null = null
   private codexCli: string | null = null
   private codexVer: string | null = null
-  /** Stato di ogni agente: Claude Code, Codex e le voci ACP aggiunte. */
+  /** State of each agent: Claude Code, Codex and the added ACP entries. */
   private agents = new Map<string, AgentStatus>()
   private acpSpecs = new Map<string, AcpAgentSpec>()
-  /** Stato di Claude Code e Codex per ogni profilo non predefinito (id del profilo); il predefinito sta in `agents`. */
+  /** State of Claude Code and Codex for each non-default profile (profile id); the default lives in `agents`. */
   private profileAgents = new Map<string, AgentStatus>()
   private readonly profiles: Profiles
   private reviews = new Map<string, ReviewRun>()
-  /** Sotto-agenti per sessione, per la mappa degli agenti; gli aggiornamenti al renderer si raggruppano. */
+  /** Subagents per session, for the agent map; updates to the renderer are batched. */
   private subagents = new SubagentBoard()
   private subagentFlush = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly terminals: TerminalManager
-  /** LAD-79: "Altri agenti" nelle Subscription (stato di accesso, login e logout con la loro CLI). */
+  /** "Other agents" in Subscriptions (access state, login and logout with their CLI). */
   private readonly otherAgents: OtherAgents
   /** Executable plans (the `ladder` MCP server, the runner, templates). */
   private readonly plans: Plans
@@ -329,41 +329,41 @@ export class Host {
   /** Installation of the `ladder` command (created by the host at startup). */
   private cliInstall: CliInstall | null = null
   private readonly watcher: RootWatcher
-  /** LAD-70: id delle root servite dal protocollo ladder-file del main. */
+  /** Ids of the roots served by the main process's ladder-file protocol. */
   private readonly fileRoots: FileRoots
-  /** Stato git per l'intestazione (LAD-68) e le iscrizioni della UI. */
+  /** Git state for the header and the UI subscriptions. */
   private readonly gitStatus: GitStatusTracker
-  /** Iscrizioni a `git.watch` per connessione (finestra): connessione -> sessione -> cartella. Chiusa la porta, si tolgono tutte. */
+  /** `git.watch` subscriptions per connection (window): connection -> session -> folder. When the port closes, all are removed. */
   private readonly gitSubs = new Map<object, Map<string, string>>()
-  /** Mappa dei branch (LAD-80) e le sue iscrizioni per connessione: connessione -> progetto -> conteggio. */
+  /** Branch map and its subscriptions per connection: connection -> project -> count. */
   private readonly branchMaps: BranchMapService
   private readonly branchMapSubs = new Map<object, Map<string, number>>()
-  /** `fs.watch` per connessione: connessione -> cartella -> iscrizioni (un `off` non toglie quelle di un'altra finestra). */
+  /** `fs.watch` per connection: connection -> folder -> subscriptions (an `off` does not remove those of another window). */
   private readonly fsSubs = new Map<object, Map<string, number>>()
   private readonly ports: Ports
-  /** Avvio dei servizi in corso, per sessione: archive() lo aspetta. */
+  /** Service start in progress, per session: archive() waits for it. */
   private readonly servicesStarting = new Map<string, Promise<void>>()
-  /** Sessioni in archiviazione: i servizi non devono più partire. */
+  /** Sessions being archived: services must no longer start. */
   private readonly archiving = new Set<string>()
-  /** Archiviazioni in corso, per sessione: un secondo archive() aspetta la stessa promessa e project.remove le aspetta tutte. */
+  /** Archivals in progress, per session: a second archive() waits for the same promise and project.remove waits for all of them. */
   private readonly archiveRuns = new Map<string, Promise<void>>()
   private readonly restarting = new Set<string>()
-  /** Sessioni con un riavvio dell'agente chiesto a turno in corso: avviene alla prima fine turno senza lavoro aperto. */
+  /** Sessions with an agent restart requested mid-turn: it happens at the first turn end with no open work. */
   private readonly restartAfterTurn = new Set<string>()
   private termStatus = new Map<string, TerminalStatus>()
-  /** Sessioni che aspettano lo script di setup del worktree prima di partire. */
+  /** Sessions waiting for the worktree setup script before starting. */
   private preparing = new Set<string>()
   /** Sessions with a turn start in progress (startTurn): they count as busy. */
   private starting = new Map<string, number>()
   /** Newly created sessions whose first message has not been sent yet: session.wait does not see them as idle. */
   private firstMessage = new Map<string, number>()
-  /** Progetti con un cambio di branch in corso nel checkout principale: le loro sessioni lì mettono i messaggi in coda finché non finisce. */
+  /** Projects with a branch change in progress in the main checkout: their sessions there queue messages until it ends. */
   private switchingBranch = new Set<string>()
   private stopped = false
   private prefs: HostPrefs = { generatedTitles: true, generatedText: true, autonomyHint: true, stallHint: false, worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, busySend: 'steer', defaults: {} }
-  /** Sessioni con un titolo in generazione: un solo tentativo alla volta. */
+  /** Sessions with a title being generated: one attempt at a time. */
   private titling = new Set<string>()
-  /** LAD-57 parte 2: browser per l'agente (server MCP, stato, canale verso il main). */
+  /** Browser for the agent (MCP server, state, channel to the main process). */
   private readonly browserAgent = new BrowserAgent({
     send: (message) => this.notify(message),
     broadcast: (event) => this.broadcast(event),
@@ -388,49 +388,49 @@ export class Host {
   private readonly delegateCounts = new Map<string, { turnId: string; n: number }>()
   /** 'tool' rows already taken by a delegation (another parallel call does not reuse them). */
   private readonly claimedToolRows = new Set<string>()
-  /** Sessioni con un messaggio di commit o un testo di PR in scrittura. */
-  /** Generazioni di commit/PR in corso per sessione; text.cancel le annulla. */
+  /** Sessions with a commit message or PR text being written. */
+  /** Commit/PR generations in progress per session; text.cancel cancels them. */
   private writing = new Map<string, AbortController>()
   private prFiles = new PrFiles()
-  /** Effort che l'agente dichiara all'avvio della sessione (init di Claude), per quando Ladder non ne ha scelto uno. */
+  /** Effort the agent declares at session start (Claude's init), for when Ladder has not chosen one. */
   private initEffort = new Map<string, Effort>()
-  /** Sessioni per cui il tentativo automatico di titolo è già partito (in memoria: una volta per avvio). */
+  /** Sessions for which the automatic title attempt has already run (in memory: once per launch). */
   private titleTried = new Set<string>()
   private badge = -1
-  /** Ultimo numero di sessioni al lavoro comunicato al main. */
+  /** Last number of working sessions reported to the main process. */
   private running = 0
   private archiveTimer: NodeJS.Timeout | null = null
-  /** Sotto-agenti in background finiti dall'ultima lettura della sessione: vanno nel summary e nel badge. */
+  /** Background subagents finished since the last read of the session: they go in the summary and the badge. */
   private agentsNotices = new Map<string, { finished: number; failed: number; at: number }>()
-  /** Finiti (e falliti) non ancora annunciati: li raccoglie l'avviso 'done' quando i background sono tutti finiti. Si svuota a ogni avviso, a un turno in errore e all'uscita dell'agente. */
-  /** Background finiti a sessione ferma (nessun turno aperto) dall'ultimo turno: se l'agente riparte da solo, la riga 'agent-start' lo dichiara. */
+  /** Finished (and failed) ones not yet announced: the 'done' notice collects them when all backgrounds have finished. It is cleared on every notice, on a failed turn and when the agent exits. */
+  /** Backgrounds finished while the session was idle (no open turn) since the last turn: if the agent restarts on its own, the 'agent-start' row declares it. */
   private agentsBeforeTurn = new Map<string, number>()
-  /** Background finiti (e falliti) a coordinatore fermo dall'ultimo turno: alimentano la riga 'agents-finished'. */
+  /** Backgrounds finished (and failed) with the coordinator stopped since the last turn: they feed the 'agents-finished' row. */
   private agentsIdle = new Map<string, { finished: number; failed: number }>()
-  /** Attesa dopo l'ultimo agente: se nessun turno parte, nasce la riga 'agents-finished'. */
+  /** Wait after the last agent: if no turn starts, the 'agents-finished' row is created. */
   private agentsWait = new Map<string, NodeJS.Timeout>()
-  /** Id della riga 'agents-finished' ancora 'waiting', per sessione. */
+  /** Id of the 'agents-finished' row still 'waiting', per session. */
   private agentsRows = new Map<string, string>()
-  /** Ultimo turno chiuso per sessione: la riga 'agents-finished' sta in fondo a quel turno. */
+  /** Last closed turn per session: the 'agents-finished' row sits at the end of that turn. */
   private lastTurnIds = new Map<string, string>()
   private agentsPending = new Map<string, { finished: number; failed: number }>()
-  /** PR per cartella e branch (`root\0branch`); null: il branch non ha PR. */
+  /** PR per folder and branch (`root\0branch`); null: the branch has no PR. */
   private prs = new Map<string, PrDetails | null>()
   private prTimer: NodeJS.Timeout | null = null
   private defaultBranches = new Map<string, Promise<string>>()
-  /** Sessioni archiviate perché la loro PR è stata unita: non si riprovano. */
+  /** Sessions archived because their PR was merged: not retried. */
   private mergedHandled = new Set<string>()
-  /** GitHub, Claude Code e Codex: stato, download dello strumento e login dal browser. */
+  /** GitHub, Claude Code and Codex: state, tool download and browser login. */
   private readonly connections: Connections
-  /** Agenti ACP in rimozione: un'installazione che finisce nel frattempo non li registra di nuovo. */
+  /** ACP agents being removed: an install that finishes in the meantime does not register them again. */
   private removingAcp = new Set<string>()
-  /** Agenti ACP con un accesso in corso (`agents.authenticate`): la promessa si riusa per una seconda richiesta, `abort` serve a `agents.authenticate.cancel`. */
+  /** ACP agents with a login in progress (`agents.authenticate`): the promise is reused for a second request, `abort` serves `agents.authenticate.cancel`. */
   private authenticating = new Map<string, { methodId: string; abort: AbortController; promise: Promise<AgentLogin> }>()
-  /** Download dei binari degli agenti ACP (LAD-56). */
+  /** Binary downloads of ACP agents. */
   private readonly installer = new AgentInstaller({
     update: (install) => this.broadcast({ type: 'agent.install', install }),
     installed: async (spec, signature) => {
-      // Rimosso mentre l'installazione finiva: non si registra di nuovo.
+      // Removed while the install was finishing: not registered again.
       if (this.removingAcp.has(spec.id)) return
       const previous = this.acpSpecs.get(spec.id)
       try {
@@ -439,14 +439,14 @@ export class Host {
         this.saveAcpSpecs()
         this.kvSet(`acp-signature:${spec.id}`, JSON.stringify({ version: spec.version ?? null, signature }))
       } catch (error) {
-        // L'installatore rimette la cartella precedente: anche lo stato in memoria torna a quello di prima.
+        // The installer restores the previous folder: the in-memory state also goes back to what it was.
         if (previous) this.acpSpecs.set(spec.id, previous)
         else this.acpSpecs.delete(spec.id)
-        // Se `acp-agents` era già stato scritto con la voce nuova, torna anche nel database (la cartella è quella vecchia).
+        // If `acp-agents` had already been written with the new entry, it goes back in the database too (the folder is the old one).
         try {
           this.saveAcpSpecs()
         } catch {
-          // Il database non risponde: non c'è altro da fare qui.
+          // The database does not respond: nothing else to do here.
         }
         if (previous) await this.registerAcp(previous).catch(() => undefined)
         else if (this.agents.delete(`acp:${spec.id}`)) this.broadcast({ type: 'agent.removed', agent: `acp:${spec.id}` as AgentId })
@@ -463,7 +463,7 @@ export class Host {
     private readonly db: Db,
     private readonly broadcast: Broadcast,
     private readonly notify: Notify = () => undefined,
-    /** Senza, gli eventi per una connessione sola (mappa dei branch) vanno a tutte. */
+    /** Without it, events meant for a single connection (branch map) go to all. */
     private readonly sendTo?: SendTo
   ) {
     this.terminals = new TerminalManager(db, {
@@ -596,7 +596,7 @@ export class Host {
       this.projects.set(row.id, await this.projectFromRow(row))
     }
     for (const row of this.db.prepare('select * from sessions').all() as unknown as SessionRow[]) this.rows.set(row.id, row)
-    // I checkout principali prendono i primi blocchi di porte (4100, …), prima di qualunque worktree.
+    // Main checkouts take the first port blocks (4100, …), before any worktree.
     for (const project of this.projects.values()) this.ports.allocate(project.path)
     const resumeQueued = this.recoverInterrupted()
     this.restoreLimitWatches()
@@ -607,31 +607,31 @@ export class Host {
       const parent = row.archived ? null : this.parentOf(row)
       if (parent && (this.rows.get(parent.sessionId)?.archived ?? 1)) void this.archive(row.id).catch(() => undefined)
     }
-    // Installazioni di agenti interrotte (app chiusa a metà): si ripristina o si pulisce prima di leggere gli agenti.
+    // Interrupted agent installs (app closed halfway): restore or clean up before reading the agents.
     const storedAcp = this.db.prepare(`select value from kv where key = 'acp-agents'`).get() as { value: string } | undefined
     const registered = new Map<string, AcpAgentSpec>()
     try {
       for (const spec of storedAcp ? (JSON.parse(storedAcp.value) as AcpAgentSpec[]) : []) registered.set(spec.id, spec)
     } catch {
-      // Elenco illeggibile: si cancella `.old` come se non ci fosse niente di registrato.
+      // Unreadable list: `.old` is deleted as if nothing were registered.
     }
     await recoverInstalls((id) => registered.get(id) ?? null).catch(() => undefined)
     await this.initAgents()
     // Plan tasks that were running when Ladder closed are marked interrupted (after the agents: the rules are needed).
     await this.plans.recover().catch((error: Error) => console.error(`[host] piani: ${error.message}`))
-    // Sessioni che erano "In coda" prima di questa versione: il primo messaggio in coda parte, una volta sola.
+    // Sessions that were "Queued" before this version: the first queued message starts, once only.
     for (const id of resumeQueued) this.startFirstQueued(id)
     this.updateBadge()
     this.shortcuts.start()
     this.prTimer = setTimeout(() => void this.pollPrs(), 4000)
     void this.autoArchive()
-    // Lo stato dei collegamenti si legge in background: arriva alla UI come eventi.
+    // The state of the links is read in the background: it reaches the UI as events.
     void this.connections.list().catch(() => undefined)
   }
 
   // ── Agenti ─────────────────────────────────────────────────────────────────
 
-  /** Account e modelli dell'ultima sessione: servono al composer prima che parta una nuova sessione. */
+  /** Account and models of the last session: needed by the composer before a new session starts. */
   private cachedAgent(agent: string, profileId?: string): Partial<AgentStatus> {
     const row = this.db.prepare(`select value from kv where key = ?`).get(profileId ? `agent:${agent}:${profileId}` : `agent:${agent}`) as { value: string } | undefined
     return row ? (JSON.parse(row.value) as Partial<AgentStatus>) : {}
@@ -674,19 +674,19 @@ export class Host {
       path: codexCli,
       error: codexCli ? null : t('Codex not found. Install the CLI (npm i -g @openai/codex, or the Codex app) and reopen Ladder.')
     })
-    // All'avvio: account, modelli e limiti di Claude Code, senza aspettare la prima sessione. Se non risponde lo saprà la sessione.
+    // At startup: Claude Code account, models and limits, without waiting for the first session. If it does not respond the session will find out.
     if (claudeCli) {
       void probeClaude(claudeCli)
         .then((info) => this.updateAgent('claude-code', info))
         .catch(() => undefined)
     }
-    // Un profilo non predefinito ha stato, account e limiti suoi: si legge in background come il predefinito.
+    // A non-default profile has its own state, account and limits: read in the background like the default.
     for (const profile of this.profiles.all()) {
       if (profile.isDefault) continue
       this.profileStatus(profile)
       this.probeProfile(profile)
     }
-    // Account, modelli e limiti di Codex senza aspettare la prima sessione (nessun turno, nessuna quota).
+    // Codex account, models and limits without waiting for the first session (no turn, no quota).
     if (codexCli) {
       void probeCodex(codexCli, '0.0.0')
         .then((info) => this.updateAgent('codex', info))
@@ -696,7 +696,7 @@ export class Host {
     for (const spec of stored ? (JSON.parse(stored.value) as AcpAgentSpec[]) : []) await this.registerAcp(spec)
   }
 
-  /** Stato di un profilo non predefinito: gli stessi dati dello strumento del predefinito, e account, modelli e limiti suoi. */
+  /** State of a non-default profile: the same tool data as the default, plus its own account, models and limits. */
   private profileStatus(profile: Profile): AgentStatus {
     const existing = this.profileAgents.get(profile.id)
     if (existing) return existing
@@ -709,7 +709,7 @@ export class Host {
       email: cached.email ?? null,
       usage: cached.usage ?? [],
       usageAt: cached.usageAt ?? null,
-      // Finché il profilo non è letto, i modelli sono quelli del predefinito (di solito gli stessi).
+      // Until the profile is read, models are those of the default (usually the same).
       models: cached.models?.length ? cached.models : base.models,
       limits: cached.limits ?? null
     }
@@ -717,7 +717,7 @@ export class Host {
     return status
   }
 
-  /** Account, modelli e limiti del profilo senza aprire sessioni; in background. */
+  /** Account, models and limits of the profile without opening sessions; in the background. */
   private probeProfile(profile: Profile): void {
     if (profile.agent === 'claude-code') {
       if (this.claudeCli) void probeClaude(this.claudeCli, profile.configDir).then((info) => this.updateAgent(profile.agent, info, false, profile.id), () => undefined)
@@ -731,7 +731,7 @@ export class Host {
     const agent = `acp:${spec.id}` as AgentId
     const cached = this.cachedAgent(agent)
     const resolved = await whichInShell(spec.command)
-    // Un percorso assoluto (CLI rilevata, binario scaricato) deve esistere ancora.
+    // An absolute path (detected CLI, downloaded binary) must still exist.
     const command = resolved && (!resolved.startsWith('/') || existsSync(resolved)) ? resolved : null
     const status: AgentStatus = {
       agent,
@@ -764,7 +764,7 @@ export class Host {
     this.db.prepare(`insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value`).run(key, value)
   }
 
-  /** Firma registrata all'installazione di una versione (codesign), null se ignota. */
+  /** Signature recorded when a version is installed (codesign), null if unknown. */
   private signatureOf(id: string, version: string): AgentSignature | null {
     try {
       const saved = JSON.parse(this.kvGet(`acp-signature:${id}`) ?? 'null') as { version: string | null; signature: AgentSignature } | null
@@ -774,7 +774,7 @@ export class Host {
     }
   }
 
-  /** Dipendenze del catalogo agenti (`agents.catalog` e `agents.detect`). */
+  /** Dependencies of the agent catalog (`agents.catalog` and `agents.detect`). */
   private catalogDeps() {
     return {
       specs: this.acpSpecs,
@@ -800,9 +800,9 @@ export class Host {
   }
 
   /**
-   * Accesso con un metodo dell'agente (ACP `authenticate`): niente credenziali passano da Ladder. Una seconda richiesta con lo
-   * stesso metodo mentre l'accesso è in corso riusa la stessa promessa (un solo processo); con un altro metodo è un errore.
-   * Se l'accesso viene annullato (`agents.authenticate.cancel`) risponde il login com'era, senza errore.
+   * Login with an agent method (ACP `authenticate`): no credentials pass through Ladder. A second request with the
+   * same method while the login is in progress reuses the same promise (a single process); with another method it is an error.
+   * If the login is cancelled (`agents.authenticate.cancel`) the login responds as it was, without an error.
    */
   private authenticateAcp(id: string, methodId: string, projectId?: string): Promise<AgentLogin> {
     const spec = this.acpSpecs.get(id)
@@ -828,7 +828,7 @@ export class Host {
     )
     const entry = { methodId, abort, promise }
     this.authenticating.set(id, entry)
-    // La voce si libera solo se è ancora questa (un cancel seguito da una nuova richiesta non deve toglierne un'altra).
+    // The entry is freed only if it is still this one (a cancel followed by a new request must not remove another's).
     void promise.then(
       () => undefined,
       () => undefined
@@ -838,7 +838,7 @@ export class Host {
     return promise
   }
 
-  /** Ferma un accesso in corso: uccide il processo dell'agente e libera l'id subito. */
+  /** Stops a login in progress: kills the agent process and frees the id at once. */
   private cancelAuthenticate(id: string): void {
     const entry = this.authenticating.get(id)
     if (!entry) return
@@ -852,7 +852,7 @@ export class Host {
       const entry = await registryEntry(input.id)
       if (!entry) throw new Error(t('Agent not found in the ACP registry.'))
       if (hasUnsafeArgs(entry)) throw new Error(t('The registry gives arguments or settings for this agent that Ladder does not accept.'))
-      // Binario già scaricato o CLI rilevata nel PATH, poi npx/uvx. Il solo binario da scaricare passa da `agents.install`.
+      // Already downloaded binary or CLI detected in PATH, then npx/uvx. Only the binary to download goes through `agents.install`.
       const fromRegistry = (await resolveAgentSpec(entry, this.acpSpecs.get(entry.id))) ?? (await registrySpec(input.id))
       if (!fromRegistry) throw new Error(t('This agent is distributed as a binary: install it from the catalog first.'))
       if (!fromRegistry.icon?.startsWith('data:')) fromRegistry.icon = await iconData(fromRegistry.icon ?? null)
@@ -871,11 +871,11 @@ export class Host {
   private async removeAcpAgent(id: string): Promise<void> {
     this.removingAcp.add(id)
     try {
-      // Un'installazione o un aggiornamento in corso si ferma e ripulisce prima di toccare la cartella.
+      // An install or update in progress stops and cleans up before touching the folder.
       const hadJob = await this.installer.cancelAndWait(id)
       const spec = this.acpSpecs.get(id)
       const registered = this.acpSpecs.delete(id)
-      // Il binario scaricato da Ladder si toglie con l'agente (anche se l'installazione è finita senza registrarlo); una CLI dell'utente non si tocca.
+      // The binary downloaded by Ladder is removed with the agent (even if the install finished without registering it); a user's CLI is left alone.
       if (spec?.distribution === 'binary' || hadJob) {
         await rm(agentDir(id), { recursive: true, force: true }).catch(() => undefined)
         this.db.prepare(`delete from kv where key = ?`).run(`acp-signature:${id}`)
@@ -889,7 +889,7 @@ export class Host {
     this.broadcast({ type: 'agent.removed', agent: `acp:${id}` })
   }
 
-  /** `reset`: dopo un logout account, email e limiti si azzerano (altrimenti un valore assente non cancella quello precedente). */
+  /** `reset`: after an account logout, email and limits are cleared (otherwise a missing value does not erase the previous one). */
   private updateAgent(agent: string, patch: Partial<AgentStatus>, reset = false, profileId?: string): void {
     const current = profileId ? this.profileAgents.get(profileId) : this.agents.get(agent)
     if (!current) return
@@ -911,8 +911,8 @@ export class Host {
   }
 
   /**
-   * Dopo un download, un login o un logout: ricerca la CLI, aggiorna disponibilità e versione e rilegge
-   * account, modelli e limiti dell'agente senza aprire sessioni. GitHub non è un agente: niente da fare qui.
+   * After a download, a login or a logout: looks the CLI up again, updates availability and version and re-reads
+   * the agent's account, models and limits without opening sessions. GitHub is not an agent: nothing to do here.
    */
   private async reloadAgent(id: 'github' | 'claude-code' | 'codex', reset: boolean, probe = !reset, profileId?: string): Promise<void> {
     if (id === 'github') return
@@ -930,7 +930,7 @@ export class Host {
       this.codexVer = cli ? await codexVersion(cli) : null
       patch = { available: Boolean(cli), path: cli, version: this.codexVer, error: cli ? null : t('Codex not found. Install the CLI (npm i -g @openai/codex, or the Codex app) and reopen Ladder.') }
     }
-    // Lo strumento è uno solo: disponibilità e versione valgono per il predefinito e per ogni profilo; il reset solo per quello che è cambiato.
+    // The tool is a single one: availability and version apply to the default and to every profile; the reset only to the one that changed.
     this.updateAgent(id, patch, reset && !custom)
     for (const other of this.profiles.customOf(id)) this.updateAgent(id, patch, reset && other.id === custom, other.id)
     const cli = this.cliOf(id)
@@ -946,7 +946,7 @@ export class Host {
 
   private usageRefresh = new Map<string, Promise<AgentStatus | null>>()
 
-  /** Limiti d'uso letti di nuovo, con un processo di breve durata e nessun turno. Due clic ravvicinati condividono la stessa lettura. */
+  /** Usage limits read again, with a short-lived process and no turn. Two quick clicks share the same read. */
   private refreshUsage(agent: string, profileId?: string | null): Promise<AgentStatus | null> {
     const custom = isProfileAgent(agent) ? customProfileId(profileId) : undefined
     const profile = custom ? this.profiles.get(custom) : null
@@ -969,12 +969,12 @@ export class Host {
     return this.agents.get(agent)?.name ?? agent
   }
 
-  /** L'adapter giusto per l'agente: le sessioni e le review lo usano allo stesso modo. */
+  /** The right adapter for the agent: sessions and reviews use it the same way. */
   private createAdapter(agent: string, options: SessionOptions & { outputSchema?: unknown }, events: AdapterEvents, profileId: string | null = null): AgentSession {
     const status = this.agents.get(agent)
     if (!status) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
     if (!status.available) throw new Error(status.error ?? t('{agent} is not available.', { agent: status.name }))
-    // Le credenziali dell'account stanno nella cartella del profilo; senza, quelle della CLI.
+    // Account credentials live in the profile folder; without them, those of the CLI.
     const configDir = this.profiles.configDir(profileId)
     if (agent === 'claude-code') return new ClaudeSession({ ...options, cli: this.claudeCli, configDir }, events)
     if (agent === 'codex') return new CodexSession({ ...options, cli: this.codexCli!, version: '0.0.0', configDir }, events)
@@ -983,7 +983,7 @@ export class Host {
     return new AcpSession({ ...options, spec, onLogin: (login) => this.saveLogin(spec.id, login) }, events)
   }
 
-  // ── Review con un altro agente ────────────────────────────────────────────
+  // ── Review with another agent ─────────────────────────────────────────────
 
   private async startReview(sessionId: string, agent: AgentId, scope: DiffScope): Promise<ReviewState> {
     const row = this.mustRow(sessionId)
@@ -1007,17 +1007,17 @@ export class Host {
     return { ...run.state }
   }
 
-  /** LAD-57 parte 2: risposta del main a un'operazione sul browser dell'agente. */
+  /** Reply from the main process to a browser operation of the agent. */
   browserAgentResult(rid: string, result: BrowserAgentResult): void {
     this.browserAgent.onResult(rid, result)
   }
 
-  /** LAD-57 parte 2: la vista dell'agente è stata chiusa dal main (tab o finestra chiusa). */
+  /** The agent's view was closed by the main process (tab or window closed). */
   browserAgentClosed(sessionId: string): void {
     this.browserAgent.onClosed(sessionId)
   }
 
-  /** Preferenze dal processo main. */
+  /** Preferences from the main process. */
   setPrefs(prefs: HostPrefs): void {
     if (prefs.locale) setLocale(prefs.locale)
     this.prefs = { generatedTitles: prefs.generatedTitles ?? this.prefs.generatedTitles, generatedText: prefs.generatedText ?? this.prefs.generatedText, autonomyHint: prefs.autonomyHint ?? this.prefs.autonomyHint, stallHint: prefs.stallHint ?? this.prefs.stallHint, worktreesDir: prefs.worktreesDir !== undefined ? prefs.worktreesDir : this.prefs.worktreesDir, branchPrefix: prefs.branchPrefix !== undefined ? cleanBranchPrefix(prefs.branchPrefix) : this.prefs.branchPrefix, autoArchiveDays: prefs.autoArchiveDays !== undefined ? prefs.autoArchiveDays : this.prefs.autoArchiveDays, agentBrowser: prefs.agentBrowser ?? this.prefs.agentBrowser, busySend: prefs.busySend ?? this.prefs.busySend, defaults: prefs.defaults ?? this.prefs.defaults }
@@ -1025,7 +1025,7 @@ export class Host {
     void this.autoArchive()
   }
 
-  /** Sessioni che lavoravano quando Ladder è stato chiuso: tornano ferme, con una nota e le richieste scadute. */
+  /** Sessions that were working when Ladder was closed: they come back idle, with a note and expired requests. */
   private recoverInterrupted(): string[] {
     const resume: { id: string; at: number }[] = []
     // Advice with entries still 'running': child sessions do not restart, the entry becomes 'stopped'.
@@ -1060,7 +1060,7 @@ export class Host {
     for (const row of this.rows.values()) {
       // Handoff left half done: the summary is not resumed, the row does not stay 'summarizing'.
       if (row.handoff) this.recoverHandoff(row)
-      // Stato 'queued' di versioni precedenti (limite di turni, ora tolto): torna ferma, i messaggi restano in coda e il primo riparte.
+      // 'queued' state from earlier versions (turn limit, now removed): it goes back to idle, messages stay queued and the first restarts.
       if ((row.run_state as string) === 'queued') {
         this.updateRow(row.id, { run_state: 'idle' })
         if (!row.archived && (JSON.parse(row.queue) as QueuedMessage[]).length) resume.push({ id: row.id, at: row.updated_at })
@@ -1068,7 +1068,7 @@ export class Host {
       }
       if (row.run_state === 'idle' || row.run_state === 'error') continue
       if (row.mode === 'terminal') {
-        // Il processo non c'è più: la vista della sessione offre "Riprendi".
+        // The process is gone: the session view offers "Resume".
         this.updateRow(row.id, { run_state: 'idle', estimated: 0 })
         continue
       }
@@ -1128,7 +1128,7 @@ export class Host {
     this.updateRow(row.id, { handoff: null })
   }
 
-  /** Fa partire il primo messaggio in coda di una sessione ferma (migrazione dallo stato 'queued'). */
+  /** Starts the first queued message of an idle session (migration from the 'queued' state). */
   private startFirstQueued(sessionId: string): void {
     const row = this.rows.get(sessionId)
     if (!row || row.archived || row.run_state !== 'idle') return
@@ -1137,7 +1137,7 @@ export class Host {
     if (!next) return
     this.updateRow(sessionId, { queue: JSON.stringify(queue) })
     void this.startTurn(sessionId, next.text, next.attachments ?? []).catch((e: Error) => {
-      // Il messaggio torna in testa alla coda e il runtime si chiude, come nella ripartenza dopo exit.
+      // The message goes back to the head of the queue and the runtime closes, as in the restart after exit.
       const current = JSON.parse(this.rows.get(sessionId)?.queue ?? '[]') as QueuedMessage[]
       current.unshift(next)
       this.revokeTools(sessionId)
@@ -1149,7 +1149,7 @@ export class Host {
     })
   }
 
-  /** Righe 'agents-finished' rimaste 'waiting' da prima del riavvio: superate se la sessione ha avuto turni dopo, altrimenti restano (un turno futuro le chiude). */
+  /** 'agents-finished' rows left 'waiting' from before the restart: superseded if the session had turns afterwards, otherwise they stay (a future turn closes them). */
   private dismissStaleAgentsRows(): void {
     const stale = this.db
       .prepare(`select session_id, seq, json from items where json like '%"kind":"agents-finished"%' and json like '%"state":"waiting"%' order by seq`)
@@ -1172,7 +1172,7 @@ export class Host {
   }
 
   async snapshot(): Promise<Extract<HostEvent, { type: 'snapshot' }>> {
-    // I branch cambiano fuori da Ladder: li rileggiamo a ogni nuova connessione della UI.
+    // Branches change outside Ladder: we re-read them on every new UI connection.
     for (const project of this.projects.values()) {
       const info = existsSync(project.path) ? await repoInfo(project.path) : null
       if (info) this.projects.set(project.id, { ...project, branch: info.branch, isGit: info.isGit })
@@ -1199,9 +1199,9 @@ export class Host {
     }
   }
 
-  // ── Comandi dalla UI ─────────────────────────────────────────────────────
+  // ── Commands from the UI ─────────────────────────────────────────────────
 
-  /** `origin`: la connessione (porta) da cui arriva il comando; serve alle iscrizioni, che spariscono con lei (`connectionClosed`). */
+  /** `origin`: the connection (port) the command comes from; used for subscriptions, which disappear with it (`connectionClosed`). */
   async handle(command: HostCommand, origin: object = LOCAL_ORIGIN, signal?: AbortSignal): Promise<unknown> {
     switch (command.type) {
       case 'hello':
@@ -1209,7 +1209,7 @@ export class Host {
       case 'project.add':
         return this.addProject(command.path)
       case 'project.remove':
-        // Le archiviazioni in corso del progetto finiscono prima (script di pulizia compreso), poi il progetto sparisce.
+        // The project's archivals in progress finish first (cleanup script included), then the project disappears.
         await Promise.all([...this.rows.values()].filter((r) => r.project_id === command.projectId).map((r) => this.archiveRuns.get(r.id)?.catch(() => undefined)))
         this.db.prepare('delete from projects where id = ?').run(command.projectId)
         this.profiles.dropProject(command.projectId)
@@ -1283,7 +1283,7 @@ export class Host {
       case 'session.rename': {
         const title = command.title.trim()
         if (title) {
-          // Il titolo scelto a mano vince su ogni generazione automatica.
+          // A manually chosen title wins over any automatic generation.
           this.updateRow(command.sessionId, { title, title_source: 'user' })
           this.emitSummary(command.sessionId)
         }
@@ -1305,7 +1305,7 @@ export class Host {
       case 'project.files':
         return this.projectFiles(command.projectId)
       case 'session.queue.set': {
-        // La UI riceve la coda senza i dati delle immagini: gli allegati restano quelli salvati qui.
+        // The UI receives the queue without image data: attachments stay the ones saved here.
         const stored = new Map((JSON.parse(this.mustRow(command.sessionId).queue) as QueuedMessage[]).map((q) => [q.id, q]))
         const queue = command.queue.map((q) => {
           const attachments = stored.get(q.id)?.attachments
@@ -1374,14 +1374,14 @@ export class Host {
           .run(command.projectId, JSON.stringify(command.state))
         this.browserAgent.sync()
         return null
-      // ── LAD-57 parte 2 ──
+      // ── Agent browser ──
       case 'browser.agent.stop':
         return this.browserAgent.stop(command.sessionId)
       case 'browser.agent.resume':
         return this.browserAgent.resume(command.sessionId)
       case 'browser.agent.state':
         return this.browserAgent.snapshot(command.sessionId)
-      // ── Fine LAD-57 parte 2 ──
+      // ── End of agent browser ──
 
       // ── CLI ──
       case 'session.wait':
@@ -1423,12 +1423,12 @@ export class Host {
       case 'projectGroups.move':
         return this.projectGroups.move(command.projectId, command.groupId, command.index)
 
-      // File, diff e cronologia.
+      // Files, diff and history.
       case 'fs.tree':
         return listTree(this.knownRoot(command.root))
       case 'fs.read':
         return readText(this.knownRoot(command.root), command.path, this.fileRoots.idFor(this.knownRoot(command.root)))
-      // ── LAD-70 ──
+      // ── File media and reveal ──
       case 'fs.media': {
         const root = this.knownRoot(command.root)
         return mediaInfo(root, command.path, this.fileRoots.idFor(root), command.rev ?? null)
@@ -1439,7 +1439,7 @@ export class Host {
         this.notify({ type: 'reveal-file', id: this.fileRoots.idFor(root), path: command.path })
         return null
       }
-      // ── Fine LAD-70 ──
+      // ── End of file media and reveal ──
       case 'fs.write':
         return writeText(this.knownRoot(command.root), command.path, command.text, command.baseMtime)
       case 'fs.watch': {
@@ -1450,7 +1450,7 @@ export class Host {
           subs.set(root, (subs.get(root) ?? 0) + 1)
           this.fsSubs.set(origin, subs)
         } else {
-          // Si toglie solo ciò che questa connessione ha iscritto.
+          // Only what this connection subscribed is removed.
           const root = command.root.replace(/\/+$/, '')
           const count = subs.get(root) ?? 0
           if (count > 0) {
@@ -1524,7 +1524,7 @@ export class Host {
       case 'shortcuts.openFile':
         return this.shortcuts.openFile()
 
-      // Configurazione del progetto e azioni di avvio.
+      // Project configuration and start actions.
       case 'project.settings':
         return loadProjectSettings(this.mustProject(command.projectId).path)
       case 'run.start':
@@ -1532,7 +1532,7 @@ export class Host {
       case 'project.worktree.set': {
         const project = this.mustProject(command.projectId)
         await saveWorktreeSettings(project.path, command.patch)
-        // Il file personale non va in git.
+        // The personal file does not go in git.
         void ensureExcluded(project.path, PERSONAL_PATTERNS).catch(() => undefined)
         return loadProjectSettings(project.path)
       }
@@ -1550,7 +1550,7 @@ export class Host {
         this.notify({ type: 'open-path', path: dirname(process.env.LADDER_DB_PATH ?? '') })
         return null
 
-      // Ricerca, issue, merge e prompt.
+      // Search, issues, merge and prompts.
       case 'search':
         return searchItems(this.db, this.rows, command.query)
       case 'issues.list':
@@ -1560,7 +1560,7 @@ export class Host {
       case 'prompt.render':
         return renderPrompt(this.mustProject(command.projectId).path, command.name, command.vars)
 
-      // Agenti ACP e review.
+      // ACP agents and review.
       case 'agents.add':
         return this.addAcpAgent(command.spec)
       case 'agents.catalog':
@@ -1629,7 +1629,7 @@ export class Host {
         const row = this.mustRow(command.sessionId)
         return this.gitStatus.read(this.mustCwd(row))
       }
-      // ── LAD-80 ──
+      // ── Branch map ──
       case 'project.branchMap':
         return this.branchMaps.read(this.mustProject(command.projectId).id)
       case 'project.branchMap.watch': {
@@ -1641,16 +1641,16 @@ export class Host {
           this.branchMapSubs.set(origin, subs)
           this.branchMaps.watch(projectId)
         } else if (count > 0) {
-          // Un `off` toglie solo un'iscrizione di questa finestra, mai quelle di un'altra.
+          // An `off` removes only a subscription of this window, never those of another.
           if (count === 1) subs.delete(projectId)
           else subs.set(projectId, count - 1)
-          // Senza più iscrizioni la connessione esce dall'elenco (`touchBranchMapOf` si ferma subito con l'elenco vuoto).
+          // With no subscriptions left the connection leaves the list (`touchBranchMapOf` stops at once on an empty list).
           if (subs.size === 0) this.branchMapSubs.delete(origin)
           this.branchMaps.unwatch(projectId)
         }
         return null
       }
-      // ── fine LAD-80 ──
+      // ── End of branch map ──
       case 'project.branches':
         return this.projectBranches(command.projectId)
       case 'project.branch.switch':
@@ -1662,7 +1662,7 @@ export class Host {
         else this.unsubscribeGit(command.sessionId, origin)
         return null
       }
-      // ── LAD-69 ──
+      // ── Push, merge and archive ──
       case 'git.push.preview':
         return pushPreview(this.mustCwd(this.mustRow(command.sessionId)), { remote: command.remote })
       case 'git.push': {
@@ -1670,7 +1670,7 @@ export class Host {
         try {
           return await pushBranch(root, { publish: command.publish === true, remote: command.remote, expectedHead: command.expectedHead }, () => this.busySession(root) !== null)
         } finally {
-          // Riuscito o rifiutato, chip e pannello si rileggono subito.
+          // Whether it succeeded or was refused, chip and panel re-read at once.
           this.notifyFsChanged(root)
         }
       }
@@ -1684,12 +1684,12 @@ export class Host {
         if (info.branch === (await this.defaultBranchOf(project))) throw new Error(t('This is the default branch: there is no pull request to merge.'))
         try {
           const result = await mergePullRequest(root, info.branch, { number: command.number, method: command.method, deleteBranch: command.deleteBranch === true, expectedHeadOid: command.expectedHeadOid }, () => this.busySession(root) !== null)
-          // Stato della PR riletto subito: la sessione e il pannello mostrano "unita" senza aspettare il giro periodico.
+          // PR state re-read at once: the session and the panel show "merged" without waiting for the periodic round.
           const details = await prForBranch(root, info.branch).catch(() => null)
           if (details) this.storePr(root, info.branch, details)
           return { ...result, pr: details?.status ?? null }
         } catch (error) {
-          // Anche dopo un errore (per esempio nessuna risposta di gh: GitHub potrebbe aver unito) lo stato della PR si rilegge.
+          // Also after an error (for example no reply from gh: GitHub may have merged) the PR state is re-read.
           const details = await prForBranch(root, info.branch).catch(() => null)
           if (details) this.storePr(root, info.branch, details)
           throw error
@@ -1699,7 +1699,7 @@ export class Host {
       }
       case 'git.archive':
         return this.archiveAfterMerge(command.sessionId)
-      // ── fine LAD-69 ──
+      // ── End of push, merge and archive ──
       case 'pr.prepare': {
         const project = this.mustProject(command.projectId)
         this.mustRow(command.sessionId)
@@ -1924,36 +1924,36 @@ export class Host {
     this.ports.release(path)
   }
 
-  /** Cartella di lavoro della sessione: il worktree se c'è, altrimenti il progetto. */
+  /** Working folder of the session: the worktree if there is one, otherwise the project. */
   private cwdOf(row: SessionRow): string {
     return row.cwd ?? this.projects.get(row.project_id)?.path ?? ''
   }
 
-  /** Cartella di lavoro della sessione, o errore se non c'è più (progetto rimosso): con '' git lavorerebbe nella cartella corrente dell'host. */
+  /** Working folder of the session, or an error if it no longer exists (project removed): with '' git would work in the host's current folder. */
   private mustCwd(row: SessionRow): string {
     const cwd = this.cwdOf(row)
     if (!cwd) throw new Error(t('Folder unknown to Ladder.'))
     return cwd
   }
 
-  /** Solo le cartelle di progetti e sessioni: la UI non può chiedere file da altre parti del disco. */
+  /** Only project and session folders: the UI cannot ask for files from other parts of the disk. */
   private knownRoot(root: string): string {
     const normalized = root.replace(/\/+$/, '')
-    // '/' diventa '' e combacerebbe con le sessioni senza cartella.
+    // '/' becomes '' and would match sessions with no folder.
     if (!normalized) throw new Error(t('Folder unknown to Ladder.'))
     for (const project of this.projects.values()) if (project.path === normalized) return normalized
     for (const row of this.rows.values()) if (this.cwdOf(row) === normalized) return normalized
     throw new Error(t('Folder unknown to Ladder.'))
   }
 
-  /** Cambio nella cartella: la UI rilegge albero e diff, e lo stato git dell'intestazione si aggiorna subito. */
+  /** Change in the folder: the UI re-reads tree and diff, and the header's git state updates at once. */
   private notifyFsChanged(root: string): void {
     this.broadcast({ type: 'fs.changed', root })
     this.gitStatus.refresh(root)
     this.touchBranchMapOf(root)
   }
 
-  /** Sessione non archiviata che lavora nel checkout principale del progetto (non in un worktree) con un turno, sotto-agenti o un'attesa in corso. */
+  /** Non-archived session working in the project's main checkout (not in a worktree) with a turn, subagents or a wait in progress. */
   private mainCheckoutBusy(project: Project): SessionRow | null {
     for (const row of this.rows.values()) {
       if (row.archived || row.project_id !== project.id || row.worktree || this.cwdOf(row) !== project.path) continue
@@ -1963,7 +1963,7 @@ export class Host {
     return null
   }
 
-  /** Branch locali del progetto per il menu del branch e per il punto di partenza di un worktree. */
+  /** Project's local branches for the branch menu and for a worktree's starting point. */
   private async projectBranches(projectId: string): Promise<ProjectBranches> {
     const project = this.mustProject(projectId)
     const busy = this.mainCheckoutBusy(project)
@@ -1977,14 +1977,14 @@ export class Host {
   }
 
   /**
-   * Cambio o creazione di branch nel checkout principale. Il rifiuto per la sessione al lavoro si rilegge dentro il lock, subito
-   * prima di scrivere. Dopo, il progetto, le sessioni del checkout principale, lo stato git e la mappa si aggiornano come per un cambio fatto altrove.
+   * Branch switch or creation in the main checkout. Refusal because of a working session is re-read inside the lock, right
+   * before writing. Afterwards, the project, the main checkout's sessions, git state and the map update as for a change made elsewhere.
    */
   private async changeBranch(projectId: string, run: (project: Project, assertIdle: () => void) => Promise<BranchSwitchResult>): Promise<BranchSwitchResult> {
     const project = this.mustProject(projectId)
     if (!project.path || !project.isGit || !existsSync(project.path)) throw new Error(t('The project is not a git repository.'))
     if (this.switchingBranch.has(projectId)) throw new Error(t('The branch is already being changed in this project. Wait a moment.'))
-    // Da qui nessun turno nuovo parte nel checkout principale (i messaggi vanno in coda); quelli già in corso li vede `assertIdle`.
+    // From here no new turn starts in the main checkout (messages queue); those already running are seen by `assertIdle`.
     this.switchingBranch.add(projectId)
     const assertIdle = () => {
       const busy = this.mainCheckoutBusy(project)
@@ -1994,9 +1994,9 @@ export class Host {
       return await run(project, assertIdle)
     } finally {
       this.switchingBranch.delete(projectId)
-      // I messaggi arrivati durante il cambio ripartono ora, nel branch nuovo.
+      // Messages that arrived during the switch restart now, on the new branch.
       for (const row of this.rows.values()) if (row.project_id === projectId && !row.worktree && !row.archived) this.startFirstQueued(row.id)
-      // Riuscito o no, ciò che si vede si rilegge: git può aver cambiato HEAD anche prima di un errore tardivo.
+      // Success or not, what is shown is re-read: git may have changed HEAD even before a late error.
       const info = await repoInfo(project.path).catch(() => null)
       if (info && this.projects.has(projectId)) {
         const current = this.mustProject(projectId)
@@ -2010,29 +2010,29 @@ export class Host {
     }
   }
 
-  /** LAD-80: la mappa nuova va solo alle connessioni iscritte a quel progetto. */
+  /** The new map goes only to connections subscribed to that project. */
   private emitBranchMap(projectId: string, map: BranchMap): void {
     const event: HostEvent = { type: 'project.branchMap', projectId, map }
     if (!this.sendTo) return this.broadcast(event)
     for (const [origin, subs] of this.branchMapSubs) if (subs.has(projectId)) this.sendTo(origin, event)
   }
 
-  /** LAD-80: la cartella è cambiata (file, commit, fetch): se una finestra guarda la mappa del suo progetto, si rilegge. */
+  /** The folder changed (file, commit, fetch): if a window is looking at its project's map, it re-reads. */
   private touchBranchMapOf(root: string): void {
     if (this.branchMapSubs.size === 0) return
     const row = [...this.rows.values()].find((r) => this.cwdOf(r) === root)
     const projectId = row?.project_id ?? [...this.projects.values()].find((p) => p.path === root)?.id
-    // Solo un cambio nel checkout principale rende vecchio il conteggio dei suoi file non committati.
+    // Only a change in the main checkout makes the count of its uncommitted files stale.
     if (projectId) this.branchMaps.touch(projectId, [...this.projects.values()].some((p) => p.id === projectId && p.path === root))
   }
 
-  /** Righe e ramo principale per la mappa dei branch (LAD-80): dati dell'host e cache delle PR, nessuna chiamata a gh (nemmeno per la base). */
+  /** Rows and main branch for the branch map: host data and PR cache, no call to gh (not even for the base). */
   private async branchMapSource(projectId: string): Promise<BranchMapSource> {
     const project = this.mustProject(projectId)
-    // Con un percorso vuoto git lavorerebbe nella cartella corrente dell'host.
+    // With an empty path git would work in the host's current folder.
     if (!project.path) throw new Error(t('Folder unknown to Ladder.'))
     const usable = project.isGit && existsSync(project.path)
-    // Base senza rete: se il pannello Merge l'ha già risolta (anche con gh) vale quella, altrimenti origin/HEAD, main o master.
+    // Base without network: if the Merge panel already resolved it (also with gh) that one applies, otherwise origin/HEAD, main or master.
     const base = usable ? await (this.defaultBranches.get(project.path) ?? defaultBranch(project.path, false)) : null
     const rows: BranchMapRow[] = []
     for (const row of this.rows.values()) {
@@ -2041,7 +2041,7 @@ export class Host {
       try {
         worktree = row.worktree ? (JSON.parse(row.worktree) as WorktreeInfo) : null
       } catch {
-        // Riga con JSON rovinato: non si sa dov'è né su quale branch, quindi non entra nella mappa (le altre sì).
+        // Row with corrupted JSON: we do not know where it is or on which branch, so it does not enter the map (the others do).
         continue
       }
       const cwd = this.cwdOf(row)
@@ -2061,7 +2061,7 @@ export class Host {
         cwd,
         branch,
         start: worktree?.base ?? null,
-        // Come in refreshPrs: una PR unita prima della nascita della sessione è di un branch omonimo precedente (conta mergedAt, non updatedAt).
+        // As in refreshPrs: a merged PR from before the session was created belongs to an earlier branch with the same name (mergedAt counts, not updatedAt).
         prMerged: mergedAt !== null && mergedAt >= row.created_at ? { at: mergedAt, oid: pr?.headOid ?? null } : null,
         saved: row.merged_via === 'git' || row.merged_via === 'pr' ? { via: row.merged_via, at: row.merged_at } : null
       })
@@ -2069,7 +2069,7 @@ export class Host {
     return { root: project.path, base, rows }
   }
 
-  /** Iscrive la connessione agli aggiornamenti git della cartella della sessione (una volta sola per connessione e sessione). */
+  /** Subscribes the connection to git updates of the session's folder (once per connection and session). */
   private subscribeGit(origin: object, sessionId: string, root: string): void {
     const subs = this.gitSubs.get(origin) ?? new Map<string, string>()
     if (subs.has(sessionId) || !root) return
@@ -2079,7 +2079,7 @@ export class Host {
     this.gitStatus.track(root)
   }
 
-  /** Toglie l'iscrizione di una connessione; senza `origin` (sessione archiviata, progetto rimosso) quelle di tutte. */
+  /** Removes a connection's subscription; without `origin` (archived session, removed project) those of all connections. */
   private unsubscribeGit(sessionId: string, origin?: object): void {
     for (const [conn, subs] of this.gitSubs) {
       if (origin && conn !== origin) continue
@@ -2091,7 +2091,7 @@ export class Host {
     }
   }
 
-  /** Una connessione (finestra) si è chiusa: le sue iscrizioni a git e ai file spariscono con lei. */
+  /** A connection (window) has closed: its git and file subscriptions go with it. */
   connectionClosed(origin: object): void {
     const git = this.gitSubs.get(origin)
     this.gitSubs.delete(origin)
@@ -2107,7 +2107,7 @@ export class Host {
     for (const [root, count] of files ?? []) for (let i = 0; i < count; i++) this.watcher.unwatch(root)
   }
 
-  /** Iscrizioni attive (per i test): git e fs. */
+  /** Active subscriptions (for tests): git and fs. */
   subscriptionCount(): { git: number; fs: number } {
     let git = 0
     let fs = 0
@@ -2116,7 +2116,7 @@ export class Host {
     return { git, fs }
   }
 
-  /** Una sessione che sta scrivendo in `root`, se c'è. */
+  /** A session that is writing in `root`, if any. */
   private busySession(root: string): SessionRow | null {
     for (const row of this.rows.values()) {
       // Advice (advisor) sessions are read-only: they do not block a restore.
@@ -2128,24 +2128,24 @@ export class Host {
 
   private createProfile(agent: ProfileAgent, name: string): Profile {
     const profile = this.profiles.create(agent, name)
-    // Stato vuoto subito (nessun account finché non si fa il login): la UI ha già la riga da mostrare.
+    // Empty state at once (no account until login): the UI already has the row to show.
     this.broadcast({ type: 'agent.status', status: this.profileStatus(profile) })
     this.broadcast({ type: 'profile.upsert', profile })
     return profile
   }
 
   /**
-   * Toglie un profilo. Con una sessione attiva che lo usa rifiuta; le sessioni ferme passano al predefinito (il loro processo
-   * si chiude: il prossimo messaggio riparte senza la cartella del profilo). La cartella di configurazione resta: ci sono le credenziali.
+   * Removes a profile. It refuses while an active session uses it; idle sessions move to the default (their process
+   * closes: the next message restarts without the profile folder). The config folder stays: it holds the credentials.
    */
   private removeProfile(profileId: string): void {
     const profile = this.profiles.mustGet(profileId)
     if (profile.isDefault) throw new Error(t('The default account cannot be removed.'))
-    // Anche le archiviate: tengono un profilo che non c'è più.
+    // Archived ones too: they hold a profile that no longer exists.
     const users = [...this.rows.values()].filter((r) => r.profile_id === profileId)
     const active = users.some((r) => !r.archived && (this.isBusy(r.id) || r.run_state === 'running' || r.run_state === 'starting'))
     if (active) throw new Error(t('A session is using this account. Wait for it to finish, then try again.'))
-    // Un terminale vivo (anche un TUI fermo al prompt, run_state idle) ha la cartella del profilo nell'ambiente.
+    // A live terminal (even a TUI idle at the prompt, run_state idle) has the profile folder in its environment.
     if (users.some((r) => this.terminals.bySession(r.id, 'agent').some((term) => term.state === 'running'))) {
       throw new Error(t('A terminal is using this account. Close it, then try again.'))
     }
@@ -2154,17 +2154,17 @@ export class Host {
     this.profileAgents.delete(profileId)
     this.db.prepare('delete from kv where key = ?').run(`agent:${profile.agent}:${profileId}`)
     for (const row of users) {
-      // Prima la revoca: scioglie le conferme del browser dell'agente ancora aperte, finché il runtime le trova.
+      // Revocation first: it releases the agent browser's confirmations still open, while the runtime can find them.
       this.revokeTools(row.id)
       this.runtimes.get(row.id)?.adapter.close()
       this.runtimes.delete(row.id)
-      // La conversazione sta nella cartella del profilo: col predefinito il resume non la troverebbe, riparte una nuova.
-      // La trascrizione in Ladder resta.
-      // Per i terminali la conversazione da riprendere è agent_ref.
+      // The conversation lives in the profile folder: with the default, resume would not find it, so a new one starts.
+      // The transcript in Ladder stays.
+      // For terminals the conversation to resume is agent_ref.
       this.updateRow(row.id, { profile_id: null, external_id: null, ...(row.mode === 'terminal' ? { agent_ref: null } : {}) })
       if (!row.archived) this.emitSummary(row.id)
     }
-    // Anche i progetti che lo avevano scelto tornano al predefinito.
+    // Projects that had chosen it go back to the default too.
     for (const project of this.projects.values()) {
       if (!Object.values(project.profiles ?? {}).includes(profileId)) continue
       this.refreshProject(project.id)
@@ -2172,7 +2172,7 @@ export class Host {
     this.broadcast({ type: 'profile.removed', profileId })
   }
 
-  /** Il profilo con cui un progetto avvia le nuove sessioni di un agente; le sessioni esistenti tengono il loro. */
+  /** The profile a project uses to start new sessions of an agent; existing sessions keep theirs. */
   private setProjectProfile(projectId: string, agent: ProfileAgent, profileId: string | null): Project {
     this.mustProject(projectId)
     this.profiles.setForProject(projectId, agent, profileId)
@@ -2197,7 +2197,7 @@ export class Host {
     const project = await this.projectFromRow(row)
     this.projects.set(project.id, project)
     this.ports.allocate(project.path)
-    // File personali di Ladder fuori da git, senza toccare il .gitignore del progetto.
+    // Ladder's personal files stay out of git, without touching the project's .gitignore.
     if (project.isGit) void ensureExcluded(project.path, PERSONAL_PATTERNS).catch(() => undefined)
     this.broadcast({ type: 'project.upsert', project })
     this.projectGroups.sync()
@@ -2211,21 +2211,21 @@ export class Host {
     const shellCommand = mode === 'terminal' ? (command.command?.trim() || 'claude') : null
     const title = command.title?.trim() || (mode === 'terminal' && !command.text.trim() ? shellCommand! : titleFrom(command.text))
 
-    // Worktree: cartella e branch nuovi, file da copiare, poi lo script di setup prima di partire.
+    // Worktree: new folder and branch, files to copy, then the setup script before starting.
     let worktree: WorktreeInfo | null = null
     const settings = await loadProjectSettings(project.path)
-    // Regole del progetto ([agents] in .ladder/settings.toml): agenti ammessi e livello di permesso massimo.
+    // Project rules ([agents] in .ladder/settings.toml): allowed agents and maximum permission level.
     if (mode === 'chat') this.assertHandoffAgent(settings, command.agent)
-    // Profilo (account) della sessione: scelto qui, poi non cambia più (nemmeno alla ripresa).
-    // Una sessione terminale ha agente 'claude-code' per la UI: il profilo è quello del programma del comando.
+    // Session profile (account): chosen here, then it never changes (not even on resume).
+    // A terminal session has agent 'claude-code' for the UI: the profile is that of the command's program.
     const programAgent = mode === 'terminal' ? terminalAgent(shellCommand) : command.agent
     const requested = mode === 'terminal' && command.profileId && !isDefaultProfileId(command.profileId) && this.profiles.get(command.profileId)?.agent !== programAgent ? null : command.profileId
     const profileId = this.profiles.resolve(programAgent, project.id, requested)
     command = { ...command, permission: clampPermission(command.permission, settings.agents.permissionsMax) }
     const notices: string[] = []
-    // Un branch esistente già estratto nel checkout principale non può avere un worktree: si lavora lì.
+    // An existing branch already checked out in the main checkout cannot have a worktree: work happens there.
     let wanted: WorktreeBranch | null = command.branch ?? null
-    // Nome scelto nella nuova chat: usato così com'è. Un branch che esiste già non si riusa di nascosto (lo farebbe `wanted` come "esistente").
+    // Name chosen in the new chat: used as is. A branch that already exists is not silently reused (`wanted` would treat it as "existing").
     const chosenName = !wanted && command.worktree && typeof command.newBranch === 'string' ? command.newBranch.trim() : ''
     if (chosenName) {
       if (!validBranchName(chosenName)) throw new Error(t('“{name}” is not a valid branch name: use letters, digits and . _ / @ + -, and no spaces.', { name: chosenName }))
@@ -2238,14 +2238,14 @@ export class Host {
     if (command.worktree && !useWorktree) notices.push(t('Branch {branch} is already checked out in the main checkout: the session works there.', { branch: wanted!.name }))
     if (useWorktree) {
       if (!project.isGit) throw new Error(t('A worktree requires a git repository.'))
-      // Il branch non si rinomina dopo la creazione: se il messaggio cita un'issue, il suo identificatore entra nel nome.
-      // Il nome suggerito da Linear richiede la sua API con le credenziali dell'utente: non si usa.
+      // The branch is not renamed after creation: if the message cites an issue, its identifier goes into the name.
+      // The name suggested by Linear needs its API with the user's credentials: not used.
       const ref = wanted ? null : issueRef(command.text, this.teamsOf(project.id))
-      // Senza issue citata e con i titoli generati accesi, il nome del branch lo propone il modello piccolo (timeout breve: si ricade sul titolo).
+      // With no issue cited and generated titles on, the small model proposes the branch name (short timeout: it falls back to the title).
       const named = !wanted && !ref && mode === 'chat' ? await this.branchName(project.id, command.agent, profileId, command.text) : null
       const created = await createWorktree(project, withIssue(named ?? title, ref, ' '), settings.worktree.copy, wanted, { dir: this.prefs.worktreesDir, branchPrefix: this.prefs.branchPrefix, startFrom: startFrom || undefined, strictName: Boolean(chosenName) })
       worktree = created.info
-      // Lo slot di porte si sceglie ora, saltando i blocchi la cui base è occupata da qualcun altro.
+      // The port slot is chosen now, skipping blocks whose base is taken by someone else.
       await this.ports.reserve(worktree.path)
       void ensureExcluded(project.path, PERSONAL_PATTERNS).catch(() => undefined)
       if (created.missing.length) notices.push(t('Files to copy that were not found in the project: {files}.', { files: created.missing.join(', ') }))
@@ -2277,7 +2277,7 @@ export class Host {
       agent_ref: null,
       activity_at: now,
       source: command.source ? JSON.stringify(command.source) : null,
-      // Un titolo dato alla creazione è una scelta dell'utente.
+      // A title given at creation is a user choice.
       title_source: command.title?.trim() ? 'user' : 'provisional',
       profile_id: profileId,
       permission_next: null,
@@ -2306,17 +2306,17 @@ export class Host {
     }
 
     if (worktree && settings.worktree.setup && (command.setupWait ?? settings.worktree.setupWait) === false) {
-      // La sessione parte subito; lo script gira in parallelo nel terminale "setup" e un'uscita con errore si segnala.
+      // The session starts at once; the script runs in parallel in the "setup" terminal and an exit with an error is reported.
       this.emitSummary(row.id)
       void this.runSetup(row.id, project, worktree.path, settings.worktree.setup).then((code) => {
-        // Archiviata durante il setup: l'uscita è dovuta alla chiusura del terminale, niente note.
+        // Archived during setup: the exit is due to the terminal closing, no notes.
         if (this.isGone(row.id)) return
         this.noticeSetupFailed(row.id, code, false)
         return this.startServices(row.id, project, worktree.path, settings.worktree, code)
       })
       await beginHeld()
     } else if (worktree && settings.worktree.setup) {
-      // Il primo messaggio aspetta in coda che il setup finisca; nel frattempo la sessione è "in corso".
+      // The first message waits in the queue for setup to finish; meanwhile the session is "running".
       this.preparing.add(row.id)
       if (mode === 'chat') {
         const queued: QueuedMessage = { id: randomUUID(), text: command.text, ...(command.attachments?.length ? { attachments: command.attachments } : {}) }
@@ -2357,7 +2357,7 @@ export class Host {
       })
     } else {
       this.emitSummary(row.id)
-      // Senza setup i servizi partono subito.
+      // Without setup the services start at once.
       if (worktree) void this.startServices(row.id, project, worktree.path, settings.worktree, 0)
       await beginHeld()
     }
@@ -2365,13 +2365,13 @@ export class Host {
   }
 
   /**
-   * Avvia i servizi del worktree (`[[worktree.services]]`, LAD-66), uno in un terminale `service`. `setupCode`: esito dello script di setup
-   * (0 se non c'è); se è fallito i servizi non partono. Un servizio con `port` riceve LADDER_PORT: la prima porta libera del blocco del worktree
-   * (bind di prova), così due worktree dello stesso progetto non si scontrano. Non lancia mai: un problema diventa una nota nella sessione.
+   * Starts the worktree's services (`[[worktree.services]]`), each in a `service` terminal. `setupCode`: exit code of the setup script
+   * (0 if there is none); if it failed the services do not start. A service with `port` gets LADDER_PORT: the first free port in the worktree's block
+   * (trial bind), so two worktrees of the same project do not collide. Never throws: a problem becomes a note in the session.
    */
   private startServices(sessionId: string, project: Project, cwd: string, config: ProjectSettings['worktree'], setupCode: number | null): Promise<void> {
     const run = this.runServices(sessionId, project, cwd, config, setupCode)
-    // La promessa si tiene per sessione: archive() la aspetta prima di fermare i servizi, così nessuno parte dopo.
+    // The promise is kept per session: archive() waits for it before stopping services, so none starts afterwards.
     this.servicesStarting.set(sessionId, run)
     void run.then(() => {
       if (this.servicesStarting.get(sessionId) === run) this.servicesStarting.delete(sessionId)
@@ -2379,13 +2379,13 @@ export class Host {
     return run
   }
 
-  /** Sessione archiviata o in archiviazione: non si avviano più servizi né note di setup. */
+  /** Archived or being archived session: no more services or setup notes start. */
   private isGone(sessionId: string): boolean {
     return this.rows.get(sessionId)?.archived !== 0 || this.archiving.has(sessionId)
   }
 
   private async runServices(sessionId: string, project: Project, cwd: string, config: ProjectSettings['worktree'], setupCode: number | null): Promise<void> {
-    // I servizi disattivati (`disabled`) restano nell'elenco ma non partono.
+    // Disabled services (`disabled`) stay in the list but do not start.
     const services = config.services.filter((s) => !s.disabled && s.command.trim())
     if (!services.length) return
     const noticeError = (text: string) => {
@@ -2395,13 +2395,13 @@ export class Host {
     try {
       if (this.isGone(sessionId)) return
       if (setupCode !== 0) return noticeError(t('The worktree services were not started because the setup script failed.'))
-      // La base resta a setup, shell e [[run]]: i servizi partono da base + 1, così un `[[run]] dev --port $LADDER_PORT` non li scontra.
+      // The base stays for setup, shell and [[run]]: services start from base + 1, so a `[[run]] dev --port $LADDER_PORT` does not collide with them.
       const base = this.ports.allocate(cwd) + 1
       const count = config.ports - 1
       const taken = new Set<number>()
       if (count < 1 && services.some((s) => s.port)) noticeError(t('The services with a port were not started: worktree.ports must be at least 2 (the first port is kept for setup and [[run]] actions).'))
       for (const service of services) {
-        // La sessione può essere stata archiviata mentre si aspettava il setup.
+        // The session may have been archived while waiting for setup.
         if (this.isGone(sessionId)) return
         let port: number | null = null
         if (service.port) {
@@ -2412,7 +2412,7 @@ export class Host {
             continue
           }
           taken.add(port)
-          // freePort è asincrono: l'archiviazione può essere arrivata nel frattempo.
+          // freePort is asynchronous: archival may have arrived in the meantime.
           if (this.isGone(sessionId)) return
         }
         this.terminals.spawn({ projectId: project.id, sessionId, kind: 'service', title: service.name, cwd, command: service.command, port })
@@ -2423,8 +2423,8 @@ export class Host {
   }
 
   /**
-   * Riavviando un servizio (già fermato da restartTerminal) la sua porta può essere stata presa da altri: se è libera resta, altrimenti se ne assegna un'altra del blocco
-   * (da base + 1, senza quelle degli altri servizi del worktree). Per gli altri terminali nessun cambio.
+   * When restarting a service (already stopped by restartTerminal) its port may have been taken by others: if it is free it stays, otherwise another from the block is assigned
+   * (from base + 1, excluding those of the worktree's other services). No change for other terminals.
    */
   private async servicePort(id: string): Promise<Partial<SpawnOptions>> {
     const term = this.terminals.get(id)
@@ -2439,11 +2439,11 @@ export class Host {
   }
 
   /**
-   * Riavvio di un terminale. Un servizio acceso si ferma davvero (processi usciti, porta libera) prima di ripartire; una sessione
-   * archiviata o in archiviazione non riparte, nemmeno se l'archiviazione arriva mentre si aspetta lo stop.
+   * Restart of a terminal. A running service really stops (processes exited, port free) before starting again; an archived
+   * or being-archived session does not restart, even if archival arrives while waiting for the stop.
    */
   private async restartTerminal(id: string): Promise<TerminalInfo> {
-    // Il sessionId si legge una volta: se l'archiviazione chiude il terminale mentre si aspetta, l'errore resta «archiviata».
+    // The sessionId is read once: if archival closes the terminal while waiting, the error stays "archived".
     const sessionId = this.terminals.get(id)?.sessionId
     const gone = () => !!sessionId && this.isGone(sessionId)
     if (gone()) throw new Error(t('The session is archived.'))
@@ -2459,14 +2459,14 @@ export class Host {
     }
   }
 
-  /** Ferma i servizi di un worktree e aspetta che i loro processi siano usciti (porte libere). I terminali restano: li chiude chi archivia. */
+  /** Stops a worktree's services and waits for their processes to exit (ports free). Terminals stay: whoever archives closes them. */
   private async stopServices(cwd: string): Promise<void> {
-    // Anche a shell uscita: un `cmd &` lasciato in background tiene la porta, e il suo gruppo di processi è ancora vivo.
+    // Even after the shell has exited: a `cmd &` left in the background holds the port, and its process group is still alive.
     const alive = this.terminals.list().filter((term) => term.kind === 'service' && term.cwd === cwd && (term.state === 'running' || this.terminals.isAlive(term.id)))
     await Promise.all(alive.map((term) => this.terminals.stop(term.id)))
   }
 
-  /** Lo script di setup è uscito con errore: una nota nella sessione. `waited`: la sessione partiva dopo di lui. */
+  /** The setup script exited with an error: a note in the session. `waited`: the session was starting after it. */
   private noticeSetupFailed(sessionId: string, code: number | null, waited: boolean): void {
     if (code === 0) return
     const tail = waited ? t('The session starts anyway.') : t('The session had already started.')
@@ -2498,8 +2498,8 @@ export class Host {
   }
 
   /**
-   * Archivia le sessioni ferme da `autoArchiveDays` giorni: senza turno, richieste, coda, setup o terminale in corso (i servizi, sempre accesi, non contano: archive() li ferma).
-   * Parte all'avvio, a ogni cambio della preferenza e ogni ora.
+   * Archives sessions idle for `autoArchiveDays` days: with no turn, requests, queue, setup or terminal in progress (services, always on, do not count: archive() stops them).
+   * It runs at startup, on every preference change and every hour.
    */
   private async autoArchive(): Promise<void> {
     if (this.archiveTimer) clearTimeout(this.archiveTimer)
@@ -2517,22 +2517,22 @@ export class Host {
         await this.archive(row.id)
         archived.push(row.id)
       } catch {
-        // Una sessione che non si archivia non ferma le altre; si riprova al giro dopo.
+        // A session that fails to archive does not stop the others; it is retried next round.
       }
     }
     if (archived.length) this.broadcast({ type: 'sessions.autoArchived', sessionIds: archived })
   }
 
   /**
-   * Riavvio dell'agente (per esempio dopo aver aggiunto un server MCP): la conversazione resta su disco e il prossimo turno
-   * la riprende (resume) con un processo nuovo. Non interrompe niente: con un turno o sotto-agenti al lavoro aspetta la fine.
-   * Si perdono solo le approvazioni "per questa sessione" date nel processo vecchio: l'agente le richiederà.
+   * Agent restart (for example after adding an MCP server): the conversation stays on disk and the next turn
+   * resumes it (resume) with a new process. It interrupts nothing: with a turn or subagents working it waits for the end.
+   * Only the "for this session" approvals given in the old process are lost: the agent will ask for them again.
    */
   private restartAgent(sessionId: string): void {
     const row = this.mustRow(sessionId)
     if (this.isGone(sessionId)) return
     if (row.mode === 'terminal') throw new Error(t('Terminal sessions restart from their terminal.'))
-    // Solo gli agenti che riprendono la conversazione da un processo nuovo: gli altri ripartirebbero da zero.
+    // Only agents that resume the conversation from a new process: the others would start from scratch.
     if (!RESTARTABLE_AGENTS.has(row.agent)) throw new Error(t('This agent can’t continue the conversation after a restart.'))
     const runtime = this.runtimes.get(sessionId)
     if (runtime && this.agentBusy(sessionId, runtime)) {
@@ -2554,9 +2554,9 @@ export class Host {
   }
 
   /**
-   * Il processo serve ancora: turno aperto o in chiusura, sotto-agenti o comandi in background vivi,
-   * o un sotto-agente appena finito il cui risultato l'agente non ha ancora ricevuto (turno implicito in arrivo).
-   * ownClosing: chiusure di turno da non contare (da onTurnEnd, la propria).
+   * The process is still needed: turn open or closing, subagents or background commands alive,
+   * or a subagent just finished whose result the agent has not received yet (implicit turn coming).
+   * ownClosing: turn endings not to count (from onTurnEnd, its own).
    */
   private agentBusy(sessionId: string, runtime: Runtime, ownClosing = 0): boolean {
     return (
@@ -2576,7 +2576,7 @@ export class Host {
     this.ladderMcp.revoke(sessionId)
   }
 
-  /** Chiude il processo dell'agente senza toccare la sessione: come l'archiviazione, prima la revoca del browser dell'agente. */
+  /** Closes the agent process without touching the session: like archival, the agent browser's revocation comes first. */
   private closeRuntime(sessionId: string): void {
     this.revokeTools(sessionId)
     this.runtimes.get(sessionId)?.adapter.close()
@@ -2589,9 +2589,9 @@ export class Host {
     this.flush()
   }
 
-  /** `cleanup: false` quando il chiamante toglie il worktree: lo script di pulizia parte da removeWorktree. */
+  /** `cleanup: false` when the caller removes the worktree: the cleanup script starts from removeWorktree. */
   private async archive(sessionId: string, options: { cleanup?: boolean } = {}): Promise<void> {
-    // Doppio clic, archiviazione automatica e PR unita: chi arriva dopo aspetta la stessa archiviazione, lo script di pulizia parte una volta sola.
+    // Double click, automatic archival and merged PR: whoever arrives later waits for the same archival, the cleanup script runs only once.
     const running = this.archiveRuns.get(sessionId)
     if (running) return running
     const row = this.mustRow(sessionId)
@@ -2608,7 +2608,7 @@ export class Host {
   private async runArchive(sessionId: string, row: SessionRow, options: { cleanup?: boolean }): Promise<void> {
     // From here the session is "archiving": send, turn starts, restarts and new services are refused (even a concurrent session.advise).
     this.archiving.add(sessionId)
-    // Progetto e script di pulizia si leggono ora, prima di ogni attesa: project.remove può togliere il progetto mentre i servizi si fermano.
+    // Project and cleanup script are read now, before any wait: project.remove may remove the project while services stop.
     let project: Project | undefined
     let script: string | null = null
     // Child with its own worktree (delegate with worktree: true): at the end of archiving the worktree is removed if clean.
@@ -2627,7 +2627,7 @@ export class Host {
     }
     this.emitSummary(sessionId)
     this.attention({ kind: 'resolved', sessionId, itemId: null })
-    // Comando di chiusura del worktree (per esempio docker compose down), in processo e con timeout. Il worktree resta: lo toglie archiveMerged.
+    // Worktree close command (for example docker compose down), in-process and with a timeout. The worktree stays: archiveMerged removes it.
     let cleanupOk = true
     if (project && script) {
       const cwd = this.cwdOf(row)
@@ -2681,7 +2681,7 @@ export class Host {
     for (const key of [...this.reviewForwarded]) if (key.startsWith(`${sessionId}\0`)) this.reviewForwarded.delete(key)
     // A plan task's turn will never finish (events from the closed adapter are ignored): the plan learns of it immediately.
     await this.plans.sessionGone(sessionId).catch(() => undefined)
-    // Prima la revoca scioglie le conferme del browser dell'agente ancora aperte (expireRequest ha bisogno del runtime).
+    // Revocation first releases the agent browser's confirmations still open (expireRequest needs the runtime).
     this.revokeTools(sessionId)
     const closing = this.runtimes.get(sessionId)
     if (closing?.handoff) {
@@ -2705,8 +2705,8 @@ export class Host {
     clearTimeout(this.agentsWait.get(sessionId))
     this.agentsWait.delete(sessionId)
     this.broadcast({ type: 'session.subagents', sessionId, subagents: [] })
-    // Prima si aspetta l'eventuale avvio dei servizi (che da ora non spawna più), poi i servizi del worktree (LAD-66) si fermano
-    // davvero e liberano le porte, poi si chiudono tutti i terminali (i servizi con attesa).
+    // First wait for any pending service start (which from now on does not spawn), then the worktree's services really stop
+    // and free their ports, then all terminals close (services with a wait).
     await this.servicesStarting.get(sessionId)
     // Folder also used by another live session (linked sessions): services do not stop, they pass to that session.
     const heir = this.worktreeHeir(row)
@@ -2726,7 +2726,7 @@ export class Host {
     this.updateRow(sessionId, { archived: 1, run_state: 'idle' })
   }
 
-  /** Lo script di pulizia è fallito o scaduto: una nota nella sessione, che prosegue comunque. */
+  /** The cleanup script failed or timed out: a note in the session, which carries on anyway. */
   private noticeCleanup(sessionId: string, result: CleanupResult | null): void {
     if (!result || (result.code === 0 && !result.timedOut)) return
     const tail = result.output ? ` ${result.output.split('\n').slice(-3).join(' ').slice(-300)}` : ''
@@ -2743,7 +2743,7 @@ export class Host {
     this.flush()
   }
 
-  // ── Azioni di avvio ([[run]] in .ladder/settings.toml) ────────────────────
+  // ── Start actions ([[run]] in .ladder/settings.toml) ────────────────────
 
   private async startRun(projectId: string, sessionId: string | null, name: string): Promise<TerminalInfo> {
     const project = this.mustProject(projectId)
@@ -2753,15 +2753,15 @@ export class Host {
     const row = sessionId ? this.rows.get(sessionId) : undefined
     const cwd = row ? this.cwdOf(row) : project.path
     const same = this.terminals.list().filter((t) => t.kind === 'run' && t.title === action.name && t.cwd === cwd)
-    // Un'esecuzione alla volta: si riavvia quella che c'è. Con concurrent = true se ne apre un'altra solo se quella gira ancora.
+    // One run at a time: the existing one is restarted. With concurrent = true another opens only if the existing one is still running.
     const reusable = action.concurrent ? same.find((t) => t.state !== 'running') : same[0]
     if (reusable) return this.terminals.restart(reusable.id, { command: action.command })
     return this.terminals.spawn({ projectId, sessionId, kind: 'run', title: action.name, cwd, command: action.command, port: this.ports.allocate(cwd) })
   }
 
-  // ── Sessioni terminale ───────────────────────────────────────────────────
+  // ── Terminal sessions ───────────────────────────────────────────────────
 
-  /** Avvia la CLI della sessione nel suo terminale. `prompt` diventa il primo messaggio per claude e codex. */
+  /** Starts the session's CLI in its terminal. `prompt` becomes the first message for claude and codex. */
   private startTerminalAgent(sessionId: string, prompt: string | null, resume = false): void {
     const row = this.mustRow(sessionId)
     const project = this.mustProject(row.project_id)
@@ -2785,7 +2785,7 @@ export class Host {
       options.args = [...words.slice(1), ...(prompt && !resume ? [prompt] : [])]
       options.agent = { kind, claudeSessionId: claudeId, resume }
       const configDir = this.profiles.configDir(row.profile_id)
-      // Sempre assegnato, anche vuoto: restart() unisce le opzioni e terrebbe l'env di un profilo rimosso.
+      // Always set, even if empty: restart() merges the options and would keep the env of a removed profile.
       options.env = configDir ? { CLAUDE_CONFIG_DIR: configDir } : {}
     } else if (kind === 'codex') {
       options.file = words[0]
@@ -2799,14 +2799,14 @@ export class Host {
     const existing = this.terminals.bySession(sessionId, 'agent')[0]
     const resolved = options.file && !options.file.includes('/') ? null : options.file
     void (async () => {
-      // Le app GUI non vedono il PATH della shell: il comando si risolve con la shell di login.
+      // GUI apps do not see the shell's PATH: the command is resolved with the login shell.
       if (options.file && !resolved) options.file = (await whichInShell(options.file)) ?? options.file
       if (existing) this.terminals.restart(existing.id, options)
       else this.terminals.spawn(options)
       this.updateRow(sessionId, { run_state: kind === 'generic' ? 'running' : 'starting', estimated: kind === 'generic' ? 1 : 0 })
       this.termStatus.set(sessionId, { label: null, activity: null, turn: null, waitingSince: null })
       this.emitSummary(sessionId)
-      // Checkpoint di inizio sessione: è il "prima" del diff della sessione.
+      // Session start checkpoint: it is the "before" of the session's diff.
       if (!resume) void this.terminalCheckpoint(sessionId, 'session', 'start', t('Session start'))
     })()
   }
@@ -2875,7 +2875,7 @@ export class Host {
       case 'done': {
         status.label = null
         status.activity = null
-        // Fine turno: la sessione diventa "da leggere" e il turno ha il suo checkpoint di fine.
+        // End of turn: the session becomes "unread" and the turn gets its end checkpoint.
         const seq = row.last_seq + 1
         const now = Date.now()
         this.updateRow(sessionId, { run_state: 'idle', estimated: signal.estimated ? 1 : 0, last_seq: seq, last_activity_seq: seq, activity_at: now })
@@ -2915,7 +2915,7 @@ export class Host {
     if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
     if (this.isBusy(sessionId)) {
       if (busy === 'steer' && (await this.steerInto(sessionId, text, attachments))) return
-      // Il turno può essere finito mentre aspettavamo l'agente: allora il messaggio parte, non resta in coda.
+      // The turn may have ended while we waited for the agent: then the message starts, it does not stay queued.
       if (this.isBusy(sessionId)) {
         const queue = JSON.parse(this.mustRow(sessionId).queue) as QueuedMessage[]
         queue.push({ id: randomUUID(), text, ...(attachments.length ? { attachments } : {}) })
@@ -2927,32 +2927,32 @@ export class Host {
     await this.startTurn(sessionId, text, attachments)
   }
 
-  /** La sessione non può avviare un turno adesso: sta lavorando, aspetta una risposta o il setup. */
+  /** The session cannot start a turn now: it is working, waiting for an answer or for setup. */
   private isBusy(sessionId: string): boolean {
     const row = this.mustRow(sessionId)
-    // Durante un cambio di branch del checkout principale nessun turno parte lì: il messaggio va in coda e riparte a cambio finito.
+    // During a branch switch of the main checkout no turn starts there: the message is queued and restarts when the switch ends.
     if (!row.worktree && this.switchingBranch.has(row.project_id)) return true
     return this.isBusyNow(sessionId)
   }
 
-  /** Come `isBusy`, senza il cambio di branch in corso (che è ciò che il controllo del cambio stesso deve ignorare). */
+  /** Like `isBusy`, without the branch switch in progress (which is what the switch's own check must ignore). */
   private isBusyNow(sessionId: string): boolean {
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
-    // Il turno host resta aperto finché onTurnEnd non ha finito: un invio in quel tempo va in coda e lo prende lo svuotamento finale.
+    // The host turn stays open until onTurnEnd has finished: a send in that time is queued and the final drain picks it up.
     return !!runtime?.adapter.isRunning || !!runtime?.turnId || (runtime?.closing ?? 0) > 0 || !!runtime?.exited || row.run_state === 'waiting' || this.preparing.has(sessionId) || (this.starting.get(sessionId) ?? 0) > 0
   }
 
-  /** L'agente accetta messaggi dentro il turno in corso (Claude e Codex; gli agenti ACP no). */
+  /** The agent accepts messages inside the current turn (Claude and Codex; ACP agents do not). */
   private canSteer(row: SessionRow): boolean {
     return row.mode !== 'terminal' && (row.agent === 'claude-code' || row.agent === 'codex')
   }
 
   /**
-   * Inserisce il messaggio nel turno in corso, con la riga 'user' subito nel turno. False se non si può
-   * (agente senza inserimento, turno di un comando /, richiesta aperta, interruzione in corso): il chiamante accoda.
-   * Con una richiesta aperta si accoda per scelta: l'agente è fermo su una tua risposta e un messaggio in mezzo
-   * cambierebbe il contesto di quella richiesta.
+   * Inserts the message into the current turn, with the 'user' row right in the turn. False if it cannot
+   * (agent without insertion, / command turn, open request, interruption in progress): the caller queues it.
+   * With an open request it queues by choice: the agent is stopped waiting for your answer and a message in between
+   * would change that request's context.
    */
   private async steerInto(sessionId: string, text: string, attachments: Attachment[]): Promise<boolean> {
     const row = this.mustRow(sessionId)
@@ -2960,7 +2960,7 @@ export class Host {
     if (!runtime?.turnId || !runtime.adapter.steer || !runtime.adapter.isRunning) return false
     if (!this.canSteer(row) || row.run_state !== 'running' || runtime.command || runtime.handoff || runtime.interrupting || runtime.closing > 0 || this.preparing.has(sessionId)) return false
     const turnId = runtime.turnId
-    // L'id della riga è anche l'uuid del messaggio nello stream: serve a ritrovarla se gira da solo.
+    // The row id is also the message uuid in the stream: needed to find it again if it runs on its own.
     const id = randomUUID()
     if (!(await runtime.adapter.steer(text, attachments, id))) return false
     this.upsertItem(sessionId, this.userItem(turnId, text, attachments, { id, steered: true }))
@@ -2969,8 +2969,8 @@ export class Host {
   }
 
   /**
-   * Consegna un messaggio della coda. 'steer': entra nel turno in corso. 'now': interrompe il turno e parte
-   * questo davanti al resto della coda. Da fermo parte come un messaggio normale.
+   * Delivers a queued message. 'steer': enters the current turn. 'now': interrupts the turn and starts
+   * this one ahead of the rest of the queue. When idle it starts like a normal message.
    */
   private async deliverQueued(sessionId: string, id: string, how: 'steer' | 'now'): Promise<void> {
     const row = this.mustRow(sessionId)
@@ -2984,7 +2984,7 @@ export class Host {
     const working = !!runtime?.adapter.isRunning && !this.preparing.has(sessionId)
 
     if (!working && !this.isBusy(sessionId)) {
-      // Da fermo: nessun turno da cui entrare o da interrompere, parte come un messaggio normale.
+      // When idle: no turn to enter or interrupt, it starts like a normal message.
       this.updateRow(sessionId, { queue: JSON.stringify(queue) })
       this.emitSummary(sessionId)
       await this.startTurn(sessionId, message.text, attachments)
@@ -2998,21 +2998,21 @@ export class Host {
         this.emitSummary(sessionId)
         return
       }
-      // Il turno è finito mentre inserivamo e la sessione è libera: il messaggio parte come uno normale.
+      // The turn ended while we were inserting and the session is free: the message starts like a normal one.
       if (!this.isBusy(sessionId)) {
         this.emitSummary(sessionId)
         await this.startTurn(sessionId, message.text, attachments)
         return
       }
-      // Il turno non accetta messaggi: il messaggio torna al suo posto.
+      // The turn does not accept messages: the message goes back to its place.
       const current = JSON.parse(this.mustRow(sessionId).queue) as QueuedMessage[]
       current.splice(Math.min(index, current.length), 0, message)
       this.updateRow(sessionId, { queue: JSON.stringify(current) })
       this.emitSummary(sessionId)
       throw new Error(t('The message could not be added to the running turn.'))
     }
-    // Con messaggi inseriti pendenti (Claude) il messaggio entra nello stream subito dopo la ricevuta dell'interruzione:
-    // CLI e host aprono così un solo turno (quello implicito) con i pendenti e il messaggio.
+    // With pending inserted messages (Claude) the message enters the stream right after the interruption receipt:
+    // the CLI and the host thus open a single turn (the implicit one) with the pending ones and the message.
     if (working && runtime?.adapter.interruptThenSend && (runtime.adapter.pendingSteerCount ?? 0) > 0) {
       const turnId = runtime.turnId ?? 'system'
       this.updateRow(sessionId, { queue: JSON.stringify(queue) })
@@ -3032,7 +3032,7 @@ export class Host {
       }
       return
     }
-    // 'now': in testa alla coda; alla fine dell'interruzione onTurnEnd fa partire il primo.
+    // 'now': at the head of the queue; when the interruption ends onTurnEnd starts the first.
     queue.unshift(message)
     this.updateRow(sessionId, { queue: JSON.stringify(queue) })
     this.emitSummary(sessionId)
@@ -3040,8 +3040,8 @@ export class Host {
   }
 
   /**
-   * Comandi / di una sessione, senza avviare processi: l'elenco della sessione, poi i comandi fissi di Codex,
-   * poi l'ultimo elenco noto per agente e cartella. L'elenco vero arriva con l'evento quando il runtime parte.
+   * / commands of a session, without starting processes: the session's list, then Codex's fixed commands,
+   * then the last known list per agent and folder. The real list arrives with the event when the runtime starts.
    */
   private commandsFor(sessionId: string): SlashCommand[] {
     const row = this.rows.get(sessionId)
@@ -3052,7 +3052,7 @@ export class Host {
     return this.lastCommands.get(`${row.agent}\0${this.cwdOf(row)}`) ?? []
   }
 
-  /** Esegue un comando / dell'agente: un turno come gli altri, ma con una riga 'command' al posto di quella dell'utente. */
+  /** Runs an agent / command: a turn like the others, but with a 'command' row in place of the user's. */
   private async runCommand(sessionId: string, name: string, args: string): Promise<void> {
     const row = this.mustRow(sessionId)
     if (row.mode === 'terminal') throw new Error(t('A terminal session is used from its terminal.'))
@@ -3061,9 +3061,9 @@ export class Host {
     await this.startTurn(sessionId, `/${name} ${args}`.trim(), [], { name, args })
   }
 
-  /** Il processo dell'agente della sessione: lo crea e lo avvia se non c'è. */
+  /** The session's agent process: creates and starts it if missing. */
   private ensureRuntime(sessionId: string): Runtime {
-    // Una sessione archiviata o in archiviazione non riavvia l'agente: nascerebbe un processo che nessuno chiude.
+    // An archived or being-archived session does not restart the agent: it would create a process nobody closes.
     if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
     const existing = this.runtimes.get(sessionId)
     if (existing) return existing
@@ -3082,7 +3082,7 @@ export class Host {
     return runtime
   }
 
-  /** Gli eventi di un adapter che non è più quello della sessione (chiuso, sostituito) si ignorano. */
+  /** Events from an adapter that is no longer the session's (closed, replaced) are ignored. */
   private guardEvents(sessionId: string, owner: { adapter?: AgentSession }, events: AdapterEvents): AdapterEvents {
     const guarded: Record<string, unknown> = {}
     for (const [name, handler] of Object.entries(events) as [string, (...args: unknown[]) => unknown][]) {
@@ -3094,7 +3094,7 @@ export class Host {
     return guarded as unknown as AdapterEvents
   }
 
-  /** Riga 'user' di un messaggio: la stessa per l'avvio di un turno e per l'inserimento in uno in corso. */
+  /** 'user' row of a message: the same for starting a turn and for inserting into one in progress. */
   private userItem(turnId: string, text: string, attachments: Attachment[], extra: { id?: string; steered?: boolean } = {}): ItemInput {
     return {
       kind: 'user',
@@ -3108,8 +3108,8 @@ export class Host {
   }
 
   /**
-   * Apre un turno lato host: stato del runtime, riga 'running' della sessione e checkpoint di inizio.
-   * `rows` scrive le righe del turno (messaggio dell'utente o comando) con il nuovo turnId.
+   * Opens a turn on the host side: runtime state, the session's 'running' row and start checkpoint.
+   * `rows` writes the turn's rows (user message or command) with the new turnId.
    */
   private async beginTurn(sessionId: string, runtime: Runtime, opts: { title?: string; label: string | null; rows?: (turnId: string, backgroundDone: number) => void; implicit?: boolean; agentsState?: 'resumed' | 'continued' | 'dismissed' }): Promise<string> {
     const row = this.mustRow(sessionId)
@@ -3119,12 +3119,12 @@ export class Host {
     runtime.turnId = turnId
     runtime.implicit = !!opts.implicit
     runtime.approveAll = false
-    // Un turno nuovo dell'utente riabilita gli strumenti del browser dell'agente fermati dall'interruzione del turno, non da uno stop esplicito.
+    // A new user turn re-enables the agent browser tools stopped by the turn's interruption, not by an explicit stop.
     if (!opts.implicit) this.browserAgent.turnStarted(sessionId)
-    // Il conteggio vale per il primo turno dopo la fine dei background, qualunque sia.
+    // The count applies to the first turn after the backgrounds end, whichever it is.
     const backgroundDone = this.agentsBeforeTurn.get(sessionId) ?? 0
     this.agentsBeforeTurn.delete(sessionId)
-    // Un turno qualunque chiude l'attesa dei background: ripartito da solo (implicito) o per un messaggio dell'utente.
+    // Any turn closes the background wait: restarted on its own (implicit) or by a user message.
     this.agentsIdle.delete(sessionId)
     clearTimeout(this.agentsWait.get(sessionId))
     this.agentsWait.delete(sessionId)
@@ -3133,14 +3133,14 @@ export class Host {
     runtime.turnRequests = 0
     runtime.interrupting = false
     runtime.turnCounts = emptyCounts()
-    // Il turno implicito lo apre l'agente per un messaggio inserito: non pota l'elenco.
+    // The implicit turn is opened by the agent for an inserted message: it does not prune the list.
     if (!opts.implicit && this.subagents.turnStarted(sessionId)) this.emitSubagents(sessionId)
     runtime.activity = t('Thinking…')
     opts.rows?.(turnId, backgroundDone)
     this.updateRow(sessionId, { run_state: 'running', ...(opts.title ? { title: opts.title } : {}) })
     this.emitSummary(sessionId)
     this.flush()
-    // Turno già aperto (turnId assegnato): il livello rimasto in attesa vale da questo turno, prima che l'agente riceva il messaggio.
+    // Turn already open (turnId assigned): the level left waiting applies from this turn, before the agent receives the message.
     await this.applyNextPermission(sessionId, runtime)
     runtime.turnStart = project.isGit ? await createCheckpoint(cwd, `refs/ladder/${sessionId}/${turnId}-start`, 'ladder: turn start').catch(() => null) : null
     if (runtime.turnStart) recordCheckpoint(this.db, { session_id: sessionId, turn_id: turnId, kind: 'start', sha: runtime.turnStart, root: cwd, label: opts.label, at: Date.now() })
@@ -3161,11 +3161,11 @@ export class Host {
 
   private async startTurnNow(sessionId: string, text: string, attachments: Attachment[] = [], command: { name: string; args: string } | null = null, system: { rows: (turnId: string) => HandoffRun | void } | null = null): Promise<void> {
     const row = this.mustRow(sessionId)
-    // Browser per l'agente: il server deve già ascoltare quando nasce il runtime (solo se l'interruttore è acceso).
+    // Browser for the agent: the server must already be listening when the runtime is created (only if the switch is on).
     if (this.isGone(sessionId)) return
-    // Riavvio rimandato che non ha trovato una fine turno libera (sotto-agenti in background finiti senza turno): avviene ora, prima del messaggio.
+    // Deferred restart that found no free turn end (background subagents finished without a turn): it happens now, before the message.
     const previous = this.runtimes.get(sessionId)
-    // Senza processo il prossimo nasce già nuovo: un riavvio rimandato non serve più.
+    // Without a process the next one is created fresh: a deferred restart is no longer needed.
     if (!previous) this.restartAfterTurn.delete(sessionId)
     else if (this.restartAfterTurn.has(sessionId) && !this.agentBusy(sessionId, previous)) {
       this.restartAfterTurn.delete(sessionId)
@@ -3179,18 +3179,18 @@ export class Host {
     if (!this.runtimes.has(sessionId)) await this.ladderMcp.start().catch((error: Error) => console.error(`[host] Ladder MCP server: ${error.message}`))
     // Project delegates in the system prompt: the prompt is fixed when the process starts, so they are read first.
     if (!this.runtimes.has(sessionId)) await this.loadDelegateHint(sessionId).catch(() => undefined)
-    // L'archiviazione può essere arrivata mentre si aspettava il browser.
+    // Archival may have arrived while waiting for the browser.
     if (this.isGone(sessionId)) return
     const runtime = this.ensureRuntime(sessionId)
-    // Il titolo nasce dal primo messaggio dell'utente: un comando iniziale non lo consuma.
-    // Un titolo scelto (rinominato o dato alla creazione) non si tocca: si sostituisce solo il segnaposto.
+    // The title comes from the user's first message: an initial command does not consume it.
+    // A chosen title (renamed or given at creation) is left alone: only the placeholder is replaced.
     const firstMessage = !command && !system && isPlaceholderTitle(row.title) && !this.hasUserMessage(sessionId)
     runtime.lastCommand = command?.name ?? null
     await this.beginTurn(sessionId, runtime, {
-      // Il titolo nasce dal primo messaggio, tranne per le sessioni da issue, PR o branch: lì resta il loro titolo.
+      // The title comes from the first message, except for sessions from an issue, PR or branch: those keep their title.
       title: firstMessage && !row.source ? titleFrom(text) : undefined,
       label: titleFrom(text),
-      // Un comando / non è la ripresa dei background.
+      // A / command is not the resumption of backgrounds.
       agentsState: command || system ? 'dismissed' : 'continued',
       rows: (turnId) => {
         if (system) {
@@ -3215,21 +3215,21 @@ export class Host {
   }
 
   /**
-   * Un messaggio inserito che ha superato un'interruzione gira come turno a sé: l'host lo apre qui, così l'output
-   * non va perso. Le sue righe 'user' (già create all'inserimento, id = uuid) passano al nuovo turno senza "steered".
+   * An inserted message that survived an interruption runs as a turn of its own: the host opens it here, so the output
+   * is not lost. Its 'user' rows (already created at insertion, id = uuid) move to the new turn without "steered".
    */
   private async openImplicitTurn(sessionId: string, uuids: string[]): Promise<void> {
     const runtime = this.runtimes.get(sessionId)
     const row = this.rows.get(sessionId)
     if (!runtime || !row || !this.projects.has(row.project_id)) return
-    // Il turno ha subito il suo turnId: l'output non finisce nel turno che si sta chiudendo (onTurnEnd ne ha una fotografia).
+    // The turn has its turnId right away: output does not land in the turn being closed (onTurnEnd holds a snapshot of it).
     await this.beginTurn(sessionId, runtime, {
       label: null,
       implicit: true,
-      // Ripartito da solo dopo i background: 'resumed'. Nato da messaggi inseriti: non c'entra con la riga.
+      // Restarted on its own after the backgrounds: 'resumed'. Born from inserted messages: unrelated to the row.
       agentsState: uuids.length === 0 ? 'resumed' : 'dismissed',
       rows: (turnId, backgroundDone) => {
-        // In testa al turno: perché l'agente è ripartito da solo.
+        // At the head of the turn: because the agent restarted on its own.
         if (uuids.length === 0) {
           this.upsertItem(sessionId, { kind: 'agent-start', id: `${turnId}:start`, turnId, at: Date.now(), reason: backgroundDone > 0 ? 'background-agents' : 'other', finished: backgroundDone > 0 ? backgroundDone : null })
         }
@@ -3243,19 +3243,19 @@ export class Host {
     })
   }
 
-  /** Un solo tentativo automatico: quando il turno del primo messaggio è concluso, se il titolo non è dell'utente. Mai rumore verso l'utente. */
+  /** A single automatic attempt: when the first message's turn is complete, if the title is not the user's. Never noise toward the user. */
   private async autoTitle(sessionId: string): Promise<void> {
     const row = this.rows.get(sessionId)
     if (!row || !this.prefs.generatedTitles || row.mode !== 'chat' || row.title_source !== 'provisional' || this.titling.has(sessionId) || this.titleTried.has(sessionId)) return
-    // Le sessioni da issue, PR o branch tengono il loro titolo.
+    // Sessions from an issue, PR or branch keep their title.
     if (row.source) return
-    // Senza messaggio e risposta del primo turno non si conta come tentativo: si riprova al turno dopo.
+    // Without a message and a reply from the first turn it does not count as an attempt: it is retried next turn.
     if (!this.titleInputs(sessionId)) return
     this.titleTried.add(sessionId)
     await inTitleQueue(() => this.generateTitle(sessionId, false)).catch(() => undefined)
   }
 
-  /** "Rigenera titolo": azione esplicita, vale anche per un titolo rinominato (la sorgente torna 'generated'). */
+  /** "Regenerate title": explicit action, it also applies to a renamed title (the source goes back to 'generated'). */
   private async regenerateTitle(sessionId: string): Promise<string> {
     const row = this.mustRow(sessionId)
     if (row.mode !== 'chat') throw new Error(t('Only chat sessions have a generated title.'))
@@ -3265,7 +3265,7 @@ export class Host {
     return title
   }
 
-  /** Primo messaggio dell'utente e inizio della risposta nello stesso turno, se quel turno è concluso. */
+  /** User's first message and start of the reply in the same turn, if that turn is complete. */
   private titleInputs(sessionId: string): { first: Extract<ChatItem, { kind: 'user' }>; reply: Extract<ChatItem, { kind: 'assistant' }> } | null {
     const items = this.loadItems(sessionId)
     const first = items.find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user')
@@ -3274,7 +3274,7 @@ export class Host {
     return reply ? { first, reply } : null
   }
 
-  /** Prefissi dei team (LAD, LIN…) delle issue da cui sono nate le sessioni del progetto. */
+  /** Team prefixes (LAD, LIN…) of the issues the project's sessions came from. */
   private teamsOf(projectId: string): string[] {
     const refs: string[] = []
     for (const row of this.rows.values()) {
@@ -3284,8 +3284,8 @@ export class Host {
   }
 
   /**
-   * Primo messaggio e inizio della risposta al modello piccolo dell'agente; scrive solo se nel frattempo non è cambiato il titolo.
-   * Restituisce il titolo scritto, o quello corrente se l'utente ha rinominato nel frattempo; null se il modello non ha dato un titolo.
+   * First message and start of the reply to the agent's small model; writes only if the title has not changed in the meantime.
+   * Returns the written title, or the current one if the user renamed in the meantime; null if the model gave no title.
    */
   private async generateTitle(sessionId: string, force: boolean): Promise<string | null> {
     const row = this.mustRow(sessionId)
@@ -3312,7 +3312,7 @@ export class Host {
     }
     const current = this.rows.get(sessionId)
     if (!current) return null
-    // L'utente può aver rinominato mentre il modello lavorava: vince lui, e non è un errore.
+    // The user may have renamed while the model was working: the user wins, and it is not an error.
     if (current.title !== startTitle || (!force && current.title_source === 'user')) {
       this.emitSummary(sessionId)
       return current.title
@@ -3322,7 +3322,7 @@ export class Host {
       return null
     }
     const source = current.source ? (JSON.parse(current.source) as SessionSource) : null
-    // Da issue, PR o Linear il prefisso è il loro riferimento; per un branch non c'è.
+    // From an issue, PR or Linear the prefix is their reference; for a branch there is none.
     const ref = source ? (source.kind === 'branch' ? null : source.ref) : issueRef(inputs.first.text, this.teamsOf(current.project_id))
     const final = clipTitle(withIssue(title, ref))
     this.updateRow(sessionId, { title: final, title_source: 'generated' })
@@ -3330,7 +3330,7 @@ export class Host {
     return final
   }
 
-  /** Generazione di branch, commit e PR accesa: interruttore globale e, se presente, quello del progetto. */
+  /** Branch, commit and PR generation on: global switch and, if present, the project's. */
   private textEnabled(projectId: string): boolean {
     if (this.prefs.generatedText === false) return false
     const row = this.db.prepare('select json from ui_state where project_id = ?').get(projectId) as { json: string } | undefined
@@ -3341,7 +3341,7 @@ export class Host {
     }
   }
 
-  /** LAD-57 parte 2: browser per l'agente acceso? Il progetto (true/false) scavalca l'interruttore globale; predefinito spento. */
+  /** Agent browser on? The project setting (true/false) overrides the global switch; off by default. */
   private agentBrowserEnabled(projectId: string): boolean {
     const row = this.db.prepare('select json from ui_state where project_id = ?').get(projectId) as { json: string } | undefined
     try {
@@ -3352,7 +3352,7 @@ export class Host {
     }
   }
 
-  /** Come titleModel, ma per testo libero con il suo timeout. */
+  /** Like titleModel, but for free text with its own timeout. */
   private textModel(agent: string, profileId: string | null): TextModel | null {
     const custom = customProfileId(profileId)
     const configDir = this.profiles.configDir(profileId)
@@ -3365,7 +3365,7 @@ export class Host {
     return null
   }
 
-  /** Nome del branch dalla richiesta, solo con i testi generati accesi (globale e progetto); null: si usa il nome da titolo. Mai errori. */
+  /** Branch name from the request, only with generated texts on (global and project); null: the name from the title is used. Never errors. */
   private async branchName(projectId: string, agent: string, profileId: string | null, text: string): Promise<string | null> {
     if (!this.textEnabled(projectId) || !text.trim()) return null
     const model = this.textModel(agent, profileId)
@@ -3378,7 +3378,7 @@ export class Host {
     }
   }
 
-  /** Modello, cartella e conversazione di una richiesta di testo; gli errori sono già tradotti. */
+  /** Model, folder and conversation of a text request; errors are already translated. */
   private writingContext(sessionId: string): { row: SessionRow; project: Project; root: string; model: TextModel } {
     const row = this.mustRow(sessionId)
     const project = this.mustProject(row.project_id)
@@ -3395,13 +3395,13 @@ export class Host {
     return abort
   }
 
-  /** text.cancel: ferma la generazione in corso e libera la sessione subito, senza aspettare che il modello si fermi. */
+  /** text.cancel: stops the generation in progress and frees the session at once, without waiting for the model to stop. */
   private cancelWriting(sessionId: string): void {
     this.writing.get(sessionId)?.abort()
     this.writing.delete(sessionId)
   }
 
-  /** Riferimento dell'issue della sessione: dalla sorgente (issue GitHub, Linear) o citata nel primo messaggio. */
+  /** The session's issue reference: from the source (GitHub, Linear issue) or cited in the first message. */
   private issueOf(row: SessionRow, items: ChatItem[]): { ref: string; url: string | null } | null {
     const source = row.source ? (JSON.parse(row.source) as SessionSource) : null
     if (source && (source.kind === 'github-issue' || source.kind === 'linear')) return { ref: source.ref, url: source.url }
@@ -3410,7 +3410,7 @@ export class Host {
     return ref ? { ref, url: null } : null
   }
 
-  /** "Scrivi messaggio": proposta di messaggio di commit dal diff e dalla conversazione. Non committa. */
+  /** "Write message": commit message proposal from the diff and the conversation. It does not commit. */
   private async writeCommit(sessionId: string, wanted: 'staged' | 'working' | undefined): Promise<GeneratedCommit> {
     const { row, project, root, model } = this.writingContext(sessionId)
     const abort = this.beginWriting(sessionId)
@@ -3434,12 +3434,12 @@ export class Host {
       if (!parts) throw new Error(textErrors.failed())
       return { subject: parts.first, body: parts.body, source, files: diff.files, truncated: diff.cut }
     } finally {
-      // Dopo un annullamento la voce può essere già di una richiesta nuova: si libera solo la propria.
+      // After a cancellation the entry may already belong to a new request: only one's own is freed.
       if (this.writing.get(sessionId) === abort) this.writing.delete(sessionId)
     }
   }
 
-  /** Titolo e descrizione della PR dai commit del branch rispetto alla base. Non crea la PR. */
+  /** PR title and description from the branch's commits against the base. It does not create the PR. */
   private async writePr(sessionId: string): Promise<GeneratedPr> {
     const { row, project, root, model } = this.writingContext(sessionId)
     const abort = this.beginWriting(sessionId)
@@ -3464,17 +3464,17 @@ export class Host {
       const parts = raw ? splitText(raw, PR_LABEL, 80, PR_BODY_MAX) : null
       if (!parts) throw new Error(textErrors.failed())
       const issue = this.issueOf(row, items)
-      // Il collegamento lo aggiunge Ladder, in modo uguale ogni volta: "Closes #12" / "Closes LAD-59".
+      // The link is added by Ladder, the same way every time: "Closes #12" / "Closes ABC-59".
       const escaped = issue?.ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       const body = issue && !new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`).test(parts.body) ? `${parts.body}\n\nCloses ${issue.ref}`.trim() : parts.body
       return { title: parts.first, body, issue, base, files: diff.files, truncated: diff.cut }
     } finally {
-      // Dopo un annullamento la voce può essere già di una richiesta nuova: si libera solo la propria.
+      // After a cancellation the entry may already belong to a new request: only one's own is freed.
       if (this.writing.get(sessionId) === abort) this.writing.delete(sessionId)
     }
   }
 
-  /** Il modello piccolo dello stesso fornitore della sessione: Claude (Haiku), Codex (un modello "mini"); gli altri agenti no. */
+  /** The small model from the same provider as the session: Claude (Haiku), Codex (a "mini" model); other agents none. */
   private titleModel(agent: string, profileId: string | null): ((prompt: string) => Promise<string | null>) | null {
     const custom = customProfileId(profileId)
     const configDir = this.profiles.configDir(profileId)
@@ -3523,8 +3523,8 @@ export class Host {
       turnEnd: (result) => {
         const runtime = this.runtimes.get(sessionId)
         if (!runtime) return
-        // Fotografia del turno che si chiude: un turno implicito può aprirsi mentre onTurnEnd aspetta i checkpoint.
-        // Senza un turno aperto non c'è nulla da chiudere (risultato in ritardo dopo un'interruzione).
+        // Snapshot of the turn being closed: an implicit turn may open while onTurnEnd waits for the checkpoints.
+        // Without an open turn there is nothing to close (late result after an interruption).
         if (!runtime.turnId) return
         const snap = { runtime, turnId: runtime.turnId, turnStart: runtime.turnStart, counts: runtime.turnCounts, interrupting: runtime.interrupting, implicit: !!runtime.implicit, agents: runtime.turnAgents ?? 0, requests: runtime.turnRequests ?? 0 }
         runtime.closing++
@@ -3545,7 +3545,7 @@ export class Host {
         const same = [...this.rows.values()].filter((r) => r.agent === row.agent && r.profile_id === row.profile_id && !r.effort)
         const before = new Map(same.map((r) => [r.id, this.effectiveEffort(r)]))
         this.updateAgent(row.agent, { account, email, models, limits }, false, customProfileId(row.profile_id))
-        // L'effort effettivo dipende dai default del modello: se cambia con la nuova lista, il summary si riemette.
+        // The effective effort depends on the model's defaults: if it changes with the new list, the summary is re-emitted.
         for (const r of same) if (this.effectiveEffort(r) !== before.get(r.id)) this.emitSummary(r.id)
       },
       usage: (windows) => {
@@ -3558,7 +3558,7 @@ export class Host {
       },
       subagent: (update) => {
         const found = this.subagents.find(sessionId, update.id)?.info
-        // Chiusa dalla rete di sicurezza: se ora finisce davvero, conta come se fosse stata in corso.
+        // Closed by the safety net: if it now really finishes, it counts as if it had been in progress.
         const before = found && this.subagents.wasExpired(sessionId, update.id) ? { ...found, status: 'running' as const } : found
         const changed = this.subagents.update(sessionId, update)
         const runtimeNow = this.runtimes.get(sessionId)
@@ -3578,7 +3578,7 @@ export class Host {
       compacted: ({ trigger, preTokens, postTokens }) => {
         const runtime = this.runtimes.get(sessionId)
         this.upsertItem(sessionId, { kind: 'compacted', id: randomUUID(), turnId: runtime?.turnId ?? 'system', at: Date.now(), trigger, preTokens, postTokens })
-        // Il contesto scende subito al valore dopo la compattazione.
+        // Context drops at once to the post-compaction value.
         const row = this.rows.get(sessionId)
         const known = row?.context ? (JSON.parse(row.context) as SessionSummary['context']) : null
         if (row && known && postTokens !== null) {
@@ -3602,13 +3602,13 @@ export class Host {
         this.agentsRows.delete(sessionId)
         clearTimeout(this.agentsWait.get(sessionId))
         this.agentsWait.delete(sessionId)
-        // Un comando / avviato dall'utente (es. /exit) può chiudere l'agente di proposito: la coda non riparte.
+        // A / command started by the user (e.g. /exit) can close the agent on purpose: the queue does not restart.
         const byCommand = !!runtime.lastCommand
-        // Le chiusure di turno già in coda finiscono prima di togliere il runtime.
+        // Turn endings already queued finish before the runtime is removed.
         void runtime.ending.then(() => {
           if (this.runtimes.get(sessionId) !== runtime) return
           for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
-          // Turno ancora aperto all'uscita: non è "fatto" (interrotto se l'hai chiesto tu, altrimenti errore).
+          // Turn still open at exit: it is not "done" (interrupted if you asked for it, otherwise an error).
           this.finishCommand(sessionId, runtime, runtime.interrupting ? 'interrupted' : 'error', runtime.interrupting ? null : error ?? t('{agent} exited', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? '') }))
           if (runtime.handoff) {
             const run = runtime.handoff
@@ -3629,7 +3629,7 @@ export class Host {
             this.updateRow(sessionId, { run_state: 'idle' })
           }
           this.emitSummary(sessionId)
-          // Uscita senza errore (non un login fallito o simili): il primo messaggio in coda riparte con un runtime nuovo.
+          // Exit without an error (not a failed login or similar): the first queued message restarts with a new runtime.
           const queue = JSON.parse(this.rows.get(sessionId)?.queue ?? '[]') as QueuedMessage[]
           const early = Date.now() - runtime.startedAt < 5000
           const next = this.rows.get(sessionId)?.run_state === 'idle' && !error && !this.stopped && !byCommand && !early ? queue.shift() : undefined
@@ -3678,7 +3678,7 @@ export class Host {
     })
   }
 
-  /** Modello ed effort del sotto-agente anche sulla riga tool che l'ha lanciato: restano visibili dopo il riavvio. */
+  /** Model and effort of the subagent also on the tool row that launched it: they stay visible after a restart. */
   private saveSubagentMeta(sessionId: string, id: string): void {
     const info = this.subagents.find(sessionId, id)?.info
     const item = info?.toolId ? this.liveItems.get(sessionId)?.get(info.toolId) : undefined
@@ -3688,7 +3688,7 @@ export class Host {
     this.upsertItem(sessionId, { ...item, agent: { model: info.model, effort: info.effort ?? null } })
   }
 
-  /** Chiude la riga 'command' del turno, se il turno veniva da un comando /. */
+  /** Closes the turn's 'command' row, if the turn came from a / command. */
   private finishCommand(sessionId: string, runtime: Runtime, status: 'done' | 'error' | 'interrupted', error: string | null): void {
     const command = runtime.command
     if (!command) return
@@ -3716,7 +3716,7 @@ export class Host {
       return this.openRequest(parent.sessionId, { ...request, title: t('{agent} (delegated): {title}', { agent: this.agentName(own.agent), title: request.title }) }, signal)
     }
     const requestId = randomUUID()
-    // La richiesta è "in sospeso" prima di comparire: il riepilogo della sessione la include già (per "In attesa").
+    // The request is "pending" before it appears: the session summary already includes it (for "Waiting").
     let resolve!: (response: RequestResponse) => void
     const answer = new Promise<RequestResponse>((r) => (resolve = r))
     runtime.pending.set(requestId, { itemId: requestId, resolve })
@@ -3735,7 +3735,7 @@ export class Host {
     this.updateRow(sessionId, { run_state: 'waiting' })
     this.emitSummary(sessionId)
     this.flush()
-    // Passato a Full access a turno in corso (Codex): le richieste di questo turno non aspettano nessuno.
+    // Switched to Full access mid-turn (Codex): this turn's requests wait for nobody.
     if (runtime.approveAll && request.requestType === 'permission' && !NEVER_AUTO.has(request.toolName)) {
       this.autoApprove(sessionId, requestId, 'full')
       return answer
@@ -3755,7 +3755,7 @@ export class Host {
     if (!pending || !runtime || !item || item.kind !== 'request') {
       throw new Error(t('This request is no longer active.'))
     }
-    // Una risposta che non è tra le opzioni non risolve niente (non finisce come "Approved"); il testo si calcola prima di toccare lo stato.
+    // An answer that is not among the options resolves nothing (it does not end up as "Approved"); the text is computed before touching the state.
     if ('optionId' in response && !item.options.some((o) => o.id === response.optionId)) throw new Error(t('That option is not available for this request.'))
     const text = resolution ?? describeResponse(item, response)
     runtime.pending.delete(requestId)
@@ -3766,7 +3766,7 @@ export class Host {
     pending.resolve(response)
   }
 
-  /** Approva una richiesta aperta con l'opzione allow (mai always), perché il nuovo livello la consente. */
+  /** Approves an open request with the allow option (never always), because the new level permits it. */
   private autoApprove(sessionId: string, requestId: string, level: PermissionLevel): void {
     if (!this.runtimes.get(sessionId)?.pending.has(requestId)) return
     const item = this.liveItems.get(sessionId)?.get(requestId)
@@ -3775,7 +3775,7 @@ export class Host {
     this.respond(sessionId, requestId, { optionId: allow.id }, 'chat', level === 'full' ? t('Approved by switching to Full access') : t('Approved by switching to Edit'))
   }
 
-  /** Il livello consente da solo questa richiesta? Edit solo per file dentro la cartella di lavoro. */
+  /** Does the level alone permit this request? Edit only for files inside the working folder. */
   private async allows(sessionId: string, level: PermissionLevel, item: RequestItemData): Promise<boolean> {
     if (item.requestType !== 'permission' || NEVER_AUTO.has(item.toolName)) return false
     if (level === 'full') return true
@@ -3788,7 +3788,7 @@ export class Host {
     return true
   }
 
-  /** Il livello rimasto in attesa del turno successivo diventa quello della sessione (con i limiti attuali del progetto). */
+  /** The level left waiting for the next turn becomes the session's (with the project's current limits). */
   private applyNextPermission(sessionId: string, runtime: Runtime | null): Promise<void> {
     return this.withPermissionLock(sessionId, () => this.applyNextNow(sessionId, runtime))
   }
@@ -3799,11 +3799,11 @@ export class Host {
     const project = this.projects.get(this.mustRow(sessionId).project_id)
     const settings = project ? await loadProjectSettings(project.path) : null
     const level = clampPermission(pending, settings?.agents.permissionsMax ?? null)
-    // L'agente ricreato nel frattempo parte dal livello vecchio: si allinea.
+    // The agent recreated in the meantime starts from the old level: it is aligned.
     let failure: Error | null = null
     if (runtime) await runtime.adapter.setPermission(level).catch((error: Error) => (failure = error))
     if (!this.rows.has(sessionId)) return
-    // Rifiutato: la riga tiene il livello attuale, nessun livello falso.
+    // Rejected: the row keeps the current level, no false level.
     if (failure) {
       this.updateRow(sessionId, { permission_next: null })
       this.noticeError(sessionId, t('Could not change the permission level: {message}', { message: (failure as Error).message }))
@@ -3840,11 +3840,11 @@ export class Host {
     const row = this.rows.get(sessionId)
     if (!row || this.runtimes.get(sessionId) !== runtime) return
     const { turnId, turnStart } = snap
-    // Un'interruzione chiesta da noi vale anche se l'agente risponde con un errore (ACP al cancel).
+    // An interruption we requested also holds if the agent replies with an error (ACP on cancel).
     const wasInterrupting = snap.interrupting
     // Turn born from advice that the cross-review forwarded: it is not reviewed.
     const fromReview = this.reviewTurns.delete(snap.turnId)
-    // Da leggere prima che expireRequest svuoti pending e che finishCommand chiuda il comando.
+    // To be read before expireRequest empties pending and before finishCommand closes the command.
     const hadRequest = runtime.pending.size > 0
     const wasCommand = !!runtime.command
     // Summary turn of a handoff: the text is read now, before anything else covers it.
@@ -3856,9 +3856,9 @@ export class Host {
     const adviceText = child ? this.lastAssistantText(sessionId, snap.turnId) : ''
     for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
     this.finishCommand(sessionId, runtime, result.status === 'completed' ? 'done' : result.status === 'interrupted' ? 'interrupted' : 'error', result.status === 'error' ? result.error : null)
-    // Interruzione o errore: i sotto-agenti in primo piano si fermano con il turno, quelli in background no.
+    // Interruption or error: foreground subagents stop with the turn, background ones do not.
     if (result.status !== 'completed' && this.subagents.stopRunning(sessionId, { foregroundOnly: true })) this.emitSubagents(sessionId)
-    // Rete di sicurezza: le voci "in corso" senza aggiornamenti da un pezzo e fuori dall'insieme dei background vivi sono fantasmi.
+    // Safety net: "running" entries with no updates for a while and outside the set of live backgrounds are ghosts.
     const stale = this.subagents.expireStale(sessionId, STALE_AGENT_MS, runtime.adapter.liveAgentIds?.() ?? null)
     if (stale.length > 0) {
       this.emitSubagents(sessionId)
@@ -3876,13 +3876,13 @@ export class Host {
         files = await changedFiles(cwd, turnStart, end).catch(() => [])
       }
     }
-    // Chiude eventuali messaggi rimasti in streaming (per esempio dopo un'interruzione).
+    // Closes any messages left streaming (for example after an interruption).
     for (const item of this.liveItems.get(sessionId)?.values() ?? []) {
       if (item.kind === 'assistant' && item.streaming && item.turnId === turnId) this.upsertItem(sessionId, { ...item, streaming: false })
       if (item.kind === 'tool' && item.status === 'running' && item.turnId === turnId)
         this.upsertItem(sessionId, { ...item, status: result.status === 'completed' ? 'done' : 'error', endedAt: Date.now() })
     }
-    // Turno fermo senza motivo: completato, senza comandi né modifiche, richieste, agenti in corso né domanda finale (solo Edit e Full access).
+    // Turn stopped for no reason: completed, with no commands or edits, requests, running agents or final question (Edit and Full access only).
     const stalled =
       !!this.prefs.stallHint &&
       result.status === 'completed' &&
@@ -3914,7 +3914,7 @@ export class Host {
       checkpoints
     })
     this.lastTurnIds.set(sessionId, turnId)
-    // Se un turno implicito ha già preso il posto, è lui a tenere turnId, attività e stato "in corso".
+    // If an implicit turn has already taken its place, it is the one that holds turnId, activity and the "running" state.
     const superseded = runtime.turnId !== turnId && runtime.turnId !== null
     if (!superseded) {
       this.delegateCounts.delete(sessionId)
@@ -3933,12 +3933,12 @@ export class Host {
     })
     this.flush()
     this.emitSummary(sessionId)
-    // Un background finito mentre il turno si chiudeva: ora che nessun turno è aperto parte l'attesa di "Continue".
+    // A background finished while the turn was closing: now that no turn is open the "Continue" wait starts.
     if (!superseded && this.agentsIdle.has(sessionId)) this.armAgentsFinished(sessionId)
-    // Riga già a riposo: solo ora il livello chiesto a turno in corso diventa quello della sessione.
+    // Row already at rest: only now does the level requested mid-turn become the session's.
     if (!superseded) await this.applyNextPermission(sessionId, runtime)
     if (files.length > 0) this.notifyFsChanged(cwd)
-    // L'avviso dei sotto-agenti rimandato a fine turno si unisce alla notifica del turno, senza doppioni.
+    // The subagent notice deferred to the end of the turn merges with the turn's notification, without duplicates.
     if (result.status === 'error') this.agentsPending.delete(sessionId)
     const merged = result.status !== 'error' && !superseded && this.flushAgentsDone(sessionId, end.id)
     // A plan task does not notify on its own: the plan does (pause, end).
@@ -3948,7 +3948,7 @@ export class Host {
     } else if (result.status === 'completed' && project && !merged && !planTask && !child && !(handoff && handoffSummary)) {
       this.attention({ kind: 'turn', sessionId, projectId: project.id, projectName: project.name, itemId: end.id, durationMs: result.durationMs, title: row.title })
     }
-    // Titolo da un modello piccolo, dopo il primo turno concluso: in background, senza aspettarlo.
+    // Title from a small model, after the first turn completes: in the background, without waiting for it.
     if (result.status === 'completed' && !superseded && !handoff && !child) void this.autoTitle(sessionId)
     // End of a child's first turn: the parent's row goes to 'done', 'error' or 'stopped'.
     if (child) {
@@ -3979,10 +3979,10 @@ export class Host {
     // A plan task reports its outcome to the runner (any correction is queued and sent below).
     if (this.plans.isTask(sessionId)) await this.plans.onTurnEnd(sessionId, { status: result.status, error: result.error }).catch(() => undefined)
 
-    // Messaggi inseriti non ancora uniti a un turno girano da soli (turno implicito, già o a momenti aperto):
-    // la coda riparte alla fine di quel turno.
+    // Inserted messages not yet merged into a turn run on their own (implicit turn, already or about to be open):
+    // the queue restarts at the end of that turn.
     if (superseded || runtime.adapter.isRunning || runtime.exited) return
-    // Riavvio chiesto a turno in corso: ora che il lavoro è finito; il primo messaggio in coda parte già col processo nuovo.
+    // Restart requested mid-turn: now that the work is finished; the first queued message already starts with the new process.
     if (this.restartAfterTurn.has(sessionId) && this.runtimes.get(sessionId) === runtime && !this.agentBusy(sessionId, runtime, 1)) {
       this.restartAfterTurn.delete(sessionId)
       this.closeRuntime(sessionId)
@@ -3996,15 +3996,15 @@ export class Host {
     const queue = JSON.parse(this.mustRow(sessionId).queue) as QueuedMessage[]
     const next = queue.shift()
     if (next && (result.status !== 'error' || wasInterrupting)) {
-      // La sessione tiene il suo posto per i messaggi che le hai già messo in coda.
+      // The session keeps its place for the messages you already queued.
       this.updateRow(sessionId, { queue: JSON.stringify(queue) })
       try {
         await this.startTurn(sessionId, next.text, next.attachments ?? [])
       } catch (error) {
-        // Il messaggio non è partito: torna in testa alla coda e la sessione non resta "in corso".
+        // The message did not start: it goes back to the head of the queue and the session does not stay "running".
         const current = JSON.parse(this.mustRow(sessionId).queue) as QueuedMessage[]
         current.unshift(next)
-        // Dopo un riavvio il turno è partito (o ha provato) su un runtime nuovo: si sistema quello, non il vecchio chiuso.
+        // After a restart the turn started (or tried to) on a new runtime: that one is fixed, not the old closed one.
         const live = this.runtimes.get(sessionId) ?? runtime
         if (!live.adapter.isRunning) {
           live.turnId = null
@@ -4668,7 +4668,7 @@ export class Host {
     this.delegateHints.set(sessionId, delegates.length ? delegatesHint(delegates) : null)
   }
 
-  /** Ultimo testo dell'assistente nel turno ('' se non ha scritto nulla). */
+  /** Last assistant text in the turn ('' if it wrote nothing). */
   private lastAssistantText(sessionId: string, turnId: string): string {
     let last: Extract<ChatItem, { kind: 'assistant' }> | null = null
     for (const item of this.liveItems.get(sessionId)?.values() ?? []) {
@@ -5443,13 +5443,13 @@ export class Host {
     }
   }
 
-  /** `all`: Stop (ferma anche i messaggi inseriti non ancora uniti); false per "invia ora", che li unisce al messaggio nuovo. */
+  /** `all`: Stop (also stops inserted messages not yet merged); false for "send now", which merges them with the new message. */
   private async interrupt(sessionId: string, all = true): Promise<void> {
     const runtime = this.runtimes.get(sessionId)
     if (!runtime) return
     for (const [requestId] of runtime.pending) this.expireRequest(sessionId, requestId)
     runtime.interrupting = true
-    // Stop: ferma anche l'azione in corso nel browser dell'agente e ne revoca gli strumenti fino al turno dopo (stop implicito).
+    // Stop: also stops the action in progress in the agent's browser and revokes its tools until the next turn (implicit stop).
     this.browserAgent.stop(sessionId, 'interrupt')
     // The parent's delegations stop with it (the MCP call returns with an error).
     this.stopDelegations(sessionId)
@@ -5460,7 +5460,7 @@ export class Host {
     return this.withPermissionLock(sessionId, () => this.changePermission(sessionId, requested))
   }
 
-  /** Cambi di livello e applicazione del livello in attesa girano uno alla volta per sessione. */
+  /** Level changes and applying the pending level run one at a time per session. */
   private withPermissionLock<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
     const previous = this.permissionLocks.get(sessionId) ?? Promise.resolve()
     const run = previous.catch(() => undefined).then(task)
@@ -5476,12 +5476,12 @@ export class Host {
     const project = this.projects.get(this.mustRow(sessionId).project_id)
     const settings = project ? await loadProjectSettings(project.path) : null
     const permission = clampPermission(requested, settings?.agents.permissionsMax ?? null)
-    // Prima l'agente: se rifiuta l'errore risale e la riga resta com'era.
+    // The agent first: if it refuses, the error propagates and the row stays as it was.
     await this.runtimes.get(sessionId)?.adapter.setPermission(permission)
-    // Dopo gli await lo stato è quello di adesso: riga e runtime si rileggono.
+    // After the awaits the state is the current one: row and runtime are re-read.
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
-    // Codex legge la policy solo all'avvio del turno: a turno in corso il livello vale dal prossimo.
+    // Codex reads the policy only when the turn starts: mid-turn the level applies from the next one.
     const appliesFrom = row.agent === 'codex' && runtime?.turnId ? 'next-turn' : 'now'
     if (appliesFrom === 'next-turn' && runtime) {
       this.updateRow(sessionId, { permission_next: permission === row.permission ? null : permission })
@@ -5489,11 +5489,11 @@ export class Host {
     } else {
       const before = row.permission
       this.updateRow(sessionId, { permission, permission_next: null })
-      // Livello cambiato subito: le autorizzazioni del browser dell'agente (Full access, "per la sessione") decadono ora, non alla prossima navigazione.
+      // Level changed at once: the agent browser's authorizations (Full access, "for the session") lapse now, not at the next navigation.
       if (permission !== before) this.browserAgent.permissionChanged(sessionId)
     }
     this.emitSummary(sessionId)
-    // Le richieste già aperte che il nuovo livello consente non hanno più motivo di aspettare.
+    // Open requests that the new level permits no longer have a reason to wait.
     if (runtime) {
       for (const requestId of [...runtime.pending.keys()]) {
         const item = this.liveItems.get(sessionId)?.get(requestId)
@@ -5503,7 +5503,7 @@ export class Host {
     return { permission, appliesFrom }
   }
 
-  // ── Elementi e riepiloghi ────────────────────────────────────────────────
+  // ── Items and summaries ────────────────────────────────────────────────
 
   private withSeq(sessionId: string, input: ItemInput): ChatItem {
     const row = this.mustRow(sessionId)
@@ -5512,7 +5512,7 @@ export class Host {
     return { ...input, seq } as ChatItem
   }
 
-  /** Crea o aggiorna un elemento. Il salvataggio e l'invio alla UI avvengono insieme, ogni 33 ms. */
+  /** Creates or updates an item. Saving and sending to the UI happen together, every 33 ms. */
   private upsertItem(sessionId: string, input: ItemInput | ChatItem): ChatItem {
     let live = this.liveItems.get(sessionId)
     if (!live) {
@@ -5549,7 +5549,7 @@ export class Host {
       .run(sessionId, item.id, item.seq, JSON.stringify(item))
   }
 
-  /** Per l'istantanea del telefono (LAD-51): tetto di permesso di ogni progetto, preferenza di invio e (LAD-89) predefiniti della nuova sessione. */
+  /** For the phone snapshot: each project's permission ceiling, send preference and new-session defaults. */
   async remoteExtras(): Promise<{ permissionsMax: Record<string, PermissionLevel | null>; busySend: 'steer' | 'queue'; defaults: Record<string, RemoteProjectDefaults> }> {
     const permissionsMax: Record<string, PermissionLevel | null> = {}
     const defaults: Record<string, RemoteProjectDefaults> = {}
@@ -5558,7 +5558,7 @@ export class Host {
         const settings = await loadProjectSettings(p.path).catch(() => null)
         permissionsMax[p.id] = settings?.agents.permissionsMax ?? null
         const ui = this.uiStateOf(p.id)
-        // Stato di ogni agente per l'account assegnato al progetto: stesso elenco modelli che userà checkCreate.
+        // State of each agent for the account assigned to the project: the same model list that checkCreate will use.
         const assigned = this.profiles.forProject(p.id)
         const agents = [...this.agents.values()].map((a) => (isProfileAgent(a.agent) && assigned?.[a.agent] ? (this.profileAgents.get(assigned[a.agent]!) ?? a) : a))
         defaults[p.id] = resolveRemoteDefaults({
@@ -5576,7 +5576,7 @@ export class Host {
     return { permissionsMax, busySend: this.prefs.busySend === 'queue' ? 'queue' : 'steer', defaults }
   }
 
-  /** LAD-90: agente e account di `agents.usage` verificati; il predefinito (assente o `default:*`) torna senza profileId. */
+  /** Verified agent and account of `agents.usage`; the default (missing or `default:*`) comes back without profileId. */
   usageTarget(agent: string, profileId?: string): { agent: string; profileId?: string } {
     if (!this.agents.has(agent)) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
     const custom = isProfileAgent(agent) ? customProfileId(profileId) : undefined
@@ -5597,9 +5597,9 @@ export class Host {
   }
 
   /**
-   * LAD-89: controlli di `session.create` dal telefono che richiedono lo stato dell'host (progetto, agente ammesso e disponibile, account,
-   * modello ed effort noti). Nessun effetto: lancia un errore tradotto, o torna i nomi di agente e progetto per il log.
-   * Il livello di permesso lo riduce poi createSession (tetto del progetto); "Allow Full" lo controlla il gateway.
+   * Checks for `session.create` from the phone that need host state (project, allowed and available agent, account,
+   * known model and effort). No side effects: throws a translated error, or returns the agent and project names for the log.
+   * The permission level is then reduced by createSession (project ceiling); "Allow Full" is checked by the gateway.
    */
   async checkCreate(command: RemoteSessionCreate): Promise<{ agent: string; project: string }> {
     const project = this.mustProject(command.projectId)
@@ -5610,7 +5610,7 @@ export class Host {
     const base = this.agents.get(command.agent)
     if (!base) throw new Error(t('Unknown agent: add it in Settings → Agents.'))
     if (!base.available) throw new Error(base.error ?? t('{agent} is not available.', { agent: base.name }))
-    // Lancia se l'account non esiste o è di un altro agente.
+    // Throws if the account does not exist or belongs to another agent.
     const custom = this.profiles.resolve(command.agent, project.id, command.profileId)
     const status = (custom ? this.profileAgents.get(custom) : null) ?? base
     if (command.model !== null && !isValidModel(status, command.model)) throw new Error(t('Unknown model for {agent}.', { agent: base.name }))
@@ -5621,14 +5621,14 @@ export class Host {
     return { agent: base.name, project: project.name }
   }
 
-  /** File del progetto (percorsi relativi, .gitignore rispettato); usato anche da `project.files.search` del telefono. */
+  /** Project files (relative paths, .gitignore respected); also used by the phone's `project.files.search`. */
   async projectFiles(projectId: string): Promise<string[]> {
     const project = this.projects.get(projectId)
     if (!project) throw new Error(t('Project not found.'))
     return project.isGit ? listFiles(project.path) : (await listTree(project.path)).files
   }
 
-  /** Sessioni archiviate di un progetto, a pagine (comando remoto project.sessions.archived). */
+  /** Archived sessions of a project, paged (remote command project.sessions.archived). */
   archivedSessions(projectId: string, before?: number, limit?: number): SessionSummary[] {
     if (!this.projects.has(projectId)) throw new Error(t('Project not found.'))
     const size = Math.min(Math.max(Math.floor(limit ?? 30), 1), 100)
@@ -5639,14 +5639,14 @@ export class Host {
       .map((r) => this.summary(r.id))
   }
 
-  /** Titolo e opzioni di una richiesta, per il log delle azioni remote (LAD-51); null se la richiesta non c'è. */
+  /** Title and options of a request, for the remote action log; null if the request does not exist. */
   requestInfo(sessionId: string, requestId: string): { title: string; options: { id: string; kind: 'allow' | 'allow-always' | 'deny' }[] } | null {
     if (!this.rows.has(sessionId)) return null
     const item = this.liveItems.get(sessionId)?.get(requestId) ?? this.loadItems(sessionId).find((i) => i.id === requestId)
     return item?.kind === 'request' ? { title: item.title, options: item.options.map((o) => ({ id: o.id, kind: o.kind })) } : null
   }
 
-  /** Una pagina di chat per il client remoto (LAD-49): vedi remote/paging.ts. */
+  /** A page of chat for the remote client: see remote/paging.ts. */
   pageItems(sessionId: string, before?: number, limit?: number): RemotePage {
     this.mustRow(sessionId)
     return pageItemsOf(this.db, this.liveItems.get(sessionId), sessionId, before, limit)
@@ -5663,7 +5663,7 @@ export class Host {
   private updateRow(sessionId: string, patch: Partial<SessionRow>): void {
     const row = this.mustRow(sessionId)
     Object.assign(row, patch, { updated_at: Date.now() })
-    // Fine turno: l'agente può aver fatto commit o push, e il fetch può ripartire.
+    // End of turn: the agent may have committed or pushed, and the fetch can restart.
     if (patch.run_state === 'idle') this.gitStatus.refresh(this.cwdOf(row))
     const keys = Object.keys(patch).concat('updated_at')
     const sql = `update sessions set ${keys.map((k) => `${k} = ?`).join(', ')} where id = ?`
@@ -5676,7 +5676,7 @@ export class Host {
     return row
   }
 
-  /** Richieste aperte di una sessione chat, la più vecchia prima. */
+  /** Open requests of a chat session, oldest first. */
   private openRequestItems(sessionId: string): RequestItemData[] {
     if (!this.runtimes.get(sessionId)?.pending.size) return []
     const items = this.liveItems.get(sessionId)
@@ -5695,25 +5695,25 @@ export class Host {
     return branch ? (this.prs.get(`${this.cwdOf(row)}\0${branch}`)?.status ?? null) : null
   }
 
-  /** Predefiniti dell'agente per un progetto (settings di progetto inclusi); l'elenco modelli resta quello a livello utente. */
+  /** Agent defaults for a project (project settings included); the model list stays at user level. */
   private agentDefaults(agent: AgentId, projectId: string, profileId?: string): { model: string | null; effort: Effort | null; known: boolean } {
     const custom = customProfileId(profileId)
     const models = (custom ? this.profileAgents.get(custom) : this.agents.get(agent))?.models ?? []
     const configDir = this.profiles.configDir(profileId ?? null)
     if (agent === 'claude-code') return claudeProjectDefaults(models, configDir, this.projects.get(projectId)?.path ?? null)
     if (agent === 'codex') return codexDefaults(models, configDir)
-    // ACP: il default è il modello marcato dall'agente.
+    // ACP: the default is the model marked by the agent.
     const model = models.find((m) => m.isDefault)
     return { model: model?.id ?? null, effort: model?.defaultEffort ?? null, known: true }
   }
 
-  /** Il modello come lo vede la UI: 'default' (alias salvato in passato) diventa null; l'id wire di Claude passa all'id dell'elenco. */
+  /** The model as the UI sees it: 'default' (alias saved in the past) becomes null; Claude's wire id maps to the list id. */
   private modelOf(row: SessionRow): string | null {
     if (!row.model || row.model === 'default') return null
     return row.agent === 'claude-code' ? claudeListId(row.model) : row.model
   }
 
-  /** Effort in uso senza una scelta di Ladder: quello dell'init dell'agente, altrimenti il default del modello effettivo. */
+  /** Effort in use without a choice from Ladder: the one from the agent's init, otherwise the effective model's default. */
   private effectiveEffort(row: SessionRow): Effort | null {
     const fromInit = this.initEffort.get(row.id)
     if (fromInit) return fromInit
@@ -5721,7 +5721,7 @@ export class Host {
     const models = (custom ? this.profileAgents.get(custom) : this.agents.get(row.agent))?.models ?? []
     const model = (this.modelOf(row) ? models.find((m) => m.id === this.modelOf(row)) : undefined) ?? models.find((m) => m.isDefault)
     if (row.agent === 'claude-code') {
-      // I settings di progetto contano solo per la sessione, non per l'elenco modelli dell'agente.
+      // Project settings count only for the session, not for the agent's model list.
       const project = readClaudeDefaults(this.profiles.configDir(row.profile_id), this.cwdOf(row))
       const names = [this.modelOf(row), model?.id].filter((n): n is string => !!n).flatMap(claudeModelNames)
       const hit = names.map((n) => project.modelEffort[n]).find(Boolean)
@@ -5769,7 +5769,7 @@ export class Host {
       unread: row.last_activity_seq > row.last_read_seq,
       lastReadSeq: row.last_read_seq,
       archived: row.archived === 1,
-      // Senza i dati base64 degli allegati: a ogni aggiornamento della sessione viaggerebbero megabyte.
+      // Without the attachments' base64 data: megabytes would travel on every session update.
       queue: (JSON.parse(row.queue) as QueuedMessage[]).map((q) =>
         q.attachments ? { ...q, attachments: q.attachments.map((a) => ({ name: a.name, mediaType: a.mediaType, data: '' })) } : q
       ),
@@ -5798,7 +5798,7 @@ export class Host {
     }
   }
 
-  /** Una riga tool per id: dalle righe vive o con una query, senza caricare tutta la chat. */
+  /** One tool row by id: from the live rows or with a query, without loading the whole chat. */
   private toolRow(sessionId: string, id: string): Extract<ChatItem, { kind: 'tool' }> | null {
     const live = this.liveItems.get(sessionId)
     const item = live
@@ -5810,7 +5810,7 @@ export class Host {
     return item?.kind === 'tool' && item.tool === 'agent' ? item : null
   }
 
-  /** Dettaglio di un sotto-agente: dalla board (o dalla cache dei finiti), altrimenti ricostruito dalla riga tool della chat. */
+  /** Subagent detail: from the board (or the finished cache), otherwise rebuilt from the chat's tool row. */
   private async subagentDetail(sessionId: string, id: string): Promise<SubagentDetail> {
     this.mustRow(sessionId)
     const found = this.subagents.find(sessionId, id)
@@ -5827,7 +5827,7 @@ export class Host {
         model: meta?.model ?? null,
         effort: meta?.effort ?? null,
         toolId: row.id,
-        // Un agente che la board non conosce più non è vivo: una riga ancora "running" è rimasta a metà.
+        // An agent the board no longer knows is not alive: a row still "running" was left half done.
         status: row.status === 'done' ? 'done' : row.status === 'error' ? 'error' : 'stopped',
         startedAt: row.at,
         endedAt: row.endedAt ?? row.at,
@@ -5843,13 +5843,13 @@ export class Host {
     return {
       info,
       prompt: extra?.prompt ?? row?.detail ?? null,
-      // Primo piano: il tool_result è il report vero. Background: il riassunto, poi il file (se testo), poi la riga.
+      // Foreground: the tool_result is the real report. Background: the summary, then the file (if text), then the row.
       report: background ? (extra?.report ?? file ?? extra?.result ?? rowOutput) : (extra?.result ?? rowOutput ?? extra?.report ?? file),
       tools: (extra?.tools ?? []).map(({ name, title, status, at }) => ({ name, title, status, at }))
     }
   }
 
-  /** I sotto-agenti cambiano spesso (uno strumento dopo l'altro, in parallelo): al renderer va un aggiornamento ogni 250 ms. */
+  /** Subagents change often (one tool after another, in parallel): the renderer gets one update every 250 ms. */
   private emitSubagents(sessionId: string): void {
     if (this.subagentFlush.has(sessionId)) return
     this.subagentFlush.set(
@@ -5870,20 +5870,20 @@ export class Host {
     // The session of a task waiting for an answer is mirrored in the plan.
     this.plans.sessionWaiting(sessionId, this.rows.get(sessionId)?.run_state === 'waiting')
     this.updateBadge()
-    // LAD-80: stato, titolo e archiviazione sono nella mappa dei branch.
+    // State, title and archival are in the branch map.
     if (this.branchMapSubs.size > 0) this.branchMaps.touch(this.rows.get(sessionId)!.project_id)
   }
 
-  // ── Notifiche e badge del Dock (li mostra il processo main) ──────────────────
+  // ── Notifications and Dock badge (shown by the main process) ──────────────────
 
   private attention(event: AttentionEvent): void {
     this.notify({ type: 'attention', event })
   }
 
-  /** Un sotto-agente in background è finito: fuori da un turno dell'utente anche quelli che continuano (Codex) sono background. */
+  /** A background subagent has finished: outside a user turn even those that keep going (Codex) are background. */
   private trackAgentEnd(sessionId: string, id: string, before: SubagentInfo | undefined): void {
     const after = this.subagents.find(sessionId, id)?.info
-    // Fermato (non finito): non conta come finito, ma se era l'ultimo con conteggi in sospeso la sessione non resta muta.
+    // Stopped (not finished): it does not count as finished, but if it was the last one with pending counts the session does not go silent.
     if (before?.status === 'running' && after?.status === 'stopped' && after.background) {
       if (this.agentsIdle.has(sessionId)) this.armAgentsFinished(sessionId)
       return
@@ -5892,7 +5892,7 @@ export class Host {
     if (!after.background && this.runtimes.get(sessionId)?.turnId) return
     const failed = after.status === 'error'
     const rt = this.runtimes.get(sessionId)
-    // Anche un background finito mentre il turno si sta chiudendo: il coordinatore è già fermo.
+    // Also a background that finished while the turn was closing: the coordinator is already stopped.
     const idle = !rt?.turnId || (rt.closing > 0 && after.background)
     if (idle) {
       this.agentsBeforeTurn.set(sessionId, (this.agentsBeforeTurn.get(sessionId) ?? 0) + 1)
@@ -5916,9 +5916,9 @@ export class Host {
   }
 
   /**
-   * Ultimo background finito a coordinatore fermo: se entro qualche secondo non parte un turno (implicito o dell'utente),
-   * la chat riceve la riga 'agents-finished' in 'waiting' con "Continue". Se il turno parte prima la riga non nasce:
-   * c'è già la riga 'agent-start', e niente "Continue" che lampeggia.
+   * Last background finished with the coordinator stopped: if within a few seconds no turn starts (implicit or the user's),
+   * the chat gets the 'agents-finished' row in 'waiting' with "Continue". If the turn starts first the row is not created:
+   * the 'agent-start' row is already there, and no "Continue" flashes.
    */
   private armAgentsFinished(sessionId: string): void {
     if ((this.subagents.list(sessionId) ?? []).some((a) => a.status === 'running')) return
@@ -5932,7 +5932,7 @@ export class Host {
         if (!runtime || !run || runtime.exited || this.isBusy(sessionId)) return
         if ((this.subagents.list(sessionId) ?? []).some((a) => a.status === 'running')) return
         this.agentsIdle.delete(sessionId)
-        // Una riga ancora in attesa è superata da questa.
+        // A row still waiting is superseded by this one.
         this.settleAgentsFinished(sessionId, 'dismissed')
         const id = randomUUID()
         this.agentsRows.set(sessionId, id)
@@ -5941,7 +5941,7 @@ export class Host {
     )
   }
 
-  /** Turno dell'ultima chiusura (o, dopo un riavvio, dell'ultimo 'turn-end' salvato); 'system' se la sessione non ha turni. */
+  /** Turn of the last closing (or, after a restart, of the last saved 'turn-end'); 'system' if the session has no turns. */
   private lastTurnId(sessionId: string): string {
     const known = this.lastTurnIds.get(sessionId)
     if (known) return known
@@ -5949,7 +5949,7 @@ export class Host {
     return last?.turnId ?? 'system'
   }
 
-  /** Porta la riga 'agents-finished' in attesa allo stato dato (se c'è). */
+  /** Moves the waiting 'agents-finished' row to the given state (if there is one). */
   private settleAgentsFinished(sessionId: string, state: 'resumed' | 'continued' | 'dismissed'): void {
     const id = this.agentsRows.get(sessionId)
     if (!id) return
@@ -5958,13 +5958,13 @@ export class Host {
     if (item?.kind === 'agents-finished' && item.state === 'waiting') this.upsertItem(sessionId, { ...item, state })
   }
 
-  /** "Continue": unico modo in cui Ladder scrive al coordinatore dopo i background, con un clic dell'utente. */
+  /** "Continue": the only way Ladder writes to the coordinator after the backgrounds, with a user click. */
   private async continueAgents(sessionId: string, itemId: string): Promise<void> {
     this.mustRow(sessionId)
     const item = this.liveItems.get(sessionId)?.get(itemId) ?? this.loadItems(sessionId).find((i) => i.id === itemId)
     if (item?.kind !== 'agents-finished' || item.state !== 'waiting') throw new Error(t('This session has already moved on.'))
     if (this.isBusy(sessionId)) throw new Error(t('The session is busy. Try again when it stops.'))
-    // Subito 'continued': un secondo clic non invia due volte.
+    // 'continued' at once: a second click does not send twice.
     this.agentsRows.delete(sessionId)
     this.upsertItem(sessionId, { ...item, state: 'continued' })
     try {
@@ -5976,7 +5976,7 @@ export class Host {
     }
   }
 
-  /** Avviso 'done' quando non resta nessun agente in background; con un turno aperto aspetta la sua fine e si unisce alla sua notifica. True se l'ha inviato. */
+  /** 'done' notice when no background agent remains; with a turn open it waits for its end and merges with its notification. True if it sent it. */
   private flushAgentsDone(sessionId: string, itemId: string | null = null): boolean {
     const pending = this.agentsPending.get(sessionId)
     if (!pending || pending.finished === 0) return false
@@ -6009,7 +6009,7 @@ export class Host {
     return true
   }
 
-  /** Aprire o leggere la sessione azzera l'avviso: il summary torna senza e il badge cala. */
+  /** Opening or reading the session clears the notice: the summary comes back without it and the badge drops. */
   private clearAgentsNotice(sessionId: string): void {
     if (!this.agentsNotices.delete(sessionId)) return
     this.emitSummary(sessionId)
@@ -6022,7 +6022,7 @@ export class Host {
     if (row && project && !row.parent) this.attention({ kind: 'error', sessionId, projectId: project.id, itemId, title: `${project.name} · ${row.title}`, body: text })
   }
 
-  /** Badge: una per richiesta aperta, più le sessioni ferme per errore che non hai ancora visto. */
+  /** Badge: one per open request, plus sessions stopped by an error that you have not seen yet. */
   private updateBadge(): void {
     let count = 0
     for (const row of this.rows.values()) {
@@ -6037,7 +6037,7 @@ export class Host {
     this.notify({ type: 'badge', count })
   }
 
-  /** Sessioni che stanno lavorando: il main tiene il Mac sveglio se l'utente lo ha chiesto. */
+  /** Sessions that are working: the main process keeps the Mac awake if the user asked for it. */
   private updateActivity(): void {
     let running = 0
     for (const row of this.rows.values()) if (!row.archived && (row.run_state === 'running' || row.run_state === 'starting')) running++
@@ -6046,7 +6046,7 @@ export class Host {
     this.notify({ type: 'activity', running })
   }
 
-  // ── Issue, PR e merge ────────────────────────────────────────────────────────
+  // ── Issues, PRs and merge ────────────────────────────────────────────────────
 
   private defaultBranchOf(project: Project): Promise<string> {
     let cached = this.defaultBranches.get(project.path)
@@ -6085,7 +6085,7 @@ export class Host {
     }
   }
 
-  /** Stato per il pannello "Pronto per il merge": git locale, PR, CI e commenti. `fetch` aggiorna prima i branch da origin. */
+  /** State for the "Ready to merge" panel: local git, PR, CI and comments. `fetch` first updates branches from origin. */
   private async mergeInfo(root: string, fetch: boolean): Promise<MergeInfo> {
     const project = [...this.projects.values()].find((p) => p.path === root) ?? this.projects.get([...this.rows.values()].find((r) => this.cwdOf(r) === root)?.project_id ?? '')
     if (!project) throw new Error(t('Folder unknown to Ladder.'))
@@ -6108,11 +6108,11 @@ export class Host {
     if (fetch) await fetchRef(root, base).catch(() => undefined)
     const baseRef = (await resolveCommit(root, `refs/remotes/origin/${base}`)) ? `origin/${base}` : base
     const counts = branch && branch !== base ? await aheadBehind(root, 'HEAD', baseRef) : null
-    // Stessa fonte dell'intestazione (git.status) per i campi comuni: le due viste coincidono sempre. Se il tracker ha una lettura
-    // senza cambi da allora (al massimo 5 s) vale quella: `merge.info` parte a ogni `fs.changed` e non rifà ~7 processi git.
+    // Same source as the header (git.status) for the common fields: the two views always match. If the tracker has a reading
+    // with no changes since then (5 s at most) that one applies: `merge.info` fires on every `fs.changed` and does not redo ~7 git processes.
     const local = await this.gitStatus.recent(root)
     const unpushed = local?.hasUpstream ? local.ahead : null
-    // LAD-69: passo successivo e blocchi si calcolano qui, in un punto solo (merge-flow.ts), sugli stessi dati dell'intestazione.
+    // Next step and blocks are computed here, in one place (merge-flow.ts), on the same data as the header.
     const hasRemote = (await gitRead(root, ['remote']).catch(() => '')).trim().length > 0
     const conflicts = counts && counts.behind > 0 ? await mergeConflicts(root, 'HEAD', baseRef) : []
     const blocks = mergeBlocks({ pr: details?.status ?? null, checks: details?.checks ?? [], mergeState: details?.mergeState ?? null, conflicts })
@@ -6163,12 +6163,12 @@ export class Host {
     }
   }
 
-  /** La cartella è il worktree di una sessione non archiviata (stesso criterio per l'intestazione e per `merge.info`). */
+  /** The folder is the worktree of a non-archived session (same criterion for the header and for `merge.info`). */
   private isWorktreeRoot(root: string): boolean {
     return [...this.rows.values()].some((r) => !r.archived && !!r.worktree && this.cwdOf(r) === root)
   }
 
-  /** HEAD è la testa della PR unita o un suo antenato (nessun commit nuovo dopo il merge)? Se non si può dire (oggetto non scaricato), sì. */
+  /** Is HEAD the merged PR's head or an ancestor of it (no new commit after the merge)? If it cannot be told (object not fetched), yes. */
   private async mergedCoversHead(root: string, oid: string | null): Promise<boolean> {
     if (!oid || !/^[0-9a-f]{40,64}$/.test(oid)) return true
     try {
@@ -6188,7 +6188,7 @@ export class Host {
     const key = `${root}\0${branch}`
     const before = JSON.stringify(this.prs.get(key)?.status ?? null)
     this.prs.set(key, details)
-    // LAD-80: una PR unita si ricorda sulle sessioni del branch (nate prima dell'unione): la mappa le mostra unite anche archiviate e dopo un riavvio.
+    // A merged PR is remembered on the branch's sessions (created before the merge): the map shows them merged even when archived and after a restart.
     const mergedAt = details?.status.state === 'merged' ? (details.status.mergedAt ?? null) : null
     if (mergedAt !== null) for (const row of this.rows.values()) if (this.cwdOf(row) === root && this.branchOf(row) === branch && mergedAt >= row.created_at) this.rememberMerged(row, 'pr', mergedAt)
     if (JSON.stringify(details?.status ?? null) === before) return
@@ -6197,7 +6197,7 @@ export class Host {
     }
   }
 
-  /** Rilegge le PR dei branch con sessioni aperte. Le sessioni in un worktree si archiviano quando la loro PR è unita. */
+  /** Re-reads the PRs of branches with open sessions. Sessions in a worktree are archived when their PR is merged. */
   private async pollPrs(): Promise<void> {
     this.prTimer = null
     try {
@@ -6220,20 +6220,20 @@ export class Host {
         if (!existsSync(root) || branch === (await this.defaultBranchOf(project)) || (await ghState(root)) !== 'ok') continue
         this.storePr(root, branch, await prForBranch(root, branch))
       } catch {
-        // gh non raggiungibile: si riprova al giro dopo.
+        // gh unreachable: retried next round.
       }
     }
     for (const row of [...this.rows.values()]) {
       const pr = this.prOf(row)
       if (row.archived || row.parent || !row.worktree || pr?.state !== 'merged' || this.mergedHandled.has(row.id)) continue
-      // Conta la data dell'unione, non l'ultimo aggiornamento: un commento su una PR vecchia non la rende della sessione.
+      // The merge date counts, not the last update: a comment on an old PR does not make it the session's.
       if ((pr.mergedAt ?? 0) < row.created_at || this.busySession(this.cwdOf(row))?.id === row.id) continue
       this.mergedHandled.add(row.id)
       await this.archiveMerged(row, pr).catch(() => undefined)
     }
   }
 
-  /** LAD-80: ricorda come e quando il branch della sessione è stato unito (la mappa lo legge dopo un riavvio). Non cambia `updated_at`. */
+  /** Remembers how and when the session's branch was merged (the map reads it after a restart). Does not change `updated_at`. */
   private rememberMerged(row: SessionRow, via: 'git' | 'pr', at: number): void {
     if (row.merged_via === via && row.merged_at === at) return
     row.merged_via = via
@@ -6247,14 +6247,14 @@ export class Host {
     return [...this.rows.values()].find((r) => r.id !== row.id && !r.archived && !r.parent && !this.archiving.has(r.id) && r.mode === 'chat' && this.cwdOf(r) === cwd) ?? null
   }
 
-  /** Un'altra sessione non archiviata usa la stessa cartella di lavoro. */
+  /** Another non-archived session uses the same working folder. */
   private worktreeShared(row: SessionRow): boolean {
     const cwd = this.cwdOf(row)
     // The folder of a running plan (or its separate worktree) counts too, until a session uses it.
     return [...this.rows.values()].some((r) => r.id !== row.id && !r.archived && !r.parent && this.cwdOf(r) === cwd) || this.plans.usesFolder(cwd)
   }
 
-  /** Archivia la sessione di una PR unita (`pr`) o di un branch già nella base (null) e toglie il worktree se è pulito e nessun'altra sessione lo usa. */
+  /** Archives the session of a merged PR (`pr`) or of a branch already in the base (null) and removes the worktree if it is clean and no other session uses it. */
   private async archiveMerged(row: SessionRow, pr: PrStatus | null): Promise<GitArchiveResult> {
     const project = this.projects.get(row.project_id)
     if (!row.worktree) {
@@ -6265,19 +6265,19 @@ export class Host {
     await this.archive(row.id, { cleanup: false })
     this.rememberMerged(row, pr ? 'pr' : 'git', pr?.mergedAt ?? Date.now())
     const cwd = this.cwdOf(row)
-    // Un worktree usato da un'altra sessione non si tocca (nemmeno lo script di pulizia).
+    // A worktree used by another session is left alone (not even the cleanup script).
     if (!project || this.worktreeShared(row)) {
       this.upsertItem(row.id, { kind: 'notice', id: randomUUID(), turnId: 'system', at: Date.now(), tone: 'info', text: t('Session archived; the worktree stays because another session uses it.') })
       this.flush()
       return { archived: true, worktreeRemoved: false, worktreeKept: 'shared' }
     }
-    // Il worktree si toglie solo se è pulito: git rifiuta da solo se ci sono modifiche o file non tracciati. Il branch resta.
+    // The worktree is removed only if it is clean: git refuses on its own if there are changes or untracked files. The branch stays.
     const { removed, cleanup, error } = await removeWorktree(project, cwd, { port: this.ports.allocate(cwd), stopServices: () => this.stopServices(cwd) })
-    // Il blocco di porte del worktree tolto torna libero, ma non se lo script di pulizia è fallito o scaduto: quello che avviava (per
-    // esempio un container) può tenere ancora le porte, e un worktree nuovo le troverebbe occupate.
+    // The worktree's port block is freed again, but not if the cleanup script failed or timed out: what it started (for
+    // example a container) may still hold the ports, and a new worktree would find them taken.
     if (removed && (!cleanup || (cleanup.code === 0 && !cleanup.timedOut))) this.ports.release(cwd)
     this.noticeCleanup(row.id, cleanup)
-    // Non tolto: con file non committati è 'dirty'; se è pulito e git l'ha rifiutato lo stesso (sottomoduli, permessi, cartella sparita) è 'failed'.
+    // Not removed: with uncommitted files it is 'dirty'; if it is clean and git refused anyway (submodules, permissions, missing folder) it is 'failed'.
     const dirty = !removed && existsSync(cwd) ? ((await gitStatus(cwd, true, false).catch(() => null))?.dirty ?? 0) > 0 : false
     const kept: GitArchiveResult['worktreeKept'] = removed ? null : dirty ? 'dirty' : 'failed'
     const reason = error ?? t('the folder no longer exists')
@@ -6304,15 +6304,15 @@ export class Host {
   }
 
   /**
-   * "Archivia" dopo il merge (`git.archive`, LAD-69). Solo se la PR è unita (e il branch è tutto dentro) o il branch è già nella base;
-   * per un worktree mai con modifiche non committate né con commit che esistono solo lì. Ogni controllo viene prima di toccare
-   * qualcosa: se fallisce non è stato archiviato nulla.
+   * "Archive" after the merge (`git.archive`). Only if the PR is merged (and the branch is entirely inside) or the branch is already in the base;
+   * for a worktree never with uncommitted changes or with commits that exist only there. Every check comes before touching
+   * anything: if one fails nothing has been archived.
    */
   private async archiveAfterMerge(sessionId: string): Promise<GitArchiveResult> {
     const row = this.mustRow(sessionId)
     if (row.archived) throw new Error(t('The session is already archived.'))
     const root = this.mustCwd(row)
-    // Un'operazione alla volta per repo (push, merge, archivia) e il fetch in background si ferma.
+    // One operation at a time per repo (push, merge, archive) and the background fetch stops.
     return withRepoLock(root, () => this.archiveLocked(row, root))
   }
 
@@ -6326,7 +6326,7 @@ export class Host {
     const base = await this.defaultBranchOf(project)
     if (branch === base) throw new Error(t('This is the default branch: there is nothing to archive after a merge.'))
 
-    // La PR è unita? Si rilegge da GitHub (la cache può essere vecchia); senza gh si usa l'ultima nota.
+    // Is the PR merged? Re-read from GitHub (the cache may be old); without gh the last known one is used.
     let pr: PrStatus | null = null
     let headOid: string | null = null
     if ((await ghState(root)) === 'ok') {
@@ -6342,8 +6342,8 @@ export class Host {
     if (row.worktree) {
       const status = await gitStatus(root, true, false)
       if (status && status.dirty > 0) throw new Error(t('The worktree has uncommitted changes: commit or discard them first. Nothing was archived.'))
-      // Commit che non stanno né sulla base né su un remote (né sono la testa della PR): archiviare li lascerebbe solo in un worktree tolto.
-      // Se il conteggio non si legge NON si archivia: un errore qui non può valere "nessun commit solo qui".
+      // Commits that are neither on the base nor on a remote (nor the PR's head): archiving would leave them only in a removed worktree.
+      // If the count cannot be read it is NOT archived: an error here cannot mean "no commits only here".
       const counted = await gitRead(root, ['rev-list', '--count', 'HEAD', '--not', '--remotes', baseRef]).catch(() => null)
       if (counted === null || !/^\d+$/.test(counted.trim())) throw new Error(t('Could not check whether commits exist only in this worktree: nothing was archived.'))
       const only = Number(counted.trim())
@@ -6352,7 +6352,7 @@ export class Host {
         throw new Error(plural(only, '{n} commit exists only in this worktree: push it first. Nothing was archived.', '{n} commits exist only in this worktree: push them first. Nothing was archived.'))
       }
     }
-    // Dopo le chiamate di rete a gh e i controlli: l'agente può essersi messo al lavoro nel frattempo.
+    // After the network calls to gh and the checks: the agent may have started working in the meantime.
     if (this.busySession(root)) throw busy()
     this.mergedHandled.add(row.id)
     const result = await this.archiveMerged(row, pr)
@@ -6381,7 +6381,7 @@ export class Host {
   }
 }
 
-/** Agente con profili che un comando di terminale avvia (claude, codex); altro: nessuno. */
+/** Agent with profiles that a terminal command starts (claude, codex); other: none. */
 function terminalAgent(command: string | null): string {
   const program = basename(splitCommand(command ?? 'claude')[0] ?? '')
   return program === 'claude' ? 'claude-code' : program === 'codex' ? 'codex' : ''
@@ -6391,7 +6391,7 @@ function emptyCounts() {
   return { commands: 0, edits: 0, reads: 0, searches: 0 }
 }
 
-/** Segnaposto 'New session' in inglese o in una qualsiasi delle lingue: non c'è un flag di rinomina. */
+/** 'New session' placeholder in English or in any of the languages: there is no rename flag. */
 function isPlaceholderTitle(title: string): boolean {
   return translations('New session').includes(title)
 }
@@ -6401,7 +6401,7 @@ function titleFrom(text: string): string {
   return line.length > 60 ? `${line.slice(0, 59)}…` : line || t('New session')
 }
 
-/** Divide un comando in parole rispettando virgolette semplici e doppie. Niente espansioni della shell. */
+/** Splits a command into words respecting single and double quotes. No shell expansions. */
 export function splitCommand(command: string): string[] {
   const words: string[] = []
   let current = ''
@@ -6434,7 +6434,7 @@ function ghProblem(state: Exclude<Awaited<ReturnType<typeof ghState>>, 'ok'>): s
   return t('The repository has no GitHub remote.')
 }
 
-/** Testo della notifica di una richiesta. */
+/** Text of a request's notification. */
 function requestBody(request: UserRequest): string {
   if (request.requestType === 'question') return t('Claude asks you a question: {title}', { title: request.title })
   if (request.command) return t('Claude asks to run: {command}', { command: request.command })
@@ -6442,18 +6442,18 @@ function requestBody(request: UserRequest): string {
   return t('Claude asks to use {tool}', { tool: request.toolName })
 }
 
-/** Strumenti di modifica dei file: il livello Edit li approva da solo (apply_patch è quello di Codex). */
+/** File edit tools: the Edit level approves them on its own (apply_patch is Codex's). */
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'apply_patch'])
 
-/** Richieste che un cambio di livello non approva mai: l'approvazione del piano è una scelta dell'utente. */
+/** Requests that a level change never approves: approving the plan is a user choice. */
 const NEVER_AUTO = new Set(['ExitPlanMode'])
 
-/** Origine dei comandi che non arrivano da una porta (nessuna finestra): un'unica connessione fittizia. */
+/** Origin of commands that do not come from a port (no window): a single fictitious connection. */
 const LOCAL_ORIGIN = {}
 /** Origin of the commands coming from the CLI socket (host/index.ts). */
 export const CLI_ORIGIN = {}
 
-/** Il percorso (anche di un file non ancora creato) sta dentro la cartella, risolti i symlink? */
+/** Is the path (even of a file not yet created) inside the folder, once symlinks are resolved? */
 async function insideDir(dir: string, path: string): Promise<boolean> {
   try {
     const root = await realpath(dir)
@@ -6487,22 +6487,22 @@ function describeResponse(item: Extract<ChatItem, { kind: 'request' }>, response
 const REPORT_FILE_MAX = 256 * 1024
 const REPORT_TEXT_MAX = 60_000
 
-/** Cartelle da cui accettiamo l'output di un sotto-agente: i temporanei e ~/.claude (percorsi reali). */
+/** Folders from which we accept a subagent's output: temporaries and ~/.claude (real paths). */
 async function reportRoots(): Promise<string[]> {
   const roots: string[] = []
   for (const dir of [tmpdir(), '/tmp', join(homedir(), '.claude')]) {
     try {
       roots.push(await realpath(dir))
     } catch {
-      // cartella assente
+      // missing folder
     }
   }
   return roots
 }
 
 /**
- * Output di un sotto-agente in background: solo un file normale e piccolo, dentro cartelle note, aperto senza
- * seguire symlink e letto dal descrittore. Un transcript JSONL non è un report: null.
+ * Output of a background subagent: only a regular, small file, inside known folders, opened without
+ * following symlinks and read from the descriptor. A JSONL transcript is not a report: null.
  */
 async function readReportFile(path: string | null): Promise<string | null> {
   if (!path || !isAbsolute(path)) return null
@@ -6525,7 +6525,7 @@ async function readReportFile(path: string | null): Promise<string | null> {
   }
 }
 
-/** Righe JSON con type/message/sessionId: è il transcript della CLI, non il testo del report. */
+/** JSON lines with type/message/sessionId: it is the CLI's transcript, not the report text. */
 function looksLikeTranscript(text: string): boolean {
   const first = text.split('\n', 1)[0].trim()
   if (!first.startsWith('{')) return false

@@ -1,5 +1,5 @@
-// Prompt dietro i pulsanti (Crea PR, Correggi la CI, Risolvi i conflitti, Invia i commenti, Da issue).
-// Il progetto li cambia con [prompts] in .ladder/settings.toml: un percorso di file o il testo stesso.
+// Prompts behind the buttons (Create PR, Fix CI, Resolve conflicts, Send comments, From issue).
+// The project changes them with [prompts] in .ladder/settings.toml: a file path or the text itself.
 import { readFile } from 'node:fs/promises'
 import { getLocale, t } from '@shared/i18n'
 import type { FileChange } from '@shared/protocol'
@@ -7,7 +7,7 @@ import { insideRoot } from './files'
 import { loadProjectSettings } from './project-settings'
 import { fence, newMarker, stripControl } from './text-safety'
 
-// Testi inviati agli agenti: inglese predefinito, italiano se la lingua dell'app è l'italiano.
+// Texts sent to the agents: English by default, Italian if the app language is Italian.
 export const DEFAULT_PROMPTS_EN: Record<string, string> = {
   create_pr: `Open the pull request for branch {{branch}} into {{base}}. I wrote the title and the description myself and saved them in two files: use them exactly as they are. Do not rewrite, shorten or "improve" them, and never paste their contents into a command.
 
@@ -213,8 +213,8 @@ Leggi le modifiche attuali (git diff e git diff --staged) e i file coinvolti. La
 }
 
 /**
- * Blocco accodato a un `create_pr` personalizzato che non usa {{title_file}} / {{body_file}}: i dati della PR non si
- * perdono mai in silenzio. Dice dove stanno i file e il comando da usare (titolo letto dal file, mai incollato).
+ * Block appended to a custom `create_pr` that doesn't use {{title_file}} / {{body_file}}: the PR data is never
+ * lost silently. It says where the files are and the command to use (title read from the file, never pasted).
  */
 const PR_FILES_BLOCK: Record<'en' | 'it', string> = {
   en: `The PR title and description are saved in files (data, never paste their contents into a command). Title, one line: {{title_file}}. Description: {{body_file}}.
@@ -224,25 +224,25 @@ Crea la PR con questo comando, esattamente come scritto: \`gh pr create --base {
 }
 
 /**
- * Variabili con testo scritto dall'utente: si inseriscono senza toccarle. `title` e `body` restano per i `create_pr`
- * personalizzati scritti prima dei file (l'host non li passa più ai prompt predefiniti).
+ * Variables with text written by the user: inserted untouched. `title` and `body` remain for `create_pr` templates
+ * written before the files existed (the host no longer passes them to the default prompts).
  */
 const VERBATIM_VARS = new Set(['title', 'body', 'summary', 'note', 'question', 'conversation', 'opinions', 'plan', 'comments', 'task', 'files', 'result', 'request'])
 
 export const PROMPT_NAMES = Object.keys(DEFAULT_PROMPTS_EN)
 
-/** Prompt predefinito `name` nella lingua attuale. */
+/** Default prompt `name` in the current language. */
 export function defaultPrompt(name: string): string | undefined {
   return (getLocale() === 'it' ? DEFAULT_PROMPTS_IT : DEFAULT_PROMPTS_EN)[name]
 }
 
-/** Modello del prompt `name`: quello del progetto ([prompts]) oppure il predefinito. */
+/** Template of prompt `name`: the project's ([prompts]) or the default. */
 async function loadTemplate(root: string, name: string): Promise<string> {
   const settings = await loadProjectSettings(root)
   const configured = settings.prompts[name]
   let template = defaultPrompt(name) ?? ''
   if (configured) {
-    // Un percorso relativo al progetto (come nel piano) oppure il testo del prompt scritto nel TOML.
+    // A path relative to the project, or the prompt text written in the TOML.
     const looksLikePath = !/\n/.test(configured) && /\.(md|txt|prompt)$/i.test(configured.trim())
     if (looksLikePath) {
       try {
@@ -258,9 +258,9 @@ async function loadTemplate(root: string, name: string): Promise<string> {
   return template
 }
 
-/** Sostituisce le variabili {{nome}}; quelle assenti diventano stringa vuota. Righe vuote in eccesso tolte. */
+/** Replaces the {{name}} variables; missing ones become an empty string. Extra blank lines are removed. */
 function fill(template: string, vars: Record<string, string>): string {
-  // `title` e `body` sono dati dell'utente (PR): entrano dopo la pulizia delle righe vuote, così restano com'erano scritti.
+  // `title` and `body` are user data (PR): they go in after the blank-line cleanup, so they stay as written.
   const verbatim = new Map<string, string>()
   const text = template
     .replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (_, key: string) => {
@@ -276,19 +276,19 @@ function fill(template: string, vars: Record<string, string>): string {
   return text.replace(/\u0000\d+\u0000/g, (token) => verbatim.get(token) ?? '')
 }
 
-/** Testo del prompt `name` per il progetto, con le variabili {{nome}} sostituite. Righe vuote in eccesso tolte. */
+/** Text of prompt `name` for the project, with the {{name}} variables replaced. Extra blank lines are removed. */
 export async function renderPrompt(root: string, name: string, vars: Record<string, string>): Promise<string> {
   return fill(await loadTemplate(root, name), vars)
 }
 
-/** Tra apici singoli, per incollarlo in una riga di shell come un solo argomento letterale. */
+/** In single quotes, to paste it into a shell line as a single literal argument. */
 export const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
 
 /**
- * Prompt `create_pr` con i file di titolo e descrizione già scritti dall'host. Le variabili `title_file`, `body_file` e
- * `base_arg` sono già tra apici per la shell. Un modello personalizzato che non usa i file (o non usa il file della
- * descrizione, se c'è) riceve in coda il blocco standard: titolo e descrizione non vanno mai persi. `{{source}}`
- * (la vecchia riga dell'issue) non esiste più: si sostituisce sempre con una stringa vuota.
+ * `create_pr` prompt with the title and description files already written by the host. The variables `title_file`, `body_file` and
+ * `base_arg` are already single-quoted for the shell. A custom template that doesn't use the files (or doesn't use the
+ * description file, if there is one) gets the standard block appended: title and description are never lost. `{{source}}`
+ * (the old issue line) no longer exists: it is always replaced with an empty string.
  */
 export async function renderPrPrompt(root: string, input: { branch: string; base: string; titlePath: string; bodyPath: string; title: string; body: string }): Promise<string> {
   const template = await loadTemplate(root, 'create_pr')

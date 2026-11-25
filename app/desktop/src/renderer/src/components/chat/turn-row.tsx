@@ -1,4 +1,4 @@
-// Un turno della conversazione: messaggio dell'utente, passaggi, risposta finale, modifiche.
+// A conversation turn: user message, steps, final reply, changes.
 import { Bot, Check, ChevronRight, CirclePause, CircleStop, CircleX, CornerDownRight, FoldVertical, Info, X } from 'lucide-react'
 import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ChatItem, RunState } from '@shared/protocol'
@@ -21,7 +21,7 @@ import { RequestCard, ResolvedRequest } from './request-card'
 import { MonoTitle, ToolRow } from './tool-row'
 import type { AgentStartItem, AssistantItem, CommandItem, CompactedItem, NoticeItem, PlanItem, Turn, TurnEndItem, UserItem } from './turns'
 
-/** Nei turni in corso un gruppo lungo di strumenti mostra solo gli ultimi. */
+/** In running turns a long group of tools shows only the last ones. */
 const LIVE_GROUP_LIMIT = 8
 
 const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
@@ -29,7 +29,7 @@ const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
   const textRef = useRef<HTMLDivElement>(null)
   const [overflows, setOverflows] = useState(false)
   const attachments = item.attachments ?? []
-  // Con sole immagini il testo è un segnaposto: si mostrano solo i chip.
+  // With images only, the text is a placeholder: only the chips are shown.
   const showText = !(attachments.length > 0 && isImagePlaceholder(item.text))
 
   useLayoutEffect(() => {
@@ -110,8 +110,8 @@ const NoticeLine = memo(function NoticeLine({ item }: { item: NoticeItem }) {
   )
 })
 
-/** Comando / eseguito dall'utente: riga di sistema compatta, non un messaggio. Lo stato ha forma ed etichetta. */
-/** Turno aperto dall'agente (non da te): sta al posto del messaggio dell'utente. */
+/** Command / run by the user: a compact system row, not a message. Status has a shape and a label. */
+/** Turn opened by the agent (not by you): it takes the place of the user message. */
 function AgentStartLine({ item }: { item: AgentStartItem }) {
   const text =
     item.reason === 'background-agents'
@@ -165,10 +165,10 @@ const CommandLine = memo(function CommandLine({ item }: { item: CommandItem }) {
   )
 })
 
-/** Token in forma compatta: 142k sopra i mille, il numero esatto sotto. */
+/** Tokens in compact form: 142k above a thousand, the exact number below. */
 const tokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
 
-/** Contesto compattato: con i token prima e dopo se l'agente li ha dati, "auto" se è partito da solo. */
+/** Compacted context: with tokens before and after if the agent gave them, "auto" if it started on its own. */
 const CompactedLine = memo(function CompactedLine({ item }: { item: CompactedItem }) {
   const both = item.preTokens !== null && item.postTokens !== null
   return (
@@ -188,7 +188,7 @@ const CompactedLine = memo(function CompactedLine({ item }: { item: CompactedIte
   )
 })
 
-/** Elenco dei passaggi con la linea verticale a sinistra, come nel mockup. */
+/** List of steps with the vertical line on the left, as in the mockup. */
 function StepsList({
   items,
   limit,
@@ -251,7 +251,7 @@ function StepsList({
 
 type Segment = { kind: 'group'; items: ChatItem[] } | { kind: 'item'; item: ChatItem }
 
-/** Raggruppa gli strumenti e le richieste chiuse consecutive; testi e avvisi restano a sé. */
+/** Groups consecutive tools and closed requests; texts and notices stay on their own. */
 function segment(steps: ChatItem[]): Segment[] {
   const out: Segment[] = []
   for (const item of steps) {
@@ -284,7 +284,7 @@ function LiveLine({ activity, detail, startedAt, run }: { activity: string | nul
 
 function ChangesCard({ end }: { end: TurnEndItem }) {
   const { openFile, openDiff } = useChatActions()
-  // Chiusa per default; lo stato resta in memoria per turno.
+  // Closed by default; the state is kept in memory per turn.
   const [open, toggle] = useToggle(`chg:${end.turnId}`)
   const added = end.files.reduce((n, f) => n + f.added, 0)
   const removed = end.files.reduce((n, f) => n + f.removed, 0)
@@ -335,7 +335,7 @@ function ChangesCard({ end }: { end: TurnEndItem }) {
   )
 }
 
-/** Turno finito senza modifiche, comandi, agenti né domande: lo dice, e propone di scrivere "Continue" nel composer (senza inviarlo). */
+/** Turn finished with no changes, commands, agents or questions: it says so, and offers to write "Continue" in the composer (without sending it). */
 function StalledNote({ end, withId }: { end: TurnEndItem; withId: boolean }) {
   const { prefill } = useChatActions()
   return (
@@ -416,13 +416,13 @@ function SummaryRow({ turn, end }: { turn: Turn; end: TurnEndItem }) {
 
 export interface TurnRowProps {
   turn: Turn
-  /** Il turno è quello in corso: mostra la riga live e i passaggi aperti. */
+  /** The turn is the current one: it shows the live row and the open steps. */
   live: boolean
   run: RunState
   activity: string | null
-  /** Id dell'elemento davanti al quale va il divisore "Nuovo". */
+  /** Id of the element the "New" divider goes in front of. */
   dividerBefore: string | null
-  /** Seq dell'ultima riga "Started by the agent after background agents finished" (-1 se non c'è): una riga "picked up" prima di lei sarebbe un doppione. */
+  /** Seq of the last "Started by the agent after background agents finished" row (-1 if none): a "picked up" row before it would be a duplicate. */
   bgStartSeq: number
   /** Last turn of the conversation (not counting advice cards): only its final answer can be the plan. */
   last?: boolean
@@ -447,7 +447,7 @@ export const TurnRow = memo(function TurnRow({ turn, live, run, activity, divide
 
   const summarize = end !== null && turn.toolCount > 0
   if (summarize) {
-    // I messaggi inseriti nel turno restano visibili anche con il turno riassunto: dopo il riepilogo, in ordine.
+    // Messages inserted into the turn stay visible even with the turn summarized: after the summary, in order.
     const inserted = turn.steps.filter((s): s is UserItem => s.kind === 'user')
     // Plan cards never collapse into the summary: they stay visible after it.
     const plans = turn.steps.filter((s): s is PlanItem => s.kind === 'plan')
@@ -459,7 +459,7 @@ export const TurnRow = memo(function TurnRow({ turn, live, run, activity, divide
     for (const seg of segment(turn.steps)) {
       if (seg.kind === 'group') {
         const first = seg.items[0].id
-        // Il divisore "Nuovo" va dentro l'elenco, davanti alla riga giusta.
+        // The "New" divider goes inside the list, in front of the right row.
         const inside = dividerBefore && seg.items.some((i) => i.id === dividerBefore) ? dividerBefore : null
         parts.push({
           key: `g:${first}`,

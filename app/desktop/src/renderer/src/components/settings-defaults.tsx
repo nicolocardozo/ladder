@@ -1,4 +1,4 @@
-// Impostazioni → New sessions: predefiniti di agente, modello, effort e permesso (globali o per progetto) e tasto di invio.
+// Settings → New sessions: defaults for agent, model, effort and permission (global or per project) and the send key.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { AgentId, AgentStatus, Effort, PermissionLevel, ProfileAgent, Project, ProjectUiState, SendKey, SessionDefaults } from '@shared/protocol'
 import { t } from '@shared/i18n'
@@ -49,7 +49,7 @@ function AgentLabel({ agent, status }: { agent: AgentId; status?: AgentStatus })
   )
 }
 
-/** Account con cui partono le nuove sessioni di un progetto, per agente. Solo se l'agente ha più di un profilo; le sessioni esistenti tengono il loro. */
+/** Account that new sessions of a project start with, per agent. Only if the agent has more than one profile; existing sessions keep theirs. */
 function ProjectProfileRow({ project, agent }: { project: Project; agent: ProfileAgent }) {
   const profiles = useProfiles(agent)
   const status = useApp((s) => s.agents.find((a) => a.agent === agent))
@@ -58,7 +58,7 @@ function ProjectProfileRow({ project, agent }: { project: Project; agent: Profil
   const current = projectProfileId(project, agent, profiles)
   const choose = (id: string) => {
     const profileId = id === defaultProfileId(agent) ? null : id
-    // Ottimista: si vede subito; se l'host rifiuta (per esempio profilo rimosso da un'altra finestra) si torna al progetto di prima.
+    // Optimistic: it shows right away; if the host refuses (for example a profile removed from another window) it goes back to the previous project.
     const before = project
     const { [agent]: _old, ...others } = project.profiles ?? {}
     const next: Project = { ...project, profiles: profileId ? { ...others, [agent]: profileId } : others }
@@ -89,7 +89,7 @@ function ProjectProfileRow({ project, agent }: { project: Project; agent: Profil
   )
 }
 
-/** Testo scritto da un modello in questo progetto: segue l'impostazione globale oppure è spento qui. Non può accendere ciò che è spento globalmente. */
+/** Text written by a model in this project: it follows the global setting or is off here. It cannot turn on what is globally off. */
 function ProjectGeneratedTextRow({ project, globalOn }: { project: Project; globalOn: boolean }) {
   const off = useApp((s) => s.ui[project.id]?.generatedText === false)
   const choose = (value: string) => {
@@ -116,8 +116,8 @@ function ProjectGeneratedTextRow({ project, globalOn }: { project: Project; glob
 }
 
 /**
- * Accensione del browser per l'agente: spenta vale subito, accesa solo alla prossima ripartenza dell'agente di una sessione.
- * Se la sessione aperta (del progetto, o di uno qualunque con `projectId` null) non lo ha ancora, lo si dice.
+ * Turning on the browser for the agent: off takes effect right away, on only at the agent's next restart in a session.
+ * If the open session (of the project, or any one when `projectId` is null) doesn't have it yet, the user is told.
  */
 function AgentBrowserRestartNote({ projectId }: { projectId: string | null }) {
   const prefs = useApp((s) => s.prefs)
@@ -134,12 +134,12 @@ function AgentBrowserRestartNote({ projectId }: { projectId: string | null }) {
   )
 }
 
-/** Browser per l'agente in questo progetto: segue l'impostazione globale oppure la scavalca (acceso o spento). */
+/** Browser for the agent in this project: it follows the global setting or overrides it (on or off). */
 function ProjectAgentBrowserRow({ project, globalOn }: { project: Project; globalOn: boolean }) {
   const own = useApp((s) => s.ui[project.id]?.agentBrowser)
   const choose = (value: string) => {
     const current: ProjectUiState = useApp.getState().ui[project.id] ?? { tabs: [], activeTab: null, scroll: {} }
-    // Assente = vale il globale.
+    // Absent = the global one applies.
     const { agentBrowser: _old, ...rest } = current
     const state: ProjectUiState = value === ON ? { ...rest, agentBrowser: true } : value === OFF ? { ...rest, agentBrowser: false } : rest
     useApp.getState().setUi(project.id, state)
@@ -180,11 +180,11 @@ export function DefaultsSection() {
   const selected = useApp((s) => s.selection.projectId)
   const [scope, setScope] = useState<string>(GLOBAL)
   const project = scope === GLOBAL ? null : (projects.find((p) => p.id === scope) ?? null)
-  // Se il progetto scelto non esiste più, si torna a "All projects".
+  // If the chosen project no longer exists, it goes back to "All projects".
   useEffect(() => {
     if (scope !== GLOBAL && !project) setScope(GLOBAL)
   }, [scope, project])
-  // Con un progetto scelto, modelli ed effort sono quelli dell'account che il progetto usa per quell'agente, non per forza il predefinito.
+  // With a project chosen, models and efforts are those of the account the project uses for that agent, not necessarily the default.
   const agents = useMemo(
     () =>
       baseAgents.map((a) => {
@@ -203,7 +203,7 @@ export function DefaultsSection() {
   const globalDefaults = prefs?.defaults ?? EMPTY
   const own: SessionDefaults = (project ? projectUi?.defaults : globalDefaults) ?? EMPTY
 
-  // "Inherit" = cosa si otterrebbe senza i valori di questo livello; "effective" = cosa parte davvero.
+  // "Inherit" = what you would get without this level's values; "effective" = what actually starts.
   const inherited = useMemo(
     () => resolveSessionDefaults({ agents, project: null, global: project ? globalDefaults : EMPTY, tomlAgent, lastAgent, allowed, maxPermission }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -215,7 +215,7 @@ export function DefaultsSection() {
   const write = (change: (d: SessionDefaults) => SessionDefaults) => {
     const next = compactDefaults(change({ ...own }))
     if (!project) {
-      // Il main fa un merge superficiale: si manda l'oggetto defaults completo.
+      // The main process does a shallow merge: the whole defaults object is sent.
       update({ defaults: next ?? {} })
       return
     }
@@ -226,7 +226,7 @@ export function DefaultsSection() {
     send({ type: 'ui.set', projectId: project.id, state })
   }
 
-  // Predefiniti dell'agente per il progetto (host); senza progetto si ripiega su isDefault.
+  // The agent's defaults for the project (host); without a project it falls back to isDefault.
   const levelAgent: AgentId | null = own.agent && !issues.agent ? own.agent : effective.agent
   const levelStatus = agents.find((a) => a.agent === levelAgent)
   const levelProfile = project && levelAgent && isProfileAgent(levelAgent) ? hostProfileId(projectProfileId(project, levelAgent, profilesOf(allProfiles, levelAgent))) : undefined
@@ -234,14 +234,14 @@ export function DefaultsSection() {
 
   if (!prefs) return <p className="text-sm text-muted-foreground">{t('Preferences are available in the app.')}</p>
 
-  // Modello ed effort si salvano per agente: si modifica quello con cui parte questo livello.
+  // Model and effort are saved per agent: the one this level starts with is edited.
   const editAgent: AgentId | null = own.agent && !issues.agent ? own.agent : effective.agent
   const editStatus = agents.find((a) => a.agent === editAgent)
-  // Un 'default' salvato vale "nessun modello": eredita.
+  // A saved 'default' means "no model": it inherits.
   const storedModel = editAgent && own.models?.[editAgent] !== 'default' ? own.models?.[editAgent] : undefined
   const modelKnown = Boolean(editStatus?.models.some((m) => m.id === storedModel))
   const storedEffort = editAgent ? own.efforts?.[editAgent] : undefined
-  // Senza modello nei predefiniti parte quello dell'agente: i livelli di effort sono i suoi.
+  // Without a model in the defaults the agent's own starts: the effort levels are its.
   const effortModelId = pickModel(editStatus, own, project ? globalDefaults : null) ?? (editAgent && editStatus ? effectiveModel(editAgent, editStatus.models, null, agentDefaults).value : null)
   const effortModel = editStatus?.models.find((m) => m.id === effortModelId)
   const allEfforts = EFFORTS.map((e) => e.id)
@@ -253,11 +253,11 @@ export function DefaultsSection() {
 
   const agentOf = (a: AgentId) => agents.find((s) => s.agent === a)
   const inheritAgentLabel = project && inherited.agent ? (agentOf(inherited.agent)?.name ?? inherited.agent) : t('Last used')
-  // Cosa parte senza i valori di questo livello: il livello sotto (tutti i progetti) e, in fondo, il predefinito dell'agente.
+  // What starts without this level's values: the level below (all projects) and, at the bottom, the agent's default.
   const lower: DefaultLevels | null = project ? { global: globalDefaults } : null
   const inheritedModelId = editAgent && editStatus ? effectiveModel(editAgent, editStatus.models, lower, agentDefaults).value : null
   const effectiveModelName = inheritedModelId ? modelLabel(editStatus, inheritedModelId) : null
-  // Riepilogo: ciò che parte davvero, con il predefinito dell'agente in fondo.
+  // Summary: what actually starts, with the agent's default at the bottom.
   const summaryStatus = effective.agent ? agentOf(effective.agent) : undefined
   const summaryModel = effective.agent && summaryStatus ? effectiveModel(effective.agent, summaryStatus.models, project ? { project: own, global: globalDefaults } : { global: own }, agentDefaults).value : null
   const summaryEffort = effective.agent && summaryStatus && supportsEffort(effective.agent) ? effectiveEffort(effective.agent, summaryStatus.models, summaryModel, project ? { project: own, global: globalDefaults } : { global: own }, null, agentDefaults).value : null
@@ -347,7 +347,7 @@ export function DefaultsSection() {
                 if (editAgent) {
                   if (value === INHERIT) delete models[editAgent]
                   else models[editAgent] = String(value)
-                  // Un effort che il nuovo modello non accetta non si tiene.
+                  // An effort the new model does not accept is not kept.
                   const accepted = editStatus?.models.find((m) => m.id === value)?.efforts
                   const current = efforts[editAgent]
                   if (current && accepted && !accepted.includes(current)) delete efforts[editAgent]
@@ -394,7 +394,7 @@ export function DefaultsSection() {
                 {t('Reset')}
               </button>
             )}
-            {/* Con un valore salvato si vede il suo nome (anche se non vale più); senza, il livello con cui si parte. */}
+            {/* With a saved value its name is shown (even if it is no longer valid); without one, the level it starts from. */}
             <span className="w-20 text-right text-sm text-muted-foreground">
               {storedEffort ? (EFFORTS.find((e) => e.id === storedEffort) ? t(EFFORTS.find((e) => e.id === storedEffort)!.label) : storedEffort) : effortName(levels, inheritedEffort)}
             </span>
@@ -431,7 +431,7 @@ export function DefaultsSection() {
         </Row>
       </div>
 
-      {/* Riepilogo: provider e modello ovunque compaia una sessione. */}
+      {/* Summary: provider and model wherever a session appears. */}
       <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground" aria-live="polite">
         {project ? t('New chats in {project} start with', { project: project.name }) : t('New chats start with')}
         {effective.agent ? (
@@ -450,7 +450,7 @@ export function DefaultsSection() {
       {project && settings && <ProjectAgentSwitches project={project} settings={settings} />}
       {project && settings && <ProjectDelegates project={project} delegates={settings.agents.delegates ?? []} />}
 
-      {/* Da 820 px su due colonne: profili e tasto di invio, poi titoli, testo scritto e browser. */}
+      {/* From 820 px in two columns: profiles and send key, then titles, written text and browser. */}
       <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
         <div className="min-w-0">
           <PresetsSection />
@@ -544,7 +544,7 @@ function BusySendSection() {
   )
 }
 
-/** Titoli generati: un modello piccolo del fornitore propone il titolo dopo la prima risposta. */
+/** Generated titles: a small model from the provider proposes the title after the first reply. */
 function TitlesSection() {
   const [prefs, update] = usePrefs()
   return (
@@ -571,7 +571,7 @@ function TitlesSection() {
   )
 }
 
-/** Testo scritto da un modello su richiesta: messaggio di commit, titolo e descrizione della PR, nome del branch. */
+/** Text written by a model on request: commit message, PR title and description, branch name. */
 function GeneratedTextSection() {
   const [prefs, update] = usePrefs()
   return (
@@ -598,7 +598,7 @@ function GeneratedTextSection() {
   )
 }
 
-/** Browser per l'agente: strumenti browser_* in un browser separato, visibile in una tab. Spento per default. */
+/** Browser for the agent: browser_* tools in a separate browser, visible in a tab. Off by default. */
 function AgentBrowserSection() {
   const [prefs, update] = usePrefs()
   const descriptionId = 'agent-browser-description'

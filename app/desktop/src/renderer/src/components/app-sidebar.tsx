@@ -37,11 +37,11 @@ import { cn } from '@/lib/utils'
 import { installUpdate, useUpdate } from '@/lib/updates'
 import { canNavigate, useApp, type AwaySummary } from '@/store/app-store'
 
-/** Elemento che aveva il focus prima di aprire "In attesa": ci torna alla chiusura (il composer, con la bozza). */
+/** Element that had focus before opening "Waiting": focus returns to it on close (the composer, with the draft). */
 let focusBeforeInbox: HTMLElement | null = null
 let pointerAt = 0
 
-/** Al clic il focus passa al pulsante prima che il popover si apra: si ricorda dov'era un attimo prima. */
+/** On click, focus moves to the button before the popover opens: where it was a moment before is remembered. */
 function rememberFocus(): void {
   const active = document.activeElement
   focusBeforeInbox = active instanceof HTMLElement && active !== document.body ? active : null
@@ -64,7 +64,7 @@ export async function addProjectFromDialog(): Promise<void> {
   useApp.getState().select({ kind: 'new', projectId: project.id })
 }
 
-/** Pulsante per riaprire la sidebar, nella barra in alto quando è nascosta. */
+/** Button to reopen the sidebar, in the top bar when it is hidden. */
 export function ShowSidebarButton() {
   useShortcutsRevision()
   const toggleSidebar = useApp((s) => s.toggleSidebar)
@@ -98,7 +98,7 @@ export function AppSidebar() {
   const dragOver = useSessionDrag((s) => (s.active ? s.over : null))
   const dragging = useProjectDrag((s) => (s.active?.kind === 'project' ? s.active.id : null))
   const [removing, setRemoving] = useState<Project | null>(null)
-  // Progetto selezionato con le sessioni chiuse da un clic sul suo nome. Si riapre quando si apre una sessione.
+  // Selected project with its sessions collapsed by a click on its name. It reopens when a session is opened.
   const [folded, setFolded] = useState<string | null>(null)
   const selectedSessionId = selection.kind === 'session' ? selection.sessionId : null
   useEffect(() => setFolded(null), [selectedSessionId])
@@ -113,13 +113,13 @@ export function AppSidebar() {
       list.push(session)
       map.set(session.projectId, list)
     }
-    // Ordine stabile: per data di creazione, la più recente in alto. Lo stato non sposta le righe.
+    // Stable order: by creation date, newest on top. Status doesn't move the rows.
     for (const list of map.values()) list.sort((a, b) => b.createdAt - a.createdAt)
     return map
   }, [sessions, projects])
 
   const layout = useMemo(() => layoutProjects(projects, projectGroups), [projects, projectGroups])
-  /** Stato aggregato delle sessioni di più progetti: serve alla testata di una sezione chiusa. */
+  /** Aggregate status of the sessions of several projects: used by the header of a collapsed section. */
   const attentionOf = (list: Project[]) => projectAttention(list.flatMap((p) => byProject.get(p.id) ?? []))
 
   let waitingTotal = 0
@@ -129,9 +129,9 @@ export function AppSidebar() {
     unreadTotal += list.filter((s) => isUnreadState(sessionState(s)) || (s.run === 'error' && s.unread)).length
   }
 
-  /** Un progetto con le sue sessioni. `slot` è la linea che mostra dove cadrebbe un progetto trascinato. */
+  /** A project with its sessions. `slot` is the line showing where a dragged project would land. */
   const renderProject = (project: Project, slot: 'before' | 'after' | null) => {
-    // Si apre solo il progetto selezionato: le righe sotto sono sempre quelle delle tab in alto.
+    // Only the selected project opens: the rows below are always those of the top tabs.
     const selected = project.id === selection.projectId
     const open = selected && folded !== project.id
     const all = byProject.get(project.id) ?? []
@@ -143,7 +143,7 @@ export function AppSidebar() {
     const inGroup = (id: string) => all.filter((s) => groupOf[s.id] === id)
     const free = all.filter((s) => !groups.some((g) => g.id === groupOf[s.id]))
     const list = open ? sidebarSessions(free, (s) => isSelected(s.id) || s.id === renaming || Boolean(drafts[s.id]?.trim())) : []
-    // Righe visibili, dall'alto in basso: serve alla selezione con ⇧.
+    // Visible rows, top to bottom: used for ⇧ selection.
     const order = open ? [...groups.filter((g) => !g.collapsed || inGroup(g.id).some((s) => isSelected(s.id))).flatMap((g) => inGroup(g.id)), ...list].map((s) => s.id) : []
     const picked = pick.projectId === project.id ? pick.ids.filter((id) => all.some((s) => s.id === id)) : []
     return (
@@ -161,12 +161,12 @@ export function AppSidebar() {
               aria-expanded={open}
               aria-current={selected ? 'true' : undefined}
               onClick={(event) => {
-                // Un clic sul simbolo di stato di un altro progetto apre la sessione che lo ha generato.
+                // A click on the status symbol of another project opens the session that raised it.
                 if (!open && attention.target && (event.target as HTMLElement).closest('[data-attention]')) {
                   useApp.getState().openSessionAt(attention.target.id, attention.target.request?.id ?? null)
                   return
                 }
-                // Sul progetto selezionato il clic chiude e riapre le sue sessioni; il progetto resta selezionato.
+                // On the selected project a click collapses and reopens its sessions; the project stays selected.
                 if (selected) setFolded((f) => (f === project.id ? null : project.id))
                 else selectProject(project.id)
               }}
@@ -233,15 +233,15 @@ export function AppSidebar() {
 
   return (
     <aside
-      // LAD-75: larghezza regolabile (variabile CSS su <html>, vedi lib/panel-size.ts); si restringe con la finestra.
+      // Adjustable width (CSS variable on <html>, see lib/panel-size.ts); it shrinks with the window.
       style={{ width: 'var(--sidebar-w, 262px)', maxWidth: 'max(200px, calc(100vw - 480px))' }}
       className="relative flex h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none"
-      // Esc toglie la selezione multipla, a meno che non serva a chiudere un menu o un campo.
+      // Esc clears the multiple selection, unless it is needed to close a menu or a field.
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !event.defaultPrevented && pick.ids.length > 0 && !(event.target instanceof HTMLInputElement)) pick.clear()
       }}
     >
-      {/* Barra del titolo: lo spazio a sinistra lascia posto ai semafori di macOS (non a schermo intero). */}
+      {/* Title bar: the space on the left leaves room for the macOS traffic lights (not in full screen). */}
       <div className="drag flex h-11 shrink-0 items-center gap-0.5 pr-2 pl-traffic">
         <IconButton icon={PanelLeft} label={t('Hide sidebar')} shortcut={shortcutLabel('sidebar.toggle')} onClick={toggleSidebar} />
         <IconButton icon={Search} label={t('Search')} shortcut={shortcutLabel('palette.toggle')} onClick={() => setPaletteOpen(true)} />
@@ -261,7 +261,7 @@ export function AppSidebar() {
         <Popover
           open={inboxOpen}
           onOpenChange={(open) => {
-            // Da tastiera (Invio sul pulsante) non c'è stato un clic: il focus torna al pulsante.
+            // From the keyboard (Enter on the button) there was no click: focus returns to the button.
             if (open && Date.now() - pointerAt > 1000) focusBeforeInbox = null
             setInboxOpen(open)
           }}
@@ -286,11 +286,11 @@ export function AppSidebar() {
           <PopoverContent
             side="right"
             align="start"
-            // Abbastanza a destra da staccarsi dal bordo della sidebar: i due fili non devono coincidere.
+            // Far enough right to detach from the sidebar edge: the two hairlines must not coincide.
             sideOffset={16}
             className="w-[460px] gap-0 overflow-hidden p-0"
-            // Chiuso il pannello, il focus torna dov'era: di solito il composer, con il cursore al suo posto.
-            // Se intanto hai aperto un'altra sessione (Apri, ⌘⇧A), il focus resta dove l'ha messo lei.
+            // When the panel closes, focus returns to where it was: usually the composer, with the cursor in place.
+            // If you opened another session in the meantime (Open, ⌘⇧A), focus stays where that put it.
             finalFocus={() => (focusBeforeInbox?.isConnected ? focusBeforeInbox : false)}
           >
             <InboxPanel />
@@ -353,15 +353,15 @@ interface SessionRowProps {
   project: Project
   selected: boolean
   hasDraft: boolean
-  /** Dentro un gruppo: un livello più a destra. */
+  /** Inside a group: one level to the right. */
   nested?: boolean
-  /** Righe visibili del progetto, per la selezione con ⇧. */
+  /** Visible rows of the project, for ⇧ selection. */
   order: string[]
-  /** Sessioni del progetto selezionate con ⌘ e ⇧ clic. */
+  /** Project sessions selected with ⌘ and ⇧ click. */
   picked: string[]
 }
 
-/** Gruppo di chat creato da te: si apre e si chiude, e da chiuso mostra quello che ti aspetta. */
+/** Chat group created by you: it opens and closes, and when closed shows what is waiting for you. */
 function SessionGroup({ project, group, sessions, isSelected, order, picked }: { project: Project; group: { id: string; name: string; collapsed?: boolean }; sessions: SessionSummary[]; isSelected: (id: string) => boolean; order: string[]; picked: string[] }) {
   const toggleGroup = useApp((s) => s.toggleGroup)
   const renameGroup = useApp((s) => s.renameGroup)
@@ -370,10 +370,10 @@ function SessionGroup({ project, group, sessions, isSelected, order, picked }: {
   const renaming = useApp((s) => s.renamingGroup === group.id)
   const drafts = useApp((s) => s.drafts)
   const dropping = useSessionDrag((s) => s.active !== null && s.over === group.id)
-  // La sessione aperta resta sempre visibile, anche in un gruppo chiuso.
+  // The open session is always visible, even in a closed group.
   const open = !group.collapsed || sessions.some((s) => isSelected(s.id))
   return (
-    // Anche da chiuso il gruppo accetta le sessioni trascinate: la riga si apre da sola al rilascio.
+    // Even when closed the group accepts dragged sessions: the row opens by itself on drop.
     <div data-drop-group={group.id} data-drop-project={project.id} className={cn('flex flex-col gap-1 rounded-md', dropping && 'bg-sidebar-accent/60 ring-1 ring-ring/50')}>
       <ContextMenu disabled={renaming}>
         <ContextMenuTrigger className="ml-5 rounded-md">
@@ -407,7 +407,7 @@ function SessionGroup({ project, group, sessions, isSelected, order, picked }: {
   )
 }
 
-/** Con più sessioni selezionate: quante sono e dove spostarle. Esc o la × tolgono la selezione. */
+/** With several sessions selected: how many and where to move them. Esc or the × clears the selection. */
 function PickBar({ project, ids, groups, groupOf }: { project: Project; ids: string[]; groups: { id: string; name: string }[]; groupOf: Record<string, string> }) {
   const clear = usePick((s) => s.clear)
   const createGroup = useApp((s) => s.createGroup)
@@ -462,7 +462,7 @@ function PickBar({ project, ids, groups, groupOf }: { project: Project; ids: str
   )
 }
 
-/** Etichetta che segue il puntatore mentre si trascina. Decorativa: lo spostamento da tastiera passa dai menu. */
+/** Label that follows the pointer while dragging. Decorative: moving from the keyboard goes through the menus. */
 function DragGhost({ label, x, y }: { label: string; x: number; y: number }) {
   return (
     <div
@@ -485,7 +485,7 @@ function ProjectDragGhost() {
   return drag.active ? <DragGhost label={drag.active.label} x={drag.x} y={drag.y} /> : null
 }
 
-/** Linea sottile che dice dove cadrebbe l'elemento trascinato. Non sposta le righe. */
+/** Thin line showing where the dragged item would land. It doesn't move the rows. */
 function DropLine({ position }: { position: 'before' | 'after' }) {
   return <span aria-hidden className={cn('pointer-events-none absolute inset-x-2.5 z-10 h-0.5 rounded-full bg-ring', position === 'before' ? '-top-1' : '-bottom-1')} />
 }
@@ -499,15 +499,15 @@ interface ProjectListsProps {
   selectedId: string | null
 }
 
-/** Progetti senza sezione in alto, poi le sezioni. Senza sezioni è la lista di sempre. */
+/** Projects without a section on top, then the sections. Without sections it is the usual list. */
 function ProjectLists({ layout, renderProject, attentionOf, selectedId }: ProjectListsProps) {
-  // Selettori separati: x e y cambiano a ogni pointermove e servono solo al ghost.
+  // Separate selectors: x and y change on every pointermove and are only needed by the ghost.
   const draggingProject = useProjectDrag((s) => (s.active?.kind === 'project' ? s.active.id : null))
   const draggingSection = useProjectDrag((s) => (s.active?.kind === 'section' ? s.active.id : null))
   const dragTarget = useProjectDrag(useShallow((s) => (s.active ? s.target : null)))
   const target = draggingProject ? dragTarget : null
 
-  /** Righe di una zona, ognuna con la linea di rilascio se è lì che cadrebbe il progetto trascinato. */
+  /** Rows of a zone, each with the drop line if that is where the dragged project would land. */
   const rows = (zone: string, list: Project[]) => {
     const others = list.filter((p) => p.id !== draggingProject)
     const here = target && target.zone === zone && !target.collapsed ? target.index : -1
@@ -570,14 +570,14 @@ interface ProjectSectionProps {
   children: ReactNode
 }
 
-/** Sezione di progetti creata da te: si apre e si chiude, si rinomina e si trascina; da chiusa mostra quello che ti aspetta. */
+/** Section of projects created by you: it opens and closes, can be renamed and dragged; when closed it shows what is waiting for you. */
 function ProjectSection({ group, count, attention, containsSelected, dropping, dragged, slot, children }: ProjectSectionProps) {
   const toggle = useApp((s) => s.toggleProjectGroup)
   const rename = useApp((s) => s.renameProjectGroup)
   const startRename = useApp((s) => s.startRenameProjectGroup)
   const stopRename = useApp((s) => s.stopRenameProjectGroup)
   const renaming = useApp((s) => s.renamingProjectGroup === group.id)
-  // La sezione è aperta o chiusa solo per `collapsed`; il progetto selezionato resta visibile anche in una chiusa.
+  // The section is open or closed only by `collapsed`; the selected project stays visible even in a closed one.
   const open = !group.collapsed
   const showChildren = open || containsSelected
   return (
@@ -646,7 +646,7 @@ function ProjectSection({ group, count, attention, containsSelected, dropping, d
   )
 }
 
-/** Nome del gruppo nella riga. Invio o clic altrove salva, Esc lascia quello di prima. */
+/** Group name in the row. Enter or a click elsewhere saves, Esc keeps the previous one. */
 function GroupNameField({ name, label = t('Group name'), onDone }: { name: string; label?: string; onDone: (name: string | null) => void }) {
   const [value, setValue] = useState(name)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -683,7 +683,7 @@ function GroupNameField({ name, label = t('Group name'), onDone }: { name: strin
   )
 }
 
-/** Riga di una sessione: clic per aprirla, clic destro o "…" per le azioni, doppio clic per rinominarla. */
+/** A session row: click to open it, right click or "…" for actions, double click to rename it. */
 function SessionRow({ session, project, selected, hasDraft, nested, order, picked }: SessionRowProps) {
   const select = useApp((s) => s.select)
   const renaming = useApp((s) => s.renaming === session.id)
@@ -695,7 +695,7 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
   const note = sessionNote(session, hasDraft)
   const tone = noteTone(note.code)
   const [hovered, setHovered] = useState(false)
-  // Senza simbolo di stato il titolo si riprende lo spazio a sinistra.
+  // Without a status symbol the title takes the space on the left back.
   const hasGlyph = state !== 'idle'
   const isPicked = picked.includes(session.id)
 
@@ -711,7 +711,7 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
               session={session}
               onDone={(viaKeyboard) => {
                 stopRename()
-                // Con Invio o Esc il focus torna sulla riga; con un clic altrove resta dove l'utente l'ha messo.
+                // With Enter or Esc focus returns to the row; with a click elsewhere it stays where the user put it.
                 if (viaKeyboard) requestAnimationFrame(() => buttonRef.current?.focus())
               }}
             />
@@ -722,10 +722,10 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
               ref={buttonRef}
               type="button"
               aria-current={selected ? 'page' : undefined}
-              // Con una selezione in corso la riga si comporta da interruttore.
+              // With a selection in progress the row behaves like a toggle.
               aria-pressed={picked.length > 0 ? isPicked : undefined}
               onClick={(event) => {
-                // ⌘⌥clic: apre la sessione in una colonna accanto a quella attiva.
+                // ⌘⌥click: opens the session in a column next to the active one.
                 if (event.metaKey && event.altKey) {
                   useApp.getState().openSplit(project.id, session.id)
                   return
@@ -735,7 +735,7 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
               }}
               onPointerDown={(event) => {
                 if (event.button !== 0 || event.metaKey || event.shiftKey || event.ctrlKey) return
-                // Se la riga fa parte della selezione si trascinano tutte, altrimenti solo lei.
+                // If the row is part of the selection all of them are dragged, otherwise only it.
                 const ids = isPicked ? picked : [session.id]
                 startSessionDrag({ event, projectId: project.id, ids, label: ids.length > 1 ? plural(ids.length, '{n} session', '{n} sessions') : session.title })
               }}
@@ -750,15 +750,15 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
                 .filter(Boolean)
                 .join(' · ')}
               className={cn(
-                // Densità compatta (prefs.sidebarDensity, data-sidebar-density su <html>): righe più basse, stesso contenuto.
+                // Compact density (prefs.sidebarDensity, data-sidebar-density on <html>): shorter rows, same content.
                 'relative grid w-full items-start gap-x-2 gap-y-1 rounded-lg py-2 pr-2.5 pl-2.5 text-left outline-none in-data-[sidebar-density=compact]:gap-y-0.5 in-data-[sidebar-density=compact]:py-1',
                 hasGlyph ? 'grid-cols-[16px_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]',
                 'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50',
-                // Riga evidenziata mentre il suo menu (clic destro o "…") è aperto.
+                // Row highlighted while its menu (right click or "…") is open.
                 'group-data-[popup-open]/row:bg-sidebar-accent/60 group-has-[[data-popup-open]]/row:bg-sidebar-accent/60',
                 selected &&
                   'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent group-data-[popup-open]/row:bg-sidebar-accent group-has-[[data-popup-open]]/row:bg-sidebar-accent',
-                // Scelta per la selezione multipla ma non aperta: fondo più leggero e filo interno, per non confonderla con quella aperta.
+                // Chosen for the multiple selection but not open: lighter background and inner hairline, so it isn't confused with the open one.
                 isPicked && !selected && 'bg-sidebar-accent/60 text-sidebar-accent-foreground ring-1 ring-ring/50 ring-inset',
                 // Ti aspetta: un fondo appena tinto d'ambra, oltre a icona ed etichetta.
                 waiting && !selected && !isPicked && 'bg-attention/8'
@@ -772,7 +772,7 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
               <MarqueeText active={hovered} className={cn('text-sm', isUnreadState(state) ? 'font-semibold text-sidebar-accent-foreground' : selected && 'font-medium', session.titleGenerating && 'animate-pulse motion-reduce:animate-none')}>
                 {session.title}
               </MarqueeText>
-              {/* Lascia il posto al pulsante "…" quando la riga è sotto il puntatore o ha il focus. */}
+              {/* Makes room for the "…" button when the row is under the pointer or has focus. */}
               <span
                 title={note.text}
                 className={cn(
@@ -810,22 +810,22 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
   )
 }
 
-/** Account del profilo in uso per un agente: stato dell'agente, con il collegamento come riserva (un profilo appena creato non ha ancora lo stato). */
+/** Account of the profile in use for an agent: the agent's status, with the connection as fallback (a freshly created profile has no status yet). */
 interface AccountEntry {
   agent: AgentId
   name: string
   profile: string | null
   account: string | null
   email: string | null
-  /** Collegato e non nel mezzo di un accesso: altrimenti scollegato o con il login scaduto. */
+  /** Connected and not in the middle of a sign-in: otherwise disconnected or with an expired login. */
   linked: boolean
-  /** Finestre dei limiti d'uso del profilo, quelle già azzerate escluse. */
+  /** The profile's usage limit windows, already-reset ones excluded. */
   usage: UsageWindow[]
 }
 
 /**
- * Profilo in uso per un agente: quello della sessione aperta (se è di quell'agente), altrimenti quello scelto dal progetto.
- * Il profilo di una sessione non cambia dopo la creazione.
+ * Profile in use for an agent: that of the open session (if it belongs to that agent), otherwise the one chosen by the project.
+ * A session's profile doesn't change after creation.
  */
 function useAccountEntries(): AccountEntry[] {
   const agents = useApp((s) => s.agents)
@@ -848,19 +848,19 @@ function useAccountEntries(): AccountEntry[] {
       let profileName: string | null = null
       if (isProfileAgent(a.agent)) {
         const own = profilesOf(profiles, a.agent)
-        // Il profilo della sessione vale solo se è di questo agente: una sessione terminale `codex` ha agente `claude-code` ma un profilo Codex.
+        // The session's profile counts only if it belongs to this agent: a `codex` terminal session has agent `claude-code` but a Codex profile.
         const sessionProfile = session?.profileId ? (own.some((p) => p.id === session.profileId) ? session.profileId : null) : session?.agent === a.agent ? normalizeProfileId(a.agent, null) : null
         const id = sessionProfile ?? projectProfileId(project, a.agent, own)
         if (!isDefaultProfileId(id)) {
           status = profileAgents[id] ?? null
           connection = profileConnections[id]
         }
-        // Il nome del profilo serve solo a chi ne ha più d'uno.
+        // The profile name is only needed by those who have more than one.
         if (own.length > 1) profileName = own.find((p) => p.id === id)?.name ?? null
       }
       const account = status?.account ?? (connection?.plan ? `${a.name} ${connection.plan}` : null)
       const email = status?.email ?? connection?.email ?? null
-      // Senza lo stato del collegamento (non ancora letto) vale ciò che l'agente dice dell'account.
+      // Without the connection status (not read yet), what the agent says about the account applies.
       const linked = connection ? isLinked(connection) && !connection.login : Boolean(account || email)
       entries.push({ agent: a.agent, name: a.name, profile: profileName, account, email, linked, usage: (status?.usage ?? []).filter((w) => w.resetsAt === null || w.resetsAt > now) })
     }
@@ -868,20 +868,20 @@ function useAccountEntries(): AccountEntry[] {
   }, [agents, profileAgents, connections, profileConnections, profiles, selection, sessions, projects])
 }
 
-/** Un servizio del footer: il suo segno, se è collegato, un eventuale avviso d'uso e le righe per il tooltip. */
+/** A footer service: its mark, whether it is connected, an optional usage warning and the tooltip lines. */
 interface FooterService {
   key: string
   name: string
   icon: string | null
   linked: boolean
   alert: { usage: UsageWindow; limited: boolean } | null
-  /** Per il nome accessibile: servizio e stato, senza email. */
+  /** For the accessible name: service and status, without email. */
   summary: string
-  /** Per il tooltip: account, email e piano. */
+  /** For the tooltip: account, email and plan. */
   detail: string[]
 }
 
-/** Claude, ChatGPT / Codex, GitHub e gli altri agenti collegati, in quest'ordine. Chi non è collegato resta in fila, attenuato. */
+/** Claude, ChatGPT / Codex, GitHub and the other connected agents, in this order. Those not connected stay in line, dimmed. */
 function useFooterServices(): FooterService[] {
   const entries = useAccountEntries()
   const github = useApp((s) => s.connections.github)
@@ -912,11 +912,11 @@ function useFooterServices(): FooterService[] {
   }, [entries, github, others])
 }
 
-/** Segno di un servizio nel footer. Scollegato o con il login scaduto: attenuato con un puntino; vicino ai limiti d'uso: triangolo come l'icona dell'uso nel composer. */
+/** A service mark in the footer. Disconnected or with an expired login: dimmed with a dot; near the usage limits: triangle like the usage icon in the composer. */
 function FooterServiceMark({ service }: { service: FooterService }) {
   return (
     <span data-service={service.key} data-linked={service.linked} className="relative grid size-3.5 shrink-0 place-items-center">
-      {/* Accesso scaduto o scollegato: il segno diventa rosso (il perché è nel tooltip e nell'etichetta del pulsante). */}
+      {/* Expired or disconnected sign-in: the mark turns red (the reason is in the tooltip and in the button label). */}
       <MaskIcon icon={service.icon} name={service.name} size={14} className={cn(service.linked ? 'text-foreground/75' : 'text-destructive')} />
       {service.alert && (
         <TriangleAlert aria-hidden data-alert strokeWidth={2.5} className={cn('absolute -top-[4px] -right-[4px] size-[8px] rounded-[2px] bg-sidebar', service.alert.limited ? 'text-destructive' : 'text-attention')} />
@@ -925,20 +925,20 @@ function FooterServiceMark({ service }: { service: FooterService }) {
   )
 }
 
-/** Gli altri agenti a cui Ladder può appoggiarsi sono pochi: oltre questi, un "+N". */
+/** The other agents Ladder can rely on are few: beyond these, a "+N". */
 const FOOTER_ICONS = 5
 
 /**
- * In basso a sinistra: il tuo nome (o "Your subscriptions") con le iniziali in un cerchio, e a destra i servizi collegati in piccolo.
- * Nessuna email: account e piani stanno nel tooltip. Apre Impostazioni → Abbonamenti.
+ * Bottom left: your name (or "Your subscriptions") with the initials in a circle, and on the right the connected services, small.
+ * No email: accounts and plans are in the tooltip. Opens Settings → Subscriptions.
  */
 export function AccountButton() {
   const services = useFooterServices()
-  // Gli altri agenti collegati compaiono nel footer: l'elenco lo legge una volta lib/other-agents (all'avvio e a ogni riconnessione con l'host).
+  // The other connected agents appear in the footer: the list is read once by lib/other-agents (at startup and on every reconnection to the host).
   const shown = services.slice(0, FOOTER_ICONS)
   const more = services.length - shown.length
   const label = t('Your subscriptions')
-  // Niente nome né avatar: l'app è di una persona sola. Restano gli abbonamenti, che dicono qualcosa (collegati, scaduti, al limite).
+  // No name or avatar: the app is for a single person. What remains are the subscriptions, which say something (connected, expired, at the limit).
   return (
     <Tooltip>
       <TooltipTrigger
@@ -980,7 +980,7 @@ export function AccountButton() {
   )
 }
 
-/** Seconda riga: chi lavora (segno del provider e modello) e cosa sta facendo, o dove lavora. */
+/** Second line: who is working (provider mark and model) and what it is doing, or where it is working. */
 function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph: boolean }) {
   const { name, model } = useAgentLine(session.agent, session.model)
   const profile = useSessionProfileName(session)
@@ -1036,16 +1036,16 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
   )
 }
 
-/** Titolo modificabile nella riga. Invio salva, Esc annulla, uscire dal campo salva. */
+/** Editable title in the row. Enter saves, Esc cancels, leaving the field saves. */
 function RenameField({ session, onDone }: { session: SessionSummary; onDone: (viaKeyboard: boolean) => void }) {
   const [value, setValue] = useState(session.title)
-  // Il titolo con cui si è aperto il campo: se nel frattempo ne arriva uno generato, non lo si sovrascrive con quello vecchio.
+  // The title the field was opened with: if a generated one arrives in the meantime, it isn't overwritten with the old one.
   const initial = useRef(session.title)
   const inputRef = useRef<HTMLInputElement>(null)
   const finished = useRef(false)
 
   useEffect(() => {
-    // Il menu da cui arriva il comando si sta chiudendo: il focus si prende al frame successivo.
+    // The menu the command comes from is closing: focus is taken on the next frame.
     const frame = requestAnimationFrame(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
@@ -1058,7 +1058,7 @@ function RenameField({ session, onDone }: { session: SessionSummary; onDone: (vi
     finished.current = true
     const title = value.trim()
     if (save && title && title !== initial.current) {
-      // Ottimista: il nuovo titolo si vede subito, l'host lo conferma con session.upsert.
+      // Optimistic: the new title shows immediately, the host confirms it with session.upsert.
       useApp.setState((s) => ({ sessions: { ...s.sessions, [session.id]: { ...s.sessions[session.id], title } } }))
       send({ type: 'session.rename', sessionId: session.id, title })
     }
@@ -1098,7 +1098,7 @@ interface HistoryButtonProps {
   onClick: () => void
 }
 
-/** Indietro/Avanti: come IconButton, ma disattivabile. */
+/** Back/Forward: like IconButton, but can be disabled. */
 function HistoryButton({ icon: Icon, label, shortcut, disabled, onClick }: HistoryButtonProps) {
   return (
     <Tooltip>
@@ -1129,7 +1129,7 @@ interface SidebarActionProps extends Omit<ComponentPropsWithoutRef<'button'>, 'c
   active?: boolean
 }
 
-/** Voce in cima alla sidebar. Inoltra ref e proprietà: "In attesa" la usa come trigger del popover. */
+/** Entry at the top of the sidebar. Forwards ref and props: "Waiting" uses it as the popover trigger. */
 const SidebarAction = forwardRef<HTMLButtonElement, SidebarActionProps>(function SidebarAction({ icon: Icon, label, trailing, active, className, ...props }, ref) {
   return (
     <button
@@ -1150,7 +1150,7 @@ const SidebarAction = forwardRef<HTMLButtonElement, SidebarActionProps>(function
   )
 })
 
-/** "Mentre eri via: 2 risposte, 1 sessione conclusa". Un clic apre la prima risposta da leggere. */
+/** "While you were away: 2 replies, 1 session finished". A click opens the first reply to read. */
 function AwayRow({ projectId, summary }: { projectId: string; summary: AwaySummary }) {
   const dismiss = useApp((s) => s.dismissAway)
   const parts = [
@@ -1185,7 +1185,7 @@ function AwayRow({ projectId, summary }: { projectId: string; summary: AwaySumma
   )
 }
 
-/** Aggiornamento scaricato: una riga sopra il footer che riavvia Ladder. Se non la usi, si installa alla prossima chiusura. */
+/** Update downloaded: a row above the footer that restarts Ladder. If you don't use it, it installs on the next quit. */
 function UpdateReady() {
   const update = useUpdate()
   const working = useApp((s) => Object.values(s.sessions).some((session) => session.run === 'running' || session.run === 'starting' || session.run === 'waiting'))

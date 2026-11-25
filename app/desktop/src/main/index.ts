@@ -36,40 +36,40 @@ import { TRAY_ICON_1X, TRAY_ICON_2X } from './tray-icon'
 import { registerUpdater } from './updater'
 
 app.setName('Ladder')
-// LAD-70: lo schema ladder-file va dichiarato privilegiato prima di app.ready.
+// The ladder-file scheme must be declared privileged before app.ready.
 registerFileScheme()
-// Cartella dati alternativa per prove automatiche o profili separati.
+// Alternative data folder for automated tests or separate profiles.
 if (process.env.LADDER_USER_DATA) app.setPath('userData', process.env.LADDER_USER_DATA)
-// Un profilo, una sola istanza: due processi sullo stesso database si contenderebbero sessioni e agenti.
+// One profile, one instance: two processes on the same database would fight over sessions and agents.
 const primaryInstance = app.requestSingleInstanceLock()
 if (!primaryInstance) app.quit()
 
 let host: UtilityProcess | null = null
 const windows = new Set<BrowserWindow>()
 
-// ── Impostazioni dell'app (tema): un piccolo file JSON letto dal main prima di aprire le finestre,
-// così il tema è applicato prima del primo paint senza aspettare l'host.
+// ── App settings (theme): a small JSON file read by main before opening the windows,
+// so the theme is applied before the first paint without waiting for the host.
 interface AppSettings extends AppPrefs {
   theme: ThemeId
 }
-// LADDER_LOCALE sceglie la lingua iniziale di un profilo nuovo (le prove automatiche usano l'italiano).
+// LADDER_LOCALE chooses the initial language of a new profile (automated tests use Italian).
 const DEFAULT_PREFS: AppPrefs = { notifications: true, sound: false, dndUntil: null, locale: isLocale(process.env.LADDER_LOCALE) ? process.env.LADDER_LOCALE : DEFAULT_LOCALE, defaults: {}, presets: [], sendKey: 'enter', busySend: 'steer', generatedTitles: true, generatedText: true, chatFont: 'system-sans', chatWidth: 'comfortable', autonomyHint: true, stallHint: false, chatTextSize: 'default', editorTextSize: 12, editorFont: 'system-mono', sidebarDensity: 'comfortable', editor: 'cursor', worktreesDir: null, branchPrefix: DEFAULT_BRANCH_PREFIX, autoArchiveDays: null, openAtLogin: false, keepAwake: false, remote: { enabled: false, relayUrl: null, allowFull: true }, soundName: 'default', agentBrowser: false, userName: null }
 const settingsPath = () => join(app.getPath('userData'), 'settings.json')
-// Versione delle prefs salvata in settings.json (chiave interna, non in AppPrefs). 2: il font della chat predefinito passa a system-sans.
+// Prefs version stored in settings.json (internal key, not in AppPrefs). 2: the default chat font becomes system-sans.
 const PREFS_VERSION = 2
-// Versione letta dal file: un downgrade non la abbassa riscrivendo.
+// Version read from the file: a downgrade doesn't lower it by rewriting.
 let fileVersion = 0
 const EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
 const PERMISSIONS: readonly string[] = ['plan', 'ask', 'edit', 'full']
 const isAgentId = (v: unknown): v is AgentId => v === 'claude-code' || v === 'codex' || (typeof v === 'string' && v.startsWith('acp:') && v.length > 4)
-// LAD-77: il nome resta in settings.json, solo su questo Mac. Tagliato, al più 80 punti di codice (lo stesso limite di you-block.tsx), senza
-// controlli, caratteri bidi (U+202A-202E, U+2066-2069) e a larghezza zero (U+200B-200D, U+2060, U+FEFF); vuoto = null.
+// The name stays in settings.json, on this Mac only. Trimmed, at most 80 code points (same limit as you-block.tsx), without
+// control, bidi (U+202A-202E, U+2066-2069) and zero-width (U+200B-200D, U+2060, U+FEFF) characters; empty = null.
 function cleanUserName(raw: unknown): string | null {
   if (typeof raw !== 'string') return null
   const name = Array.from(raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/[\u200b-\u200d\u2060\ufeff\u202a-\u202e\u2066-\u2069]/g, '').trim()).slice(0, 80).join('').trim()
   return name || null
 }
-// Predefiniti delle nuove sessioni: si tiene solo ciò che è valido, il resto si scarta.
+// Defaults of new sessions: only what is valid is kept, the rest is discarded.
 function cleanDefaults(raw: unknown): SessionDefaults {
   const out: SessionDefaults = {}
   if (!raw || typeof raw !== 'object') return out
@@ -89,7 +89,7 @@ function cleanDefaults(raw: unknown): SessionDefaults {
   else if (r.permission === null) out.permission = null
   return out
 }
-// Profili di sessione (LAD-60): si scartano quelli non validi, i nomi doppi e oltre i 50.
+// Session profiles: invalid ones, duplicate names and anything beyond 50 are discarded.
 function cleanPresets(raw: unknown): SessionPreset[] {
   if (!Array.isArray(raw)) return []
   const out: SessionPreset[] = []
@@ -124,7 +124,7 @@ const TEXT_SIZES: readonly string[] = ['small', 'default', 'large', 'xlarge']
 const CODE_FONTS: readonly string[] = ['system-mono', 'monaspace-neon']
 const EDITORS: readonly string[] = ['cursor', 'vscode', 'zed', 'xcode']
 const SOUNDS: readonly string[] = ['default', 'Glass', 'Ping', 'Pop', 'Hero', 'Submarine', 'Funk', 'Tink']
-// Cartella dei worktree: assoluta (con ~ iniziale), altrimenti null = predefinita.
+// Worktrees folder: absolute (with leading ~), otherwise null = default.
 function cleanWorktreesDir(raw: unknown): string | null {
   if (typeof raw !== 'string' || !raw.trim()) return null
   const text = raw.trim()
@@ -161,7 +161,7 @@ function cleanPrefs(raw: Partial<AppPrefs>): AppPrefs {
     keepAwake: raw.keepAwake === true,
     remote: cleanRemote(raw.remote),
     soundName: SOUNDS.includes(raw.soundName as string) ? (raw.soundName as RequestSound) : DEFAULT_PREFS.soundName,
-    // LAD-57 parte 2: spento finché non lo accendi (dà all'agente rete e DOM).
+    // Off until you turn it on (it gives the agent network and DOM access).
     agentBrowser: raw.agentBrowser === true,
     userName: cleanUserName(raw.userName)
   }
@@ -173,14 +173,14 @@ function loadSettings(): AppSettings {
     const version = Number.isInteger(read) ? read : 0
     fileVersion = version
     const outdated = version < PREFS_VERSION
-    // Migrazione una tantum (versioni < 2): il monospazio era solo il vecchio predefinito.
+    // One-time migration (versions < 2): the monospace font was just the old default.
     if (version < 2 && raw.chatFont === 'system-mono') raw.chatFont = 'system-sans'
     const loaded: AppSettings = { theme: themeById(raw.theme).id, ...cleanPrefs(raw) }
     if (outdated) {
       try {
         saveSettings(loaded)
       } catch {
-        // Non scrivibile: la migrazione si ripete al prossimo avvio.
+        // Not writable: the migration is repeated at the next start.
       }
     }
     return loaded
@@ -198,7 +198,7 @@ const prefsOf = (s: AppSettings): AppPrefs => {
   void theme
   return prefs
 }
-/** Preferenza del canale remoto: spenta se manca o è malformata; l'indirizzo del relay deve essere una stringa non vuota; `allowFull` è acceso se non è esplicitamente false. */
+/** Remote channel preference: off if missing or malformed; the relay address must be a non-empty string; `allowFull` is on unless explicitly false. */
 function cleanRemote(value: unknown): { enabled: boolean; relayUrl: string | null; allowFull: boolean } {
   const raw = (value && typeof value === 'object' ? value : {}) as { enabled?: unknown; relayUrl?: unknown; allowFull?: unknown }
   return { enabled: raw.enabled === true, relayUrl: typeof raw.relayUrl === 'string' && raw.relayUrl.trim() ? raw.relayUrl.trim() : null, allowFull: raw.allowFull !== false }
@@ -206,19 +206,19 @@ function cleanRemote(value: unknown): { enabled: boolean; relayUrl: string | nul
 
 const hostPrefs = (): HostPrefs => ({ locale: settings.locale, generatedTitles: settings.generatedTitles, generatedText: settings.generatedText, autonomyHint: settings.autonomyHint, stallHint: settings.stallHint, worktreesDir: settings.worktreesDir, branchPrefix: settings.branchPrefix, autoArchiveDays: settings.autoArchiveDays, agentBrowser: settings.agentBrowser, remote: phoneAccessAllowed(app.isPackaged) ? settings.remote : undefined, busySend: settings.busySend, defaults: settings.defaults })
 
-// LAD-53: schermo bloccato (powerMonitor), per decidere i push ai telefoni.
+// Screen locked (powerMonitor), to decide on pushes to phones.
 let screenLocked = false
 const attention = new Attention(
   () => prefsOf(settings),
   (sessionId, itemId) => openSession(sessionId, itemId),
   {
-    // LADDER_PUSH_ALWAYS=1 (solo sviluppo): come se il Mac fosse fermo da ore, per provare i push stando al computer.
+    // LADDER_PUSH_ALWAYS=1 (development only): as if the Mac had been idle for hours, to try pushes while at the computer.
     state: () => ({ idleSeconds: !app.isPackaged && process.env.LADDER_PUSH_ALWAYS === '1' ? Infinity : powerMonitor.getSystemIdleTime(), locked: screenLocked }),
     send: (event) => host?.postMessage({ type: 'push', event } satisfies MainToHost)
   }
 )
 
-/** Porta in primo piano una finestra (o ne apre una) e le chiede di aprire la sessione all'elemento. */
+/** Brings a window to the front (or opens one) and asks it to open the session at the item. */
 let pendingOpen: { sessionId: string; itemId: string | null } | null = null
 function openSession(sessionId: string, itemId: string | null): void {
   const window = [...windows].find((w) => !w.isDestroyed())
@@ -234,7 +234,7 @@ function openSession(sessionId: string, itemId: string | null): void {
   window.webContents.send('ladder:open-session', { sessionId, itemId })
 }
 
-/** ladder://session/<id>?item=<id>: la destinazione delle notifiche, apribile anche da fuori. */
+/** ladder://session/<id>?item=<id>: the destination of notifications, also openable from outside. */
 function openUrl(url: string): void {
   try {
     const parsed = new URL(url)
@@ -242,11 +242,11 @@ function openUrl(url: string): void {
     const sessionId = decodeURIComponent(parsed.pathname.replace(/^\//, ''))
     if (sessionId) openSession(sessionId, parsed.searchParams.get('item'))
   } catch {
-    // Link non valido: si ignora.
+    // Invalid link: ignored.
   }
 }
 
-/** Pagine di login che l'host può far aprire: solo https e solo i siti dei flussi (GitHub, ChatGPT, Claude). */
+/** Login pages the host can have opened: only https and only the flows' sites (GitHub, ChatGPT, Claude). */
 const LOGIN_HOSTS = new Set(['github.com', 'auth.openai.com', 'chatgpt.com', 'claude.ai', 'claude.com'])
 
 function isLoginUrl(url: unknown): url is string {
@@ -258,7 +258,7 @@ function isLoginUrl(url: unknown): url is string {
   }
 }
 
-/** keybindings.json nell'app di sistema; se non ce n'è una per i .json, lo mostra nel Finder. */
+/** keybindings.json in the system app for .json; if there is none, it is shown in Finder. */
 function openKeybindings(): void {
   const file = join(app.getPath('userData'), 'keybindings.json')
   void shell.openPath(file).then((error) => {
@@ -266,13 +266,13 @@ function openKeybindings(): void {
   })
 }
 
-// ── Sistema (LAD-22): Mac sveglio mentre un agente lavora e apertura al login ──
+// ── System: Mac awake while an agent works, and open at login ──
 let runningSessions = 0
-// LAD-54: telefoni collegati al canale remoto (li conta l'host).
+// Phones connected to the remote channel (counted by the host).
 let phonesConnected = 0
 let awakeBlocker: number | null = null
 
-/** Tiene il Mac sveglio (lo schermo può spegnersi) finché ci sono sessioni al lavoro o un telefono collegato, se la preferenza è accesa. */
+/** Keeps the Mac awake (the screen may turn off) while sessions are working or a phone is connected, if the preference is on. */
 function applyKeepAwake(): void {
   const want = wantKeepAwake(settings.keepAwake, runningSessions, phonesConnected)
   if (want && awakeBlocker === null) awakeBlocker = powerSaveBlocker.start('prevent-app-suspension')
@@ -283,10 +283,10 @@ function applyKeepAwake(): void {
   updateTray()
 }
 
-/** Canale remoto acceso: dalle preferenze dell'host (HostPrefs.remote, LAD-51) o, in sviluppo, dalle variabili d'ambiente. */
+/** Remote channel on: from the host preferences (HostPrefs.remote) or, in development, from environment variables. */
 const remoteOn = () => remoteIsOn(phoneAccessAllowed(app.isPackaged) && settings.remote?.enabled === true, app.isPackaged, process.env)
 
-// ── Background (LAD-54): senza finestre Ladder resta nella barra dei menu, con l'host e il canale remoto attivi ──
+// ── Background: without windows Ladder stays in the menu bar, with the host and the remote channel active ──
 let tray: Tray | null = null
 
 function trayImage() {
@@ -297,7 +297,7 @@ function trayImage() {
   return image
 }
 
-/** Riga di stato del menu: sessioni al lavoro e telefono collegato. */
+/** Menu status line: working sessions and connected phone. */
 function trayStatus(): string {
   const parts: string[] = []
   if (runningSessions > 0) parts.push(plural(runningSessions, '1 session working', '{n} sessions working'))
@@ -319,7 +319,7 @@ function updateTray(): void {
   )
 }
 
-/** Ultima finestra chiusa con il canale remoto acceso: icona nella barra dei menu e niente Dock. */
+/** Last window closed with the remote channel on: menu bar icon and no Dock. */
 function enterBackground(): void {
   if (!tray) {
     tray = new Tray(trayImage())
@@ -338,7 +338,7 @@ function leaveBackground(): void {
   void app.dock?.show()
 }
 
-/** Porta in primo piano la finestra, o la riapre se Ladder era in background. */
+/** Brings the window to the front, or reopens it if Ladder was in the background. */
 function showWindow(): void {
   const window = [...windows].find((w) => !w.isDestroyed())
   if (!window) return createWindow()
@@ -348,21 +348,21 @@ function showWindow(): void {
   app.focus({ steal: true })
 }
 
-/** Nello sviluppo e nei profili di prova il login item punterebbe al binario di Electron: non si registra. */
+/** In development and in test profiles the login item would point to the Electron binary: it is not registered. */
 const canLaunchAtLogin = () => app.isPackaged && !process.env.LADDER_USER_DATA && process.platform === 'darwin'
 
 function applyLoginItem(): void {
   if (canLaunchAtLogin()) app.setLoginItemSettings({ openAtLogin: settings.openAtLogin })
 }
 
-/** Avvia l'host delle sessioni. Se cade, lo riavvia e ricollega le finestre. */
+/** Starts the sessions host. If it crashes, it restarts it and reconnects the windows. */
 function startHost(): void {
   const env: NodeJS.ProcessEnv = { ...process.env, LADDER_DB_PATH: join(app.getPath('userData'), 'ladder.db'), LADDER_APP_VERSION: app.getVersion(), LADDER_HOST_PREFS: JSON.stringify(hostPrefs()) }
-  // Un registro ACP diverso è solo per sviluppo: nelle build pacchettizzate non arriva all'host.
+  // A different ACP registry is for development only: in packaged builds it doesn't reach the host.
   if (app.isPackaged) delete env.LADDER_ACP_REGISTRY
-  // Il WebSocket locale del canale remoto è solo per sviluppo.
+  // The local WebSocket of the remote channel is for development only.
   if (app.isPackaged) delete env.LADDER_REMOTE_PORT
-  // Idem per il relay di prova: nelle build pacchettizzate conta solo la preferenza (HostPrefs.remote).
+  // Same for the test relay: in packaged builds only the preference (HostPrefs.remote) counts.
   if (app.isPackaged) delete env.LADDER_RELAY_URL
   // Plan acceptance test hook: a failure cannot be simulated in the distributed app.
   if (app.isPackaged) delete env.LADDER_PLAN_FAIL
@@ -374,7 +374,7 @@ function startHost(): void {
     if (message?.type === 'attention') attention.handle(message.event)
     else if (message?.type === 'badge') attention.setBadge(message.count)
     else if (message?.type === 'open-url' && isLoginUrl(message.url)) shell.openExternal(message.url).catch(() => undefined)
-    // Scorciatoie cambiate (file o UI): il menu si ricostruisce con gli acceleratori nuovi.
+    // Shortcuts changed (file or UI): the menu is rebuilt with the new accelerators.
     else if (message?.type === 'shortcuts') {
       applyShortcutConfig({ preset: message.preset, overrides: message.overrides })
       buildMenu()
@@ -385,13 +385,13 @@ function startHost(): void {
       applyKeepAwake()
     } else if (message?.type === 'power-ack') quitAck?.()
     else if (message?.type === 'open-path') openDataPath(message.path)
-    // LAD-70: root servibili dal protocollo ladder-file, e "mostra nel Finder" per un file di una di esse.
+    // Roots served by the ladder-file protocol, and "Show in Finder" for a file in one of them.
     else if (message?.type === 'file-roots' && Array.isArray(message.roots)) setFileRoots(message.roots)
     else if (message?.type === 'reveal-file') void revealFile(message.id, message.path)
-    // LAD-57 parte 2: operazione sul browser dell'agente; la risposta torna con lo stesso rid, sempre come dati semplici.
+    // Operation on the agent's browser; the reply comes back with the same rid, always as plain data.
     else if (message?.type === 'browser-agent' && typeof message.rid === 'string') {
       const rid = message.rid
-      // Un'eccezione non deve lasciare l'host in attesa fino al timeout: risponde comunque, con un errore.
+      // An exception must not leave the host waiting until the timeout: it replies anyway, with an error.
       void runAgentOp(message.op)
         .catch((error: unknown): BrowserAgentResult => ({ ok: false, code: 'failed', error: t('The browser action failed: {message}', { message: (error instanceof Error ? error.message : String(error)).slice(0, 200) }) }))
         .then((result) => host?.postMessage({ type: 'browser-agent-result', rid, result } satisfies MainToHost))
@@ -402,11 +402,11 @@ function startHost(): void {
   host.on('exit', (code) => {
     host = null
     setFileRoots([])
-    // Le sessioni al lavoro sono finite con l'host: niente blocco del sonno.
+    // Working sessions ended with the host: no sleep blocker.
     runningSessions = 0
     phonesConnected = 0
     applyKeepAwake()
-    // Le viste dell'agente non hanno più un host che le governa: si distruggono (il nuovo host riparte senza tab).
+    // The agent's views no longer have a host governing them: they are destroyed (the new host starts without tabs).
     destroyAgentTabs()
     if (quitting) return
     console.error(`[main] host terminato (codice ${code}), riavvio`)
@@ -417,7 +417,7 @@ function startHost(): void {
   })
 }
 
-/** Collega una finestra all'host con una MessagePort dedicata. */
+/** Connects a window to the host with a dedicated MessagePort. */
 function connect(window: BrowserWindow): void {
   if (!host || window.isDestroyed()) return
   const { port1, port2 } = new MessageChannelMain()
@@ -426,7 +426,7 @@ function connect(window: BrowserWindow): void {
 }
 
 function createWindow(): void {
-  // Un'apertura da background (Dock, link, notifica, tray) riporta il Dock e toglie l'icona dalla barra dei menu.
+  // An open from the background (Dock, link, notification, tray) brings the Dock back and removes the menu bar icon.
   if (tray) leaveBackground()
   const window = new BrowserWindow({
     width: 1440,
@@ -437,11 +437,11 @@ function createWindow(): void {
     title: 'Ladder',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 15 },
-    // Colore della sidebar del tema, così all'avvio non si vede un lampo.
+    // The theme's sidebar color, so there is no flash at startup.
     backgroundColor: themeById(settings.theme).tokens.sidebar,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      // Il preload legge il tema da qui e lo applica a <html> prima del primo paint.
+      // The preload reads the theme from here and applies it to <html> before the first paint.
       additionalArguments: [`--ladder-theme=${settings.theme}`, `--ladder-locale=${settings.locale}`],
       sandbox: true,
       contextIsolation: true,
@@ -458,21 +458,21 @@ function createWindow(): void {
   window.once('ready-to-show', () => window.show())
   window.on('enter-full-screen', () => window.webContents.send('ladder:full-screen', true))
   window.on('leave-full-screen', () => window.webContents.send('ladder:full-screen', false))
-  // File con modifiche non salvate: la pagina blocca la chiusura e qui si chiede cosa fare.
+  // File with unsaved changes: the page blocks the close and here the user is asked what to do.
   window.webContents.on('will-prevent-unload', (event) => {
     const choice = dialog.showMessageBoxSync(window, { type: 'warning', buttons: [t('Discard changes'), t('Cancel')], defaultId: 1, cancelId: 1, message: t('You have unsaved files.'), detail: t('If you close now, your edits are lost.') })
     if (choice === 0) event.preventDefault()
   })
   window.webContents.on('did-finish-load', () => {
     connect(window)
-    // Clic su una notifica senza finestre aperte: la sessione si apre appena la pagina è pronta.
+    // Click on a notification with no windows open: the session opens as soon as the page is ready.
     if (pendingOpen) {
       window.webContents.send('ladder:open-session', pendingOpen)
       pendingOpen = null
     }
   })
 
-  // I link esterni si aprono nel browser; nessuna nuova finestra dentro Ladder.
+  // External links open in the browser; no new window inside Ladder.
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://') || url.startsWith('http://')) void shell.openExternal(url)
     return { action: 'deny' }
@@ -493,13 +493,13 @@ ipcMain.handle('ladder:pick-folder', async (event) => {
   return result.canceled ? null : (result.filePaths[0] ?? null)
 })
 
-/** Come si apre un editor: eseguibile e argomenti per un file (con riga) o una cartella. */
+/** How an editor is opened: executable and arguments for a file (with line) or a folder. */
 type EditorLauncher = (path: string, isFile: boolean, line?: number) => { cmd: string; args: string[] }
 
 const APP_DIRS = () => ['/Applications', join(app.getPath('home'), 'Applications')]
 const inApps = (bundle: string) => APP_DIRS().map((dir) => join(dir, bundle)).find((path) => existsSync(path)) ?? null
 
-/** Gli editor: le app GUI non vedono il PATH della shell, quindi le CLI si cercano dentro i bundle. null = non installato. */
+/** The editors: GUI apps don't see the shell PATH, so the CLIs are looked up inside the bundles. null = not installed. */
 function editorLauncher(editor: EditorId): EditorLauncher | null {
   switch (editor) {
     case 'cursor':
@@ -512,7 +512,7 @@ function editorLauncher(editor: EditorId): EditorLauncher | null {
       return cmd ? (path, isFile, line) => ({ cmd, args: [isFile && line ? `${path}:${line}` : path] }) : null
     }
     case 'xcode':
-      // Xcode apre i file alla riga con xed; per una cartella non c'è modo migliore di `open -a`.
+      // Xcode opens files at a line with xed; for a folder there is no better way than `open -a`.
       return inApps('Xcode.app')
         ? (path, isFile, line) => (isFile ? { cmd: '/usr/bin/xed', args: line ? ['--line', String(line), path] : [path] } : { cmd: '/usr/bin/open', args: ['-a', 'Xcode', path] })
         : null
@@ -524,9 +524,9 @@ const EDITOR_SCHEMES: Partial<Record<EditorId, string>> = { cursor: 'cursor', vs
 
 ipcMain.handle('ladder:editors', (): EditorAvailability => ({ cursor: Boolean(editorLauncher('cursor')), vscode: Boolean(editorLauncher('vscode')), zed: Boolean(editorLauncher('zed')), xcode: Boolean(editorLauncher('xcode')) }))
 
-/** Apre file (alla riga) o cartella; risponde l'editor usato, null se si è ripiegato sull'app predefinita. */
+/** Opens a file (at a line) or a folder; replies with the editor used, null if it fell back to the default app. */
 ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: number, editor?: EditorId): Promise<EditorId | null> => {
-  // L'editor scelto (per il progetto, altrimenti quello delle preferenze); se non è installato, il primo installato.
+  // The chosen editor (for the project, otherwise the one in preferences); if it isn't installed, the first installed one.
   const wanted = EDITORS.includes(editor as string) ? (editor as EditorId) : settings.editor
   const order = [wanted, ...EDITOR_ORDER.filter((e) => e !== wanted)]
   const found = order.flatMap((e) => {
@@ -535,7 +535,7 @@ ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: numb
   })[0]
   const isFile = existsSync(path) && statSync(path).isFile()
   const launch = found?.launcher(path, isFile, line)
-  // Prove automatiche: si registra il comando invece di aprire l'editor.
+  // Automated tests: the command is recorded instead of opening the editor.
   if (process.env.LADDER_EDITOR_TRACE) {
     appendFileSync(process.env.LADDER_EDITOR_TRACE, `${JSON.stringify({ cli: launch?.cmd ?? null, editor: found?.editor ?? null, args: launch?.args ?? [] })}\n`)
     return found?.editor ?? null
@@ -544,14 +544,14 @@ ipcMain.handle('ladder:open-in-editor', async (_event, path: string, line?: numb
     await new Promise<void>((resolve) => execFile(launch.cmd, launch.args, { env: cleanEnv(['ELECTRON_RUN_AS_NODE']) }, () => resolve()))
     return found.editor
   }
-  // Senza editor installati: lo schema dell'editor scelto apre il file alla riga; in ultima istanza l'app predefinita.
+  // With no editors installed: the chosen editor's scheme opens the file at the line; as a last resort the default app.
   const scheme = EDITOR_SCHEMES[wanted]
   const opened = scheme ? await shell.openExternal(`${scheme}://file${encodeURI(path)}${line ? `:${line}` : ''}`).then(() => true, () => false) : false
   if (!opened) await shell.openPath(path)
   return null
 })
 
-/** "Salva con nome" per l'esportazione del database: percorso scelto o null. Il nome predefinito lo propone la UI. */
+/** "Save as" for the database export: chosen path or null. The UI proposes the default name. */
 ipcMain.handle('ladder:pick-save-path', async (event, defaultName: string) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   const options = { title: t('Export the database'), defaultPath: join(app.getPath('documents'), String(defaultName || 'ladder.db')), buttonLabel: t('Export') }
@@ -559,7 +559,7 @@ ipcMain.handle('ladder:pick-save-path', async (event, defaultName: string) => {
   return result.canceled || !result.filePath ? null : result.filePath
 })
 
-/** Apre un percorso dentro la cartella dati dell'app (la chiede l'host): altrove non si apre niente. */
+/** Opens a path inside the app data folder (requested by the host): nothing else is opened. */
 function openDataPath(path: string): void {
   const dir = app.getPath('userData')
   const target = resolve(path)
@@ -569,13 +569,13 @@ function openDataPath(path: string): void {
 
 ipcMain.handle('ladder:reveal', (_event, path: string) => shell.showItemInFolder(path))
 
-// Cosa sta guardando la finestra: le notifiche di quella sessione non servono.
+// What the window is looking at: notifications for that session aren't needed.
 ipcMain.on('ladder:view', (event, view: WindowView) => attention.setView(event.sender.id, view))
 
 ipcMain.handle('ladder:prefs', () => prefsOf(settings))
 ipcMain.handle('ladder:set-prefs', (_event, patch: Partial<AppPrefs>) => {
   settings = { ...settings, ...cleanPrefs({ ...prefsOf(settings), ...patch }) }
-  // Fuori dall'app installata non c'è un login item da gestire: la preferenza resta spenta.
+  // Outside the installed app there is no login item to manage: the preference stays off.
   if (!canLaunchAtLogin()) settings.openAtLogin = false
   setLocale(settings.locale)
   saveSettings(settings)
@@ -583,7 +583,7 @@ ipcMain.handle('ladder:set-prefs', (_event, patch: Partial<AppPrefs>) => {
   for (const window of windows) window.webContents.send('ladder:prefs', prefsOf(settings))
   if ('openAtLogin' in patch) applyLoginItem()
   applyKeepAwake()
-  // In background con il canale remoto appena spento non resta nulla da servire: si esce.
+  // In the background with the remote channel just turned off there is nothing left to serve: quit.
   if (windows.size === 0 && tray && !remoteOn()) app.quit()
   buildMenu()
   return prefsOf(settings)
@@ -601,23 +601,23 @@ ipcMain.handle('ladder:test-notification', (event) =>
 )
 
 registerBrowserIpc()
-// LAD-57 parte 2: la vista dell'agente è sparita (tab o finestra chiusa): l'host revoca gli strumenti di quella sessione.
+// The agent's view is gone (tab or window closed): the host revokes that session's tools.
 onAgentTabClosed((sessionId) => host?.postMessage({ type: 'browser-agent-closed', sessionId } satisfies MainToHost))
 
 ipcMain.handle('ladder:linear-status', () => linearStatus())
 ipcMain.handle('ladder:linear-set-key', (_event, key: string | null) => setLinearKey(key))
 ipcMain.handle('ladder:linear-issues', (_event, search: string) => linearIssues(search ?? ''))
-// Solo https, riconosciuto dall'URL già interpretato (schema in qualunque combinazione di maiuscole, host presente): il renderer fa lo stesso controllo.
+// Only https, recognized from the already parsed URL (scheme in any case combination, host present): the renderer does the same check.
 ipcMain.handle('ladder:open-external', (_event, url: string) => {
   try {
     const parsed = new URL(url)
     if (parsed.protocol === 'https:' && parsed.hostname) void shell.openExternal(parsed.href)
   } catch {
-    // URL non valido: non si apre.
+    // Invalid URL: it is not opened.
   }
 })
 
-// Solo per le prove automatiche (LADDER_NOTIFY_TRACE): clic simulato sull'ultima notifica e badge attuale.
+// Automated tests only (LADDER_NOTIFY_TRACE): simulated click on the last notification and current badge.
 if (process.env.LADDER_NOTIFY_TRACE) {
   ipcMain.handle('ladder:debug-click-notification', () => attention.clickLatest())
   ipcMain.handle('ladder:debug-badge', () => attention.badgeCount)
@@ -640,7 +640,7 @@ ipcMain.handle('ladder:set-theme', (_event, id: string) => {
 
 let quitting = false
 
-/** Menu dell'app: ⌘W chiude la tab di Ladder, quindi la finestra si chiude con ⇧⌘W. */
+/** App menu: ⌘W closes the Ladder tab, so the window closes with ⇧⌘W. */
 function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     {
@@ -688,10 +688,10 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-// Chi prova ad aprire un secondo Ladder sullo stesso profilo trova la finestra che c'è già.
+// Whoever tries to open a second Ladder on the same profile finds the window that already exists.
 app.on('second-instance', () => showWindow())
 
-// I link ladder:// arrivano da macOS anche prima che l'app sia pronta.
+// ladder:// links arrive from macOS even before the app is ready.
 app.on('open-url', (event, url) => {
   event.preventDefault()
   if (app.isReady()) openUrl(url)
@@ -702,12 +702,12 @@ app.whenReady().then(() => {
   if (!primaryInstance) return
   settings = loadSettings()
   setLocale(settings.locale)
-  // Il login item lo può cambiare anche l'utente da Impostazioni di Sistema: vale lo stato reale.
+  // The user can also change the login item from System Settings: the real state wins.
   settings.openAtLogin = canLaunchAtLogin() && app.getLoginItemSettings().openAtLogin
-  // Il protocollo si registra solo nell'app installata: in sviluppo punterebbe al binario di Electron,
-  // e un profilo di prova (LADDER_USER_DATA) non deve cambiare l'app che apre i link ladder://.
+  // The protocol is registered only in the installed app: in development it would point to the Electron binary,
+  // and a test profile (LADDER_USER_DATA) must not change the app that opens ladder:// links.
   if (app.isPackaged && !process.env.LADDER_USER_DATA) app.setAsDefaultProtocolClient('ladder')
-  // Il "Non disturbare" scade da solo: il menu si aggiorna quando finisce.
+  // "Do Not Disturb" expires by itself: the menu updates when it ends.
   setInterval(() => {
     if (settings.dndUntil && settings.dndUntil <= Date.now()) {
       settings = { ...settings, dndUntil: null }
@@ -716,7 +716,7 @@ app.whenReady().then(() => {
       buildMenu()
     }
   }, 30_000)
-  // In sviluppo il Dock mostra l'icona Circuit; nella build la dà il bundle.
+  // In development the Dock shows the Circuit icon; in the build the bundle provides it.
   if (!app.isPackaged && process.platform === 'darwin') {
     const icon = join(app.getAppPath(), '../../brand/app-icon/png/circuit/ladder-512.png')
     if (existsSync(icon)) app.dock?.setIcon(icon)
@@ -724,21 +724,21 @@ app.whenReady().then(() => {
   buildMenu()
   registerFileProtocol()
   startHost()
-  // All'accesso, con il canale remoto acceso, Ladder parte in background (solo menu bar); altrimenti si apre la finestra.
-  // wasOpenedAtLogin su macOS 13+ dipende da SMAppService: da verificare a mano nell'app installata (login item acceso, riavvio del Mac).
+  // At login, with the remote channel on, Ladder starts in the background (menu bar only); otherwise the window opens.
+  // wasOpenedAtLogin on macOS 13+ depends on SMAppService: to be checked by hand in the installed app (login item on, Mac restart).
   if (staysInBackground(process.platform, remoteOn()) && app.getLoginItemSettings().wasOpenedAtLogin) enterBackground()
   else createWindow()
-  // Il Mac dorme o si sveglia: i telefoni lo vedono invece di un generico "offline".
+  // The Mac sleeps or wakes: phones see it instead of a generic "offline".
   powerMonitor.on('suspend', () => host?.postMessage({ type: 'power', state: 'asleep' } satisfies MainToHost))
   powerMonitor.on('resume', () => host?.postMessage({ type: 'power', state: 'awake' } satisfies MainToHost))
   powerMonitor.on('lock-screen', () => (screenLocked = true))
   powerMonitor.on('unlock-screen', () => (screenLocked = false))
-  // Spegnimento o logout: l'avviso parte senza aspettare l'ack e before-quit non blocca l'uscita.
+  // Shutdown or logout: the notice goes out without waiting for the ack and before-quit doesn't block the exit.
   powerMonitor.on('shutdown', () => {
     quitStep = 'done'
     host?.postMessage({ type: 'power', state: 'quit' } satisfies MainToHost)
   })
-  // Quando parte l'installazione di un aggiornamento: come una chiusura normale, l'host non va riavviato mentre le finestre si chiudono.
+  // When an update install starts: like a normal quit, the host must not be restarted while the windows close.
   registerUpdater(
     () => windows,
     () => {
@@ -750,9 +750,9 @@ app.whenReady().then(() => {
   })
 })
 
-// Uscita in due tempi (LAD-54): prima l'host avvisa il relay ("Ladder chiuso"), poi si chiude davvero.
-// Solo con il canale remoto acceso (altrimenti l'uscita è quella di sempre). L'attesa è al massimo 500 ms e non si ripete:
-// dopo il primo giro (quitStep 'done') before-quit lascia passare. Allo spegnimento o al logout non si blocca nulla.
+// Two-step quit: first the host notifies the relay ("Ladder closed"), then it really quits.
+// Only with the remote channel on (otherwise the quit is the usual one). The wait is at most 500 ms and is not repeated:
+// after the first round (quitStep 'done') before-quit lets it through. Nothing is blocked on shutdown or logout.
 let quitStep: 'idle' | 'waiting' | 'done' = 'idle'
 let quitAck: (() => void) | null = null
 
@@ -772,15 +772,15 @@ app.on('before-quit', (event) => {
     host.postMessage({ type: 'power', state: 'quit' } satisfies MainToHost)
     return
   }
-  // Un secondo ⌘Q durante l'attesa non fa nulla di più: l'uscita è già in corso.
+  // A second ⌘Q during the wait does nothing more: the quit is already in progress.
   if (quitStep === 'waiting') return event.preventDefault()
   if (awakeBlocker !== null) powerSaveBlocker.stop(awakeBlocker)
   destroyTray()
   host?.kill()
 })
 
-// Su macOS l'app resta attiva quando chiudi la finestra: le sessioni continuano. Con il canale remoto acceso resta anche
-// senza finestre, nella barra dei menu; ⌘Q o "Esci" dal menu escono davvero.
+// On macOS the app stays active when you close the window: sessions keep running. With the remote channel on it also stays
+// without windows, in the menu bar; ⌘Q or "Quit" from the menu really quits.
 app.on('window-all-closed', () => {
   if (staysInBackground(process.platform, remoteOn()) && !quitting) enterBackground()
   else if (process.platform !== 'darwin') app.quit()

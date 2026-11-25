@@ -1,5 +1,5 @@
-// Una riga per collegamento (Claude, ChatGPT / Codex, GitHub): stato, account e piano, accesso con download in corso, annulla, esci.
-// Presentazionale: lo stato e i comandi arrivano da fuori, così la stessa riga vale per Impostazioni, primo avvio e anteprima web.
+// One row per connection (Claude, ChatGPT / Codex, GitHub): status, account and plan, sign-in with download in progress, cancel, sign out.
+// Presentational: status and commands come from outside, so the same row serves Settings, first launch and web preview.
 import { useEffect, useRef, useState, type FocusEvent, type MouseEvent, type ReactNode } from 'react'
 import { Check, CircleAlert, CircleDashed, Copy, ExternalLink, Loader2 } from 'lucide-react'
 import githubIcon from '@lobehub/icons-static-svg/icons/github.svg?url'
@@ -11,22 +11,22 @@ import { CONNECTION_NAME, type ConnectionActions } from '@/lib/connections'
 import { cn } from '@/lib/utils'
 
 /**
- * Griglia di una riga (Impostazioni → Abbonamenti): segno, testo, limiti d'uso e bottoni. Con il pannello delle Impostazioni
- * (`@container` in settings-dialog.tsx) largo almeno 820 px i limiti stanno sulla stessa riga, prima dei bottoni; sotto, testo,
- * limiti e bottoni vanno uno sotto l'altro. Senza contenitore (primo avvio) la riga resta a due colonne con i bottoni a destra.
+ * Row grid (Settings → Subscriptions): mark, text, usage limits and buttons. With the Settings panel
+ * (`@container` in settings-dialog.tsx) at least 820 px wide the limits sit on the same row, before the buttons; below that, text,
+ * limits and buttons stack. Without a container (first launch) the row stays two columns with the buttons on the right.
  */
 export const ROW_GRID = 'grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2.5 @[820px]:grid-cols-[18px_minmax(0,3fr)_minmax(240px,2fr)_auto]'
-/** Come ROW_GRID, per le righe senza limiti d'uso (Altri agenti): due colonne a ogni larghezza, i bottoni restano a destra. */
+/** Like ROW_GRID, for rows without usage limits (Other agents): two columns at every width, buttons stay on the right. */
 export const ROW_GRID_PLAIN = 'grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2.5'
 export const ROW_ACTIONS_PLAIN = 'col-start-3 flex shrink-0 items-center justify-end gap-1 @max-[819px]:col-start-2 @max-[819px]:justify-start'
-/** I bottoni stanno all'ultima colonna, allineati al bordo destro; nel pannello stretto sotto il resto, a sinistra. */
+/** The buttons sit in the last column, aligned to the right edge; in the narrow panel below the rest, on the left. */
 export const ROW_ACTIONS = 'col-start-3 flex shrink-0 items-center justify-end gap-1 @max-[819px]:col-start-2 @max-[819px]:justify-start @[820px]:col-start-4 @[820px]:flex-col @[820px]:items-end'
-/** Limiti d'uso: sotto il testo, o nella terza colonna. */
-/** "Esci": ghost in rosso (il rosso di errore del tema), più deciso al passaggio. */
+/** Usage limits: below the text, or in the third column. */
+/** "Sign out": ghost in red (the theme's error red), stronger on hover. */
 export const SIGN_OUT = 'text-sm text-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/30'
 export const ROW_USAGE = 'col-start-2 row-start-2 min-w-0 max-w-[420px] @[820px]:col-start-3 @[820px]:row-start-1'
 
-/** Segno del servizio, decorativo: il nome sta accanto. */
+/** Service mark, decorative: the name sits next to it. */
 function ServiceMark({ id }: { id: ConnectionId }) {
   const icon = id === 'github' ? githubIcon : agentIcon(id)
   const mask = icon ? `url("${icon}")` : undefined
@@ -39,7 +39,7 @@ function ServiceMark({ id }: { id: ConnectionId }) {
   )
 }
 
-/** Strumento che Ladder scarica, per "Scarico …". */
+/** Tool that Ladder downloads, for "Downloading …". */
 const TOOL: Record<ConnectionId, string> = { 'claude-code': 'Claude', codex: 'Codex', github: 'GitHub CLI' }
 
 function purpose(id: ConnectionId): string {
@@ -72,7 +72,7 @@ function sourceLabel(source: NonNullable<ConnectionStatus['source']>): string {
   return source === 'system' ? t('Installed on your Mac') : source === 'bundled' ? t('Included with Ladder') : t('Downloaded by Ladder')
 }
 
-/** Barra del download (collegamenti e agenti del catalogo): `progress` nullo = dimensione ignota. `format` cambia solo le unità (MB decimali per i collegamenti, KiB/MiB/GiB per gli agenti come la conferma). */
+/** Download bar (connections and catalog agents): `progress` null = unknown size. `format` changes only the units (decimal MB for connections, KiB/MiB/GiB for agents, like the confirmation). */
 export function DownloadBar({ login, format = formatBytes }: { login: Pick<ConnectionLogin, 'progress' | 'bytes' | 'total'>; format?: (bytes: number) => string }) {
   const known = login.progress !== null
   const pct = known ? Math.round(Math.min(1, Math.max(0, login.progress!)) * 100) : 0
@@ -120,7 +120,7 @@ export function CopyButton({ text, label, copiedLabel }: { text: string; label: 
         {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
         {copied ? copiedLabel : label}
       </Button>
-      {/* Fuori dal bottone: il nome resta `label`, l'esito si annuncia a parte. */}
+      {/* Outside the button: the name stays `label`, the result is announced separately. */}
       <span role="status" className="sr-only">
         {copied ? copiedLabel : ''}
       </span>
@@ -128,7 +128,7 @@ export function CopyButton({ text, label, copiedLabel }: { text: string; label: 
   )
 }
 
-/** Accesso in corso: passo, avanzamento del download, e in attesa del browser il link e il codice monouso (GitHub). */
+/** Sign-in in progress: step, download progress, and while waiting for the browser the link and the one-time code (GitHub). */
 function LoginProgress({ id, login }: { id: ConnectionId; login: ConnectionLogin }) {
   const waiting = login.stage === 'waiting-browser'
   return (
@@ -160,31 +160,31 @@ function LoginProgress({ id, login }: { id: ConnectionId; login: ConnectionLogin
   )
 }
 
-/** Messaggi di annullamento (host in inglese o tradotto). */
+/** Cancellation messages (host in English or translated). */
 const CANCELLED = /cancell?ed|annullat/i
 
 type Confirm = 'logout' | 'switch' | null
 
 export interface ConnectionRowProps {
   id: ConnectionId
-  /** null: lo stato non è ancora stato letto. */
+  /** null: the status hasn't been read yet. */
   status: ConnectionStatus | null
   actions: ConnectionActions
-  /** Nelle impostazioni mostra anche versione e provenienza dello strumento. */
+  /** In settings it also shows the tool's version and origin. */
   showTool?: boolean
-  /** Profilo (Claude Code, Codex) di cui è la riga; assente = predefinito. Va ai comandi. */
+  /** Profile (Claude Code, Codex) the row belongs to; absent = default. It goes to the commands. */
   profileId?: string
-  /** Nome della riga al posto di quello del servizio ("Claude · Lavoro"). */
+  /** Row name in place of the service's ("Claude · Work"). */
   name?: string
-  /** Al posto del nome, per esempio il campo di rinomina. */
+  /** In place of the name, for example the rename field. */
   titleSlot?: ReactNode
-  /** Sotto stato e account: dettagli che restano nella colonna del testo. */
+  /** Below status and account: details that stay in the text column. */
   extra?: ReactNode
-  /** I limiti d'uso del profilo, già aperti: accanto al testo da 820 px, sotto più stretto. Solo con l'account collegato. */
+  /** The profile's usage limits, already open: next to the text from 820 px, below when narrower. Only with the account connected. */
   usage?: ReactNode
-  /** In fondo a destra, dopo i bottoni: il menu del profilo. */
+  /** Bottom right, after the buttons: the profile menu. */
   trailing?: ReactNode
-  /** In fondo alla colonna centrale: conferme e errori del profilo. */
+  /** Bottom of the center column: profile confirmations and errors. */
   footer?: ReactNode
 }
 
@@ -192,7 +192,7 @@ export function ConnectionRow({ id, status, actions, showTool, profileId, name: 
   const [confirm, setConfirm] = useState<Confirm>(null)
   const cancelConfirm = useRef<HTMLButtonElement>(null)
   const root = useRef<HTMLDivElement>(null)
-  /** Bottone che ha aperto la conferma: il focus ci torna alla chiusura. */
+  /** Button that opened the confirmation: focus returns to it on close. */
   const opener = useRef<HTMLElement | null>(null)
   const focusInside = useRef(false)
   const [busy, setBusy] = useState(false)
@@ -206,15 +206,15 @@ export function ConnectionRow({ id, status, actions, showTool, profileId, name: 
   const name = nameOverride ?? CONNECTION_NAME[id]
   const login = status?.login ?? null
   const connected = status?.state === 'connected' && !login
-  // Il login di Claude sta nel Portachiavi, condiviso con la CLI dell'utente: uscire o cambiare account vale anche per il Terminale.
-  // Un profilo di Ladder ha la sua cartella di configurazione: il suo accesso non è quello della CLI.
+  // Claude's login lives in the Keychain, shared with the user's CLI: signing out or switching account also applies to Terminal.
+  // A Ladder profile has its own config folder: its login isn't the CLI's.
   const sharesLogin = id === 'claude-code' && !profileId
 
   useEffect(() => {
     if (confirm) cancelConfirm.current?.focus()
   }, [confirm])
 
-  /** Un comando alla volta per riga: i bottoni restano disattivi finché l'host non risponde. */
+  /** One command at a time per row: the buttons stay disabled until the host replies. */
   function run(command: () => void | Promise<void>): void {
     setBusy(true)
     void Promise.resolve(command()).finally(() => mounted.current && setBusy(false))
@@ -237,11 +237,11 @@ export function ConnectionRow({ id, status, actions, showTool, profileId, name: 
   const state = login ? 'signing' : status?.state === 'connected' ? 'connected' : status?.state === 'error' ? 'error' : status ? 'signed-out' : 'loading'
 
   const action = login ? 'cancel' : connected ? 'connected' : 'signin'
-  // Se il focus era nella riga e il bottone su cui stava è sparito o disattivato (Accedi → Annulla → Cambia account), passa all'azione principale nuova.
+  // If focus was in the row and the button it was on is gone or disabled (Sign in → Cancel → Switch account), it moves to the new main action.
   useEffect(() => {
     if (!focusInside.current) return
     const active = document.activeElement
-    // Focus altrove nel dialog (sfocatura senza relatedTarget): non lo rubo.
+    // Focus elsewhere in the dialog (blur without relatedTarget): I don't steal it.
     if (active && active !== document.body && !root.current?.contains(active)) {
       focusInside.current = false
       return
@@ -295,7 +295,7 @@ export function ConnectionRow({ id, status, actions, showTool, profileId, name: 
         </div>
         {!login && <p className="text-xs text-muted-foreground">{detail}</p>}
         {!login && status?.error && (
-          // Un annullamento voluto non è un guasto: niente rosso e niente avviso.
+          // A deliberate cancellation is not a failure: no red and no notice.
           <p {...(CANCELLED.test(status.error) ? {} : { role: 'alert' })} className={cn('text-xs', CANCELLED.test(status.error) ? 'text-muted-foreground' : 'text-destructive')}>
             {status.error}
           </p>

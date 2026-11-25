@@ -1,5 +1,5 @@
-// Host e sistema finti per provare nell'anteprima web le sezioni Workspace, Data and system e il suono delle richieste:
-// risponde a project.settings, project.worktree.set, project.worktreeFiles e data.*, e sostituisce la finestra delle cartelle e dei salvataggi.
+// Fake host and system to try the Workspace and Data and system sections and the request sound in the web preview:
+// it answers project.settings, project.worktree.set, project.worktreeFiles and data.*, and replaces the folder and save dialogs.
 import type { DataInfo, EditorAvailability, HostCommand, ProjectSettings, WorktreeFiles, WorktreeService } from '@shared/protocol'
 import { overrideSystemBridge } from '@/lib/system-bridge'
 import { installOthersPreview } from './others-preview'
@@ -10,7 +10,7 @@ let installed = false
 
 const DAY = 86_400_000
 
-/** Anteprima di .worktreeinclude: due regole e i file ignorati che trovano. */
+/** Preview of .worktreeinclude: two rules and the ignored files they find. */
 const WORKTREE_FILES: WorktreeFiles = {
   source: 'file',
   patterns: ['.env*', 'apps/*/.env.local', 'certs/'],
@@ -24,8 +24,8 @@ export function installSettingsPreview(): void {
   installOthersPreview()
   installRemotePreview()
 
-  // Come l'host: il file del progetto (sola lettura) e quello personale (l'elenco che la UI riscrive per intero) restano separati e
-  // `services` si ricava dalla loro fusione per nome. Il personale con command vuoto disattiva il servizio omonimo del progetto.
+  // Like the host: the project file (read only) and the personal one (the list the UI rewrites in full) stay separate and
+  // `services` is derived from merging them by name. A personal entry with an empty command disables the project's service of the same name.
   type ServiceEntry = { name: string; command: string; port: boolean }
   const projectServicesOf = (projectId: string): ServiceEntry[] =>
     projectId === 'api' ? [] : [{ name: 'Web', command: 'pnpm --filter web dev --port $LADDER_PORT', port: true }, { name: 'Worker', command: 'pnpm worker', port: false }]
@@ -91,7 +91,7 @@ export function installSettingsPreview(): void {
         let personal = personalOf.get(command.projectId) ?? []
         if (patch.services !== undefined) {
           if (patch.services.some((s) => !s.name.trim())) return { ok: false, error: 'A service needs a name.' }
-          // Nome ripetuto: vince l'ultima voce, nella posizione della prima.
+          // Repeated name: the last entry wins, in the position of the first.
           const byName = new Map<string, ServiceEntry>()
           for (const s of patch.services) byName.set(s.name.trim(), { name: s.name.trim(), command: s.command.trim(), port: s.port !== false })
           personal = [...byName.values()]
@@ -109,7 +109,7 @@ export function installSettingsPreview(): void {
           }
         })
         const next = settingsOf(command.projectId)
-        // Per i collaudi: cosa ha inviato l'interfaccia, in ordine.
+        // For tests: what the interface sent, in order.
         const w = window as unknown as { __worktreeSets?: unknown[] }
         ;(w.__worktreeSets ??= []).push({ projectId: command.projectId, patch, personalServices: next.worktree.personalServices })
         return { ok: true, data: next }
@@ -152,7 +152,7 @@ export function installSettingsPreview(): void {
   })
 }
 
-/** Simula l'archiviazione automatica di tre sessioni ferme (evento dell'host). */
+/** Simulates the automatic archiving of three idle sessions (host event). */
 export function emitAutoArchived(): void {
   emitPreviewEvent({ type: 'sessions.autoArchived', sessionIds: ['a', 'b', 'c'] })
 }

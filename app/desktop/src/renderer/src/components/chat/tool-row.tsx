@@ -1,4 +1,4 @@
-// Riga compatta di uno strumento: icona del tipo, titolo, durata, stato. L'output si apre con un clic.
+// Compact row for a tool: type icon, title, duration, status. Output opens with a click.
 import {
   ArrowUpRight,
   Ban,
@@ -48,7 +48,7 @@ const kindIcon: Record<ToolKind, LucideIcon> = {
 
 const OUTPUT_LINES = 30
 
-/** Il titolo con la parte che coincide con il comando o il percorso in monospazio: "Esegue `pnpm test`". */
+/** The title with the part matching the command or path in monospace: "Running `pnpm test`". */
 export function MonoTitle({ title, detail }: { title: string; detail: string | null }): ReactNode {
   if (detail && detail.length > 0 && detail !== title) {
     const at = title.indexOf(detail)
@@ -82,7 +82,7 @@ function ToolOutput({ item }: { item: ToolItem }) {
   const [all, toggleAll] = useToggle(`out:${item.id}`)
   const lines = item.output ? item.output.replace(/\n+$/, '').split('\n') : []
   const truncated = lines.length > OUTPUT_LINES
-  // Per i comandi conta la coda (riepilogo dei test, errori); per il resto l'inizio.
+  // For commands the tail counts (test summary, errors); for the rest the beginning.
   const tail = item.tool === 'command'
   const shown = !truncated || all ? lines : tail ? lines.slice(-OUTPUT_LINES) : lines.slice(0, OUTPUT_LINES)
   const isDiff = item.tool === 'edit' && lines.some((l) => /^[+-]/.test(l))
@@ -136,7 +136,7 @@ function ToolOutput({ item }: { item: ToolItem }) {
   )
 }
 
-/** Un sotto-agente è una riga sola che apre il dettaglio; gli altri strumenti si espandono sul posto. */
+/** A sub-agent is a single row that opens the detail; other tools expand in place. */
 export const ToolRow = memo(function ToolRow({ item }: { item: ToolItem }) {
   if (ladderToolOf(item.name)) return <LadderToolRow item={item} />
   return item.tool === 'agent' ? <AgentToolRow item={item} /> : <PlainToolRow item={item} />
@@ -180,7 +180,7 @@ function LadderToolRow({ item: raw }: { item: ToolItem }) {
   return <PlainToolRow item={item} icon={icon} meta={tool === 'delegate' ? model : null} extra={extra} wrap={tool === 'delegate'} tooltip={tool === 'delegate' ? input.prompt : null} />
 }
 
-/** Strumenti del browser dell'agente: etichetta leggibile e niente testo digitato (né nel dettaglio né nell'esito). */
+/** Agent browser tools: readable label and no typed text (neither in the detail nor in the result). */
 function withBrowserLabel(item: ToolItem): ToolItem {
   const tool = browserToolOf(item.name)
   if (!tool) return item
@@ -195,7 +195,7 @@ function PlainToolRow({ item: raw, icon, meta, extra, wrap, tooltip }: { item: T
   const Icon = kindIcon[item.tool] ?? Wrench
   const duration = item.endedAt ? formatShortDuration(item.endedAt - item.at) : null
 
-  // Le righe senza dettagli non sono pulsanti: niente tappe inutili con Tab.
+  // Rows without details aren't buttons: no useless Tab stops.
   const Row = expandable ? 'button' : 'div'
   // A plan (ExitPlanMode) also opens as a commentable document: the button sits next to the row, never inside another button.
   const plan = planOfTool(item)

@@ -1,5 +1,5 @@
-// Collegamenti di Ladder: GitHub (gh), Claude Code e Codex. Stato, download dello strumento se manca e login dal browser.
-// Ladder non legge mai token o file delle credenziali: i login li custodiscono gh, la CLI di Claude e Codex (Portachiavi / auth.json).
+// Ladder connections: GitHub (gh), Claude Code and Codex. State, tool download if missing, and browser login.
+// Ladder never reads tokens or credential files: logins are kept by gh, the Claude CLI and Codex (Keychain / auth.json).
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { basename } from 'node:path'
 import { promisify } from 'node:util'
@@ -20,19 +20,19 @@ const GITHUB_DEVICE_URL = 'https://github.com/login/device'
 
 export interface ConnectionHooks {
   publish(status: ConnectionStatus): void
-  /** L'host non ha un browser: il main apre l'indirizzo. */
+  /** The host has no browser: main opens the address. */
   openUrl(url: string): void
-  /** Lo strumento o l'account sono cambiati: l'host rilegge percorso, account, modelli e limiti dell'agente (del profilo, se c'è). `reset`: dopo un logout. `probe`: rilegge account e limiti anche con `reset` (dopo uno switch di account). */
+  /** The tool or the account changed: the host rereads the agent's path, account, models and limits (of the profile, if any). `reset`: after a logout. `probe`: rereads account and limits even with `reset` (after an account switch). */
   changed(id: ConnectionId, reset: boolean, probe?: boolean, profileId?: string): Promise<void>
-  /** Profili non predefiniti, per `list` e per lo stato all'avvio. */
+  /** Non-default profiles, for `list` and for the state at startup. */
   profiles(): Profile[]
-  /** Profilo non predefinito per id; null se non esiste (rimosso). */
+  /** Non-default profile by id; null if it doesn't exist (removed). */
   profile(profileId: string): Profile | null
 }
 
 /**
- * Cosa si sta leggendo o cambiando: un collegamento e, per Claude Code e Codex, un profilo. `key` distingue gli stati
- * (`claude-code`, `claude-code:<profileId>`); `configDir` è la cartella del profilo, null per il predefinito.
+ * What is being read or changed: a connection and, for Claude Code and Codex, a profile. `key` tells the states apart
+ * (`claude-code`, `claude-code:<profileId>`); `configDir` is the profile's folder, null for the default.
  */
 interface Target {
   id: ConnectionId
@@ -41,7 +41,7 @@ interface Target {
   configDir: string | null
 }
 
-/** Un lavoro in corso (download o login) che si può annullare. */
+/** A job in progress (download or login) that can be cancelled. */
 interface Job {
   abort: AbortController
   child: ChildProcess | null
@@ -52,7 +52,7 @@ class Cancelled extends Error {}
 
 const empty = (id: ConnectionId, profileId?: string): ConnectionStatus => ({ id, ...(profileId ? { profileId } : {}), state: 'missing', source: null, version: null, user: null, plan: null, email: null, login: null, error: null })
 
-/** Stdout di un comando anche quando esce con codice diverso da zero (es. `auth status` da scollegato). */
+/** Stdout of a command even when it exits with a non-zero code (e.g. `auth status` when signed out). */
 async function output(file: string, args: string[], env: Record<string, string | undefined>, timeout = 15000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
     const { stdout, stderr } = await run(file, args, { env, timeout, maxBuffer: 1024 * 1024 })
@@ -64,8 +64,8 @@ async function output(file: string, args: string[], env: Record<string, string |
 }
 
 /**
- * La CLI stampa anche l'indirizzo "manuale" (redirect a una pagina con un codice da incollare nello stdin): Ladder non ha
- * dove incollarlo, quindi si offre solo quello che torna su localhost, che la CLI ascolta da sé.
+ * The CLI also prints the "manual" address (redirect to a page with a code to paste into stdin): Ladder has nowhere
+ * to paste it, so only the one that comes back to localhost, which the CLI listens on by itself, is offered.
  */
 function automaticLoginUrl(raw: string): boolean {
   try {
@@ -79,26 +79,26 @@ function automaticLoginUrl(raw: string): boolean {
 const arch = () => (process.arch === 'arm64' ? 'arm64' : 'amd64')
 
 export class Connections {
-  // Le mappe sono per chiave (collegamento + profilo, vedi Target).
+  // The maps are keyed (connection + profile, see Target).
   private status = new Map<string, ConnectionStatus>()
   private jobs = new Map<string, Job>()
-  /** Logout in corso: una seconda richiesta riusa la stessa operazione. */
+  /** Logout in progress: a second request reuses the same operation. */
   private logouts = new Map<string, Promise<ConnectionStatus>>()
-  /** Riletture in corso: una seconda richiesta per la stessa chiave riusa la prima. */
+  /** Rereads in progress: a second request for the same key reuses the first. */
   private refreshes = new Map<string, { gen: number; op: Promise<ConnectionStatus> }>()
-  /** Generazione per chiave: login e logout la incrementano, e una lettura partita prima non pubblica né si riusa. */
+  /** Generation per key: login and logout increment it, and a read started earlier neither publishes nor is reused. */
   private generations = new Map<string, number>()
-  /** Download in corso per strumento, condivisi dai login. */
+  /** Downloads in progress per tool, shared by the logins. */
   private installs = new Map<'gh' | 'codex', Promise<void>>()
 
   constructor(private readonly hooks: ConnectionHooks) {}
 
-  /** Ultimo stato noto, senza leggere niente: per lo snapshot. */
+  /** Last known state, without reading anything: for the snapshot. */
   cached(): ConnectionStatus[] {
     return [...this.status.values()]
   }
 
-  /** Il profilo `profileId` per un collegamento: solo Claude Code e Codex ne hanno; il predefinito (assente o `default:<agent>`) non ha cartella. */
+  /** Profile `profileId` for a connection: only Claude Code and Codex have them; the default (absent or `default:<agent>`) has no folder. */
   private target(id: ConnectionId, profileId?: string): Target {
     const custom = id === 'github' ? undefined : customProfileId(profileId)
     if (!custom) return { id, key: id, configDir: null }
@@ -107,13 +107,13 @@ export class Connections {
     return { id, profileId: custom, key: `${id}:${custom}`, configDir: profile.configDir }
   }
 
-  /** Stato attuale di tutti, senza avviare nulla: GitHub, i due predefiniti e ogni profilo. */
+  /** Current state of all, without starting anything: GitHub, the two defaults and every profile. */
   async list(): Promise<ConnectionStatus[]> {
     const targets = [this.target('github'), this.target('claude-code'), this.target('codex'), ...this.hooks.profiles().filter((p) => !p.isDefault).map((p) => this.target(p.agent, p.id))]
     return Promise.all(targets.map((target) => this.refreshTarget(target)))
   }
 
-  /** Rilegge lo stato di uno; se c'è un login in corso resta quello. */
+  /** Rereads the state of one; if a login is in progress, that stays. */
   refresh(id: ConnectionId, profileId?: string): Promise<ConnectionStatus> {
     return this.refreshTarget(this.target(id, profileId))
   }
@@ -121,7 +121,7 @@ export class Connections {
   private refreshTarget(target: Target): Promise<ConnectionStatus> {
     const { key } = target
     if (this.jobs.has(key) || this.logouts.has(key)) return Promise.resolve(this.status.get(key) ?? empty(target.id, target.profileId))
-    // Due riletture dello stesso stato condividono la stessa operazione (se della stessa generazione): un solo processo e nessuna pubblicazione fuori ordine.
+    // Two rereads of the same state share the same operation (if of the same generation): a single process and no out-of-order publishing.
     const gen = this.generation(key)
     const running = this.refreshes.get(key)
     if (running && running.gen === gen) return running.op
@@ -136,7 +136,7 @@ export class Connections {
     return this.generations.get(key) ?? 0
   }
 
-  /** Una lettura già partita non vale più: arriverebbe con lo stato di prima del login o del logout. */
+  /** A read already started is no longer valid: it would arrive with the state from before the login or logout. */
   private invalidate(key: string): void {
     this.generations.set(key, this.generation(key) + 1)
   }
@@ -149,13 +149,13 @@ export class Connections {
     } catch (error) {
       next = { ...empty(id, target.profileId), state: 'error', error: (error as Error).message }
     }
-    // Nel frattempo è partito un login o un logout: il loro stato vince su questa lettura.
+    // A login or logout started in the meantime: their state wins over this read.
     if (gen !== this.generation(key)) return this.status.get(key) ?? next
     this.put(next)
     return next
   }
 
-  /** Avvia download (se serve) e login in background; risponde subito con lo stato. */
+  /** Starts download (if needed) and login in the background; answers at once with the state. */
   async login(id: ConnectionId, switchAccount = false, profileId?: string): Promise<ConnectionStatus> {
     const target = this.target(id, profileId)
     const { key } = target
@@ -193,7 +193,7 @@ export class Connections {
       await this.afterChange(target, true)
     })().then(() => {
       this.logouts.delete(key)
-      // Dopo il logout serve una lettura nuova, non una partita prima.
+      // After the logout a fresh read is needed, not one started earlier.
       this.invalidate(key)
       return this.refreshTarget(target)
     })
@@ -201,7 +201,7 @@ export class Connections {
     return op
   }
 
-  /** Il profilo è stato rimosso: si ferma ciò che stava facendo e si dimentica il suo stato. */
+  /** The profile was removed: whatever it was doing stops and its state is forgotten. */
   forget(profileId: string): void {
     for (const [key, status] of [...this.status]) {
       if (status.profileId !== profileId) continue
@@ -215,27 +215,27 @@ export class Connections {
     for (const key of this.jobs.keys()) this.cancelKey(key)
   }
 
-  // ── Lettura dello stato ───────────────────────────────────────────────────
+  // ── Reading the state ─────────────────────────────────────────────────────
 
   private async readGithub(): Promise<ConnectionStatus> {
-    // Se l'utente ha installato gh a Ladder aperto, va ritrovato prima di scaricarne una seconda copia.
+    // If the user installed gh while Ladder was open, it must be found again before downloading a second copy.
     resetGh()
     const path = await findGh()
     if (!path) return empty('github')
     const env = await agentEnv([], { GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1' })
     const version = /gh version (\S+)/.exec((await output(path, ['--version'], env, 10000)).stdout)?.[1] ?? null
     const base: ConnectionStatus = { ...empty('github'), source: path === downloadedGhPath() ? 'downloaded' : 'system', version }
-    // Senza rete gh esce non zero come se non fosse collegato: la classificazione sta in ghAuthCheck.
+    // Without a network gh exits non-zero as if it weren't connected: the classification is in ghAuthCheck.
     const auth = await ghAuthCheck(path, env)
     if (auth === 'unauthenticated') return { ...base, state: 'unauthenticated' }
     if (auth === 'error') return { ...base, state: 'error', error: t('Could not check the GitHub login. Check your connection.') }
-    // Chi sei lo dice l'API di GitHub: il token lo usa gh, Ladder non lo vede.
+    // Who you are is told by the GitHub API: gh uses the token, Ladder doesn't see it.
     const me = await output(path, ['api', 'user'], env, 10000)
     let profile: { login?: string; name?: string | null; email?: string | null } = {}
     try {
       profile = JSON.parse(me.stdout)
     } catch {
-      // Collegato ma senza dettagli: lo stato resta "collegato".
+      // Connected but without details: the state stays "connected".
     }
     return { ...base, state: 'connected', user: profile.login ?? null, email: profile.email ?? null }
   }
@@ -251,7 +251,7 @@ export class Connections {
     } catch {
       info = null
     }
-    // Senza JSON (timeout, CLI rotta) non si sa se l'accesso c'è: errore, che non blocca il composer.
+    // Without JSON (timeout, broken CLI) we can't tell whether access exists: error, which doesn't block the composer.
     if (!info) return { ...base, state: 'error', error: t('Can’t read the Claude login status.') }
     if (!info.loggedIn) return { ...base, state: 'unauthenticated' }
     const plan = info.subscriptionType ? info.subscriptionType.charAt(0).toUpperCase() + info.subscriptionType.slice(1) : null
@@ -303,36 +303,36 @@ export class Connections {
       signal.throwIfAborted()
       this.step(target, { stage: 'finishing', url: null, code: null })
       await this.afterChange(target, signedOut, true)
-      // Un logout arrivato nell'attesa passa dal catch: la riga resta scollegata di proposito.
+      // A logout that arrived while waiting goes through the catch: the row stays signed out on purpose.
       signal.throwIfAborted()
       this.jobs.delete(key)
       if (this.gone(target)) return
       this.invalidate(key)
       const status = await this.refreshTarget(target)
-      // Se nel frattempo è arrivato un logout, refresh ha restituito lo stato in cache: il login non c'è più.
+      // If a logout arrived in the meantime, refresh returned the cached state: the login is gone.
       if (status.state !== 'connected') this.put({ ...status, login: null, error: status.state === 'error' ? status.error : t('Login did not complete.') })
       else this.put({ ...status, login: null, error: null })
     } catch (error) {
       this.jobs.delete(key)
-      // Profilo rimosso nel frattempo: niente da rileggere né da pubblicare.
+      // Profile removed in the meantime: nothing to reread or publish.
       if (this.gone(target)) return
-      // Il vecchio account è già uscito: l'agente deve dimenticare account, piano e limiti.
+      // The old account has already left: the agent must forget account, plan and limits.
       if (signedOut) await this.afterChange(target, true)
       this.invalidate(key)
       const status = await this.refreshTarget(target)
-      // Un annullamento voluto non è un errore.
+      // A deliberate cancellation is not an error.
       this.put({ ...status, login: null, error: error instanceof Cancelled || signal.aborted ? null : (error as Error).message })
     }
   }
 
-  /** Il profilo del collegamento è stato rimosso. */
+  /** The connection's profile was removed. */
   private gone(target: Target): boolean {
     return Boolean(target.profileId) && !this.hooks.profile(target.profileId!)
   }
 
   /**
-   * Si assicura che lo strumento ci sia. Il download di gh e Codex è uno solo per strumento: login di profili diversi
-   * aspettano la stessa promessa (stesso archivio e stessa cartella di estrazione); se chi scaricava annulla, si riprova.
+   * Makes sure the tool is there. The gh and Codex download is one per tool: logins of different profiles
+   * wait for the same promise (same archive and same extraction folder); if whoever was downloading cancels, we retry.
    */
   private async ensureTool(target: Target, job: Job): Promise<void> {
     const { id } = target
@@ -358,10 +358,10 @@ export class Connections {
       })
       try {
         await Promise.race([shared, aborted])
-        // Scaricato: un solo giro. Se lo strumento ancora non si trova (percorso di prova sbagliato) il login prosegue e dà il suo errore.
+        // Downloaded: a single pass. If the tool still isn't found (wrong test path) the login goes on and gives its own error.
         return
       } catch (error) {
-        // Se chi scaricava ha annullato non è un errore nostro: si riprova, scaricando noi. Ogni altro errore si rilancia.
+        // If whoever was downloading cancelled, it's not our error: we retry, downloading ourselves. Any other error is rethrown.
         const cancelled = error instanceof Cancelled || (error as Error).name === 'AbortError'
         if (owner || signal.aborted || !cancelled) throw error
       } finally {
@@ -376,7 +376,7 @@ export class Connections {
     return Boolean(await findCodexCli())
   }
 
-  /** gh e Codex si scaricano nella cartella dati; Claude Code arriva già dentro Ladder. */
+  /** gh and Codex are downloaded into the data folder; Claude Code already ships inside Ladder. */
   private async install(link: Target, job: Job): Promise<void> {
     const { id } = link
     if (id === 'claude-code') throw new Error(t('Claude is not included in this build of Ladder.'))
@@ -399,11 +399,11 @@ export class Connections {
     const version = (await run(target, ['--version'], { timeout: 15000, env: await agentEnv() }).catch(() => null))?.stdout
     signal.throwIfAborted()
     if (!version) throw new Error(t('The downloaded program does not start. Try again.'))
-    // La rilettura dell'agente la fa afterChange, a fine login.
+    // The agent's reread is done by afterChange, at the end of the login.
     if (isGh) resetGh()
   }
 
-  /** `gh auth login --web`: gh stampa un codice monouso; il browser lo apre Ladder (GH_BROWSER neutralizza quello di gh). */
+  /** `gh auth login --web`: gh prints a one-time code; Ladder opens the browser (GH_BROWSER neutralizes gh's own). */
   private async loginGithub(job: Job, target: Target): Promise<void> {
     const path = await findGh()
     if (!path) throw new Error(t('gh is not installed'))
@@ -411,7 +411,7 @@ export class Connections {
     job.abort.signal.throwIfAborted()
     const child = spawn(path, ['auth', 'login', '--hostname', 'github.com', '--web', '--git-protocol', 'https', '--skip-ssh-key'], { env, stdio: ['pipe', 'pipe', 'pipe'] })
     job.child = child
-    // Se gh chiude lo stdin prima della scrittura (EPIPE) non deve cadere l'host.
+    // If gh closes stdin before the write (EPIPE), the host must not crash.
     child.stdin.on('error', () => undefined)
     let seen = ''
     let answered = false
@@ -437,7 +437,7 @@ export class Connections {
     resetGh()
   }
 
-  /** `claude auth login --claudeai`: la CLI apre il browser da sé; l'indirizzo che stampa si offre come ripiego. */
+  /** `claude auth login --claudeai`: the CLI opens the browser itself; the address it prints is offered as a fallback. */
   private async loginClaude(job: Job, target: Target): Promise<void> {
     const cli = await findClaudeCli()
     if (!cli) throw new Error(t('Claude is not included in this build of Ladder.'))
@@ -453,11 +453,11 @@ export class Connections {
     }
     child.stdout.on('data', onData)
     child.stderr.on('data', onData)
-    // Il testo della CLI può contenere l'indirizzo di accesso con i suoi parametri: non finisce in errori o log.
+    // The CLI text may contain the sign-in address with its parameters: it doesn't end up in errors or logs.
     if ((await this.exit(child, job)) !== 0) throw new Error(t('Login did not complete.'))
   }
 
-  /** L'app-server di Codex ha il login ChatGPT integrato: restituisce authUrl e poi notifica account/login/completed. */
+  /** Codex's app-server has ChatGPT login built in: it returns authUrl and then notifies account/login/completed. */
   private async loginCodex(job: Job, target: Target): Promise<void> {
     const cli = await findCodexCli()
     if (!cli) throw new Error(t('Codex not found.'))
@@ -471,7 +471,7 @@ export class Connections {
       if (method === 'account/login/completed') finish({ success: params.success === true, error: typeof params.error === 'string' ? params.error : null })
     })
     job.rpc = rpc
-    // Se l'app-server si chiude prima della fine, il login è fallito.
+    // If the app-server closes before the end, the login failed.
     void rpc.exited.then(() => finish({ success: false, error: null }))
     let loginId: string | null = null
     try {
@@ -503,7 +503,7 @@ export class Connections {
     }
   }
 
-  /** Aspetta la fine del processo di login, con annullamento e tempo massimo. */
+  /** Waits for the login process to end, with cancellation and a timeout. */
   private async exit(child: ChildProcess, job: Job): Promise<number | null> {
     let timedOut = false
     const timer = setTimeout(() => {
@@ -544,11 +544,11 @@ export class Connections {
         }
       }
     } catch {
-      // L'esito vero lo dice la rilettura dello stato.
+      // The real outcome is given by the state reread.
     }
   }
 
-  // ── Stato e avanzamento ───────────────────────────────────────────────────
+  // ── State and progress ────────────────────────────────────────────────────
 
   private async afterChange({ id, profileId }: Target, reset: boolean, probe = !reset): Promise<void> {
     if (id === 'github') resetGh()
@@ -559,14 +559,14 @@ export class Connections {
     return { stage, progress: null, bytes: null, total: null, url: null, code: null }
   }
 
-  /** Aggiorna il login in corso e lo pubblica. */
+  /** Updates the login in progress and publishes it. */
   private step(target: Target, patch: Partial<ConnectionLogin>): void {
     const current = this.status.get(target.key) ?? empty(target.id, target.profileId)
     this.put({ ...current, login: { ...(current.login ?? this.loginState('verifying')), ...patch } })
   }
 
   private put(status: ConnectionStatus): void {
-    // Uno stato di un profilo rimosso non deve ricomparire (login annullato o lettura in volo).
+    // A removed profile's state must not reappear (cancelled login or read in flight).
     if (status.profileId && !this.hooks.profile(status.profileId)) return
     this.status.set(status.profileId ? `${status.id}:${status.profileId}` : status.id, status)
     this.hooks.publish(status)

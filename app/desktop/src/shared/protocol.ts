@@ -2,13 +2,13 @@ import type { FileKind } from './file-type'
 import type { Locale } from './i18n'
 import type { Keybinding, ShortcutPreset } from './shortcuts'
 import type { Plan, PlanChoice, PlanState } from './plan'
-// Tipi condivisi tra host delle sessioni, processo main e renderer.
-// L'host è la fonte di verità: il renderer riceve progetti, sessioni ed elementi della chat già pronti.
+// Types shared between the session host, the main process and the renderer.
+// The host is the source of truth: the renderer receives projects, sessions and chat items already built.
 
-/** Agenti in chat: i due nativi e quelli ACP, con l'id della loro voce (`acp:gemini`). */
+/** Agents in chat: the two native ones and the ACP ones, with the id of their entry (`acp:gemini`). */
 export type AgentId = 'claude-code' | 'codex' | `acp:${string}`
 
-/** Voce di un agente ACP: basta un comando. Dal registro ufficiale o scritta a mano. */
+/** An ACP agent entry: a command is enough. From the official registry or written by hand. */
 export interface AcpAgentSpec {
   id: string
   name: string
@@ -17,48 +17,48 @@ export interface AcpAgentSpec {
   env?: Record<string, string>
   source: 'registry' | 'custom'
   /**
-   * Come parte l'agente: `npx`/`uvx` (pacchetto del registro), `binary` (scaricato da Ladder in `<dati>/bin/<id>`,
-   * `command` è il percorso assoluto), `path` (CLI già installata, `command` è il suo percorso). Assente: voce scritta a mano.
+   * How the agent starts: `npx`/`uvx` (registry package), `binary` (downloaded by Ladder into `<data>/bin/<id>`,
+   * `command` is the absolute path), `path` (CLI already installed, `command` is its path). Absent: hand-written entry.
    */
   distribution?: 'npx' | 'uvx' | 'binary' | 'path'
   version?: string | null
   description?: string | null
-  /** Icona dal registro, scaricata all'aggiunta e salvata come data URL (SVG). */
+  /** Icon from the registry, downloaded when the agent is added and stored as a data URL (SVG). */
   icon?: string | null
 }
 
-// ── Catalogo agenti ACP, rilevamento e installazione (LAD-56) ────────────────
+// ── ACP agent catalog, detection and installation ────────────────────────────
 
 /**
- * Stato di un agente del catalogo su questo Mac:
- * - detected: trovato; un eseguibile con il nome atteso è nel PATH della shell di login (Ladder non verifica che sia proprio quell'agente), oppure l'ha già scaricato Ladder.
- * - downloadable: non c'è ancora ma Ladder la può avere: binario con checksum verificabile (`agents.install`),
- *   oppure pacchetto npx/uvx (si avvia con `agents.add`, il pacchetto si scarica al primo avvio).
- * - unavailable: non si può avere da Ladder; `reason` dice perché (nessuna build per questo Mac, nessun checksum, npx/uvx assente).
+ * State of a catalog agent on this Mac:
+ * - detected: found; an executable with the expected name is in the login shell's PATH (Ladder does not verify it is really that agent), or Ladder already downloaded it.
+ * - downloadable: not there yet but Ladder can provide it: a binary with a verifiable checksum (`agents.install`),
+ *   or an npx/uvx package (started with `agents.add`, the package is downloaded on first start).
+ * - unavailable: Ladder cannot provide it; `reason` says why (no build for this Mac, no checksum, npx/uvx missing).
  */
 export type AgentCatalogState = 'detected' | 'downloadable' | 'unavailable'
 
-/** Metodo di accesso dichiarato dall'agente in `initialize` (authMethods di ACP). */
+/** Sign-in method declared by the agent in `initialize` (ACP authMethods). */
 export interface AgentAuthMethod {
   id: string
   name: string
   description: string | null
   /**
-   * - agent: l'accesso lo fa l'agente (Ladder lo chiede via `authenticate`); è anche il caso di un metodo senza `type` (predefinito di ACP).
-   * - terminal: serve un terminale interattivo (non ancora supportato).
-   * - unsupported: ogni altro tipo dichiarato dall'agente (es. `env_var`): Ladder non sa farlo, quindi la UI NON mostra un
-   *   pulsante "Sign in" per questi, al massimo il nome come informazione. `agents.authenticate` li rifiuta.
-   * (Il campo si chiama `type`, non `kind`.)
+   * - agent: the agent handles sign-in (Ladder requests it via `authenticate`); this is also the case for a method without `type` (the ACP default).
+   * - terminal: needs an interactive terminal (not supported yet).
+   * - unsupported: any other type declared by the agent (e.g. `env_var`): Ladder cannot do it, so the UI does NOT show a
+   *   "Sign in" button for these, at most the name as information. `agents.authenticate` rejects them.
+   * (The field is called `type`, not `kind`.)
    */
   type: 'agent' | 'terminal' | 'unsupported'
 }
 
 /**
- * Login di un agente ACP, solo da ciò che il protocollo ha detto in una sessione reale:
- * - unknown: Ladder non ha ancora avviato l'agente: non si sa. Non è "non collegato".
- * - ready: l'agente ha aperto una sessione senza chiedere l'accesso (anche se non dichiara metodi: `methods` può essere vuoto).
- * - required: l'agente ha risposto auth_required; `methods` dice come accedere.
- * `methods` resta quello dell'ultimo `initialize`. `checkedAt` in millisecondi, null se unknown.
+ * Login of an ACP agent, based only on what the protocol said in a real session:
+ * - unknown: Ladder has not started the agent yet: unknown. This is not "not connected".
+ * - ready: the agent opened a session without asking for sign-in (even if it declares no methods: `methods` can be empty).
+ * - required: the agent answered auth_required; `methods` says how to sign in.
+ * `methods` stays the one from the last `initialize`. `checkedAt` in milliseconds, null if unknown.
  */
 export interface AgentLogin {
   state: 'unknown' | 'ready' | 'required'
@@ -67,95 +67,95 @@ export interface AgentLogin {
 }
 
 /**
- * LAD-79: stato di accesso di un altro agente (Gemini CLI, Copilot, Cursor, OpenCode e simili; non Claude, Codex e GitHub).
- * - connected: l'agente ha aperto una sessione di prova (ACP `session/new`) senza chiedere l'accesso.
- * - needs-login: l'agente ha risposto auth_required.
- * - unknown: non si sa: mai provato, CLI assente, non si prova (npx/uvx) o la prova è fallita (timeout, programma che non parla ACP).
+ * Sign-in state of another agent (Gemini CLI, Copilot, Cursor, OpenCode and the like; not Claude, Codex and GitHub).
+ * - connected: the agent opened a probe session (ACP `session/new`) without asking for sign-in.
+ * - needs-login: the agent answered auth_required.
+ * - unknown: not known: never probed, CLI missing, not probed (npx/uvx) or the probe failed (timeout, program that does not speak ACP).
  */
 export type OtherAgentAuth = 'connected' | 'needs-login' | 'unknown'
 
 /**
- * Riga di "Altri agenti" nelle Subscription: un agente ACP curato (rilevato o no) o aggiunto dall'utente, escluse le righe
- * di Claude, Codex e GitHub. `id` è l'id del registro, lo stesso di AgentCatalogEntry e di `agent.login`.
- * L'elenco contiene sempre gli agenti curati (anche non installati, `installed: false`) e quelli aggiunti.
+ * Row of "Other agents" in Subscription: a curated ACP agent (detected or not) or one added by the user, excluding the rows
+ * of Claude, Codex and GitHub. `id` is the registry id, the same as AgentCatalogEntry and `agent.login`.
+ * The list always contains the curated agents (even if not installed, `installed: false`) and the added ones.
  */
 export interface OtherAgentConnection {
   id: string
   name: string
-  /** Icona come data URI (solo se l'agente è aggiunto e il registro l'ha data), altrimenti null. */
+  /** Icon as a data URI (only if the agent is added and the registry provided it), otherwise null. */
   icon: string | null
-  /** Già in "I tuoi agenti" (AgentStatus acp:<id>). Gli agenti non aggiunti si aggiungono da Agents come oggi. */
+  /** Already in "Your agents" (AgentStatus acp:<id>). Agents that are not added are added from Agents as before. */
   added: boolean
   /**
-   * program: c'è un programma locale (CLI nel PATH della shell di login o binario scaricato da Ladder) che Ladder può lanciare;
-   * npx / uvx: l'agente aggiunto parte da npx o uvx, senza CLI locale. Questi NON si provano mai (una prova scaricherebbe il pacchetto):
-   * `installed` è false, `auth` unknown, nessun comando di accesso.
+   * program: there is a local program (CLI in the login shell's PATH or a binary downloaded by Ladder) that Ladder can launch;
+   * npx / uvx: the added agent starts from npx or uvx, with no local CLI. These are NEVER probed (a probe would download the package):
+   * `installed` is false, `auth` unknown, no sign-in command.
    */
   runner: 'program' | 'npx' | 'uvx'
-  /** Il programma c'è (runner program e file presente). Non conferma che sia davvero quell'agente: vedi AgentCatalogEntry.detected. */
+  /** The program exists (runner program and file present). Does not confirm it is really that agent: see AgentCatalogEntry.detected. */
   installed: boolean
-  /** Percorso del programma; null se non installato. Solo da mostrare (non serve per lanciare nulla). */
+  /** Path of the program; null if not installed. Display only (not needed to launch anything). */
   path: string | null
-  /** Da `--version` (4 secondi di tempo); null se ignota. */
+  /** From `--version` (4 second timeout); null if unknown. */
   version: string | null
   auth: OtherAgentAuth
   /**
-   * Account collegato. ACP non ha un campo standard per l'account e Ladder non legge mai i file delle CLI: oggi è sempre null,
-   * il campo c'è perché la UI lo mostri se un agente lo dirà (nessuna UI deve contare su di esso).
+   * Connected account. ACP has no standard account field and Ladder never reads the CLIs' files: for now it is always null,
+   * the field exists so the UI can show it if an agent ever reports one (no UI should rely on it).
    */
   account: string | null
-  /** Quando l'ultima prova (o l'ultimo `agent.login` da una sessione) ha dato `auth`, in millisecondi; null se mai. */
+  /** When the last probe (or the last `agent.login` from a session) produced `auth`, in milliseconds; null if never. */
   checkedAt: number | null
-  /** Una prova è in corso: `auth` e `checkedAt` sono quelli di prima. */
+  /** A probe is running: `auth` and `checkedAt` are the previous ones. */
   probing: boolean
   /**
-   * Comando per accedere, da mostrare e da lanciare con `agents.others.login` (es. `copilot login`, `cursor-agent login`, `gemini`).
-   * null = Ladder non conosce un comando di accesso certo per questa CLI: la UI mostra «Apri terminale» (`agents.others.login`
-   * apre allora la CLI da sola, `openCommand`, e l'utente accede da lì). Anche null se l'agente non è installato.
+   * Command to sign in, to show and to launch with `agents.others.login` (e.g. `copilot login`, `cursor-agent login`, `gemini`).
+   * null = Ladder does not know a reliable sign-in command for this CLI: the UI shows "Open terminal" (`agents.others.login`
+   * then opens the bare CLI, `openCommand`, and the user signs in from there). Also null if the agent is not installed.
    */
   loginCommand: string | null
-  /** La CLI da sola (es. `gemini`), che `agents.others.login` apre se `loginCommand` è null. null se non installato o se il programma è solo un adattatore ACP (es. `amp-acp`): non c'è una CLI da aprire e l'accesso si fa dall'app o dalla CLI dell'agente. */
+  /** The bare CLI (e.g. `gemini`), which `agents.others.login` opens if `loginCommand` is null. null if not installed or if the program is only an ACP adapter (e.g. `amp-acp`): there is no CLI to open and sign-in happens from the agent's app or CLI. */
   openCommand: string | null
-  /** Comando per uscire (es. `cursor-agent logout`), solo dove la CLI ne ha uno; si lancia con `agents.others.logout`. */
+  /** Command to sign out (e.g. `cursor-agent logout`), only where the CLI has one; launched with `agents.others.logout`. */
   logoutCommand: string | null
-  /** Se `logoutCommand` è null: testo (inglese/italiano già tradotto) che spiega come scollegarsi, oppure null se non c'è niente di noto. */
+  /** If `logoutCommand` is null: text (already translated) explaining how to disconnect, or null if nothing is known. */
   logoutHelp: string | null
-  /** Terminale con un accesso o un'uscita in corso (da aprire nella UI); null se non ce n'è. */
+  /** Terminal with a sign-in or sign-out in progress (to open in the UI); null if none. */
   terminalId: string | null
 }
 
 /**
- * Da dove arriva il checksum che Ladder verifica prima di avviare un binario scaricato:
- * - registry: `sha256` nella voce del registro.
- * - github-release: archivio di una release GitHub; il checksum è il `digest` della release (letto all'installazione).
- * - missing: nessun checksum verificabile; Ladder NON scarica (si installa dal sito del vendor, `installUrl`).
- * Anche per `github-release` il checksum può risultare non disponibile alla lettura: vedi `AgentCatalogEntry.download`.
+ * Where the checksum that Ladder verifies before starting a downloaded binary comes from:
+ * - registry: `sha256` in the registry entry.
+ * - github-release: archive of a GitHub release; the checksum is the release `digest` (read at install time).
+ * - missing: no verifiable checksum; Ladder does NOT download (install from the vendor's site, `installUrl`).
+ * Even for `github-release` the checksum may turn out to be unavailable when read: see `AgentCatalogEntry.download`.
  */
 export type AgentChecksumSource = 'registry' | 'github-release' | 'missing'
 
 /**
- * Perché Ladder non scarica o non installa un binario (codice stabile per la UI, il testo è già tradotto):
- * - no-checksum: nessun checksum verificabile (il registro non lo dà e la release GitHub non pubblica il `digest` dell'asset); non si scarica (si installa dal sito del vendor, `installUrl`).
- * - checksum-unavailable: la release GitHub è raggiungibile in teoria ma ORA non si è riusciti a leggere il checksum (rete, limite di richieste). Stato transitorio: la voce è `unavailable` con "riprova più tardi" e NESSUNA conferma si offre; un nuovo `agents.catalog` (dopo qualche minuto) riprova.
- * - host: l'archivio sta su un indirizzo che Ladder non si aspetta per questo agente (non https, dominio non quello del vendor, redirect altrove).
- * - checksum-conflict: la stessa versione è già stata scaricata da Ladder con un checksum diverso da quello che il registro dà ora. `agents.install` RIFIUTA (la promessa è rifiutata con il solo testo dell'errore, prima di rispondere: il codice NON è nel rifiuto) e il codice arriva con l'evento `agent.install` di errore (`errorCode`), che parte prima del rifiuto.
- * - too-large: archivio o contenuto estratto oltre i limiti (archivio 600 MiB, estratto 2 GiB, 50.000 voci).
- * - signature: il binario è firmato ma la firma non regge (`codesign --verify --deep --strict`), oppure (curati scaricabili) il registro punta a un programma diverso da quello che Ladder si aspetta per l'agente (`cmd` fissato in Ladder, ad esempio il `java` del JDK dentro un'app): testo "points this agent to a different program", dall'installazione e in `download.blocked`/`reasonCode` del catalogo. Testo della firma: "is signed, but its signature does not verify".
- * - team: agente curato con team fissato in Ladder (OpenCode, Kiro, Junie) il cui binario arriva non firmato, firmato ad hoc o firmato da un altro sviluppatore (il controllo lo fa codesign sul certificato). Testo: "not signed by the developer Ladder expects". Distinto da `signature` (firma rotta).
- * - checksum-changed: il checksum, l'indirizzo o la richiesta di conferma (checksum e indirizzo di una seconda richiesta diversi da quelli del download già in corso) non coincidono con quelli che l'utente ha visto nel dialog. `agents.install` RIFIUTA (promessa rifiutata, con il solo testo, prima di rispondere) e l'evento `agent.install` di errore porta questo `errorCode`: la UI riapre la conferma con i dati riletti dal catalogo (da rileggere), non ripete lo stesso tentativo.
- * - quarantine: macOS ha messo il download in quarantena e non partirebbe (Ladder non toglie l'attributo).
+ * Why Ladder does not download or install a binary (stable code for the UI, the text is already translated):
+ * - no-checksum: no verifiable checksum (the registry does not provide one and the GitHub release does not publish the asset `digest`); not downloaded (install from the vendor's site, `installUrl`).
+ * - checksum-unavailable: the GitHub release is reachable in theory but the checksum could NOT be read right now (network, rate limit). Transient state: the entry is `unavailable` with "try again later" and NO confirmation is offered; a new `agents.catalog` (after a few minutes) retries.
+ * - host: the archive lives at an address Ladder does not expect for this agent (not https, domain not the vendor's, redirect elsewhere).
+ * - checksum-conflict: the same version was already downloaded by Ladder with a different checksum from the one the registry gives now. `agents.install` REJECTS (the promise is rejected with only the error text, before answering: the code is NOT in the rejection) and the code arrives with the error `agent.install` event (`errorCode`), which is sent before the rejection.
+ * - too-large: archive or extracted content over the limits (archive 600 MiB, extracted 2 GiB, 50,000 entries).
+ * - signature: the binary is signed but the signature does not hold (`codesign --verify --deep --strict`), or (curated downloadable agents) the registry points to a different program than the one Ladder expects for the agent (`cmd` fixed in Ladder, for example the `java` of the JDK inside an app): text "points this agent to a different program", from the install and in `download.blocked`/`reasonCode` of the catalog. Signature text: "is signed, but its signature does not verify".
+ * - team: curated agent with a team fixed in Ladder (OpenCode, Kiro, Junie) whose binary arrives unsigned, ad hoc signed or signed by another developer (the check is done by codesign on the certificate). Text: "not signed by the developer Ladder expects". Distinct from `signature` (broken signature).
+ * - checksum-changed: the checksum, the address or the confirmation request (checksum and address of a second request differing from those of the download already in progress) do not match what the user saw in the dialog. `agents.install` REJECTS (promise rejected, with only the text, before answering) and the error `agent.install` event carries this `errorCode`: the UI reopens the confirmation with the data re-read from the catalog (to be re-read), it does not repeat the same attempt.
+ * - quarantine: macOS quarantined the download and it would not start (Ladder does not remove the attribute).
  */
 export type AgentBlockCode = 'no-checksum' | 'checksum-unavailable' | 'host' | 'checksum-conflict' | 'too-large' | 'signature' | 'team' | 'checksum-changed' | 'quarantine'
 
 /**
- * Firma del codice di un binario installato, letta da `codesign` dopo l'estrazione e prima dello spostamento:
- * - signed: firma integra E certificato verificato come Apple Developer ID (catena fino alla radice Apple, foglia Developer ID Application) o firma Apple di sistema; `signer` è l'Authority della foglia (es. "Developer ID Application: Nome (TEAM)") e `team` il TeamIdentifier.
- * - unverified: firma integra (`codesign --verify` passa) ma il firmatario NON è verificato come Apple Developer ID: certificato autofirmato, catena non Apple o foglia che non è Developer ID. `signer` e `team` sono null di proposito (il nome dentro il certificato lo può scrivere chiunque): la UI NON deve mostrare "Signed by …", solo "Signature intact, signer not verified".
- * - adhoc: firma ad hoc (senza identità, come quella del linker su arm64): integra ma non dice chi l'ha prodotto. `signer` e `team` null.
- * - unsigned: nessuna firma; si installa lo stesso e la UI lo segnala.
- * `signer` e `team` vengono dal certificato foglia della firma (già verificato), non dal testo di `codesign -d` (l'Identifier lo sceglie chi firma).
- * Un binario firmato la cui verifica fallisce non si installa (AgentBlockCode `signature`). Per gli agenti curati con team fissato in
- * Ladder (OpenCode, Kiro, Junie) solo `signed` dal team atteso si installa; ogni altro esito è `team`.
+ * Code signature of an installed binary, read by `codesign` after extraction and before the move:
+ * - signed: intact signature AND certificate verified as Apple Developer ID (chain up to the Apple root, leaf Developer ID Application) or a system Apple signature; `signer` is the leaf's Authority (e.g. "Developer ID Application: Name (TEAM)") and `team` the TeamIdentifier.
+ * - unverified: intact signature (`codesign --verify` passes) but the signer is NOT verified as Apple Developer ID: self-signed certificate, non-Apple chain or a leaf that is not Developer ID. `signer` and `team` are null on purpose (anyone can write the name inside the certificate): the UI must NOT show "Signed by …", only "Signature intact, signer not verified".
+ * - adhoc: ad hoc signature (no identity, like the linker's on arm64): intact but does not say who produced it. `signer` and `team` null.
+ * - unsigned: no signature; it is installed anyway and the UI flags it.
+ * `signer` and `team` come from the signature's leaf certificate (already verified), not from the text of `codesign -d` (the Identifier is chosen by the signer).
+ * A signed binary whose verification fails is not installed (AgentBlockCode `signature`). For curated agents with a team fixed in
+ * Ladder (OpenCode, Kiro, Junie) only `signed` by the expected team is installed; any other outcome is `team`.
  */
 export interface AgentSignature {
   state: 'signed' | 'unverified' | 'adhoc' | 'unsigned'
@@ -163,83 +163,83 @@ export interface AgentSignature {
   team: string | null
 }
 
-/** Un agente del catalogo: i curati in cima, poi il resto del registro in ordine alfabetico. */
+/** A catalog agent: the curated ones first, then the rest of the registry in alphabetical order. */
 export interface AgentCatalogEntry {
-  /** Id del registro ("gemini", "cursor", "github-copilot-cli"…); l'agente in chat è `acp:<id>`. */
+  /** Registry id ("gemini", "cursor", "github-copilot-cli"…); the agent in chat is `acp:<id>`. */
   id: string
   name: string
   description: string
-  /** Versione fissata dal registro (quella che `agents.install` scarica). */
+  /** Version pinned by the registry (the one `agents.install` downloads). */
   registryVersion: string
-  /** Nell'elenco curato (11 agenti, in quest'ordine); false per il resto del registro. */
+  /** In the curated list (11 agents, in this order); false for the rest of the registry. */
   curated: boolean
   state: AgentCatalogState
-  /** Perché `unavailable` (già tradotto); null altrimenti. */
+  /** Why `unavailable` (already translated); null otherwise. */
   reason: string | null
-  /** Già in "I tuoi agenti" (AgentStatus acp:<id>). */
+  /** Already in "Your agents" (AgentStatus acp:<id>). */
   added: boolean
-  /** Pagina dell'agente (sito, altrimenti repository), solo https: "link alla procedura". Null se il registro non la dà. */
+  /** The agent's page (site, otherwise repository), https only: "link to the procedure". Null if the registry does not give it. */
   docsUrl: string | null
-  /** Come parte su questo Mac, secondo il registro (arm64): null se nessuna distribuzione utilizzabile. */
+  /** How it starts on this Mac, according to the registry (arm64): null if no usable distribution. */
   distribution: 'binary' | 'npx' | 'uvx' | null
   /**
-   * Pagina del vendor con la procedura di installazione (https). Per i curati è fissata in Ladder, per gli altri è il sito
-   * (altrimenti il repository) dichiarato dal registro; null se non ce n'è. Con `reasonCode` `no-checksum` è il link da mostrare.
+   * Vendor page with the installation procedure (https). For curated agents it is fixed in Ladder, for the others it is the site
+   * (otherwise the repository) declared by the registry; null if there is none. With `reasonCode` `no-checksum` it is the link to show.
    */
   installUrl: string | null
-  /** Se `reason` è uno dei casi di AgentBlockCode, quale; null altrimenti. */
+  /** If `reason` is one of the AgentBlockCode cases, which one; null otherwise. */
   reasonCode: AgentBlockCode | null
   /**
-   * Solo se `distribution` è binary e c'è un checksum verificabile: tutto quello che serve al dialog di conferma.
-   * - checksum: da dove viene; sha256: il checksum completo in esadecimale. La UI offre la conferma (installa/aggiorna) SOLO se
-   *   `sha256` non è null E `blocked` è null: un `agents.install` senza checksum non esiste. `sha256` è null per una release GitHub
-   *   quando non si è riusciti a leggerlo ora (`blocked: 'checksum-unavailable'`, voce `unavailable`) o quando la release non lo
-   *   pubblica (`blocked: 'no-checksum'`, voce `unavailable` con `reasonCode` `no-checksum` e `installUrl`, come Cursor). In `agents.detect` (che non legge le release) può essere null senza che sia un blocco.
-   * - host: da cui si scarica, minuscolo (è quello che `agents.install` deve rimandare uguale). Per github.com è `github.com/<proprietario>/<repository>` (da mostrare così nel dialog); per gli altri solo l'host; size: byte dell'archivio da HEAD/Content-Length con timeout (null se ignota: non blocca niente);
-   * - blocked: se Ladder rifiuterebbe questo download (l'installazione fallirebbe con lo stesso codice): 'host', 'checksum-conflict', 'no-checksum' o 'checksum-unavailable'.
-   * Per mostrare la versione, il nome e la dimensione: `registryVersion`, `name`, `size`.
+   * Only if `distribution` is binary and there is a verifiable checksum: everything the confirmation dialog needs.
+   * - checksum: where it comes from; sha256: the full checksum in hex. The UI offers the confirmation (install/update) ONLY if
+   *   `sha256` is not null AND `blocked` is null: an `agents.install` without a checksum does not exist. `sha256` is null for a GitHub release
+   *   when it could not be read right now (`blocked: 'checksum-unavailable'`, entry `unavailable`) or when the release does not
+   *   publish it (`blocked: 'no-checksum'`, entry `unavailable` with `reasonCode` `no-checksum` and `installUrl`, like Cursor). In `agents.detect` (which does not read releases) it can be null without being a block.
+   * - host: where it is downloaded from, lowercase (it is what `agents.install` must send back unchanged). For github.com it is `github.com/<owner>/<repository>` (to show as such in the dialog); for the others only the host; size: bytes of the archive from HEAD/Content-Length with a timeout (null if unknown: it blocks nothing);
+   * - blocked: whether Ladder would refuse this download (the install would fail with the same code): 'host', 'checksum-conflict', 'no-checksum' or 'checksum-unavailable'.
+   * To show the version, name and size: `registryVersion`, `name`, `size`.
    */
   download: { checksum: AgentChecksumSource; sha256: string | null; host: string; size: number | null; blocked: AgentBlockCode | null } | null
   /**
-   * Eseguibile con il nome atteso trovato nel PATH della shell di login (solo agenti curati): il nome può essere di un altro programma,
-   * quindi `path` è un "trovato" e non una conferma. `version` da `--version` solo in `agents.catalog` (con 4 secondi di tempo); in `agents.detect` è sempre null.
+   * Executable with the expected name found in the login shell's PATH (curated agents only): the name may belong to another program,
+   * so `path` is a "found" and not a confirmation. `version` from `--version` only in `agents.catalog` (with a 4 second timeout); in `agents.detect` it is always null.
    */
   detected: { path: string; version: string | null } | null
   /**
-   * Binario scaricato da Ladder; `updateAvailable`: il registro ha una versione diversa. Nessun aggiornamento automatico.
-   * `signature`: esito di codesign alla sua installazione; null se non è noto (installato prima di questo controllo).
+   * Binary downloaded by Ladder; `updateAvailable`: the registry has a different version. No automatic update.
+   * `signature`: codesign result at install time; null if unknown (installed before this check).
    */
   installed: { version: string; updateAvailable: boolean; signature: AgentSignature | null } | null
   login: AgentLogin
-  /** Installazione in corso, se c'è. */
+  /** Install in progress, if any. */
   install: AgentInstall | null
 }
 
 /**
- * Installazione (o aggiornamento) di un binario. `stage` riusa le fasi di ConnectionStage: downloading (il checksum si
- * verifica a fine download), installing (estrazione), verifying (il programma sta dentro la cartella dell'agente e non è
- * in quarantena), finishing (scambio della cartella). `state` done/error/cancelled chiudono l'operazione.
+ * Installation (or update) of a binary. `stage` reuses the ConnectionStage steps: downloading (the checksum is
+ * verified at the end of the download), installing (extraction), verifying (the program is inside the agent's folder and not
+ * quarantined), finishing (folder swap). `state` done/error/cancelled close the operation.
  */
 export interface AgentInstall {
   id: string
   version: string
   state: 'running' | 'done' | 'error' | 'cancelled'
   stage: ConnectionStage | null
-  /** Da 0 a 1, solo in `downloading`; null se la dimensione non è nota. */
+  /** From 0 to 1, only in `downloading`; null if the size is unknown. */
   progress: number | null
   bytes: number | null
   total: number | null
-  /** Errore già tradotto (checksum errato, nessun checksum, archivio non sicuro…); null se non c'è. */
+  /** Already translated error (wrong checksum, no checksum, unsafe archive…); null if none. */
   error: string | null
-  /** Se l'errore è uno dei blocchi di sicurezza (AgentBlockCode), quale; null altrimenti. */
+  /** If the error is one of the security blocks (AgentBlockCode), which one; null otherwise. */
   errorCode: AgentBlockCode | null
   /**
-   * Firma del binario, nota da `verifying` in poi (a installazione finita resta qui e in `AgentCatalogEntry.installed.signature`).
-   * La conferma dell'utente precede il download, quindi la firma si mostra dopo l'installazione: un binario `unsigned` si installa comunque.
+   * Binary signature, known from `verifying` onwards (once installed it stays here and in `AgentCatalogEntry.installed.signature`).
+   * The user's confirmation comes before the download, so the signature is shown after the install: an `unsigned` binary is installed anyway.
    */
   signature: AgentSignature | null
 }
-/** Chat: l'agente parla con Ladder. Terminale: la CLI originale gira in un PTY. */
+/** Chat: the agent talks to Ladder. Terminal: the original CLI runs in a PTY. */
 export type SessionMode = 'chat' | 'terminal'
 export type PermissionLevel = 'plan' | 'ask' | 'edit' | 'full'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -251,32 +251,32 @@ export interface Project {
   branch: string | null
   isGit: boolean
   addedAt: number
-  /** Profilo scelto per questo progetto, per agente. Assente = profilo predefinito (LAD-23). */
+  /** Profile chosen for this project, per agent. Absent = default profile. */
   profiles?: Partial<Record<ProfileAgent, string>>
 }
 
-/** Agenti che hanno un account: Claude Code e Codex. */
+/** Agents that have an account: Claude Code and Codex. */
 export type ProfileAgent = 'claude-code' | 'codex'
 
 /**
- * Un account con nome ("Lavoro", "Personale") per un agente, con la sua cartella di configurazione
- * (`CLAUDE_CONFIG_DIR` per Claude Code, `CODEX_HOME` per Codex). Il profilo predefinito (`isDefault`) non ha cartella
- * di Ladder: usa quella della CLI (~/.claude, ~/.codex) e c'è sempre, uno per agente. Id del predefinito: `default:<agent>`.
+ * A named account ("Work", "Personal") for an agent, with its configuration folder
+ * (`CLAUDE_CONFIG_DIR` for Claude Code, `CODEX_HOME` for Codex). The default profile (`isDefault`) has no Ladder
+ * folder: it uses the CLI's own (~/.claude, ~/.codex) and always exists, one per agent. Default id: `default:<agent>`.
  */
 export interface Profile {
   id: string
   agent: ProfileAgent
   name: string
-  /** Cartella di configurazione gestita da Ladder; null nel profilo predefinito. */
+  /** Configuration folder managed by Ladder; null in the default profile. */
   configDir: string | null
   isDefault: boolean
   addedAt: number
 }
 
-/** Stato dell'esecuzione: deriva dall'agente, non dalla UI. Nessun limite di sessioni attive (LAD-67): un turno parte sempre subito. */
+/** Execution state: derived from the agent, not from the UI. No limit on active sessions: a turn always starts right away. */
 export type RunState = 'idle' | 'starting' | 'running' | 'waiting' | 'error'
 
-/** Allegato inviato all'agente. Per ora solo immagini, in base64. */
+/** Attachment sent to the agent. For now images only, in base64. */
 export interface Attachment {
   name: string
   mediaType: string
@@ -289,83 +289,83 @@ export interface QueuedMessage {
   attachments?: Attachment[]
 }
 
-/** Da dove viene il titolo: provvisorio (dal primo messaggio), generato da un modello piccolo, scelto dall'utente. */
+/** Where the title comes from: provisional (from the first message), generated by a small model, chosen by the user. */
 export type TitleSource = 'provisional' | 'generated' | 'user'
 
 export interface SessionSummary {
   id: string
   projectId: string
   title: string
-  /** 'user' vince su ogni generazione automatica; "Rigenera titolo" lo riporta a 'generated'. */
+  /** 'user' wins over any automatic generation; "Regenerate title" sets it back to 'generated'. */
   titleSource: TitleSource
-  /** Un titolo è in corso di generazione (automatica o richiesta): la UI può mostrare un indicatore. */
+  /** A title is being generated (automatic or requested): the UI can show an indicator. */
   titleGenerating?: boolean
   agent: AgentId
-  /** Profilo con cui gira la sessione (solo Claude Code e Codex); assente = predefinito. Fissato alla creazione. */
+  /** Profile the session runs with (Claude Code and Codex only); absent = default. Fixed at creation. */
   profileId?: string | null
   model: string | null
   effort: Effort | null
-  /** Effort davvero in uso quando la sessione non ne ha scelto uno, se l'agente lo comunica (init). */
+  /** Effort actually in use when the session did not choose one, if the agent reports it (init). */
   effortEffective?: Effort | null
   permission: PermissionLevel
-  /** Livello chiesto che vale dal prossimo turno (Codex a turno in corso); null se nessuno in attesa. */
+  /** Requested level that applies from the next turn (Codex mid-turn); null if none is pending. */
   permissionNext?: PermissionLevel | null
   createdAt: number
   updatedAt: number
   run: RunState
-  /** Etichetta breve quando la sessione aspetta l'utente: "Approvazione", "Domanda". */
+  /** Short label when the session is waiting for the user: "Approval", "Question". */
   waitingLabel: string | null
-  /** Testo dell'attività corrente mentre lavora: "Esegue pnpm test". */
+  /** Text of the current activity while working: "Running pnpm test". */
   activity: string | null
   unread: boolean
   /**
-   * Avviso dei sotto-agenti in background finiti dall'ultima volta che hai aperto la sessione:
-   * stato in sidebar e badge del Dock. Si azzera con session.open / session.read.
+   * Notice about background sub-agents that finished since you last opened the session:
+   * sidebar state and Dock badge. Reset by session.open / session.read.
    */
   agentsNotice?: { finished: number; failed: number; at: number } | null
-  /** Ultimo elemento letto: il primo non letto è lastReadSeq + 1. */
+  /** Last item read: the first unread is lastReadSeq + 1. */
   lastReadSeq: number
   archived: boolean
   queue: QueuedMessage[]
   context: {
-    /** Token nel contesto adesso (ultima chiamata del loop principale), non la somma del turno. */
+    /** Tokens in the context right now (last call of the main loop), not the sum over the turn. */
     used: number
     window: number
-    /** Token a cui scatta la compattazione automatica; null se disattivata, assente se non nota. Il colore dell'indicatore segue questa soglia. */
+    /** Token count at which automatic compaction triggers; null if disabled, absent if unknown. The indicator color follows this threshold. */
     compactAt?: number | null
   } | null
   mode: SessionMode
-  /** Cartella in cui lavora la sessione: il checkout principale o il suo worktree. */
+  /** Folder the session works in: the main checkout or its worktree. */
   cwd: string
   worktree: WorktreeInfo | null
-  /** Sessione terminale: comando avviato (claude, codex, …) e terminale che lo ospita. */
+  /** Terminal session: command started (claude, codex, …) and the terminal hosting it. */
   command: string | null
   terminalId: string | null
-  /** Lo stato viene da euristiche (output, campanello), non da segnali dell'agente. */
+  /** The state comes from heuristics (output, bell), not from agent signals. */
   estimated: boolean
-  /** Da quando la sessione aspetta l'utente: ordina "In attesa" e ⌘⇧A per anzianità. */
+  /** Since when the session has been waiting for the user: sorts "Waiting" and ⌘⇧A by age. */
   waitingSince: number | null
-  /** Richiesta aperta più vecchia, per rispondere da "In attesa" senza aprire la sessione. */
+  /** Oldest open request, to answer from "Waiting" without opening the session. */
   request: RequestItemData | null
-  /** Richieste aperte (di solito una; più di una con strumenti in parallelo). */
+  /** Open requests (usually one; more than one with parallel tools). */
   openRequests: number
-  /** Ultima attività dell'agente (fine turno, errore): decide "Concluse" e "Mentre eri via". */
+  /** Last agent activity (end of turn, error): decides "Finished" and "While you were away". */
   activityAt: number
   /**
-   * L'agente accetta messaggi dentro il turno in corso (Claude: messaggio nello stream
-   * di input, inserito tra un giro di strumenti e l'altro; Codex: turn/steer). ACP: false.
+   * The agent accepts messages inside the running turn (Claude: message in the input
+   * stream, inserted between one tool round and the next; Codex: turn/steer). ACP: false.
    */
   canSteer: boolean
-  /** Branch su cui lavora la sessione: quello del worktree o del checkout principale. */
+  /** Branch the session works on: the worktree's or the main checkout's. */
   branch: string | null
-  /** Stato della PR del branch, se c'è (da gh). */
+  /** State of the branch's PR, if any (from gh). */
   pr: PrStatus | null
-  /** Da dove è nata la sessione: issue, PR o branch. */
+  /** Where the session came from: issue, PR or branch. */
   source: SessionSource | null
-  /** Sotto-agenti dell'ultimo turno e quelli ancora vivi: la mappa degli agenti. */
+  /** Sub-agents of the last turn and those still alive: the agent map. */
   /**
-   * Conteggi leggeri dei sotto-agenti, nel summary. L'elenco completo NON viaggia più
-   * qui: arriva con l'evento session.subagents (e con la richiesta subagent.list).
+   * Light sub-agent counts, in the summary. The full list no longer travels
+   * here: it arrives with the session.subagents event (and with the subagent.list request).
    */
   subagentCounts?: { total: number; running: number; runningForeground: number; error: number }
   /** Session created by a handoff ("Switch to…"): from which session and agent. Absent or null = normal session. */
@@ -393,50 +393,50 @@ export interface SessionSummary {
   origin?: { kind: 'cli' } | { kind: 'agent'; sessionId: string; agent: AgentId } | null
 }
 
-/** Un sotto-agente avviato dalla sessione (Task di Claude Code, spawnAgent di Codex). */
+/** A sub-agent started by the session (Claude Code Task, Codex spawnAgent). */
 export interface SubagentInfo {
-  /** Id stabile: il tool_use di Claude Code o il thread del sotto-agente di Codex. */
+  /** Stable id: Claude Code's tool_use or the Codex sub-agent thread. */
   id: string
-  /** Sotto-agente che l'ha avviato; null se l'ha avviato la sessione. */
+  /** Sub-agent that started it; null if the session started it. */
   parentId: string | null
-  /** Compito in breve: "Explore the auth module". */
+  /** Task in brief: "Explore the auth module". */
   title: string
-  /** Tipo di agente: "general-purpose", "Explore", "worker". */
+  /** Agent type: "general-purpose", "Explore", "worker". */
   kind: string | null
-  /** Modello reale o scelto; null se non noto: la UI mostra quello della sessione come ereditato. */
+  /** Actual or chosen model; null if unknown: the UI shows the session's as inherited. */
   model: string | null
-  /** Effort chiesto per il sotto-agente; null se eredita o non noto. */
+  /** Effort requested for the sub-agent; null if inherited or unknown. */
   effort?: Effort | null
-  /** Id della riga 'tool' in chat che l'ha lanciato (per Claude coincide con id; per Codex è l'item collab). */
+  /** Id of the 'tool' row in chat that launched it (for Claude it equals id; for Codex it is the collab item). */
   toolId?: string | null
   status: 'running' | 'done' | 'error' | 'stopped'
   startedAt: number
   endedAt: number | null
-  /** Cosa sta facendo adesso: l'ultimo strumento o il riassunto dell'agente. */
+  /** What it is doing right now: the last tool or the agent's summary. */
   activity: string | null
   tokens: number | null
   toolUses: number | null
-  /** Continua in background mentre la sessione va avanti. */
+  /** Keeps going in the background while the session moves on. */
   background: boolean
 }
 
 /**
- * Dettaglio pesante di un sotto-agente, solo a richiesta (subagent.detail): nel
- * SessionSummary viaggiano solo i campi leggeri di SubagentInfo. Se la board non ha
- * più l'agente (turni precedenti, riavvio), l'host lo ricostruisce dalla riga 'tool'.
+ * Heavy detail of a sub-agent, on request only (subagent.detail): in the
+ * SessionSummary only the light SubagentInfo fields travel. If the board no
+ * longer has the agent (previous turns, restart), the host rebuilds it from the 'tool' row.
  */
 export interface SubagentDetail {
   info: SubagentInfo | null
   prompt: string | null
-  /** Report finale in markdown; null finché l'agente lavora o se non c'è. */
+  /** Final report in markdown; null while the agent works or if there is none. */
   report: string | null
-  /** Strumenti usati, dal più vecchio; al massimo gli ultimi 200. */
+  /** Tools used, oldest first; at most the last 200. */
   tools: { name: string; title: string; status: 'running' | 'done' | 'error' | 'denied'; at: number }[]
 }
 
 export interface SessionSource {
   kind: 'github-issue' | 'github-pr' | 'linear' | 'branch'
-  /** "#12", "LIN-42", nome del branch. */
+  /** "#12", "LIN-42", branch name. */
   ref: string
   title: string
   url: string | null
@@ -448,25 +448,25 @@ export interface PrStatus {
   url: string
   state: 'open' | 'draft' | 'merged' | 'closed'
   checks: 'none' | 'pending' | 'passing' | 'failing'
-  /** conflicts: il branch non si unisce senza conflitti alla base. */
+  /** conflicts: the branch does not merge into the base without conflicts. */
   mergeable: 'clean' | 'conflicts' | 'unknown'
   review: 'approved' | 'changes' | 'pending' | null
   base: string
   updatedAt: number
-  /** Quando è stata unita (LAD-80); null se non è unita o la data non c'è. Diverso da `updatedAt`, che un commento sposta. */
+  /** When it was merged; null if not merged or the date is missing. Different from `updatedAt`, which a comment moves. */
   mergedAt?: number | null
 }
 
 export interface WorktreeInfo {
   path: string
   branch: string
-  /** Commit da cui è partito il worktree. */
+  /** Commit the worktree started from. */
   base: string
 }
 
 export interface FileChange {
   path: string
-  /** Percorso prima della rinomina. */
+  /** Path before the rename. */
   oldPath?: string
   added: number
   removed: number
@@ -492,7 +492,7 @@ export interface Question {
 interface ItemBase {
   id: string
   turnId: string
-  /** Ordine stabile all'interno della sessione. */
+  /** Stable order within the session. */
   seq: number
   at: number
 }
@@ -502,23 +502,23 @@ export type ChatItem =
       kind: 'user'
       text: string
       attachments?: { name: string; mediaType: string }[]
-      /** Inserito nel turno in corso invece di aprirne uno nuovo. */
+      /** Inserted into the running turn instead of opening a new one. */
       steered?: boolean
     })
   | (ItemBase & { kind: 'assistant'; text: string; streaming: boolean })
   | (ItemBase & {
       kind: 'tool'
       tool: ToolKind
-      /** Nome dello strumento dell'agente, per esempio Bash o Edit. */
+      /** Name of the agent's tool, for example Bash or Edit. */
       name: string
-      /** Testo breve leggibile: "Esegue pnpm test", "Legge src/app.ts". */
+      /** Short readable text: "Running pnpm test", "Reading src/app.ts". */
       title: string
-      /** Comando, percorso o pattern completo. */
+      /** Full command, path or pattern. */
       detail: string | null
       status: 'running' | 'done' | 'error' | 'denied'
       output: string | null
       endedAt: number | null
-      /** Solo per tool 'agent': modello ed effort del sotto-agente, per mostrarli anche dopo il riavvio. */
+      /** Only for the 'agent' tool: the sub-agent's model and effort, to show them also after a restart. */
       agent?: { model: string | null; effort: Effort | null } | null
     })
   | (ItemBase & {
@@ -529,19 +529,19 @@ export type ChatItem =
       title: string
       command: string | null
       path: string | null
-      /** Tutti i file toccati quando sono più d'uno (patch di Codex); path è il primo. */
+      /** All files touched when more than one (Codex patch); path is the first. */
       paths?: string[]
       reason: string | null
       options: RequestOption[]
       questions: Question[] | null
       state: 'open' | 'resolved' | 'expired'
-      /** Testo che descrive la risposta data: "Approvato", "Rifiutato: usa pnpm". */
+      /** Text describing the answer given: "Approved", "Rejected: use pnpm". */
       resolution: string | null
-      /** Modifica proposta per Edit e Write, come righe con - e +. */
+      /** Proposed change for Edit and Write, as lines with - and +. */
       preview?: { text: string; lines: number; truncated: boolean } | null
-      /** Dove hai risposto: nella chat, da "In attesa" o dalla notifica. */
+      /** Where you answered: in the chat, from "Waiting" or from the notification. */
       via?: ResponseVia
-      /** Con via 'phone': nome del telefono che ha risposto (LAD-51), per "dal telefono di Nicolò". */
+      /** With via 'phone': name of the phone that answered, for "from Alex's phone". */
       viaDevice?: string
     })
   | (ItemBase & {
@@ -549,30 +549,30 @@ export type ChatItem =
       status: 'completed' | 'interrupted' | 'error'
       durationMs: number
       counts: { commands: number; edits: number; reads: number; searches: number }
-      /** Turno finito senza modifiche, comandi, agenti né domande: "si è fermato senza chiedere nulla". Solo con HostPrefs.stallHint. */
+      /** Turn ended with no changes, commands, agents or questions: "it stopped without asking anything". Only with HostPrefs.stallHint. */
       stalled?: boolean
       files: FileChange[]
       error: string | null
       costUsd: number | null
-      /** Checkpoint git di inizio e fine turno: servono al diff e al ripristino. */
+      /** Git checkpoints at the start and end of the turn: used by the diff and by restore. */
       checkpoints?: { start: string; end: string } | null
     })
   | (ItemBase & { kind: 'notice'; tone: 'info' | 'error'; text: string })
-  /** Comando / eseguito dall'utente: riga di sistema, non messaggio utente. */
+  /** Command / run by the user: system row, not a user message. */
   | (ItemBase & { kind: 'command'; name: string; args: string; status: 'running' | 'done' | 'error' | 'interrupted'; error: string | null })
   /**
-   * In testa a un turno aperto dall'agente senza messaggio dell'utente (turno implicito):
-   * 'background-agents' se è ripartito dopo la fine di sotto-agenti in background (finished = quanti).
+   * At the head of a turn opened by the agent without a user message (implicit turn):
+   * 'background-agents' if it restarted after background sub-agents finished (finished = how many).
    */
   | (ItemBase & { kind: 'agent-start'; reason: 'background-agents' | 'other'; finished: number | null })
   /**
-   * Fine dell'ultimo sotto-agente in background con il coordinatore fermo. state 'waiting':
-   * l'agente non è ripartito da solo entro qualche secondo, la UI mostra "Continue" che invia
-   * session.continue; 'resumed': è ripartito da solo (turno implicito); 'continued': l'utente ha
-   * premuto Continue o ha scritto; 'dismissed': superato da un altro turno.
+   * End of the last background sub-agent with the coordinator idle. state 'waiting':
+   * the agent did not restart on its own within a few seconds, the UI shows "Continue", which sends
+   * session.continue; 'resumed': it restarted on its own (implicit turn); 'continued': the user
+   * pressed Continue or wrote; 'dismissed': superseded by another turn.
    */
   | (ItemBase & { kind: 'agents-finished'; finished: number; failed: number; state: 'waiting' | 'resumed' | 'continued' | 'dismissed' })
-  /** Contesto compattato (da /compact o automatico). Il testo lo compone la UI. */
+  /** Compacted context (from /compact or automatic). The text is composed by the UI. */
   | (ItemBase & { kind: 'compacted'; trigger: 'manual' | 'auto'; preTokens: number | null; postTokens: number | null })
   /** Handoff of the work to another agent. See HandoffItem. */
   | (ItemBase & HandoffItem)
@@ -727,42 +727,42 @@ export interface HandoffItem {
 }
 
 /**
- * Comando / dichiarato dall'agente della sessione. I comandi di Ladder
- * (/model, /effort, /new) non passano di qui: li definisce e li gestisce la UI.
- * - claude-code: supportedCommands() e commands_changed (builtin, .claude/commands, skill).
- * - codex: fissi compact e review, più le skill di skills/list.
+ * Command / declared by the session's agent. Ladder's own commands
+ * (/model, /effort, /new) do not go through here: the UI defines and handles them.
+ * - claude-code: supportedCommands() and commands_changed (builtin, .claude/commands, skill).
+ * - codex: fixed compact and review, plus the skills from skills/list.
  * - acp: available_commands_update.
  */
 export interface SlashCommand {
-  /** Senza "/". */
+  /** Without "/". */
   name: string
   description: string
-  /** Suggerimento per gli argomenti; null se il comando non ne prende. */
+  /** Hint for the arguments; null if the command takes none. */
   hint: string | null
   source: 'builtin' | 'custom' | 'skill'
   aliases?: string[]
 }
 
 export type RequestResponse = { optionId: string; message?: string } | { answers: Record<string, string> }
-/** 'phone': risposta arrivata da un client remoto (LAD-49); la chat del Mac può mostrarla come "from phone". */
+/** 'phone': answer that came from a remote client; the Mac's chat can show it as "from phone". */
 export type ResponseVia = 'chat' | 'inbox' | 'notification' | 'phone'
 export type RequestItemData = Extract<ChatItem, { kind: 'request' }>
 
-/** Una finestra dei limiti del piano: quanto ne hai usato e quando si azzera. */
+/** One window of the plan's limits: how much you used and when it resets. */
 export interface UsageWindow {
   key: string
   minutes: number
-  /** Limite riservato a una famiglia di modelli, per esempio Opus. */
+  /** Limit reserved for a model family, for example Opus. */
   model: string | null
   percent: number | null
-  /** Secondi Unix. */
+  /** Unix seconds. */
   resetsAt: number | null
   state: 'ok' | 'warning' | 'limited'
-  /** Nome già pronto quando la finestra non è una durata, per esempio un modello o l'uso extra. */
+  /** Ready-made name when the window is not a duration, for example a model or extra usage. */
   label?: string
-  /** Testo sotto la barra al posto del reset, per esempio "12,40 € di 50 €". */
+  /** Text under the bar in place of the reset, for example "€12.40 of €50". */
   detail?: string
-  /** Da dove viene il consumo della finestra, in punti percentuali del limite: "Claude Code 34", "Chat 2". */
+  /** Where the window's consumption comes from, in percentage points of the limit: "Claude Code 34", "Chat 2". */
   breakdown?: { label: string; percent: number }[]
 }
 
@@ -772,187 +772,187 @@ export interface AgentStatus {
   kind: 'native' | 'acp'
   available: boolean
   version: string | null
-  /** Account in uso, per esempio "Claude Ultra" o "ChatGPT Plus". */
+  /** Account in use, for example "Claude Ultra" or "ChatGPT Plus". */
   account: string | null
-  /** Profilo di cui è lo stato (Claude Code e Codex); assente = predefinito. Ogni profilo ha account, limiti e modelli suoi. */
+  /** Profile this state belongs to (Claude Code and Codex); absent = default. Each profile has its own account, limits and models. */
   profileId?: string
-  /** Email dell'account, quando l'agente la espone: si vede in basso nella sidebar. */
+  /** Account email, when the agent exposes it: shown at the bottom of the sidebar. */
   email?: string | null
   /**
-   * `efforts`: livelli che il modello accetta; vuoto se non ne ha, assente se l'agente non lo dice.
-   * `isDefault`: il modello che parte se la sessione non ne sceglie uno (al massimo uno per agente;
-   * le righe alias tipo "default" non compaiono). Fonte: config dell'agente (settings di Claude,
-   * config.toml di Codex), poi il default dichiarato dall'agente (resolvedModel, isDefault, currentValue).
-   * `defaultEffort`: livello usato se la sessione non ne sceglie uno; null o assente se non noto.
+   * `efforts`: levels the model accepts; empty if it has none, absent if the agent does not say.
+   * `isDefault`: the model that starts if the session does not choose one (at most one per agent;
+   * alias rows like "default" do not appear). Source: the agent's config (Claude settings,
+   * Codex config.toml), then the default declared by the agent (resolvedModel, isDefault, currentValue).
+   * `defaultEffort`: level used if the session does not choose one; null or absent if unknown.
    */
   models: { id: string; label: string; efforts?: Effort[]; isDefault?: boolean; defaultEffort?: Effort | null }[]
   error: string | null
-  /** Finestre dei limiti, aggiornate da ogni sessione. */
+  /** Limit windows, updated by every session. */
   usage?: UsageWindow[]
-  /** Quando i limiti sono stati letti l'ultima volta, in millisecondi. */
+  /** When the limits were last read, in milliseconds. */
   usageAt?: number | null
-  /** Limiti d'uso leggibili, quando l'agente li espone: "14% della finestra di 5 h · 11% settimanale". */
+  /** Readable usage limits, when the agent exposes them: "14% of the 5 h window · 11% weekly". */
   limits?: string | null
-  /** Percorso della CLI usata. */
+  /** Path of the CLI in use. */
   path?: string | null
-  /** Icona dell'agente ACP (data URL); per i nativi la sceglie l'interfaccia. */
+  /** ACP agent icon (data URL); for the native ones the interface chooses it. */
   icon?: string | null
 }
 
 export type InspectorTab = 'changes' | 'files' | 'history' | 'merge'
 export type EditorId = 'cursor' | 'vscode' | 'zed' | 'xcode'
-/** Quali editor esterni sono installati (risposta di `ladder:editors`, che prima aveva solo cursor e vscode). */
+/** Which external editors are installed (answer of `ladder:editors`, which used to have only cursor and vscode). */
 export type EditorAvailability = Record<EditorId, boolean>
 
 /**
- * Predefiniti di una nuova sessione. Ogni campo assente o null eredita dal livello sotto.
- * Ordine di risoluzione (nel renderer): progetto (ProjectUiState.defaults), poi
- * [agents] default del TOML per il solo agente, poi globali (AppPrefs.defaults),
- * poi l'ultimo agente usato e i predefiniti dell'agente. Un valore non più valido
- * (agente assente o non ammesso, modello non in AgentStatus.models, effort non
- * supportato, permesso sopra il massimo del progetto) si ignora o si riduce.
+ * Defaults for a new session. Every absent or null field inherits from the level below.
+ * Resolution order (in the renderer): project (ProjectUiState.defaults), then
+ * the TOML [agents] default for that agent only, then global (AppPrefs.defaults),
+ * then the last agent used and the agent's defaults. A value that is no longer valid
+ * (agent absent or not allowed, model not in AgentStatus.models, effort not
+ * supported, permission above the project's maximum) is ignored or reduced.
  */
 export interface SessionDefaults {
   agent?: AgentId | null
-  /** Modello per agente: il modello ha senso solo con il suo agente. */
+  /** Model per agent: a model only makes sense with its own agent. */
   models?: Partial<Record<AgentId, string>>
   efforts?: Partial<Record<AgentId, Effort>>
   permission?: PermissionLevel | null
 }
 
 /**
- * Profilo di sessione (LAD-60): una combinazione salvata per avviare una sessione con un clic. Non è il profilo account
- * di LAD-23 (`Profile`): quello dice con quale abbonamento gira l'agente, questo quali impostazioni si usano.
- * Si salva nelle preferenze dell'app (`AppPrefs.presets`), valgono in tutti i progetti.
+ * Session profile: a saved combination to start a session with one click. It is not the account profile
+ * (`Profile`): that says which subscription the agent runs with, this one which settings are used.
+ * Saved in the app preferences (`AppPrefs.presets`), valid in all projects.
  */
 export interface SessionPreset {
   id: string
-  /** Nome breve: "Revisione veloce", "Feature lunga". Unico, senza distinguere maiuscole. */
+  /** Short name: "Quick review", "Long feature". Unique, case-insensitive. */
   name: string
-  /** A cosa serve, in una o due frasi. Più avanti l'agente coordinatore potrà usarla per scegliere a chi delegare. */
+  /** What it is for, in one or two sentences. Later the coordinator agent will be able to use it to choose whom to delegate to. */
   note?: string
   agent: AgentId
-  /** Account (profilo di LAD-23) con cui avviare; assente = quello del progetto. Si ignora se non esiste più o non è dell'agente. */
+  /** Account (`Profile`) to start with; absent = the project's. Ignored if it no longer exists or does not belong to the agent. */
   profileId?: string | null
-  /** Modello e effort si applicano solo se l'agente li ha ancora; altrimenti vale il predefinito. */
+  /** Model and effort apply only if the agent still has them; otherwise the default applies. */
   model?: string | null
   effort?: Effort | null
   permission: PermissionLevel
-  /** Lavora in un nuovo worktree. */
+  /** Works in a new worktree. */
   worktree: boolean
-  /** Testo iniziale della bozza: compare nel composer, non parte da solo. */
+  /** Initial draft text: appears in the composer, does not start on its own. */
   prompt?: string
 }
 
-/** Tasto che invia nei composer: Invio (⇧Invio va a capo) oppure ⌘Invio (Invio va a capo). */
+/** Key that sends in the composers: Enter (⇧Enter adds a newline) or ⌘Enter (Enter adds a newline). */
 export type SendKey = 'enter' | 'mod-enter'
 
 export interface ProjectUiState {
   tabs: string[]
   activeTab: string | null
-  /** Ancora di lettura per sessione: elemento in cima alla vista e scostamento in pixel. */
+  /** Per-session reading anchor: item at the top of the view and offset in pixels. */
   scroll: Record<string, { itemId: string; offset: number }>
-  /** Ispettore a destra (Modifiche, File, Cronologia) e pannello terminale in basso. */
+  /** Right inspector (Changes, Files, History) and bottom terminal panel. */
   inspector?: { open: boolean; tab: InspectorTab }
   terminal?: { open: boolean; height: number; active: string | null; side?: 'bottom' | 'right'; width?: number }
-  /** Editor esterno preferito per il progetto; assente = AppPrefs.editor. */
+  /** Preferred external editor for the project; absent = AppPrefs.editor. */
   editor?: EditorId
-  /** Ultima volta che hai guardato il progetto con la finestra attiva: serve a "Mentre eri via". */
+  /** Last time you looked at the project with the window active: used by "While you were away". */
   seenAt?: number
-  /** File aperti come tab, nell'ordine di apertura. */
+  /** Files opened as tabs, in opening order. */
   fileTabs?: { root: string; path: string }[]
-  /** Gruppi di chat creati da te, nell'ordine in cui si vedono nella sidebar. */
+  /** Chat groups you created, in the order they appear in the sidebar. */
   groups?: { id: string; name: string; collapsed?: boolean }[]
-  /** Gruppo di ogni sessione raggruppata. */
+  /** Group of each grouped session. */
   groupOf?: Record<string, string>
-  /** Ultimo agente usato in chat nel progetto: la nuova chat lo propone. */
+  /** Last agent used in chat in the project: the new chat proposes it. */
   lastAgent?: AgentId
-  /** LAD-59: false spegne in questo progetto branch, commit e PR scritti dal modello (vale insieme a AppPrefs.generatedText). Assente = acceso. */
+  /** false turns off, in this project, branches, commits and PRs written by the model (applies together with AppPrefs.generatedText). Absent = on. */
   generatedText?: boolean
-  /** Predefiniti personali delle nuove sessioni in questo progetto (non committati). */
+  /** Personal defaults for new sessions in this project (not committed). */
   defaults?: SessionDefaults
   /**
-   * Profilo di sessione (`SessionPreset.id`) proposto dalla nuova chat di questo progetto; ignorato se non esiste più.
-   * Il predefinito del progetto applica i valori ma non inserisce il prompt iniziale: quello entra in bozza solo scegliendo il profilo (selettore o ⌘K).
+   * Session profile (`SessionPreset.id`) proposed by this project's new chat; ignored if it no longer exists.
+   * The project default applies the values but does not insert the initial prompt: that goes into the draft only when choosing the profile (selector or ⌘K).
    */
   defaultPreset?: string
   /**
-   * Sessioni affiancate nella vista del progetto: da 2 a 3 colonne, nell'ordine da sinistra a destra, e quella attiva
-   * (la colonna che riceve le scorciatoie). Assente: una sola colonna. Gli id di sessioni sparite si ignorano alla lettura.
+   * Sessions side by side in the project view: 2 to 3 columns, in left to right order, and the active one
+   * (the column that receives shortcuts). Absent: a single column. Ids of sessions that no longer exist are ignored on read.
    */
   split?: { sessions: string[]; active: string }
-  /** Ultima scelta della nuova chat in questo progetto: dove lavora la sessione e, con un worktree, da quale branch parte (assente = quello attuale). */
+  /** Last choice of the new chat in this project: where the session works and, with a worktree, which branch it starts from (absent = the current one). */
   newChat?: { worktree: boolean; baseBranch?: string | null }
 
-  // ── Browser integrato (LAD-57) ──
-  /** Tab browser aperte nel progetto, nell'ordine in cui si vedono: `id` è l'identità della tab, `url` l'ultimo indirizzo (si riapre lì al riavvio). */
+  // ── Built-in browser ──
+  /** Browser tabs open in the project, in the order they appear: `id` is the tab's identity, `url` the last address (reopened there on restart). */
   browserTabs?: { id: string; url: string; title?: string }[]
-  /** Colonna browser a destra delle chat: aperta o no, pagina attiva (tab salvata o di un agente; sparita = la prima), larghezza scelta in px (assente = 40%). */
+  /** Browser column to the right of the chats: open or not, active page (saved tab or an agent's; gone = the first), chosen width in px (absent = 40%). */
   browserColumn?: { open: boolean; active: string | null; width?: number }
-  // ── Fine browser integrato ──
+  // ── End of built-in browser ──
 
-  // ── LAD-57 parte 2 ──
-  /** Browser per l'agente in questo progetto: true/false scavalca AppPrefs.agentBrowser; assente = vale quello globale. Vale dalla prossima ripartenza dell'agente di ogni sessione (spento: subito). */
+  // ── Agent browser ──
+  /** Browser for the agent in this project: true/false overrides AppPrefs.agentBrowser; absent = the global one applies. Applies from the next restart of each session's agent (turned off: immediately). */
   agentBrowser?: boolean
-  // ── Fine LAD-57 parte 2 ──
+  // ── End agent browser ──
 
-  // ── LAD-75 ──
-  /** Proporzioni delle colonne affiancate, una per colonna in `split.sessions` (stesso ordine). Assente o di lunghezza diversa: parti uguali. */
+  // ── Split view ──
+  /** Proportions of the side-by-side columns, one per column in `split.sessions` (same order). Absent or of a different length: equal parts. */
   columnWidths?: number[]
-  // ── Fine LAD-75 ──
+  // ── End split view ──
 }
 
-/** Sezione della sidebar che raccoglie progetti, creata da te. */
+/** Sidebar section that collects projects, created by you. */
 export interface ProjectGroup {
   id: string
   name: string
   collapsed: boolean
-  /** Progetti della sezione, nell'ordine in cui si vedono. */
+  /** Projects in the section, in the order they appear. */
   projectIds: string[]
 }
 
 /**
- * Gruppi di progetti, globali (non per progetto). Ogni progetto esistente compare una sola volta:
- * in una sezione o in `ungrouped`. L'host tiene lo stato coerente: un progetto nuovo entra in coda a `ungrouped`,
- * uno rimosso sparisce ovunque, quindi la UI non deve mai ripulire riferimenti orfani.
+ * Project groups, global (not per project). Every existing project appears exactly once:
+ * in a section or in `ungrouped`. The host keeps the state consistent: a new project goes to the end of `ungrouped`,
+ * a removed one disappears everywhere, so the UI never has to clean up orphan references.
  */
 export interface ProjectGroupsState {
-  /** Sezioni nell'ordine in cui si vedono. */
+  /** Sections in the order they appear. */
   groups: ProjectGroup[]
-  /** Progetti fuori da ogni sezione, nell'ordine in cui si vedono. */
+  /** Projects outside every section, in the order they appear. */
   ungrouped: string[]
 }
 
-// ── Scorciatoie da tastiera ──────────────────────────────────────────────
+// ── Keyboard shortcuts ───────────────────────────────────────────────────
 
 /**
- * Stato delle scorciatoie, globale. L'host tiene keybindings.json nella cartella dati dell'app (formato di VS Code:
- * array di `{ key, command }`, `-comando` toglie quella predefinita; sono ammessi commenti e virgole finali) e il preset scelto.
- * Per applicarlo basta `applyShortcutConfig({ preset, overrides })` di shared/shortcuts.
+ * Shortcut state, global. The host keeps keybindings.json in the app's data folder (VS Code format:
+ * array of `{ key, command }`, `-command` removes the default one; comments and trailing commas are allowed) and the chosen preset.
+ * To apply it, `applyShortcutConfig({ preset, overrides })` from shared/shortcuts is enough.
  */
 export interface ShortcutsState {
   preset: ShortcutPreset
-  /** Voci valide del file, nell'ordine in cui compaiono: sono quelle da applicare sopra al preset. */
+  /** Valid entries of the file, in the order they appear: these are applied on top of the preset. */
   overrides: Keybinding[]
-  /** Voci ignorate (comando sconosciuto, scorciatoia non valida) o file illeggibile, già tradotti. Le voci restano nel file. */
+  /** Ignored entries (unknown command, invalid shortcut) or unreadable file, already translated. The entries stay in the file. */
   warnings: string[]
-  /** Percorso assoluto di keybindings.json (può non esistere ancora). */
+  /** Absolute path of keybindings.json (may not exist yet). */
   file: string
   /**
-   * Il file non è JSON valido (il messaggio è anche tra gli avvisi): `overrides` è l'ultimo stato letto bene
-   * e il file non si tocca finché non lo correggi o lo ripristini.
+   * The file is not valid JSON (the message is also among the warnings): `overrides` is the last state read correctly
+   * and the file is left alone until you fix or restore it.
    */
   invalid: boolean
 }
 
-// ── File, diff e cronologia ──────────────────────────────────────────────
+// ── Files, diff and history ──────────────────────────────────────────────
 
 export type GitStatusCode = 'M' | 'A' | 'D' | '?' | 'U'
 
 export interface FileTree {
   root: string
   isGit: boolean
-  /** Percorsi relativi: tracciati più non tracciati non ignorati. */
+  /** Relative paths: tracked plus untracked, not ignored. */
   files: string[]
   status: Record<string, GitStatusCode>
   truncated: boolean
@@ -964,40 +964,40 @@ export interface FileContent {
   binary: boolean
   tooLarge: boolean
   text: string | null
-  /** Ora di modifica su disco: al salvataggio dice se nel frattempo qualcuno ha scritto il file. */
+  /** Modification time on disk: on save it tells whether someone wrote the file in the meantime. */
   mtimeMs: number
-  /** LAD-70: per i file binari, tipo, dimensioni e URL per l'anteprima (vedi FileMedia). */
+  /** For binary files, type, size and preview URL (see FileMedia). */
   media?: FileMedia | null
 }
 
 export type FileWriteResult = { ok: true; mtimeMs: number } | { ok: false; text: string; mtimeMs: number }
 
-// ── LAD-70: anteprima di immagini, PDF e media ───────────────────────────
-// I byte non passano dalla MessagePort: la UI li carica da un URL `ladder-file://<id>/<percorso>[?rev=<rev>]` (img, video, audio, iframe),
-// servito dal main solo per le root note (progetto o worktree di sessione). `<id>` è l'id opaco che l'host dà con FileMedia.url;
-// `rev` è HEAD o uno sha completo di git (checkpoint, commit): serve la versione di quella revisione invece del file su disco.
-// Vedi shared/file-type.ts (fileUrl per costruire gli URL, isKnownRev) e main/file-protocol.ts.
+// ── Preview of images, PDFs and media ────────────────────────────────────
+// The bytes do not go through the MessagePort: the UI loads them from a URL `ladder-file://<id>/<path>[?rev=<rev>]` (img, video, audio, iframe),
+// served by main only for known roots (project or session worktree). `<id>` is the opaque id the host gives with FileMedia.url;
+// `rev` is HEAD or a full git sha (checkpoint, commit): it serves that revision's version instead of the file on disk.
+// See shared/file-type.ts (fileUrl to build the URLs, isKnownRev) and main/file-protocol.ts.
 
 export type { FileKind }
 
-/** Descrizione di un file non di testo, per il viewer e il diff. */
+/** Description of a non-text file, for the viewer and the diff. */
 export interface FileMedia {
-  /** image: png, jpg, gif, webp, ico, avif, bmp; svg: da mostrare solo con <img>; other: fuori whitelist, niente anteprima. */
+  /** image: png, jpg, gif, webp, ico, avif, bmp; svg: show only with <img>; other: outside the whitelist, no preview. */
   kind: FileKind
-  /** Tipo reale (dai primi byte), `application/octet-stream` per 'other'. */
+  /** Real type (from the first bytes), `application/octet-stream` for 'other'. */
   mime: string
   size: number
-  /** Solo per le immagini raster che si leggono dall'intestazione (non avif, non svg): altrimenti null e la UI legge naturalWidth dall'<img>. */
+  /** Only for raster images read from the header (not avif, not svg): otherwise null and the UI reads naturalWidth from the <img>. */
   width: number | null
   height: number | null
-  /** Ora di modifica del file su disco; null per una revisione di git. */
+  /** Modification time of the file on disk; null for a git revision. */
   mtimeMs: number | null
-  /** URL ladder-file pronto per <img>/<video>/<audio>/<iframe>; null per 'other' (si può solo mostrare nel Finder). */
+  /** ladder-file URL ready for <img>/<video>/<audio>/<iframe>; null for 'other' (it can only be shown in Finder). */
   url: string | null
 }
-// ── Fine LAD-70 ──────────────────────────────────────────────────────────
+// ── End of preview ───────────────────────────────────────────────────────
 
-/** Ambito del pannello Modifiche. */
+/** Scope of the Changes panel. */
 export type DiffScope =
   | { kind: 'turn'; sessionId: string; turnId: string }
   | { kind: 'session'; sessionId: string }
@@ -1010,14 +1010,14 @@ export interface DiffResult {
   from: string
   to: string
   files: FileChange[]
-  /** Il lato "dopo" è lo stato attuale dei file: cambia mentre lavori. */
+  /** The "after" side is the current state of the files: it changes while you work. */
   live: boolean
 }
 
 export interface FilePatch {
   path: string
   oldPath: string | null
-  /** Diff unificato di git, con 3 righe di contesto. */
+  /** Unified git diff, with 3 lines of context. */
   patch: string
   oldText: string | null
   newText: string | null
@@ -1030,61 +1030,61 @@ export interface HistoryEntry {
   kind: 'turn' | 'commit' | 'restore'
   at: number
   title: string
-  /** Titolo della sessione o autore del commit. */
+  /** Session title or commit author. */
   detail: string | null
   sessionId: string | null
   turnId: string | null
-  /** Stato a cui si può tornare con "Ripristina". */
+  /** State that can be returned to with "Restore". */
   sha: string
-  /** Modifiche di questo punto. */
+  /** Changes at this point. */
   diff: { from: string; to: string } | null
   files: number | null
 }
 
-// ── Terminali e configurazione del progetto ──────────────────────────────
+// ── Terminals and project configuration ──────────────────────────────────
 
 export interface TerminalInfo {
   id: string
   projectId: string
-  /** Sessione a cui appartiene: la sessione terminale stessa, o quella da cui è partita un'azione. */
+  /** Session it belongs to: the terminal session itself, or the one an action was started from. */
   sessionId: string | null
   /**
-   * shell: pannello in basso; run: azione di avvio o setup; agent: CLI di una sessione terminale;
-   * service: comando lungo del worktree (`[[worktree.services]]`, LAD-66), avviato da Ladder, con `title` = nome del servizio.
-   * Si ferma da solo (con tutto ciò che ha avviato) quando la sessione si archivia o il worktree si rimuove; dopo un riavvio
-   * di Ladder torna `stopped` e `terminal.restart` lo rilancia. Non tiene viva la sessione per l'auto-archiviazione (è sempre acceso) e non conta come agente al lavoro; gli altri terminali in esecuzione sì.
+   * shell: bottom panel; run: start or setup action; agent: CLI of a terminal session;
+   * service: long-running worktree command (`[[worktree.services]]`), started by Ladder, with `title` = the service name.
+   * It stops on its own (with everything it started) when the session is archived or the worktree is removed; after a restart
+   * of Ladder it comes back as `stopped` and `terminal.restart` relaunches it. It does not keep the session alive for auto-archiving (it is always on) and does not count as an agent at work; other running terminals do.
    */
   kind: 'shell' | 'run' | 'agent' | 'service'
   title: string
   cwd: string
   command: string | null
-  /** stopped: ripristinato dopo un riavvio di Ladder, il processo non c'è più. */
+  /** stopped: restored after a Ladder restart, the process is gone. */
   state: 'running' | 'exited' | 'stopped'
   exitCode: number | null
   createdAt: number
-  /** LADDER_PORT passato al processo. Per un servizio è la porta libera assegnata, dal blocco del worktree a partire da base + 1 (null se non la vuole). */
+  /** LADDER_PORT passed to the process. For a service it is the free port assigned, from the worktree's block starting at base + 1 (null if it does not want one). */
   port: number | null
 }
 
-/** Un comando lungo da avviare insieme al worktree (LAD-66), per esempio il server di sviluppo. */
+/** A long-running command to start together with the worktree, for example the dev server. */
 export interface WorktreeService {
-  /** Nome leggibile: è il titolo del terminale. Unico nel progetto; lo stesso nome nel file personale sostituisce quello del progetto. */
+  /** Readable name: it is the terminal's title. Unique in the project; the same name in the personal file replaces the project's. */
   name: string
-  /** Eseguito da una shell di login nella cartella del worktree. Con `port` può usare $LADDER_PORT. Vuoto nel file personale = servizio tolto. */
+  /** Run by a login shell in the worktree folder. With `port` it can use $LADDER_PORT. Empty in the personal file = service removed. */
   command: string
-  /** `port` nel TOML, predefinito true: assegna al servizio una LADDER_PORT libera del blocco del worktree, da base + 1 (la base resta a setup, shell e [[run]]), diversa tra worktree e servizi. */
+  /** `port` in the TOML, default true: assigns the service a free LADDER_PORT from the worktree's block, from base + 1 (the base stays with setup, shell and [[run]]), different across worktrees and services. */
   port: boolean
   /**
-   * Da quale file viene. project: solo `.ladder/settings.toml`; personal: solo `settings.local.toml`; both: definito nel progetto e
-   * ridefinito (o disattivato) nel personale, che vince. Con `both` i campi sopra sono quelli del personale, tranne se `disabled`.
+   * Which file it comes from. project: only `.ladder/settings.toml`; personal: only `settings.local.toml`; both: defined in the project and
+   * redefined (or disabled) in the personal file, which wins. With `both` the fields above are the personal ones, unless `disabled`.
    */
   source: 'project' | 'personal' | 'both'
   /**
-   * true: il file personale ha lo stesso nome con `command` vuoto, quindi il servizio del progetto è disattivato. Resta nell'elenco
-   * (con command e port del progetto) ma l'host non lo avvia. Per riattivarlo basta togliere la voce vuota da `personalServices`.
+   * true: the personal file has the same name with an empty `command`, so the project's service is disabled. It stays in the list
+   * (with the project's command and port) but the host does not start it. To re-enable it, just remove the empty entry from `personalServices`.
    */
   disabled: boolean
-  /** Il comando nel file del progetto, presente solo con `source: 'both'`: è quello che tornerebbe in vigore ripristinando il servizio. */
+  /** The command in the project file, present only with `source: 'both'`: it is the one that would take effect again if the service were restored. */
   projectCommand?: string
 }
 
@@ -1110,22 +1110,22 @@ export interface AgentDelegate {
 
 export interface ProjectSettings {
   /**
-   * setup: script eseguito alla creazione del worktree, in un terminale "setup" della sessione (LADDER_PORT impostata).
-   * setupWait (`setup_wait`, predefinito true): il primo messaggio parte a script finito; false: parte subito, lo script gira in parallelo.
-   * archive: script di pulizia, eseguito quando la sessione col worktree si archivia e prima che Ladder rimuova il worktree (anche con archiveMerged). copy: percorsi da copiare in più
-   * rispetto a `.worktreeinclude` (vedi `project.worktreeFiles`).
-   * ports: quante porte consecutive (da LADDER_PORT, la base) ha un worktree; la base resta a setup, shell e [[run]], i servizi con `port` usano le altre in ordine
-   * (da base + 1, quindi `ports - 1` servizi con porta): con `ports` = 1 e servizi con porta attivi `errors` lo segnala e quei servizi non partono (serve almeno 2). Lo slot di un worktree rimosso si libera e si riusa.
-   * services (`[[worktree.services]]`, LAD-66): comandi lunghi che l'host avvia in un terminale `service` per servizio, alla creazione
-   * del worktree dopo lo script di setup (con setupWait false lo script gira in parallelo alla sessione, ma i servizi partono comunque a setup finito;
-   * se il setup esce con errore non partono, e la sessione riceve una nota). Si fermano prima dello script di pulizia (`archive`).
-   * I due file TOML si fondono per nome del servizio: `services` è l'elenco già fuso (progetto, poi i soli-personali), con i servizi
-   * disattivati inclusi (`disabled`), che l'host non avvia. Nello stesso file un nome ripetuto: vince l'ultimo.
-   * personalServices: il contenuto attuale di `[[worktree.services]]` nel file personale, così com'è (comprese le voci con `command` vuoto,
-   * che disattivano il servizio omonimo del progetto). È l'elenco che `WorktreeSettingsPatch.services` sostituisce per intero: la UI lo
-   * modifica (aggiungi/modifica/rimuovi/disattiva = voce vuota/riattiva = togli la voce) e lo rinvia completo.
-   * Voci non valide nel file personale (name o command mancanti, port non booleano, chiavi in più) non compaiono in `personalServices` e vengono
-   * segnalate in `errors`; salvare `services` con voci simili nel file è RIFIUTATO con un errore che dice quale voce e perché (per non cancellarle in silenzio).
+   * setup: script run when the worktree is created, in a "setup" terminal of the session (LADDER_PORT set).
+   * setupWait (`setup_wait`, default true): the first message starts when the script is done; false: it starts right away, the script runs in parallel.
+   * archive: cleanup script, run when the session with the worktree is archived and before Ladder removes the worktree (also with archiveMerged). copy: extra paths to copy
+   * compared with `.worktreeinclude` (see `project.worktreeFiles`).
+   * ports: how many consecutive ports (from LADDER_PORT, the base) a worktree has; the base stays with setup, shell and [[run]], services with `port` use the others in order
+   * (from base + 1, so `ports - 1` services with a port): with `ports` = 1 and services with an active port, `errors` reports it and those services do not start (at least 2 are needed). The slot of a removed worktree is freed and reused.
+   * services (`[[worktree.services]]`): long-running commands that the host starts in one `service` terminal per service, when the
+   * worktree is created after the setup script (with setupWait false the script runs in parallel with the session, but the services still start once setup is done;
+   * if setup exits with an error they do not start, and the session receives a note). They stop before the cleanup script (`archive`).
+   * The two TOML files merge by service name: `services` is the already merged list (project, then the personal-only ones), with the
+   * disabled services included (`disabled`), which the host does not start. In the same file a repeated name: the last one wins.
+   * personalServices: the current content of `[[worktree.services]]` in the personal file, as is (including entries with an empty `command`,
+   * which disable the project's service of the same name). It is the list that `WorktreeSettingsPatch.services` replaces entirely: the UI
+   * edits it (add/edit/remove/disable = empty entry/re-enable = remove the entry) and sends it back in full.
+   * Invalid entries in the personal file (missing name or command, non-boolean port, extra keys) do not appear in `personalServices` and are
+   * reported in `errors`; saving `services` with such entries to the file is REJECTED with an error saying which entry and why (so they are not silently deleted).
    */
   worktree: {
     setup: string | null
@@ -1138,7 +1138,7 @@ export interface ProjectSettings {
   }
   run: RunAction[]
   prompts: Record<string, string>
-  /** [agents]: agenti ammessi (vuoto = tutti), agente proposto, livello di permesso massimo. */
+  /** [agents]: allowed agents (empty = all), proposed agent, maximum permission level. */
   agents: {
     allowed: string[]
     default: string | null
@@ -1154,30 +1154,30 @@ export interface ProjectSettings {
     /** Agent that reviews the diff at the end of a turn with changes (read-only, different provider); null = off. */
     crossReview: AgentId | null
   }
-  /** File letti, relativi alla radice del progetto. */
+  /** Files read, relative to the project root. */
   sources: string[]
   errors: string[]
 }
 
-/** Solo i campi presenti cambiano. `setup` e `archive` null o vuoti = nessuno script. */
+/** Only the fields present change. `setup` and `archive` null or empty = no script. */
 export interface WorktreeSettingsPatch {
   setup?: string | null
   archive?: string | null
   setupWait?: boolean
   copy?: string[]
   /**
-   * SOSTITUISCE l'intero elenco `[[worktree.services]]` del file personale: la UI deve inviare l'elenco personale completo
-   * (parti da `worktree.personalServices`), altrimenti le voci omesse si perdono. `port` assente = true. Per disattivare un servizio del
-   * progetto: stesso nome e `command` vuoto; per riattivarlo, ometti la voce. Nome vuoto: il salvataggio è rifiutato (errore);
-   * nome ripetuto: vince l'ultima voce, nella posizione della prima.
+   * REPLACES the whole `[[worktree.services]]` list of the personal file: the UI must send the complete personal list
+   * (starting from `worktree.personalServices`), otherwise the omitted entries are lost. `port` absent = true. To disable a project
+   * service: same name and empty `command`; to re-enable it, omit the entry. Empty name: the save is rejected (error);
+   * repeated name: the last entry wins, in the position of the first.
    */
   services?: { name: string; command: string; port?: boolean }[]
 }
 
 /**
- * Cosa si copia dal checkout principale in un worktree nuovo (LAD-58). `.worktreeinclude` nella radice del progetto ha la
- * sintassi di .gitignore (come in Claude Code) ed elenca i file da copiare; ne valgono solo quelli ignorati da git
- * (i tracciati ci sono già). Senza il file vale `.env*`. `files` sono percorsi relativi alla radice, `node_modules` escluso.
+ * What is copied from the main checkout into a new worktree. `.worktreeinclude` in the project root has
+ * .gitignore syntax (as in Claude Code) and lists the files to copy; only those ignored by git count
+ * (tracked ones are already there). Without the file `.env*` applies. `files` are paths relative to the root, `node_modules` excluded.
  */
 export interface WorktreeFiles {
   source: 'file' | 'default'
@@ -1185,17 +1185,17 @@ export interface WorktreeFiles {
   files: string[]
 }
 
-/** Archivio SQLite dell'host (LAD-22). */
+/** The host's SQLite store. */
 export interface DataInfo {
-  /** Cartella dei dati di Ladder (database, impostazioni, scorciatoie). */
+  /** Ladder's data folder (database, settings, shortcuts). */
   dir: string
   dbPath: string
   dbBytes: number
-  /** Copie nella cartella `backups` dei dati, la più recente prima. */
+  /** Copies in the data `backups` folder, most recent first. */
   backups: { path: string; bytes: number; at: number }[]
 }
 
-// ── Review con un altro agente ───────────────────────────────────────────
+// ── Review with another agent ────────────────────────────────────────────
 
 export interface ReviewNote {
   path: string
@@ -1208,7 +1208,7 @@ export interface ReviewState {
   sessionId: string
   agent: AgentId
   agentName: string
-  /** Ambito rivisto, per collegare i commenti al diff giusto. */
+  /** Scope reviewed, to link comments to the right diff. */
   scope: DiffScope
   state: 'running' | 'done' | 'error' | 'cancelled'
   summary: string | null
@@ -1217,26 +1217,26 @@ export interface ReviewState {
   startedAt: number
 }
 
-// ── Ricerca, issue e merge ───────────────────────────────────────────────
+// ── Search, issues and merge ─────────────────────────────────────────────
 
 export interface SearchHit {
   sessionId: string
   itemId: string
-  /** Testo intorno alla corrispondenza. */
+  /** Text around the match. */
   snippet: string
   kind: 'message' | 'reply' | 'command' | 'file'
   at: number
 }
 
-/** Elemento da cui creare una sessione: issue o PR di GitHub, issue di Linear, branch. */
+/** Item to create a session from: GitHub issue or PR, Linear issue, branch. */
 export interface IssueItem {
   source: SessionSource['kind']
-  /** Numero della issue o PR, identificativo Linear o nome del branch. */
+  /** Issue or PR number, Linear identifier or branch name. */
   ref: string
   title: string
   body: string | null
   url: string | null
-  /** Branch da usare: quello della PR, quello suggerito da Linear, il branch scelto. */
+  /** Branch to use: the PR's, the one suggested by Linear, the chosen branch. */
   branch: string | null
   state: string | null
   updatedAt: number | null
@@ -1244,7 +1244,7 @@ export interface IssueItem {
 
 export interface IssueList {
   items: IssueItem[]
-  /** Perché la lista è vuota o parziale: gh mancante, nessun remote GitHub, chiave Linear assente. */
+  /** Why the list is empty or partial: gh missing, no GitHub remote, Linear key absent. */
   problem: string | null
 }
 
@@ -1266,97 +1266,97 @@ export interface ReviewComment {
 export interface MergeInfo {
   root: string
   branch: string | null
-  /** Branch di destinazione: quello della PR o il predefinito del repository. */
+  /** Target branch: the PR's or the repository default. */
   base: string | null
   isDefaultBranch: boolean
-  /** File modificati e non committati. */
+  /** Modified, uncommitted files. */
   dirty: number
-  /** Commit del branch che la base non ha. */
+  /** Commits of the branch that the base does not have. */
   ahead: number
   behind: number
-  /** Commit non ancora pubblicati sul remote; null se il branch non ha upstream. */
+  /** Commits not yet published to the remote; null if the branch has no upstream. */
   unpushed: number | null
   hasUpstream: boolean
-  /** File in conflitto se unisci la base, calcolato senza toccare la cartella. */
+  /** Files in conflict if you merge the base, computed without touching the folder. */
   conflicts: string[]
   gh: 'ok' | 'missing' | 'unauthenticated' | 'no-remote' | 'error'
   ghError: string | null
   pr: PrStatus | null
   checks: MergeCheck[]
   comments: ReviewComment[]
-  // ── LAD-69 ──
-  /** Commit dell'upstream da scaricare (↓ dell'intestazione, come GitStatus.behind); 0 senza upstream. */
+  // ── Sync and publish state ──
+  /** Upstream commits to pull (the ↓ in the header, like GitStatus.behind); 0 without upstream. */
   behindUpstream: number
-  /** Righe aggiunte/tolte dalle modifiche non committate (come GitStatus.added/removed). */
+  /** Lines added/removed by uncommitted changes (like GitStatus.added/removed). */
   added: number
   removed: number
-  /** Il repository ha almeno un remote git (senza, niente Push né Pubblica). */
+  /** The repository has at least one git remote (without one, no Push or Publish). */
   hasRemote: boolean
-  /** Upstream del branch, per esempio "origin/feat" (come GitStatus.upstream); null se non pubblicato o HEAD staccato. */
+  /** Upstream of the branch, for example "origin/feat" (like GitStatus.upstream); null if unpublished or detached HEAD. */
   upstream: string | null
-  /** Commit di testa della PR (`headRefOid` di GitHub, sha completo) come l'host l'ha letto ora; null senza PR. È ciò che l'utente vede: `pr.merge` lo vuole indietro in `expectedHeadOid`. */
+  /** Head commit of the PR (GitHub `headRefOid`, full sha) as the host read it just now; null without a PR. It is what the user sees: `pr.merge` wants it back in `expectedHeadOid`. */
   prHeadOid?: string | null
-  /** `mergeStateStatus` di GitHub (CLEAN, BLOCKED, BEHIND, DIRTY, UNSTABLE, HAS_HOOKS, DRAFT, UNKNOWN…); null senza PR. */
+  /** GitHub `mergeStateStatus` (CLEAN, BLOCKED, BEHIND, DIRTY, UNSTABLE, HAS_HOOKS, DRAFT, UNKNOWN…); null without a PR. */
   mergeState: string | null
-  /** Una sessione sta lavorando nella cartella: Push, Merge e Archivia aspettano. */
+  /** A session is working in the folder: Push, Merge and Archive wait. */
   agentBusy: boolean
-  /** Perché la PR non si può unire ora (vuoto = unibile o nessuna PR aperta). */
+  /** Why the PR cannot be merged now (empty = mergeable or no open PR). */
   blocks: MergeBlock[]
-  /** Passo successivo e se è abilitato: calcolato in un solo punto lato host, stessa logica del chip dell'intestazione. */
+  /** Next step and whether it is enabled: computed in a single place on the host, same logic as the header chip. */
   nextAction: NextAction
-  // ── fine LAD-69 ──
+  // ── end of sync and publish state ──
 }
 
-// ── Collegamenti: GitHub, Claude Code e Codex ────────────────────────────────
+// ── Connections: GitHub, Claude Code and Codex ───────────────────────────────
 
-/** Servizi che Ladder sa collegare da sé: login dal browser, senza passare dal Terminale. */
+/** Services Ladder can connect on its own: browser login, without going through the Terminal. */
 export type ConnectionId = 'github' | 'claude-code' | 'codex'
 
 /**
- * - missing: lo strumento (gh, CLI di Codex) non c'è; `connection.login` lo scarica e poi fa il login.
- * - unauthenticated: lo strumento c'è ma non è collegato a un account.
- * - connected: collegato; `user`, `plan` ed `email` dicono chi.
- * - error: lo stato non si è potuto leggere (`error` dice perché).
+ * - missing: the tool (gh, Codex CLI) is not there; `connection.login` downloads it and then logs in.
+ * - unauthenticated: the tool is there but not connected to an account.
+ * - connected: connected; `user`, `plan` and `email` say who.
+ * - error: the state could not be read (`error` says why).
  */
 export type ConnectionState = 'missing' | 'unauthenticated' | 'connected' | 'error'
 
-/** Fase di un collegamento in corso, nell'ordine in cui si presentano. */
+/** Stage of a connection in progress, in the order they occur. */
 export type ConnectionStage = 'downloading' | 'verifying' | 'installing' | 'waiting-browser' | 'finishing'
 
-/** Un login (con l'eventuale download dello strumento) in corso. Presente in ConnectionStatus finché dura. */
+/** A login (with the tool download, if any) in progress. Present in ConnectionStatus while it lasts. */
 export interface ConnectionLogin {
   stage: ConnectionStage
-  /** Da 0 a 1, solo in `downloading`; null quando la dimensione non è nota. */
+  /** From 0 to 1, only in `downloading`; null when the size is unknown. */
   progress: number | null
-  /** Byte scaricati e totali, in `downloading`: la UI li mostra ("120 MB di 350 MB"). */
+  /** Bytes downloaded and total, in `downloading`: the UI shows them ("120 MB of 350 MB"). */
   bytes: number | null
   total: number | null
-  /** Pagina aperta nel browser per il login (in `waiting-browser`): "Riapri" e "Copia link" se non si è aperta. */
+  /** Page opened in the browser for the login (in `waiting-browser`): "Reopen" and "Copy link" if it did not open. */
   url: string | null
-  /** Codice monouso da digitare nella pagina: solo GitHub (`gh auth login --web`). */
+  /** One-time code to type into the page: GitHub only (`gh auth login --web`). */
   code: string | null
 }
 
 export interface ConnectionStatus {
   id: ConnectionId
-  /** Profilo di cui è lo stato (solo claude-code e codex); assente = predefinito. */
+  /** Profile this state belongs to (claude-code and codex only); absent = default. */
   profileId?: string
   state: ConnectionState
-  /** Da dove viene lo strumento: installato dall'utente (`system`), incluso in Ladder (`bundled`, solo Claude Code) o scaricato da Ladder (`downloaded`). */
+  /** Where the tool comes from: installed by the user (`system`), included in Ladder (`bundled`, Claude Code only) or downloaded by Ladder (`downloaded`). */
   source: 'system' | 'bundled' | 'downloaded' | null
   version: string | null
-  /** Nome utente GitHub; null per Claude Code e Codex. */
+  /** GitHub username; null for Claude Code and Codex. */
   user: string | null
-  /** Piano dell'abbonamento: "Max", "Pro", "Plus"; null per GitHub o se l'account non lo dice. */
+  /** Subscription plan: "Max", "Pro", "Plus"; null for GitHub or if the account does not say. */
   plan: string | null
   email: string | null
-  /** Login o download in corso; null altrimenti. */
+  /** Login or download in progress; null otherwise. */
   login: ConnectionLogin | null
-  /** Errore dell'ultimo tentativo (login non riuscito, download con checksum errato, annullato…), già tradotto. */
+  /** Error of the last attempt (failed login, download with a wrong checksum, cancelled…), already translated. */
   error: string | null
 }
 
-/** Chiave delle bozze: id della sessione oppure `new:<projectId>` per la nuova chat. */
+/** Draft key: the session id, or `new:<projectId>` for the new chat. */
 export type DraftKey = string
 
 export type HostCommand =
@@ -1371,41 +1371,41 @@ export type HostCommand =
       model: string | null
       effort: Effort | null
       permission: PermissionLevel
-      /** Profilo (account) con cui avviare; assente = quello del progetto, poi il predefinito. */
+      /** Profile (account) to start with; absent = the project's, then the default. */
       profileId?: string | null
       attachments?: Attachment[]
-      /** Sessione terminale: comando da avviare al posto della chat. */
+      /** Terminal session: command to start in place of the chat. */
       mode?: SessionMode
       command?: string
-      /** Lavora in un nuovo worktree invece che nel checkout principale. */
+      /** Works in a new worktree instead of the main checkout. */
       worktree?: boolean
-      /** Con lo script di setup del progetto: true aspetta che finisca prima del primo messaggio, false parte subito. Assente = ProjectSettings.worktree.setupWait. */
+      /** With the project's setup script: true waits for it to finish before the first message, false starts right away. Absent = ProjectSettings.worktree.setupWait. */
       setupWait?: boolean
-      /** Branch del worktree: nuovo (da HEAD) o esistente da estrarre (PR, branch scelto). */
+      /** Worktree branch: new (from HEAD) or an existing one to check out (PR, chosen branch). */
       branch?: { name: string; existing: boolean; pr?: number } | null
-      /** Solo con `worktree` e senza `branch`: branch locale da cui parte il worktree (predefinito: quello attuale del checkout principale). Sconosciuto: errore. */
+      /** Only with `worktree` and without `branch`: local branch the worktree starts from (default: the main checkout's current one). Unknown: error. */
       baseBranch?: string | null
-      /** Solo con `worktree` e senza `branch`: nome scelto per il nuovo branch, usato così com'è (nessun prefisso aggiunto). Vuoto o assente: nome generato. Non valido o già esistente: errore. */
+      /** Only with `worktree` and without `branch`: chosen name for the new branch, used as is (no prefix added). Empty or absent: generated name. Invalid or already existing: error. */
       newBranch?: string | null
       source?: SessionSource | null
       title?: string
     }
-  /** Sessione terminale ferma (dopo un riavvio o un'uscita): riavvia la CLI, riprendendo la conversazione se può. */
+  /** Stopped terminal session (after a restart or an exit): restarts the CLI, resuming the conversation if it can. */
   | { type: 'session.resume'; sessionId: string }
   /**
-   * Con la sessione al lavoro: busy 'queue' (predefinito) accoda per la fine del turno,
-   * 'steer' inserisce nel turno se canSteer, altrimenti accoda. Da fermo busy non conta.
+   * With the session at work: busy 'queue' (default) queues for the end of the turn,
+   * 'steer' inserts into the turn if canSteer, otherwise queues. When idle busy does not matter.
    */
-  /** "Continue" dopo agents-finished: invia al coordinatore il testo fisso di ripresa (nella lingua dell'host) come messaggio dell'utente. */
+  /** "Continue" after agents-finished: sends the coordinator the fixed resume text (in the host's language) as a user message. */
   | { type: 'session.continue'; sessionId: string; itemId: string }
   | { type: 'session.send'; sessionId: string; text: string; attachments?: Attachment[]; busy?: 'queue' | 'steer' }
-  /** Elenco attuale dei comandi / della sessione; data: SlashCommand[] (vuoto se non ancora noti). */
+  /** Current list of the session's / commands; data: SlashCommand[] (empty if not yet known). */
   | { type: 'session.commands'; sessionId: string }
   /**
-   * Esegue un comando dell'agente. L'host aggiunge una riga 'command' (mai 'user')
-   * e la instrada: Claude e ACP come prompt "/name args", Codex su thread/compact/start
-   * o review/start (args vuoti: uncommittedChanges; altrimenti custom instructions).
-   * Rifiutato con errore se la sessione sta lavorando o il comando è sconosciuto.
+   * Runs an agent command. The host adds a 'command' row (never 'user')
+   * and routes it: Claude and ACP as the prompt "/name args", Codex to thread/compact/start
+   * or review/start (empty args: uncommittedChanges; otherwise custom instructions).
+   * Rejected with an error if the session is working or the command is unknown.
    */
   | { type: 'session.command'; sessionId: string; name: string; args: string }
   /**
@@ -1488,40 +1488,40 @@ export type HostCommand =
       effort?: Effort | null
       permission?: PermissionLevel
     }
-  /** Rinomina a mano: il titolo diventa 'user' e nessuna generazione automatica lo sovrascrive. */
+  /** Manual rename: the title becomes 'user' and no automatic generation overwrites it. */
   | { type: 'session.rename'; sessionId: string; title: string }
   /**
-   * Rigenera il titolo con un modello piccolo, anche se era stato rinominato a mano (azione esplicita:
-   * la sorgente torna 'generated'). Risponde quando finisce; data: il nuovo titolo. Errore tradotto se
-   * l'agente non lo supporta, non c'è ancora una conversazione, un titolo è già in corso o il modello non risponde.
-   * Il titolo nuovo arriva anche con session.upsert.
+   * Regenerates the title with a small model, even if it had been renamed by hand (explicit action:
+   * the source goes back to 'generated'). Answers when it finishes; data: the new title. Translated error if
+   * the agent does not support it, there is no conversation yet, a title is already in progress or the model does not answer.
+   * The new title also arrives with session.upsert.
    */
   | { type: 'session.title.regenerate'; sessionId: string }
   | { type: 'session.unread'; sessionId: string }
-  /** File del progetto, percorsi relativi: tracciati e non tracciati non ignorati. */
+  /** Project files, relative paths: tracked and untracked, not ignored. */
   | { type: 'project.files'; projectId: string }
   | { type: 'session.queue.set'; sessionId: string; queue: QueuedMessage[] }
-  /** data: SubagentDetail. id è SubagentInfo.id oppure l'id della riga 'tool'. */
+  /** data: SubagentDetail. id is SubagentInfo.id or the id of the 'tool' row. */
   | { type: 'subagent.detail'; sessionId: string; id: string }
-  /** data: SubagentInfo[] della sessione (all'apertura o dopo una riconnessione). */
+  /** data: SubagentInfo[] of the session (on open or after a reconnection). */
   | { type: 'subagent.list'; sessionId: string }
   /**
-   * Messaggio in coda da consegnare adesso. 'steer': entra nel turno in corso senza
-   * interromperlo (solo se canSteer; altrimenti errore). A sessione ferma, entrambi i
-   * modi avviano il messaggio come un invio normale. 'now': interrompe il turno e
-   * avvia subito questo messaggio, davanti al resto della coda. Il messaggio esce dalla
-   * coda; la riga 'user' nasce quando arriva all'agente (con steered: true se inserito).
+   * Queued message to deliver now. 'steer': enters the running turn without
+   * interrupting it (only if canSteer; otherwise error). With the session idle, both
+   * modes start the message like a normal send. 'now': interrupts the turn and
+   * starts this message right away, ahead of the rest of the queue. The message leaves the
+   * queue; the 'user' row is born when it reaches the agent (with steered: true if inserted).
    */
   | { type: 'session.queue.deliver'; sessionId: string; id: string; how: 'steer' | 'now' }
   | { type: 'session.interrupt'; sessionId: string }
-  /** `viaDevice`: nome del telefono, lo imposta il gateway remoto insieme a `via: 'phone'` (quello che manda il telefono si ignora). */
+  /** `viaDevice`: phone name, set by the remote gateway together with `via: 'phone'` (what the phone sends is ignored). */
   | { type: 'session.respond'; sessionId: string; requestId: string; response: RequestResponse; via?: ResponseVia; viaDevice?: string }
   /**
-   * Va inviato con rid (request): data = { permission, appliesFrom: 'now' | 'next-turn' }.
-   * L'host aggiorna la riga solo se l'agente accetta; se rifiuta risponde con errore e il
-   * livello resta quello di prima. Con 'now' le richieste di permesso aperte che il nuovo
-   * livello consente si approvano da sole (full: tutte tranne le domande; edit: i tool di
-   * modifica); 'next-turn' quando l'agente non può cambiarlo a turno in corso (Codex).
+   * Must be sent with rid (request): data = { permission, appliesFrom: 'now' | 'next-turn' }.
+   * The host updates the row only if the agent accepts; if it refuses it answers with an error and the
+   * level stays as before. With 'now' the open permission requests that the new
+   * level allows are approved automatically (full: all except questions; edit: the edit
+   * tools); 'next-turn' when the agent cannot change it mid-turn (Codex).
    */
   | { type: 'session.permission.set'; sessionId: string; permission: PermissionLevel }
   | { type: 'session.model.set'; sessionId: string; model: string }
@@ -1530,388 +1530,388 @@ export type HostCommand =
   | { type: 'session.read'; sessionId: string }
   | { type: 'session.archive'; sessionId: string }
   /**
-   * Chiude il processo dell'agente della sessione: il messaggio successivo riprende la stessa conversazione con un processo nuovo,
-   * che rilegge impostazioni e server MCP. Con un turno o sotto-agenti al lavoro il riavvio aspetta che finiscano.
+   * Closes the session's agent process: the next message resumes the same conversation with a new process,
+   * which rereads settings and MCP servers. With a turn or sub-agents at work the restart waits for them to finish.
    */
   | { type: 'session.restartAgent'; sessionId: string }
   | { type: 'draft.set'; key: DraftKey; text: string }
   | { type: 'ui.set'; projectId: string; state: ProjectUiState }
-  // ── LAD-57 parte 2 ──
-  /** Stop del browser dell'agente: ferma l'azione in corso, rifiuta le chiamate successive e revoca gli strumenti finché non c'è `resume` o un nuovo turno dell'utente. Risponde con lo stato. */
+  // ── Agent browser ──
+  /** Stop the agent's browser: halts the current action, rejects later calls and revokes the tools until `resume` or a new user turn. Answers with the state. */
   | { type: 'browser.agent.stop'; sessionId: string }
-  /** Riabilita gli strumenti dopo uno stop. Risponde con lo stato. */
+  /** Re-enables the tools after a stop. Answers with the state. */
   | { type: 'browser.agent.resume'; sessionId: string }
-  /** Stato del browser dell'agente: di una sessione, o di tutte quelle che ne hanno uno (all'apertura di una finestra). Risponde con AgentBrowserState[]. */
+  /** State of the agent's browser: of one session, or of all those that have one (when a window opens). Answers with AgentBrowserState[]. */
   | { type: 'browser.agent.state'; sessionId?: string }
-  // ── Fine LAD-57 parte 2 ──
-  // Gruppi di progetti nella sidebar. Ogni comando risponde ProjectGroupsState (lo stesso che arriva nell'evento
-  // `projectGroups.changed`, a tutte le finestre). Id o progetto sconosciuti: errore, nessuna modifica.
-  /** Nuova sezione in fondo; il nome viene ripulito dagli spazi, vuoto = errore. Risponde lo stato (l'id è l'ultima sezione). */
+  // ── End agent browser ──
+  // Project groups in the sidebar. Every command answers ProjectGroupsState (the same one that arrives in the
+  // `projectGroups.changed` event, to all windows). Unknown id or project: error, no change.
+  /** New section at the bottom; the name is trimmed of spaces, empty = error. Answers the state (the id is the last section). */
   | { type: 'projectGroups.create'; name: string; projectIds?: string[] }
   | { type: 'projectGroups.rename'; groupId: string; name: string }
-  /** Elimina la sezione: i suoi progetti tornano in coda a `ungrouped`, nel loro ordine. */
+  /** Deletes the section: its projects go back to the end of `ungrouped`, in their order. */
   | { type: 'projectGroups.delete'; groupId: string }
   | { type: 'projectGroups.collapse'; groupId: string; collapsed: boolean }
-  /** Nuovo ordine delle sezioni: `groupIds` deve elencarle tutte; quelle omesse restano in coda, gli id ignoti si scartano. */
+  /** New order of the sections: `groupIds` must list them all; omitted ones stay at the end, unknown ids are discarded. */
   | { type: 'projectGroups.reorder'; groupIds: string[] }
-  /** Sposta un progetto in una sezione (`groupId`) o fuori da ogni sezione (null), alla posizione `index` (predefinita: in fondo). Serve anche a riordinare. */
+  /** Moves a project into a section (`groupId`) or out of every section (null), at position `index` (default: the end). Also used to reorder. */
   | { type: 'projectGroups.move'; projectId: string; groupId: string | null; index?: number }
-  // Scorciatoie. Tutti rispondono ShortcutsState; a ogni cambiamento arriva anche l'evento `shortcuts.changed`.
-  /** Stato attuale (rilegge il file). */
+  // Shortcuts. All answer ShortcutsState; the `shortcuts.changed` event also arrives on every change.
+  /** Current state (rereads the file). */
   | { type: 'shortcuts.get' }
   /**
-   * Salva preset e personalizzazioni: scrive `overrides` in keybindings.json in modo atomico. Le voci che l'host
-   * aveva ignorato (sconosciute o non valide) restano nel file, davanti alle nuove. Voci non valide in `overrides`
-   * o file con errore di sintassi: errore, nessuna modifica (anche il preset).
+   * Saves the preset and customizations: writes `overrides` to keybindings.json atomically. The entries the host
+   * had ignored (unknown or invalid) stay in the file, ahead of the new ones. Invalid entries in `overrides`
+   * or a file with a syntax error: error, no change (the preset too).
    */
   | { type: 'shortcuts.save'; preset: ShortcutPreset; overrides: Keybinding[] }
-  /** Toglie tutte le personalizzazioni (il file diventa `[]`; il vecchio contenuto va in keybindings.json.bak). Il preset non cambia. */
+  /** Removes all customizations (the file becomes `[]`; the old content goes to keybindings.json.bak). The preset does not change. */
   | { type: 'shortcuts.reset' }
-  /** Apre keybindings.json nell'app di sistema per i .json (lo crea vuoto se manca). Risponde null. */
+  /** Opens keybindings.json in the system app for .json files (creates it empty if missing). Answers null. */
   | { type: 'shortcuts.openFile' }
-  // File, diff e cronologia. `root` è la cartella di un progetto o di una sessione (worktree).
+  // Files, diff and history. `root` is the folder of a project or of a session (worktree).
   | { type: 'fs.tree'; root: string }
   | { type: 'fs.read'; root: string; path: string }
-  /** `baseMtime` null: scrive comunque. Altrimenti, se il file è cambiato, non scrive e rimanda il testo su disco. */
+  /** `baseMtime` null: writes anyway. Otherwise, if the file changed, it does not write and sends back the text on disk. */
   | { type: 'fs.write'; root: string; path: string; text: string; baseMtime: number | null }
   | { type: 'fs.watch'; root: string; on: boolean }
-  // ── LAD-70 ──
-  /** Descrive un file non di testo della root, o la sua versione alla revisione `rev` (HEAD o sha completo di git). Risponde FileMedia. */
+  // ── Media preview ──
+  /** Describes a non-text file of the root, or its version at revision `rev` (HEAD or full git sha). Answers FileMedia. */
   | { type: 'fs.media'; root: string; path: string; rev?: string | null }
-  /** Mostra il file nel Finder: solo dentro la root. Risponde null. */
+  /** Shows the file in Finder: only inside the root. Answers null. */
   | { type: 'fs.reveal'; root: string; path: string }
-  // ── Fine LAD-70 ──
+  // ── End of media preview ──
   | { type: 'diff.files'; root: string; scope: DiffScope }
   | { type: 'diff.file'; root: string; from: string; to: string; path: string; oldPath?: string | null }
-  /** Riporta i file allo stato di `to`. Restituisce il checkpoint per annullare. */
+  /** Brings the files back to the state of `to`. Returns the checkpoint to undo. */
   | { type: 'git.restore'; root: string; to: string; paths?: string[]; label: string }
   | { type: 'history.list'; root: string; sessionId?: string | null }
-  // Terminali.
+  // Terminals.
   | { type: 'terminal.create'; projectId: string; sessionId?: string | null; cwd?: string }
   | { type: 'terminal.attach'; id: string; cols: number; rows: number }
   | { type: 'terminal.input'; id: string; data: string }
   | { type: 'terminal.resize'; id: string; cols: number; rows: number }
   | { type: 'terminal.close'; id: string }
   | { type: 'terminal.restart'; id: string }
-  /** Pulisce la copia dello schermo dell'host (schermo e scrollback, resta la riga del cursore): non scrive nulla alla shell. Terminale inesistente: ignorata. */
+  /** Clears the host's copy of the screen (screen and scrollback, the cursor line stays): writes nothing to the shell. Nonexistent terminal: ignored. */
   | { type: 'terminal.clear'; id: string }
-  /** Ultime righe del terminale come testo semplice, per @terminal. */
+  /** Last lines of the terminal as plain text, for @terminal. */
   | { type: 'terminal.output'; id: string; lines?: number }
-  // Configurazione del progetto (.ladder/settings.toml) e azioni di avvio.
+  // Project configuration (.ladder/settings.toml) and start actions.
   | { type: 'project.settings'; projectId: string }
   | { type: 'run.start'; projectId: string; sessionId?: string | null; name: string }
   /**
-   * Salva setup, pulizia, attesa e copie del progetto in `.ladder/settings.local.toml` (personale, fuori da git; il file
-   * viene riscritto, quindi i suoi commenti si perdono). Vince sul file del progetto campo per campo. Risponde ProjectSettings.
+   * Saves the project's setup, cleanup, wait and copies in `.ladder/settings.local.toml` (personal, outside git; the file
+   * is rewritten, so its comments are lost). Wins over the project file field by field. Answers ProjectSettings.
    */
   | { type: 'project.worktree.set'; projectId: string; patch: WorktreeSettingsPatch }
-  /** Anteprima di cosa copierebbe un worktree nuovo. Risponde WorktreeFiles. */
+  /** Preview of what a new worktree would copy. Answers WorktreeFiles. */
   | { type: 'project.worktreeFiles'; projectId: string }
-  // Dati (LAD-22). Il database è uno solo, nella cartella dati dell'app.
-  /** Risponde DataInfo. */
+  // Data. There is a single database, in the app's data folder.
+  /** Answers DataInfo. */
   | { type: 'data.info' }
   /**
-   * Copia coerente del database (VACUUM INTO, anche a sessioni al lavoro). Senza `to`: nuovo file `ladder-AAAAMMGG-HHMMSS.db`
-   * in `backups` nella cartella dati; con `to` (percorso assoluto scelto con `ladder:pick-save-path`) scrive lì e sostituisce
-   * un file esistente. Risponde { path, bytes }. Non c'è ripristino.
+   * Consistent copy of the database (VACUUM INTO, even with sessions at work). Without `to`: new file `ladder-YYYYMMDD-HHMMSS.db`
+   * in `backups` in the data folder; with `to` (absolute path chosen with `ladder:pick-save-path`) it writes there and replaces
+   * an existing file. Answers { path, bytes }. There is no restore.
    */
   | { type: 'data.backup'; to?: string }
-  /** Apre la cartella dati nel Finder (lo fa il main). Risponde null. */
+  /** Opens the data folder in Finder (done by main). Answers null. */
   | { type: 'data.openFolder' }
-  // Ricerca nelle conversazioni (⌘K), issue e PR per nuove sessioni, pannello merge e prompt dei pulsanti.
+  // Search in conversations (⌘K), issues and PRs for new sessions, merge panel and button prompts.
   | { type: 'search'; query: string }
   | { type: 'issues.list'; projectId: string; source: 'github-issue' | 'github-pr' | 'branch' }
   | { type: 'merge.info'; root: string; fetch?: boolean }
-  /** Testo del prompt dietro un pulsante (create_pr, fix, conflicts, review, issue), con le variabili già sostituite. */
+  /** Prompt text behind a button (create_pr, fix, conflicts, review, issue), with the variables already substituted. */
   | { type: 'prompt.render'; projectId: string; name: string; vars: Record<string, string> }
-  // Agenti ACP: catalogo del registro, aggiunta e rimozione.
+  // ACP agents: registry catalog, adding and removing.
   /**
-   * Aggiunge un agente al catalogo "I tuoi agenti". Per una CLI rilevata: `agents.add` con `source: 'registry'` e
-   * l'id; l'host usa il percorso trovato (distribution `path`), altrimenti il binario scaricato, altrimenti npx/uvx.
-   * Risponde AgentStatus.
+   * Adds an agent to the "Your agents" catalog. For a detected CLI: `agents.add` with `source: 'registry'` and
+   * the id; the host uses the path found (distribution `path`), otherwise the downloaded binary, otherwise npx/uvx.
+   * Answers AgentStatus.
    */
   | { type: 'agents.add'; spec: AcpAgentSpec }
   /**
-   * Catalogo completo (LAD-56): risponde AgentCatalogEntry[] con i curati in cima, nell'ordine Gemini CLI, Cursor,
-   * GitHub Copilot, OpenCode, Amp, goose, Cline, Qwen Code, Kiro CLI, Junie, Factory Droid, poi il resto del registro
-   * per nome. Include rilevamento, stato e login: fa un giro della shell di login per ogni CLI, quindi la UI lo
-   * chiede all'apertura di Impostazioni → Agenti e del primo avvio, non a ogni render. Se il registro non risponde: errore.
+   * Full catalog: answers AgentCatalogEntry[] with the curated ones on top, in the order Gemini CLI, Cursor,
+   * GitHub Copilot, OpenCode, Amp, goose, Cline, Qwen Code, Kiro CLI, Junie, Factory Droid, then the rest of the registry
+   * by name. Includes detection, state and login: it runs the login shell once per CLI, so the UI
+   * requests it when Settings → Agents opens and on first run, not on every render. If the registry does not answer: error.
    */
   | { type: 'agents.catalog' }
   /**
-   * Cerca nel PATH della shell di login le CLI degli agenti curati (senza avviarle né scrivere niente) e risponde
-   * AgentCatalogEntry[] solo per quelle trovate. Più leggero di `agents.catalog`: per il primo avvio ("abbiamo trovato…").
+   * Looks in the login shell's PATH for the curated agents' CLIs (without starting them or writing anything) and answers
+   * AgentCatalogEntry[] only for those found. Lighter than `agents.catalog`: for first run ("we found…").
    */
   | { type: 'agents.detect' }
   /**
-   * Scarica e installa il binario di un agente in `<dati>/bin/<id>` (anche per aggiornarlo). Serve la conferma
-   * esplicita dell'utente: `confirmed` deve essere true e `version`, `sha256` e `host` quelli che la UI gli ha mostrato nel dialog
-   * (AgentCatalogEntry.registryVersion, download.sha256, download.host): TUTTI e tre sono obbligatori e l'host li confronta sempre
-   * con quelli che userebbe adesso (il checksum dal registro o dalla release, riletti freschi); se uno è diverso rifiuta e la UI
-   * rilegge il catalogo. Un `sha256` che non è di 64 cifre esadecimali o un `host` vuoto si rifiutano. Rifiuta anche se non c'è un
-   * checksum verificabile, se un binario ha argomenti che un runtime esegue come codice (`-XX:`, `-javaagent`, `-agentlib`, `-Djava.`, `--add-opens`, `@file`…: la voce è `unavailable`), se l'host dell'archivio non è quello atteso (`host`), se la stessa versione è già stata scaricata con
-   * un checksum diverso (`checksum-conflict`, rifiutato come gli altri blocchi: la promessa è rifiutata, il codice arriva con l'evento `agent.install`, non c'è risposta `running`).
-   * Una seconda richiesta per la stessa versione durante il download riceve lo stato di quel download (un solo download) solo se `sha256`
-   * e `host` coincidono con quelli del download in corso; se differiscono rifiuta con `checksum-changed` (la sua conferma non si ignora
-   * in silenzio) SENZA evento `agent.install`: lo stato del job in corso non cambia (un evento di errore per lo stesso id lo mostrerebbe
-   * come fallito mentre sta scaricando), quindi qui il codice non arriva alla UI, solo il testo del rifiuto; la UI rilegge il catalogo.
-   * La lettura del checksum di una release GitHub dura al massimo 15 secondi (poi errore "can't read the checksum right now").
-   * Se la scrittura del checksum registrato fallisce dopo la registrazione dell'agente, l'installazione resta riuscita (`done`). Per un'altra versione dello stesso agente è un errore ("un'altra installazione è in corso").
-   * Risponde AgentInstall (state running) e prosegue in
-   * background: ogni passo arriva come evento `agent.install` (errorCode per i blocchi di sicurezza, signature dopo la
-   * verifica). A fine installazione l'agente è aggiunto (agent.status). Il binario si prepara in una cartella
-   * temporanea e si sposta solo dopo checksum, estrazione e codesign; Ladder non esegue niente prima. Il checksum della versione
-   * si registra (per accorgersi di un registro che lo cambia) solo a installazione riuscita.
-   * Aggiornamento: la cartella nuova porta un marcatore `.ladder-version` (0644, scritto da Ladder) con versione e impronta della voce
-   * registrata; se l'app si chiude a metà dello scambio, al riavvio la cartella resta quella la cui impronta coincide con la voce nel
-   * database, altrimenti torna la precedente. Con `signature` il programma dentro un `.app` deve stare in Contents/MacOS, Helpers,
-   * Frameworks (non runtime né jbr: contengono il JDK), essere un Mach-O e soddisfare da solo il requisito del firmatario (non basta la firma del pacchetto).
+   * Downloads and installs an agent's binary into `<data>/bin/<id>` (also to update it). Requires the user's
+   * explicit confirmation: `confirmed` must be true and `version`, `sha256` and `host` those the UI showed in the dialog
+   * (AgentCatalogEntry.registryVersion, download.sha256, download.host): ALL three are mandatory and the host always compares them
+   * with the ones it would use now (the checksum from the registry or the release, freshly reread); if one differs it rejects and the UI
+   * rereads the catalog. A `sha256` that is not 64 hex digits or an empty `host` is rejected. It also rejects if there is no
+   * verifiable checksum, if a binary has arguments that a runtime executes as code (`-XX:`, `-javaagent`, `-agentlib`, `-Djava.`, `--add-opens`, `@file`…: the entry is `unavailable`), if the archive's host is not the expected one (`host`), if the same version was already downloaded with
+   * a different checksum (`checksum-conflict`, rejected like the other blocks: the promise is rejected, the code arrives with the `agent.install` event, there is no `running` answer).
+   * A second request for the same version during the download receives the state of that download (a single download) only if `sha256`
+   * and `host` match those of the download in progress; if they differ it rejects with `checksum-changed` (its confirmation is not silently
+   * ignored) WITHOUT an `agent.install` event: the state of the job in progress does not change (an error event for the same id would show it
+   * as failed while it is downloading), so here the code does not reach the UI, only the rejection text; the UI rereads the catalog.
+   * Reading the checksum of a GitHub release takes at most 15 seconds (then error "can't read the checksum right now").
+   * If writing the recorded checksum fails after the agent is registered, the install stays successful (`done`). For another version of the same agent it is an error ("another installation is in progress").
+   * Answers AgentInstall (state running) and continues in the
+   * background: each step arrives as an `agent.install` event (errorCode for the security blocks, signature after the
+   * verification). When the install ends the agent is added (agent.status). The binary is prepared in a temporary
+   * folder and moved only after checksum, extraction and codesign; Ladder runs nothing before that. The version's checksum
+   * is recorded (to notice a registry that changes it) only after a successful install.
+   * Update: the new folder carries a `.ladder-version` marker (0644, written by Ladder) with the version and fingerprint of the recorded
+   * entry; if the app closes halfway through the swap, on restart the folder kept is the one whose fingerprint matches the entry in the
+   * database, otherwise the previous one returns. With `signature` the program inside an `.app` must be in Contents/MacOS, Helpers,
+   * Frameworks (not runtime or jbr: they contain the JDK), be a Mach-O and satisfy the signer's requirement on its own (the package signature is not enough).
    */
   | { type: 'agents.install'; id: string; version: string; confirmed: true; sha256: string; host: string }
-  /** Annulla un'installazione in corso: la cartella finale non cambia. Risponde null. */
+  /** Cancels an installation in progress: the final folder does not change. Answers null. */
   | { type: 'agents.install.cancel'; id: string }
   /**
-   * LAD-79: elenco di "Altri agenti" nelle Subscription (OtherAgentConnection[]). Risponde subito con quanto è noto (programmi
-   * cercati nel PATH della shell di login, versioni, ultimo stato) e per gli agenti installati con `auth` unknown o provato da più di
-   * 10 minuti avvia in background una prova (al massimo 2 insieme): ogni esito arriva come evento `agent.connection`
-   * (prima con `probing: true`, poi col risultato). La prova avvia il programma dell'agente, fa `initialize` e `session/new` in
-   * una cartella neutra (la home) senza mandare prompt, con `NO_BROWSER=true` nell'ambiente (l'agente non apre il browser) e senza
-   * variabili ANTHROPIC_*, CLAUDE* e chiavi API; poi lo ferma. Non legge mai file di credenziali. Nessun download né installazione.
+   * List of "Other agents" in Subscription (OtherAgentConnection[]). Answers right away with what is known (programs
+   * searched in the login shell's PATH, versions, last state) and for installed agents with `auth` unknown or probed more than
+   * 10 minutes ago it starts a probe in the background (at most 2 at a time): each outcome arrives as an `agent.connection` event
+   * (first with `probing: true`, then with the result). The probe starts the agent's program, runs `initialize` and `session/new` in
+   * a neutral folder (the home) without sending prompts, with `NO_BROWSER=true` in the environment (the agent does not open the browser) and without
+   * ANTHROPIC_*, CLAUDE* variables and API keys; then it stops it. It never reads credential files. No download or install.
    */
   | { type: 'agents.others' }
-  /** Ripete la prova di un agente e risponde OtherAgentConnection aggiornato (anche per un id senza riga: errore). Emette `agent.connection` e, se la prova dà ready/required, `agent.login`. */
+  /** Repeats an agent's probe and answers the updated OtherAgentConnection (also for an id without a row: error). Emits `agent.connection` and, if the probe gives ready/required, `agent.login`. */
   | { type: 'agents.others.refresh'; id: string }
   /**
-   * Accesso tramite la CLI dell'agente, in un terminale di Ladder (con TTY: i login di Gemini, Copilot, Cursor sono interattivi).
-   * Come le azioni di progetto (`run.start`): un terminale `kind: 'run'` del progetto (`projectId`, altrimenti il primo progetto aperto; errore se non ce n'è),
-   * titolo "Sign in to <agente>", cartella del progetto, lanciato con la shell di login; con `loginCommand` null apre la CLI da sola.
-   * Risponde TerminalInfo (la UI lo apre con il suo id); un secondo `login` mentre quello gira risponde lo stesso terminale.
-   * Quando il processo esce Ladder ripete la prova dell'agente ed emette `agent.connection` (anche con un'uscita con errore o chiuso dall'utente).
-   * Errore se l'agente non è installato o è npx/uvx. Il browser lo apre la CLI da sé: Ladder non vede credenziali.
+   * Sign-in through the agent's CLI, in a Ladder terminal (with a TTY: the Gemini, Copilot, Cursor logins are interactive).
+   * Like project actions (`run.start`): a `kind: 'run'` terminal of the project (`projectId`, otherwise the first open project; error if there is none),
+   * titled "Sign in to <agent>", project folder, launched with the login shell; with `loginCommand` null it opens the bare CLI.
+   * Answers TerminalInfo (the UI opens it by its id); a second `login` while one is running answers the same terminal.
+   * When the process exits Ladder repeats the agent's probe and emits `agent.connection` (also on an exit with an error or closed by the user).
+   * Error if the agent is not installed or is npx/uvx. The CLI opens the browser by itself: Ladder sees no credentials.
    */
   | { type: 'agents.others.login'; id: string; projectId?: string }
   /**
-   * Uscita tramite la CLI, nello stesso modo di `agents.others.login` (terminale, poi nuova prova ed `agent.connection`), solo se
-   * `logoutCommand` non è null; altrimenti errore e la UI mostra `logoutHelp`. Risponde TerminalInfo.
+   * Sign-out through the CLI, the same way as `agents.others.login` (terminal, then a new probe and `agent.connection`), only if
+   * `logoutCommand` is not null; otherwise error and the UI shows `logoutHelp`. Answers TerminalInfo.
    */
   | { type: 'agents.others.logout'; id: string; projectId?: string }
   /**
-   * Accesso a un agente ACP con uno dei suoi metodi (AgentLogin.methods, solo di tipo `agent`): chiama `authenticate`
-   * del protocollo ACP e poi apre una sessione di prova per verificare l'esito. Ladder non vede né salva credenziali:
-   * le gestisce l'agente (spesso apre il browser). `projectId` dà la cartella di lavoro (altrimenti la home). Può
-   * durare fino a 5 minuti. Risponde AgentLogin aggiornato (ready se l'accesso è riuscito, required altrimenti) ed
-   * emette `agent.login`. Un metodo `terminal` o `unsupported` si rifiuta. Errore se l'agente non è aggiunto o il metodo non c'è.
-   * Se l'agente muore o non parte l'errore arriva subito. Una seconda richiesta con lo stesso `methodId` mentre l'accesso è in
-   * corso riceve la stessa risposta (un solo processo); con un altro metodo è un errore.
+   * Sign-in to an ACP agent with one of its methods (AgentLogin.methods, `agent` type only): calls the ACP protocol's `authenticate`
+   * and then opens a probe session to check the outcome. Ladder neither sees nor stores credentials:
+   * the agent handles them (it often opens the browser). `projectId` gives the working folder (otherwise the home). It can
+   * take up to 5 minutes. Answers the updated AgentLogin (ready if sign-in succeeded, required otherwise) and
+   * emits `agent.login`. A `terminal` or `unsupported` method is rejected. Error if the agent is not added or the method does not exist.
+   * If the agent dies or does not start the error arrives right away. A second request with the same `methodId` while sign-in is
+   * in progress receives the same answer (a single process); with another method it is an error.
    */
   | { type: 'agents.authenticate'; id: string; methodId: string; projectId?: string }
   /**
-   * Ferma l'accesso in corso per quell'agente ("Smetti di aspettare"): uccide il processo dell'agente e libera subito l'id, così
-   * una nuova `agents.authenticate` parte senza "già in corso". La richiesta `agents.authenticate` pendente risponde con il
-   * AgentLogin com'era (senza errore e senza evento). Risponde null; senza un accesso in corso non fa niente.
+   * Stops the sign-in in progress for that agent ("Stop waiting"): kills the agent's process and frees the id right away, so
+   * a new `agents.authenticate` starts without "already in progress". The pending `agents.authenticate` request answers with the
+   * AgentLogin as it was (no error and no event). Answers null; with no sign-in in progress it does nothing.
    */
   | { type: 'agents.authenticate.cancel'; id: string }
   | { type: 'agents.remove'; id: string }
-  /** Rilegge i limiti d'uso del piano, senza aprire una sessione né consumare quota. */
+  /** Rereads the plan's usage limits, without opening a session or consuming quota. */
   | { type: 'agents.usage'; agent: AgentId; profileId?: string }
   /**
-   * Predefiniti dell'agente per un progetto, letti dalla config dell'agente con i settings di
-   * progetto (Claude: .claude/settings*.json; Codex: config.toml e profilo). data:
-   * { model: string | null; effort: Effort | null; known: boolean } con model = id di AgentStatus.models.
-   * known false: l'utente ha configurato qualcosa che Ladder non sa risolvere (niente badge).
-   * AgentStatus.models[].isDefault resta il predefinito a livello utente.
+   * Agent defaults for a project, read from the agent's config with the project
+   * settings (Claude: .claude/settings*.json; Codex: config.toml and profile). data:
+   * { model: string | null; effort: Effort | null; known: boolean } with model = an id from AgentStatus.models.
+   * known false: the user configured something Ladder cannot resolve (no badge).
+   * AgentStatus.models[].isDefault stays the user-level default.
    */
   | { type: 'agents.defaults'; agent: AgentId; projectId: string; profileId?: string }
   /**
-   * Profili (LAD-23). `profile.create` crea la cartella di configurazione e risponde il Profile; i nomi sono unici per
-   * agente. `profile.rename` risponde il Profile. `profile.remove` non tocca il predefinito e rifiuta se una sessione
-   * attiva lo usa; le sessioni ferme passano al predefinito; la cartella di configurazione non si cancella (ci sono le credenziali).
-   * `project.profile` sceglie il profilo di un progetto per un agente (profileId null = predefinito): vale per le nuove sessioni,
-   * quelle esistenti tengono il loro. Ogni cambiamento arriva come `profile.upsert`, `profile.removed` e `project.upsert`.
+   * Profiles. `profile.create` creates the configuration folder and answers the Profile; names are unique per
+   * agent. `profile.rename` answers the Profile. `profile.remove` does not touch the default and rejects if an active
+   * session uses it; idle sessions move to the default; the configuration folder is not deleted (it holds the credentials).
+   * `project.profile` chooses a project's profile for an agent (profileId null = default): applies to new sessions,
+   * existing ones keep theirs. Every change arrives as `profile.upsert`, `profile.removed` and `project.upsert`.
    */
   | { type: 'profile.create'; agent: ProfileAgent; name: string }
   | { type: 'profile.rename'; profileId: string; name: string }
   | { type: 'profile.remove'; profileId: string }
   | { type: 'project.profile'; projectId: string; agent: ProfileAgent; profileId: string | null }
   /**
-   * Collegamenti (GitHub, Claude Code, Codex). `connection.list` risponde ConnectionStatus[] senza avviare nulla.
-   * `connection.refresh` rilegge lo stato di uno (risponde ConnectionStatus). `connection.login` risponde subito con lo
-   * stato (login valorizzato) e prosegue in background: ogni passo arriva come evento `connection.update`; se lo
-   * strumento manca lo scarica (download con checksum), poi apre il browser. `switchAccount`: esce prima dall'account
-   * attuale ("Cambia account"): il logout avviene prima del nuovo login, quindi se l'utente annulla il login resta scollegato
-   * (la UI lo scrive nella conferma di "Cambia account"). `connection.cancel` interrompe download o login e non lascia errori. `connection.logout` esce e
-   * risponde lo stato; due logout in parallelo condividono la stessa operazione. Se `claude auth status` non risponde, lo stato è `error`.
-   * Alla fine di un login riuscito l'host rilegge anche `agent.status` (account, modelli, limiti) e le viste GitHub
-   * si aggiornano da sole con una nuova richiesta di `issues.list` e `merge.info`.
-   * `profileId` (solo claude-code e codex) indirizza il profilo; assente = predefinito. `connection.list` ne risponde uno
-   * per profilo.
+   * Connections (GitHub, Claude Code, Codex). `connection.list` answers ConnectionStatus[] without starting anything.
+   * `connection.refresh` rereads the state of one (answers ConnectionStatus). `connection.login` answers right away with the
+   * state (login set) and continues in the background: each step arrives as a `connection.update` event; if the
+   * tool is missing it downloads it (download with checksum), then opens the browser. `switchAccount`: signs out of the current
+   * account first ("Switch account"): the logout happens before the new login, so if the user cancels the login they stay disconnected
+   * (the UI says so in the "Switch account" confirmation). `connection.cancel` interrupts a download or login and leaves no errors. `connection.logout` signs out and
+   * answers the state; two logouts in parallel share the same operation. If `claude auth status` does not answer, the state is `error`.
+   * At the end of a successful login the host also rereads `agent.status` (account, models, limits) and the GitHub views
+   * refresh on their own with a new `issues.list` and `merge.info` request.
+   * `profileId` (claude-code and codex only) targets the profile; absent = default. `connection.list` answers one
+   * per profile.
    */
   | { type: 'connection.list' }
   | { type: 'connection.refresh'; id: ConnectionId; profileId?: string }
   | { type: 'connection.login'; id: ConnectionId; switchAccount?: boolean; profileId?: string }
   | { type: 'connection.cancel'; id: ConnectionId; profileId?: string }
   | { type: 'connection.logout'; id: ConnectionId; profileId?: string }
-  /** Review in sola lettura delle modifiche di una sessione, chiesta a un altro agente. Torna come commenti. */
+  /** Read-only review of a session's changes, requested from another agent. Comes back as comments. */
   | { type: 'review.start'; sessionId: string; agent: AgentId; scope: DiffScope }
   | { type: 'review.cancel'; reviewId: string }
-  // ── LAD-59: testi scritti dal modello piccolo (solo su richiesta esplicita) ──
+  // ── Text written by the small model (only on explicit request) ──
   /**
-   * Propone il messaggio di commit dal diff della cartella della sessione e dalla conversazione. Risponde GeneratedCommit.
-   * `source` assente: i file in stage se ce ne sono, altrimenti tutto il working tree. Non committa nulla.
-   * Errori (testo tradotto): generazione spenta, agente senza modello piccolo, nessuna modifica, timeout (60 s).
+   * Proposes the commit message from the session folder's diff and the conversation. Answers GeneratedCommit.
+   * `source` absent: the staged files if there are any, otherwise the whole working tree. Commits nothing.
+   * Errors (translated text): generation off, agent without a small model, no changes, timeout (60 s).
    */
   | { type: 'text.commit'; sessionId: string; source?: 'staged' | 'working' }
   /**
-   * Propone titolo e descrizione della PR dai commit e dal diff del branch rispetto alla base, e dalla conversazione.
-   * Risponde GeneratedPr. Non crea la PR. Errori come text.commit, più "nessun commit rispetto alla base".
+   * Proposes the PR title and description from the branch's commits and diff against the base, and from the conversation.
+   * Answers GeneratedPr. Does not create the PR. Errors as for text.commit, plus "no commits relative to the base".
    */
   | { type: 'text.pr'; sessionId: string }
-  /** Annulla la generazione di commit/PR in corso per la sessione e la libera subito (la richiesta in sospeso fallisce con "cancelled"). Risponde null. */
+  /** Cancels the commit/PR generation in progress for the session and frees it right away (the pending request fails with "cancelled"). Answers null. */
   | { type: 'text.cancel'; sessionId: string }
-  // ── LAD-59 commit ──
+  // ── Commit ──
   /**
-   * Commit fatto da Ladder nella cartella della sessione, con `git commit` (hook del repo inclusi, niente --no-verify,
-   * nessun trailer, autore dalle config git). Messaggio = `subject`, riga vuota, `body`: non viene riscritto.
-   * Se c'è qualcosa in stage si committa solo quello; altrimenti `paths` ('all' o un elenco di percorsi) viene messo
-   * in stage con `git add -A` (rispetta .gitignore). Risponde GitCommitResult e manda `fs.changed` (il pannello si aggiorna).
-   * Errori (testo tradotto): oggetto vuoto, su più righe o oltre 200 caratteri; byte NUL; "Nothing to commit."; hook o git
-   * falliti (con il loro output).
+   * Commit made by Ladder in the session folder, with `git commit` (repo hooks included, no --no-verify,
+   * no trailer, author from the git config). Message = `subject`, blank line, `body`: it is not rewritten.
+   * If something is staged only that is committed; otherwise `paths` ('all' or a list of paths) is staged
+   * with `git add -A` (respects .gitignore). Answers GitCommitResult and sends `fs.changed` (the panel refreshes).
+   * Errors (translated text): empty subject, multi-line or over 200 characters; NUL bytes; "Nothing to commit."; hooks or git
+   * failed (with their output).
    */
   | { type: 'git.commit'; sessionId: string; subject: string; body?: string; paths?: string[] | 'all' }
   /**
-   * Prepara l'apertura della PR: l'host scrive titolo e descrizione in file temporanei privati (cartella 0700, file 0600,
-   * nomi casuali, cancellati alla chiusura della sessione, a una nuova preparazione o all'uscita dell'app) e risponde
-   * PrPrepared con il prompt `create_pr` completo, che porta all'agente solo i PERCORSI: titolo e descrizione non vengono
-   * mai incollati in un comando. Errori (testo tradotto): titolo vuoto, su più righe o oltre MAX_PR_TITLE caratteri;
-   * descrizione oltre MAX_PR_BODY; byte NUL. Non invia nulla alla sessione: lo fa la UI con `session.send`.
+   * Prepares opening the PR: the host writes the title and description to private temporary files (0700 folder, 0600 files,
+   * random names, deleted when the session closes, on a new preparation or on app exit) and answers
+   * PrPrepared with the full `create_pr` prompt, which gives the agent only the PATHS: the title and description are never
+   * pasted into a command. Errors (translated text): empty title, multi-line or over MAX_PR_TITLE characters;
+   * description over MAX_PR_BODY; NUL bytes. Sends nothing to the session: the UI does that with `session.send`.
    */
   | { type: 'pr.prepare'; sessionId: string; projectId: string; branch: string; base: string; title: string; body: string }
-  // ── LAD-68 ──
+  // ── Git status ──
   /**
-   * Stato git leggero della cartella della sessione (worktree se c'è) per l'intestazione. Risponde GitStatus, o null se la
-   * cartella non è un repository git. Non chiama gh: per il pannello merge resta `merge.info`.
+   * Light git state of the session folder (the worktree if there is one) for the header. Answers GitStatus, or null if the
+   * folder is not a git repository. Does not call gh: for the merge panel there is still `merge.info`.
    */
   | { type: 'git.status'; sessionId: string }
   /**
-   * Iscrive (on) o toglie (off) la UI agli aggiornamenti `git.status` della cartella della sessione. Le iscrizioni sono per
-   * connessione (finestra) e per sessione: un secondo `on` della stessa finestra non fa nulla, l'`off` di una finestra non toglie
-   * l'iscrizione di un'altra, e la chiusura di una finestra toglie tutte le sue iscrizioni. Finché c'è un iscritto l'host osserva la cartella, rilegge lo stato
-   * a ogni cambio e fa un `git fetch` in background (all'apertura e ogni ~5 minuti, mai mentre un turno lavora lì).
-   * Risponde null; la sessione archiviata o un progetto rimosso tolgono da soli le iscrizioni.
+   * Subscribes (on) or unsubscribes (off) the UI to `git.status` updates of the session folder. Subscriptions are per
+   * connection (window) and per session: a second `on` from the same window does nothing, one window's `off` does not remove
+   * another's subscription, and closing a window removes all its subscriptions. While there is a subscriber the host watches the folder, rereads the state
+   * on every change and runs a background `git fetch` (on open and every ~5 minutes, never while a turn is working there).
+   * Answers null; an archived session or a removed project remove the subscriptions on their own.
    */
   | { type: 'git.watch'; sessionId: string; on: boolean }
-  // ── fine LAD-68 ──
-  // ── LAD-80 ──
+  // ── end of git status ──
+  // ── Branch map ──
   /**
-   * Mappa dei branch del progetto: una riga per sessione (worktree e non) con distanza da main, stato del merge e ultimo commit.
-   * Risponde BranchMap. Solo letture git sul checkout principale (nessun gh, nessuna scrittura), con cache per sha: chiamarla spesso costa poco.
-   * Un progetto sconosciuto è un errore; un progetto non git (o con la cartella sparita) risponde una mappa vuota con `base` null.
+   * Map of the project's branches: one row per session (worktree or not) with distance from main, merge state and last commit.
+   * Answers BranchMap. Git reads only, on the main checkout (no gh, no writes), cached by sha: calling it often is cheap.
+   * An unknown project is an error; a non-git project (or one whose folder is gone) answers an empty map with `base` null.
    */
   | { type: 'project.branchMap'; projectId: string }
   /**
-   * Iscrive (on) o toglie (off) la finestra agli eventi `project.branchMap` del progetto. Per connessione e con conteggio (due `on`
-   * vogliono due `off`); la chiusura della finestra toglie tutte le sue iscrizioni. Senza iscritti l'host non rilegge nulla. Risponde null.
+   * Subscribes (on) or unsubscribes (off) the window to the project's `project.branchMap` events. Per connection and counted (two `on`
+   * need two `off`); closing the window removes all its subscriptions. With no subscribers the host rereads nothing. Answers null.
    */
   | { type: 'project.branchMap.watch'; projectId: string; on: boolean }
-  // ── fine LAD-80 ──
-  // ── LAD-51: telefoni (solo dalla finestra: non sono nell'allowlist del canale remoto) ──
-  /** Stato del canale remoto, dispositivi compresi. Risponde RemoteStatus. */
+  // ── end of branch map ──
+  // ── Phones (from the window only: they are not in the remote channel's allowlist) ──
+  /** State of the remote channel, devices included. Answers RemoteStatus. */
   | { type: 'remote.status' }
   /**
-   * Crea il QR di abbinamento: un solo codice attivo alla volta (uno nuovo sostituisce il precedente), monouso, 5 minuti
-   * (REMOTE_PAIRING_TTL_MS), solo in memoria. Risponde RemotePairStart. Errore tradotto se "Access from your phone" è spento.
-   * Quando un telefono si abbina arriva l'evento `remote.paired` (la finestra del QR può chiudersi) e `remote.status`.
+   * Creates the pairing QR: only one active code at a time (a new one replaces the previous), single use, 5 minutes
+   * (REMOTE_PAIRING_TTL_MS), in memory only. Answers RemotePairStart. Translated error if "Access from your phone" is off.
+   * When a phone pairs the `remote.paired` event arrives (the QR window can close) and `remote.status`.
    */
   | { type: 'remote.pair.start' }
-  /** Annulla il QR attivo (il codice smette di valere subito). Risponde null. */
+  /** Cancels the active QR (the code stops being valid right away). Answers null. */
   | { type: 'remote.pair.cancel' }
   /**
-   * Imposta (o toglie, con null) la password chiesta all'abbinamento, oltre al QR. Da REMOTE_PASSWORD_MIN a REMOTE_PASSWORD_MAX
-   * caratteri, errore tradotto altrimenti. Si salva come hash (scrypt) e si controlla solo all'abbinamento: i dispositivi già
-   * abbinati non vengono toccati. Un QR già mostrato resta valido ma, se la password è stata impostata dopo, la chiede comunque.
-   * Risponde null.
+   * Sets (or removes, with null) the password asked at pairing, in addition to the QR. From REMOTE_PASSWORD_MIN to REMOTE_PASSWORD_MAX
+   * characters, translated error otherwise. Stored as a hash (scrypt) and checked only at pairing: devices already
+   * paired are not touched. A QR already shown stays valid but, if the password was set afterwards, it asks for it anyway.
+   * Answers null.
    */
   | { type: 'remote.password.set'; password: string | null }
   /**
-   * Revoca un dispositivo: chiude subito le sue connessioni (il telefono riceve RemoteAuthResult con 'device-revoked') e con lo
-   * stesso abbinamento non si ricollega più; per tornare deve abbinarsi di nuovo con un QR nuovo. Risponde null.
+   * Revokes a device: closes its connections right away (the phone receives RemoteAuthResult with 'device-revoked') and with the
+   * same pairing it cannot reconnect; to come back it must pair again with a new QR. Answers null.
    */
   | { type: 'remote.device.revoke'; deviceId: string }
-  /** Rinomina un dispositivo (1–80 caratteri). Risponde null. */
+  /** Renames a device (1–80 characters). Answers null. */
   | { type: 'remote.device.rename'; deviceId: string; name: string }
   /**
-   * Rigenera la chiave del Mac: nuova identità X25519 e nuova chiave del relay (quindi nuovo id sul relay), annulla il QR,
-   * revoca TUTTI i dispositivi e chiude tutte le connessioni. I telefoni abbinati prima non possono più collegarsi.
-   * Il relay si riconnette con la chiave nuova. Risponde null.
+   * Regenerates the Mac's key: new X25519 identity and new relay key (so a new id on the relay), cancels the QR,
+   * revokes ALL devices and closes all connections. Phones paired before can no longer connect.
+   * The relay reconnects with the new key. Answers null.
    */
   | { type: 'remote.key.regenerate' }
-  /** Log delle azioni remote, dalla più recente. `before`: id esclusivo da cui partire; `limit` predefinito 50, massimo 200. Risponde RemoteLogPage. */
+  /** Log of remote actions, most recent first. `before`: exclusive id to start from; `limit` default 50, maximum 200. Answers RemoteLogPage. */
   | { type: 'remote.log.list'; before?: number; limit?: number }
-  // ── fine LAD-51 ──
-  // ── Branch del checkout principale ──
-  /** Branch locali del progetto (con quello attuale, i file non committati e l'eventuale sessione al lavoro nel checkout principale). Risponde ProjectBranches; un progetto non git risponde un elenco vuoto. */
+  // ── end of phones ──
+  // ── Main checkout branch ──
+  /** Local branches of the project (with the current one, the uncommitted files and the session working in the main checkout, if any). Answers ProjectBranches; a non-git project answers an empty list. */
   | { type: 'project.branches'; projectId: string }
   /**
-   * Cambia il branch del checkout principale (`git switch --no-guess <branch>`, mai un checkout di file). Rifiuta, con un messaggio tradotto, se:
-   * una sessione del progetto che lavora nel checkout principale (non in worktree) ha un turno o dei sotto-agenti in corso; il branch non esiste
-   * in locale; è già estratto in un worktree; HEAD è a metà di un'operazione che git non lascia interrompere; git non riesce a portare le modifiche.
-   * `dirty` decide cosa fare delle modifiche non committate (anche non tracciate): 'carry' (predefinito) prova lo switch normale, che le porta con sé se git lo consente;
-   * 'stash' prima fa `git stash push -u -m "ladder: before switching to <branch>"`, mai uno stash silenzioso. Se lo switch fallisce dopo lo stash, lo stash viene ripreso.
-   * Risponde BranchSwitchResult e manda `fs.changed` e `project.upsert`, come per un cambio fatto altrove.
+   * Changes the main checkout's branch (`git switch --no-guess <branch>`, never a file checkout). Rejects, with a translated message, if:
+   * a project session working in the main checkout (not in a worktree) has a turn or sub-agents running; the branch does not exist
+   * locally; it is already checked out in a worktree; HEAD is in the middle of an operation git does not let you interrupt; git cannot carry the changes over.
+   * `dirty` decides what to do with uncommitted changes (untracked too): 'carry' (default) tries the normal switch, which carries them along if git allows it;
+   * 'stash' first runs `git stash push -u -m "ladder: before switching to <branch>"`, never a silent stash. If the switch fails after the stash, the stash is restored.
+   * Answers BranchSwitchResult and sends `fs.changed` and `project.upsert`, as for a change made elsewhere.
    */
   | { type: 'project.branch.switch'; projectId: string; branch: string; dirty?: 'carry' | 'stash' }
-  /** Crea un branch dal commit attuale e lo estrae (`git switch -c`): le modifiche non committate restano dove sono. Stesse protezioni di `project.branch.switch`; il nome si valida come per il push e non deve esistere già. */
+  /** Creates a branch from the current commit and checks it out (`git switch -c`): uncommitted changes stay where they are. Same protections as `project.branch.switch`; the name is validated as for push and must not already exist. */
   | { type: 'project.branch.create'; projectId: string; name: string }
-  // ── fine Branch del checkout principale ──
-  // ── LAD-69 ──
+  // ── end of main checkout branch ──
+  // ── Push and merge ──
   /**
-   * Anteprima del push, leggera (solo git locale, nessuna rete): cosa verrebbe inviato, da mostrare nella conferma. Risponde
-   * GitPushPreview. `remote` serve solo quando il branch non ha upstream e il repo ha più remote (vedi `problem`).
-   * Destinazione: il push va SEMPRE a un branch con lo stesso nome di quello locale (`target`, per esempio "origin/feat"), mai a un
-   * branch con nome diverso. Se l'upstream punta a un altro branch (`git switch -c feat origin/main`) o a un altro remote di
-   * `branch.<b>.pushRemote`/`remote.pushDefault`, l'upstream NON è la destinazione: l'anteprima dice `willPublish: true` e
-   * `upstreamElsewhere` riporta l'upstream attuale (che dopo il push passa a `target`). Remote scelto: `remote` richiesto, poi
-   * `branch.<b>.pushRemote`, `remote.pushDefault`, il remote dell'upstream, l'unico remote.
-   * Errori (testo tradotto): HEAD staccato; cartella non repo git; `remote` che non è tra quelli del repo o diverso da quello
-   * dell'upstream; sessione senza cartella (progetto rimosso).
+   * Light push preview (local git only, no network): what would be sent, to show in the confirmation. Answers
+   * GitPushPreview. `remote` is needed only when the branch has no upstream and the repo has several remotes (see `problem`).
+   * Destination: the push ALWAYS goes to a branch with the same name as the local one (`target`, for example "origin/feat"), never to a
+   * branch with a different name. If the upstream points to another branch (`git switch -c feat origin/main`) or to another remote from
+   * `branch.<b>.pushRemote`/`remote.pushDefault`, the upstream is NOT the destination: the preview says `willPublish: true` and
+   * `upstreamElsewhere` reports the current upstream (which becomes `target` after the push). Remote chosen: requested `remote`, then
+   * `branch.<b>.pushRemote`, `remote.pushDefault`, the upstream's remote, the only remote.
+   * Errors (translated text): detached HEAD; folder not a git repo; `remote` that is not among the repo's or differs from the
+   * upstream's; session without a folder (project removed).
    */
   | { type: 'git.push.preview'; sessionId: string; remote?: string }
   /**
-   * Push fatto da Ladder con git, SOLO su azione esplicita dell'utente (la UI chiede sempre conferma con branch e numero di commit
-   * dell'anteprima): mai su richiesta dell'agente. Branch con upstream: invia al branch dell'upstream; senza upstream o con
-   * `publish: true`: `git push -u <remote> <branch>`. Mai force. Risponde GitPushResult, manda `fs.changed` e rilegge lo stato
-   * (evento `git.status`). Una sola operazione alla volta per repo; rifiutato (errore tradotto) se l'agente di quella cartella sta
-   * lavorando. Un push rifiutato non modifica nulla (nemmeno la config dell'upstream).
-   * Errori tradotti: non fast-forward, credenziali mancanti o rifiutate, remote non raggiungibile, hook pre-push o remoto che rifiutano
-   * (con l'output, ultimi 4000 caratteri), HEAD staccato, nessun remote o più remote senza upstream, nulla da inviare, timeout di 3 minuti.
-   * `expectedHead`: lo sha completo di HEAD mostrato nell'anteprima (`GitPushPreview.head`); se HEAD è diverso il push è rifiutato
-   * ("Il branch è cambiato dopo l'anteprima: riapri la conferma") e non parte nulla. La UI lo passa sempre.
+   * Push done by Ladder with git, ONLY on the user's explicit action (the UI always asks for confirmation with the branch and the number of commits
+   * from the preview): never at the agent's request. Branch with upstream: sends to the upstream's branch; without upstream or with
+   * `publish: true`: `git push -u <remote> <branch>`. Never force. Answers GitPushResult, sends `fs.changed` and rereads the state
+   * (`git.status` event). One operation at a time per repo; rejected (translated error) if the agent of that folder is
+   * working. A rejected push changes nothing (not even the upstream config).
+   * Translated errors: not fast-forward, missing or rejected credentials, unreachable remote, pre-push hook or remote that reject
+   * (with the output, last 4000 characters), detached HEAD, no remote or several remotes without upstream, nothing to send, 3 minute timeout.
+   * `expectedHead`: the full sha of HEAD shown in the preview (`GitPushPreview.head`); if HEAD differs the push is rejected
+   * ("The branch changed after the preview: reopen the confirmation") and nothing starts. The UI always passes it.
    */
   | { type: 'git.push'; sessionId: string; publish?: boolean; remote?: string; expectedHead?: string }
   /**
-   * Merge della PR del branch della sessione con `gh pr merge`, SOLO su azione esplicita dell'utente (conferma con il metodo scelto).
-   * Controlli prima, senza chiamare merge se falliscono: gh collegato; PR aperta, non bozza, del branch della sessione, senza
-   * conflitti, senza blocchi di MergeBlock (CI in corso o fallita, review richiesta, branch non aggiornato). Mai --admin né --auto;
-   * `--match-head-commit` fissa il commit controllato. `deleteBranch` NON passa --delete-branch a gh: se true cancella, dopo il merge
-   * riuscito, solo il branch REMOTO della PR (mai quello locale; salta se la PR viene da un fork). Risponde PrMergeResult
-   * e aggiorna PR/stato (eventi `fs.changed`, `git.status`, `session.summary`).
-   * Rifiutata (errore tradotto) una PR da fork (`isCrossRepository`) e una PR la cui testa non coincide con l'upstream locale del branch
-   * (commit non ancora pubblicati o branch diverso). `expectedHeadOid`: lo sha di testa della PR che l'utente ha visto nel dialogo
-   * (`MergeInfo.prHeadOid`); se la PR riletta ha un oid diverso il merge è rifiutato ("la PR è cambiata: riapri la conferma"); a gh va
-   * sempre `--match-head-commit` con l'oid verificato. La UI lo passa sempre.
-   * Se gh non risponde entro 90 s l'errore dice di ricontrollare lo stato della PR (potrebbe essere stata unita) e lo stato si rilegge.
+   * Merge of the session branch's PR with `gh pr merge`, ONLY on the user's explicit action (confirmation with the chosen method).
+   * Checks first, without calling merge if they fail: gh connected; PR open, not a draft, from the session's branch, without
+   * conflicts, without MergeBlock blocks (CI running or failed, review required, branch not up to date). Never --admin or --auto;
+   * `--match-head-commit` pins the checked commit. `deleteBranch` does NOT pass --delete-branch to gh: if true it deletes, after the successful
+   * merge, only the PR's REMOTE branch (never the local one; skipped if the PR comes from a fork). Answers PrMergeResult
+   * and updates PR/state (events `fs.changed`, `git.status`, `session.summary`).
+   * Rejected (translated error): a PR from a fork (`isCrossRepository`) and a PR whose head does not match the branch's local upstream
+   * (commits not yet published or a different branch). `expectedHeadOid`: the PR head sha the user saw in the dialog
+   * (`MergeInfo.prHeadOid`); if the reread PR has a different oid the merge is rejected ("the PR changed: reopen the confirmation"); gh always
+   * gets `--match-head-commit` with the verified oid. The UI always passes it.
+   * If gh does not answer within 90 s the error says to recheck the PR's state (it may have been merged) and the state is reread.
    */
   | { type: 'pr.merge'; sessionId: string; number: number; method: PrMergeMethod; deleteBranch?: boolean; expectedHeadOid?: string }
   /**
-   * "Archivia" dopo il merge: chiude la sessione e, se è in un worktree che nessun'altra sessione usa, lo toglie (come
-   * l'archiviazione automatica a PR unita: script di pulizia compreso, il branch resta). Solo se la PR risulta unita o il branch
-   * è già nella base; mai con modifiche non committate o commit che esistono solo qui (errore tradotto, nulla viene toccato).
-   * Risponde GitArchiveResult.
+   * "Archive" after the merge: closes the session and, if it is in a worktree no other session uses, removes it (like
+   * automatic archiving on a merged PR: cleanup script included, the branch stays). Only if the PR is merged or the branch
+   * is already in the base; never with uncommitted changes or commits that exist only here (translated error, nothing is touched).
+   * Answers GitArchiveResult.
    */
   | { type: 'git.archive'; sessionId: string }
-  // ── fine LAD-69 ──
-  // ── fine LAD-59 commit ──
-  // ── fine LAD-59 ──
+  // ── end of push and merge ──
+  // ── end of commit ──
+  // ── end of small-model text ──
 
   // ── Executable plans ──
   /** State of a plan. Answers PlanState; errors if it does not exist. */
@@ -1978,122 +1978,122 @@ export type HostEvent =
       sessions: SessionSummary[]
       drafts: Record<DraftKey, string>
       ui: Record<string, ProjectUiState>
-      /** Gruppi di progetti; assente nelle fixture (= nessuna sezione). */
+      /** Project groups; absent in fixtures (= no sections). */
       projectGroups?: ProjectGroupsState
       agents: AgentStatus[]
-      /** Profili di Claude Code e Codex, predefiniti compresi; assente nelle fixture (= solo i predefiniti). */
+      /** Claude Code and Codex profiles, defaults included; absent in fixtures (= defaults only). */
       profiles?: Profile[]
-      /** Stato dei collegamenti all'avvio; assente nelle fixture. */
+      /** State of the connections at startup; absent in fixtures. */
       connections?: ConnectionStatus[]
       terminals: TerminalInfo[]
-      /** Scorciatoie all'avvio; assente nelle fixture (= predefinite). */
+      /** Shortcuts at startup; absent in fixtures (= defaults). */
       shortcuts?: ShortcutsState
       /** Plans of non-archived sessions (including 'superseded' ones: their card is still in the chat); absent = none. */
       plans?: PlanState[]
     }
   | { type: 'project.upsert'; project: Project }
   | { type: 'project.removed'; projectId: string }
-  /** Cambiato qualcosa nei gruppi di progetti (anche per un progetto aggiunto o rimosso): stato completo. */
+  /** Something changed in the project groups (also for an added or removed project): full state. */
   | { type: 'projectGroups.changed'; state: ProjectGroupsState }
-  /** Le sessioni ferme da `autoArchiveDays` giorni sono state archiviate (arrivano anche i loro `session.upsert`). */
+  /** Sessions idle for `autoArchiveDays` days were archived (their `session.upsert` events arrive too). */
   | { type: 'sessions.autoArchived'; sessionIds: string[] }
-  /** Le scorciatoie sono cambiate (file modificato a mano, salvataggio, ripristino): stato completo. */
+  /** Shortcuts changed (file edited by hand, save, restore): full state. */
   | { type: 'shortcuts.changed'; state: ShortcutsState }
   | { type: 'session.upsert'; session: SessionSummary }
   /** A plan was created or changed (state, tasks, pause). Replaces the previous state with the same id. */
   | { type: 'plan.updated'; plan: PlanState }
   | { type: 'session.items'; sessionId: string; items: ChatItem[]; replace: boolean }
-  /** Elenco completo dei sotto-agenti della sessione, con debounce; sostituisce il precedente. */
+  /** Full list of the session's sub-agents, debounced; replaces the previous one. */
   | { type: 'session.subagents'; sessionId: string; subagents: SubagentInfo[] }
-  /** Elenco dei comandi / cambiato (all'avvio della sessione o con commands_changed). */
+  /** The list of / commands changed (at session start or with commands_changed). */
   | { type: 'session.commands'; sessionId: string; commands: SlashCommand[] }
   | { type: 'agent.status'; status: AgentStatus }
   | { type: 'profile.upsert'; profile: Profile }
   | { type: 'profile.removed'; profileId: string }
   | { type: 'agent.removed'; agent: AgentId }
-  /** Avanza o finisce l'installazione di un binario (`agents.install`): stato completo, l'ultimo evento ha state done, error o cancelled. */
+  /** A binary install advances or ends (`agents.install`): full state, the last event has state done, error or cancelled. */
   | { type: 'agent.install'; install: AgentInstall }
-  /** Cambiato lo stato del login di un agente ACP (dopo `agents.authenticate` o una sessione): `id` è quello del registro. */
+  /** The login state of an ACP agent changed (after `agents.authenticate` or a session): `id` is the registry one. */
   | { type: 'agent.login'; id: string; login: AgentLogin }
-  /** LAD-79: riga di "Altri agenti" cambiata (inizio e fine di una prova, fine di un accesso o di un'uscita): riga completa, sostituisce la precedente con lo stesso `id`. */
+  /** An "Other agents" row changed (start and end of a probe, end of a sign-in or sign-out): full row, replaces the previous one with the same `id`. */
   | { type: 'agent.connection'; agent: OtherAgentConnection }
   | { type: 'review.update'; review: ReviewState }
   | { type: 'terminal.upsert'; terminal: TerminalInfo }
   | { type: 'terminal.removed'; id: string }
   | { type: 'terminal.data'; id: string; data: string }
-  /** Il terminale è stato pulito (`terminal.clear`): ogni renderer svuota il proprio xterm per `id`. */
+  /** The terminal was cleared (`terminal.clear`): every renderer empties its own xterm for `id`. */
   | { type: 'terminal.cleared'; id: string }
-  /** Il terminale del progetto ha stampato un indirizzo locale (server di sviluppo): la UI può proporre o aprire la tab Browser. Una volta per progetto e indirizzo. */
+  /** The project's terminal printed a local address (dev server): the UI can offer or open the Browser tab. Once per project and address. */
   | { type: 'browser.devserver'; projectId: string; terminalId: string; url: string }
-  // ── LAD-57 parte 2 ──
-  /** Stato del browser dell'agente di una sessione: intero a ogni cambiamento. `state.closed` = la sessione non ha più il browser. */
+  // ── Agent browser ──
+  /** State of a session's agent browser: whole, on every change. `state.closed` = the session no longer has the browser. */
   | { type: 'browser.agent'; state: AgentBrowserState }
-  // ── Fine LAD-57 parte 2 ──
-  /** Qualcosa è cambiato nella cartella: albero, stato git e diff "attuali" vanno riletti. */
+  // ── End agent browser ──
+  /** Something changed in the folder: tree, git state and the "current" diff must be reread. */
   | { type: 'fs.changed'; root: string }
-  // ── LAD-68 ──
-  /** Stato git di una cartella cambiato (modifiche, commit, fetch, cambio branch): intero, solo se è diverso dall'ultimo mandato. */
+  // ── Git status ──
+  /** Git state of a folder changed (changes, commits, fetch, branch switch): whole, only if different from the last one sent. */
   | { type: 'git.status'; status: GitStatus }
-  // ── fine LAD-68 ──
-  // ── LAD-80 ──
-  /** Mappa dei branch cambiata: intera, solo se è diversa dall'ultima mandata, per i progetti con una finestra iscritta (`project.branchMap.watch`). */
+  // ── end of git status ──
+  // ── Branch map ──
+  /** Branch map changed: whole, only if different from the last one sent, for projects with a subscribed window (`project.branchMap.watch`). */
   | { type: 'project.branchMap'; projectId: string; map: BranchMap }
-  // ── LAD-51 ──
-  /** Il canale remoto è cambiato (attivo o no, dispositivi, collegamenti, QR, password, "Allow Full"): stato intero. */
+  // ── Phones ──
+  /** The remote channel changed (active or not, devices, connections, QR, password, "Allow Full"): whole state. */
   | { type: 'remote.status'; status: RemoteStatus }
-  /** Un telefono si è appena abbinato (per chiudere il dialogo del QR e mostrare "Connected"). */
+  /** A phone has just paired (to close the QR dialog and show "Connected"). */
   | { type: 'remote.paired'; device: RemoteDeviceInfo }
-  /** Nuova voce nel log delle azioni remote. */
+  /** New entry in the remote action log. */
   | { type: 'remote.log'; entry: RemoteLogEntry }
-  // ── fine LAD-51 ──
-  // ── fine LAD-80 ──
-  /** Un collegamento è cambiato: avanza il download o il login, o è finito (anche con errore). */
+  // ── end of phones ──
+  // ── end of branch map ──
+  /** A connection changed: the download or login advances, or has finished (also with an error). */
   | { type: 'connection.update'; status: ConnectionStatus }
 
-/** Messaggi sul canale renderer ↔ host. I comandi con `rid` ricevono una risposta con lo stesso id. */
+/** Messages on the renderer ↔ host channel. Commands with `rid` receive an answer with the same id. */
 export type ToHost = { rid?: string; command: HostCommand }
 export type FromHost =
   | { kind: 'event'; event: HostEvent }
   | { kind: 'result'; rid: string; ok: true; data?: unknown }
   | { kind: 'result'; rid: string; ok: false; error: string }
 
-// ── LAD-49: canale remoto (telefono) ─────────────────────────────────────────
+// ── Remote channel (phone) ───────────────────────────────────────────────────
 //
-// Un client remoto parla con l'host lo stesso protocollo della finestra (comandi con rid, risultati, eventi), ma:
-// - solo i comandi di RemoteCommand: gli altri li rifiuta il gateway remoto, prima di Host.handle;
-// - riceve solo gli eventi di RemoteEvent, e session.items / session.subagents solo per le sessioni che segue (`session.watch`);
-// - la chat arriva a pagine con `session.page`, mai per intero.
-// Trasporto: Noise_NK_25519_ChaChaPoly_SHA256 (shared/remote/noise.ts), un messaggio Noise per frame binario.
-// Il testo in chiaro di ogni messaggio Noise dopo l'handshake è un frame (vedi REMOTE_FRAME_*): un JSON lungo si spezza su più frame.
+// A remote client speaks the same protocol with the host as the window does (commands with rid, results, events), but:
+// - only the RemoteCommand commands: the others are rejected by the remote gateway, before Host.handle;
+// - it receives only RemoteEvent events, and session.items / session.subagents only for the sessions it follows (`session.watch`);
+// - the chat arrives in pages with `session.page`, never whole.
+// Transport: Noise_NK_25519_ChaChaPoly_SHA256 (shared/remote/noise.ts), one Noise message per binary frame.
+// The plaintext of each Noise message after the handshake is a frame (see REMOTE_FRAME_*): a long JSON is split across several frames.
 
 /**
- * Versione del canale remoto: va nei payload dell'handshake; una versione diversa chiude la connessione.
- * 2 (LAD-51): dopo l'handshake la connessione NON è autenticata e il primo messaggio deve essere `pair` o `auth` (vedi LAD-51 sotto).
+ * Remote channel version: goes in the handshake payloads; a different version closes the connection.
+ * 2: after the handshake the connection is NOT authenticated and the first message must be `pair` or `auth` (see the phones section above).
  */
 export const REMOTE_PROTOCOL_VERSION = 2
 
-/** Prologo Noise: lega l'handshake a Ladder e alla versione del canale. */
+/** Noise prologue: binds the handshake to Ladder and to the channel version. */
 export const REMOTE_NOISE_PROLOGUE = 'ladder-remote-v1'
 
-/** Payload del primo messaggio dell'handshake (client → Mac), JSON UTF-8. */
+/** Payload of the first handshake message (client → Mac), UTF-8 JSON. */
 export interface RemoteClientHello {
   v: number
-  /** Nome leggibile del dispositivo, solo per il log di diagnostica: arriva prima dell'autenticazione, quindi non è un'identità (quella è `pair`/`auth`). */
+  /** Readable device name, for the diagnostic log only: it arrives before authentication, so it is not an identity (that is `pair`/`auth`). */
   device: string
-  /** Lingua dell'app sul telefono; non cambia la lingua dell'host. */
+  /** App language on the phone; does not change the host's language. */
   locale?: Locale
 }
 
-/** Payload della risposta dell'handshake (Mac → client), JSON UTF-8. */
+/** Payload of the handshake reply (Mac → client), UTF-8 JSON. */
 export interface RemoteServerHello {
   v: number
-  /** Nome del Mac (nome del computer, ripulito). */
+  /** Mac name (computer name, cleaned up). */
   mac: string
-  /** Versione di Ladder sul Mac. */
+  /** Ladder version on the Mac. */
   app: string
 }
 
-/** Comandi della finestra ammessi anche dal client remoto. È un'allowlist: un comando nuovo non arriva al telefono senza aggiungerlo qui. */
+/** Window commands also allowed to the remote client. It is an allowlist: a new command does not reach the phone unless added here. */
 export type RemoteAllowedType =
   | 'hello'
   | 'session.read'
@@ -2108,96 +2108,96 @@ export type RemoteAllowedType =
   | 'subagent.list'
 
 /**
- * Comandi del client remoto. Rispetto alla finestra:
- * - `hello` risponde RemoteSnapshot (non lo snapshot completo), solo come risultato: l'evento `snapshot` non parte;
- * - `session.send` e `session.create` accettano fino a REMOTE_MAX_ATTACHMENTS immagini (LAD-92, validate dal Mac); `session.respond` vale sempre `via: 'phone'` (li forza il gateway);
- * - `session.command` (LAD-92) esegue un comando / della sessione: `name` deve essere nell'elenco attuale di `session.commands` di quella sessione, `args` è testo di al massimo 2000 caratteri; nel log delle azioni: "Command /name" (mai gli argomenti);
- * - `session.permission.set` resta limitato dal massimo del progetto, come per la finestra;
- * - `session.queue.set` conta solo id e testo (gli allegati accodati restano quelli salvati sul Mac);
- * - `session.queue.deliver` consegna anche gli allegati che erano stati accodati sul Mac: il telefono non li vede, ma partono;
- * - il gateway limita le richieste (circa 20 al secondo, a raffica 40): oltre, la richiesta torna con un errore.
+ * Remote client commands. Compared with the window:
+ * - `hello` answers RemoteSnapshot (not the full snapshot), only as a result: the `snapshot` event is not sent;
+ * - `session.send` and `session.create` accept up to REMOTE_MAX_ATTACHMENTS images (validated by the Mac); `session.respond` is always `via: 'phone'` (forced by the gateway);
+ * - `session.command` runs a session / command: `name` must be in that session's current `session.commands` list, `args` is text of at most 2000 characters; in the action log: "Command /name" (never the arguments);
+ * - `session.permission.set` stays limited by the project maximum, as for the window;
+ * - `session.queue.set` counts only id and text (queued attachments stay the ones saved on the Mac);
+ * - `session.queue.deliver` also delivers the attachments that had been queued on the Mac: the phone does not see them, but they go out;
+ * - the gateway rate-limits requests (about 20 per second, bursts of 40): beyond that, the request comes back with an error.
  */
 export type RemoteCommand =
   | Extract<HostCommand, { type: RemoteAllowedType }>
   /**
-   * Una pagina di chat, dalla fine all'indietro. Risponde RemotePage.
-   * `before`: seq esclusivo da cui partire (assente = dalla fine); `limit` predefinito 60, massimo 200 item.
+   * A chat page, from the end backwards. Answers RemotePage.
+   * `before`: exclusive seq to start from (absent = from the end); `limit` default 60, maximum 200 items.
    */
   | { type: 'session.page'; sessionId: string; before?: number; limit?: number }
   /**
-   * Segue (on) o smette di seguire (off) una sessione: con on arrivano gli eventi session.items (anche replace: true,
-   * per esempio dopo /compact) e session.subagents di quella sessione. Al massimo 8 sessioni seguite per connessione:
-   * oltre, la meno recente smette di essere seguita. Le iscrizioni spariscono con la connessione.
-   * Un `session.items` con replace: true (anche quello che il Mac manda quando apri la chat) arriva al telefono ridotto
-   * all'ultima pagina, come `session.page` senza parametri, sempre con replace: true: la chat intera non viaggia mai.
+   * Follows (on) or stops following (off) a session: with on the session.items events (also replace: true,
+   * for example after /compact) and session.subagents of that session arrive. At most 8 followed sessions per connection:
+   * beyond that, the least recent stops being followed. Subscriptions disappear with the connection.
+   * A `session.items` with replace: true (also the one the Mac sends when you open the chat) reaches the phone reduced
+   * to the last page, like `session.page` without parameters, always with replace: true: the whole chat never travels.
    */
   | { type: 'session.watch'; sessionId: string; on: boolean }
   /**
-   * LAD-51: salva (o toglie, con token null) il token delle notifiche push (Expo) di questo dispositivo, per LAD-53.
-   * Risponde null. Il Mac lo conserva sulla riga del dispositivo, mai nel log; `platform` aggiorna quella del dispositivo.
-   * `token` al massimo 512 caratteri.
+   * Saves (or removes, with token null) this device's push notification token (Expo).
+   * Answers null. The Mac keeps it on the device's row, never in the log; `platform` updates the device's.
+   * `token` at most 512 characters.
    */
   | { type: 'device.push.set'; token: string | null; platform: RemotePlatform }
   /**
-   * LAD-53: preferenze delle notifiche push di questo dispositivo (le possiede il telefono; il Mac le conserva sulla riga del
-   * dispositivo e le applica prima di mandare). Risponde null. Il telefono le manda a ogni connessione dopo l'autenticazione:
-   * il comando è idempotente e il Mac non le rimanda indietro. Validazione: `events` con tutte e quattro le chiavi booleane,
-   * `quiet.from`/`to` "HH:MM" (24 ore), `quiet.tz` un fuso IANA valido (es. "Europe/Rome"), al massimo 64 caratteri.
-   * Predefiniti (finché il telefono non manda nulla): tutti gli eventi accesi, nessuna fascia silenziosa.
+   * Push notification preferences of this device (owned by the phone; the Mac keeps them on the device's
+   * row and applies them before sending). Answers null. The phone sends them on every connection after authentication:
+   * the command is idempotent and the Mac does not send them back. Validation: `events` with all four boolean keys,
+   * `quiet.from`/`to` "HH:MM" (24 hours), `quiet.tz` a valid IANA time zone (e.g. "Europe/Rome"), at most 64 characters.
+   * Defaults (until the phone sends anything): all events on, no quiet hours.
    */
   | { type: 'device.notify.set'; prefs: RemoteNotifyPrefs }
   /**
-   * LAD-53: l'app è in primo piano (true) o no (false). Solo in memoria, per connessione: sparisce con la connessione.
-   * Con almeno una connessione del dispositivo in primo piano il Mac non manda il push (l'app mostra l'evento dal vivo).
-   * Il telefono lo manda a ogni cambio di AppState, subito dopo l'autenticazione e, finché è in primo piano, ogni ~20 secondi (battito):
-   * per il Mac vale l'ultimo stato del dispositivo, ma `true` conta solo se è stato riportato negli ultimi 30 secondi o la connessione
-   * ha avuto traffico di comandi negli ultimi 30 secondi: una connessione muta non toglie i push. Risponde null.
+   * The app is in the foreground (true) or not (false). In memory only, per connection: it disappears with the connection.
+   * With at least one of the device's connections in the foreground the Mac does not send the push (the app shows the event live).
+   * The phone sends it on every AppState change, right after authentication and, while in the foreground, every ~20 seconds (heartbeat):
+   * the Mac uses the device's latest state, but `true` counts only if it was reported in the last 30 seconds or the connection
+   * had command traffic in the last 30 seconds: a silent connection does not suppress pushes. Answers null.
    */
   | { type: 'device.state'; foreground: boolean }
   /**
-   * Sessioni archiviate di un progetto (schermata Progetto), solo lettura, dalla più recente per `updatedAt`. Risponde SessionSummary[].
-   * `before`: `updatedAt` esclusivo da cui continuare (l'ultimo ricevuto); `limit` predefinito 30, massimo 100. Meno di `limit` risultati = finite.
-   * Non sono nello snapshot. Progetto sconosciuto: errore.
+   * Archived sessions of a project (Project screen), read-only, most recent first by `updatedAt`. Answers SessionSummary[].
+   * `before`: exclusive `updatedAt` to continue from (the last one received); `limit` default 30, maximum 100. Fewer than `limit` results = done.
+   * They are not in the snapshot. Unknown project: error.
    */
   | { type: 'project.sessions.archived'; projectId: string; before?: number; limit?: number }
   /**
-   * LAD-89: nuova sessione di chat dal telefono. Risponde SessionSummary (la stessa della finestra); la sessione arriva anche
-   * con `session.upsert` (di solito prima del risultato), e si può seguire subito con `session.watch` (poi `session.page` per
-   * gli item già scritti: gli eventi session.items partono solo per le sessioni seguite).
-   * Validazione stretta (errore tradotto, nessuna sessione creata se qualcosa non va):
-   * - chiavi ammesse solo quelle di RemoteSessionCreate; `attachments` (LAD-92: immagini, vedi sotto; `[]` vale come nessuno), `command`,
-   *   `worktree`, `branch`, `baseBranch`, `newBranch`, `setupWait`, `source`, `title` o `mode` diverso da 'chat' = richiesta rifiutata;
-   * - `projectId` esistente; `agent` conosciuto, disponibile e ammesso dal progetto (`agents.allowed`);
-   * - `text` non vuoto (dopo trim), al massimo 200000 caratteri;
-   * - `model`: id di AgentStatus.models di quell'agente (del profilo, se `profileId` c'è) oppure null = predefinito dell'agente;
-   *   `effort`: livello accettato dal modello scelto (o da quello predefinito) oppure null = predefinito; agenti senza effort: null;
-   * - `permission`: uno dei quattro livelli. 'full' con "Allow Full access from phone" spento = RIFIUTATA (come `session.permission.set`,
-   *   niente riduzione silenziosa a edit: il telefono mostra già Full disabilitato). Sopra `permissionsMax` del progetto si RIDUCE
-   *   al tetto (come per la finestra);
-   * - `profileId` (opzionale) esistente e dell'agente scelto.
-   * - LAD-92 `attachments` (anche di `session.send`): al massimo REMOTE_MAX_ATTACHMENTS immagini, `mediaType` in REMOTE_ATTACHMENT_TYPES,
-   *   `data` base64 canonico, al massimo REMOTE_MAX_ATTACHMENT_BYTES decodificati l'una e REMOTE_MAX_ATTACHMENTS_TOTAL in tutto, numero magico
-   *   coerente col tipo; `name` ridotto a basename (120 caratteri, niente controlli; vuoto = image.jpg/png/webp). Errore tradotto se qualcosa non va.
-   *   Con almeno un'immagine `text` può essere vuoto. Contano sul limite per dispositivo (raffica 6, poi 10 al minuto). Log: "Message with N images".
-   * La sessione parte nel checkout principale del progetto (nessun worktree dal telefono) e in chat (mai terminale).
-   * Nel log delle azioni (`create`): "New session: <agente> in <progetto>", senza il testo.
+   * New chat session from the phone. Answers SessionSummary (the same as the window); the session also arrives
+   * with `session.upsert` (usually before the result), and can be followed right away with `session.watch` (then `session.page` for
+   * the items already written: session.items events are sent only for followed sessions).
+   * Strict validation (translated error, no session created if anything is wrong):
+   * - only the RemoteSessionCreate keys are allowed; `attachments` (images, see below; `[]` counts as none), `command`,
+   *   `worktree`, `branch`, `baseBranch`, `newBranch`, `setupWait`, `source`, `title` or a `mode` other than 'chat' = request rejected;
+   * - `projectId` existing; `agent` known, available and allowed by the project (`agents.allowed`);
+   * - `text` non-empty (after trim), at most 200000 characters;
+   * - `model`: an AgentStatus.models id of that agent (of the profile, if `profileId` is given) or null = the agent's default;
+   *   `effort`: level accepted by the chosen model (or the default one) or null = default; agents without effort: null;
+   * - `permission`: one of the four levels. 'full' with "Allow Full access from phone" off = REJECTED (like `session.permission.set`,
+   *   no silent reduction to edit: the phone already shows Full disabled). Above the project's `permissionsMax` it is REDUCED
+   *   to the cap (as for the window);
+   * - `profileId` (optional) existing and belonging to the chosen agent.
+   * - `attachments` (also of `session.send`): at most REMOTE_MAX_ATTACHMENTS images, `mediaType` in REMOTE_ATTACHMENT_TYPES,
+   *   canonical base64 `data`, at most REMOTE_MAX_ATTACHMENT_BYTES decoded each and REMOTE_MAX_ATTACHMENTS_TOTAL overall, magic number
+   *   consistent with the type; `name` reduced to a basename (120 characters, no control characters; empty = image.jpg/png/webp). Translated error if anything is wrong.
+   *   With at least one image `text` can be empty. They count toward the per-device limit (burst of 6, then 10 per minute). Log: "Message with N images".
+   * The session starts in the project's main checkout (no worktree from the phone) and in chat (never a terminal).
+   * In the action log (`create`): "New session: <agent> in <project>", without the text.
    */
   | RemoteSessionCreate
   /**
-   * LAD-92: ricerca di file di un progetto per le menzioni `@` del telefono. Risponde string[]: percorsi relativi alla radice del
-   * progetto (rispetta .gitignore come la finestra), al massimo min(`limit`, REMOTE_FILE_SEARCH_MAX), `limit` predefinito 20.
-   * `query` al massimo 200 caratteri; vuota = i file meno profondi. Il filtro gira sul Mac: il telefono non scarica mai l'elenco intero,
-   * per questo `project.files` (l'elenco completo) NON è ammesso dal telefono. Limite per dispositivo (raffica 10, poi 4 al secondo).
+   * Search for a project's files for the phone's `@` mentions. Answers string[]: paths relative to the project
+   * root (respects .gitignore like the window), at most min(`limit`, REMOTE_FILE_SEARCH_MAX), `limit` default 20.
+   * `query` at most 200 characters; empty = the shallowest files. The filter runs on the Mac: the phone never downloads the whole list,
+   * which is why `project.files` (the full list) is NOT allowed from the phone. Per-device limit (burst of 10, then 4 per second).
    */
   | { type: 'project.files.search'; projectId: string; query: string; limit?: number }
   /**
-   * LAD-90: rilegge i limiti d'uso del piano (stessi parametri del comando della finestra). Risponde AgentStatus senza `email` né `path`
-   * (RemoteAgentStatus). Al massimo una lettura vera ogni 60 secondi per agente+profilo per connessione: prima, risponde con l'ultimo
-   * valore letto (cache dell'host) senza toccare il provider. Il valore arriva anche con `agent.status`.
+   * Rereads the plan's usage limits (same parameters as the window command). Answers AgentStatus without `email` or `path`
+   * (RemoteAgentStatus). At most one real read every 60 seconds per agent+profile per connection: before that, it answers with the last
+   * value read (host cache) without touching the provider. The value also arrives with `agent.status`.
    */
   | { type: 'agents.usage'; agent: AgentId; profileId?: string }
 
-/** LAD-89: comando `session.create` del telefono; vedi RemoteCommand. */
+/** `session.create` command from the phone; see RemoteCommand. */
 export interface RemoteSessionCreate {
   type: 'session.create'
   projectId: string
@@ -2207,28 +2207,28 @@ export interface RemoteSessionCreate {
   effort: Effort | null
   permission: PermissionLevel
   profileId?: string | null
-  /** Solo 'chat' (o assente). */
+  /** Only 'chat' (or absent). */
   mode?: 'chat'
-  /** LAD-92: immagini (al massimo REMOTE_MAX_ATTACHMENTS), validate come quelle di `session.send`. */
+  /** Images (at most REMOTE_MAX_ATTACHMENTS), validated like those of `session.send`. */
   attachments?: Attachment[]
 }
 
-/** LAD-90: AgentStatus come lo vede il telefono: senza email dell'account né percorso della CLI. */
+/** AgentStatus as the phone sees it: without the account email or the CLI path. */
 export type RemoteAgentStatus = Omit<AgentStatus, 'email' | 'path'>
 
-/** LAD-90: profilo (account) senza la cartella di configurazione. `Project.profiles` dice quale usa ogni progetto. */
+/** Profile (account) without the configuration folder. `Project.profiles` says which one each project uses. */
 export type RemoteProfile = Pick<Profile, 'id' | 'agent' | 'name' | 'isDefault'>
 
 /**
- * LAD-89: come parte una nuova sessione in un progetto, già risolto dal Mac con le stesse regole della nuova chat
- * (progetto, poi [agents] default del TOML, poi predefiniti globali, poi ultimo agente, poi Claude Code o il primo disponibile).
- * - `allowed`: agenti ammessi dal progetto; vuoto = tutti quelli disponibili;
- * - `agent`: agente proposto (null se nessuno è usabile); `lastAgent`: ultimo usato in chat nel progetto (può non essere più ammesso);
- * - `launch`: per ogni agente disponibile e ammesso, modello ed effort scelti da Ladder (progetto, poi globale) da mandare a
- *   `session.create`; null = nessun livello sceglie: si manda null e la sessione segue il predefinito dell'agente (sul Mac compare come Default).
- *   Per mostrarlo il telefono usa il modello `isDefault` di AgentStatus.models (dell'account del progetto, `Project.profiles`). Valori validi per l'account
- *   assegnato al progetto per quell'agente;
- * - `permission`: permesso proposto, già ridotto al tetto del progetto e a 'edit' se "Allow Full access from phone" è spento.
+ * How a new session starts in a project, already resolved by the Mac with the same rules as the new chat
+ * (project, then the TOML [agents] default, then global defaults, then the last agent, then Claude Code or the first available).
+ * - `allowed`: agents allowed by the project; empty = all the available ones;
+ * - `agent`: proposed agent (null if none is usable); `lastAgent`: last used in chat in the project (may no longer be allowed);
+ * - `launch`: for each available and allowed agent, the model and effort chosen by Ladder (project, then global) to send to
+ *   `session.create`; null = no level chooses: null is sent and the session follows the agent's default (on the Mac it shows as Default).
+ *   To show it the phone uses the `isDefault` model of AgentStatus.models (of the project's account, `Project.profiles`). Values valid for the account
+ *   assigned to the project for that agent;
+ * - `permission`: proposed permission, already reduced to the project's cap and to 'edit' if "Allow Full access from phone" is off.
  */
 export interface RemoteProjectDefaults {
   allowed: AgentId[]
@@ -2238,16 +2238,16 @@ export interface RemoteProjectDefaults {
   permission: PermissionLevel
 }
 
-/** Eventi che possono diventare un push: gli stessi di AttentionEvent tranne `resolved`. */
+/** Events that can become a push: the same as AttentionEvent except `resolved`. */
 export type PushKind = 'request' | 'turn' | 'error' | 'agents'
 
 /**
- * LAD-53: preferenze push di un dispositivo (`device.notify.set`).
- * - `events`: quali eventi notificare;
- * - `quiet`: fascia silenziosa, valutata nel fuso `tz` del telefono; vale anche a cavallo della mezzanotte (from > to);
- *   from === to = fascia vuota; null = nessuna fascia;
- * - `quietAllowsRequests`: con true, richieste e domande passano anche nella fascia silenziosa (predefinito false:
- *   nella fascia non arriva nulla).
+ * Push preferences of a device (`device.notify.set`).
+ * - `events`: which events to notify;
+ * - `quiet`: quiet hours, evaluated in the phone's `tz` time zone; also valid across midnight (from > to);
+ *   from === to = empty range; null = no range;
+ * - `quietAllowsRequests`: with true, requests and questions go through even in quiet hours (default false:
+ *   nothing arrives during quiet hours).
  */
 export interface RemoteNotifyPrefs {
   events: Record<PushKind, boolean>
@@ -2256,79 +2256,79 @@ export interface RemoteNotifyPrefs {
 }
 
 /**
- * LAD-53: `data` del push (Expo `data`, quindi anche in `response.notification.request.content.data` al tocco). Volutamente
- * senza titoli né testo: Expo, Apple e Google vedono solo "Ladder" e una frase generica; i dettagli il telefono li prende
- * dal canale cifrato (`hello`, `session.page`). Al tocco: apri la sessione `sessionId` sul Mac `mac` e, se `itemId` c'è, la richiesta.
- * `mac`: `pushMacId(RemotePairingPayload.key)` (shared/remote/pairing.ts): sha256 della chiave del Mac, 16 caratteri base64url. Il telefono lo
- * calcola dal suo abbinamento e lo confronta; non è l'id del relay (chi vede il push non può entrare nella stanza) e vale su ogni trasporto.
+ * `data` of the push (Expo `data`, so also in `response.notification.request.content.data` on tap). Deliberately
+ * without titles or text: Expo, Apple and Google see only "Ladder" and a generic sentence; the phone gets the details
+ * from the encrypted channel (`hello`, `session.page`). On tap: open session `sessionId` on Mac `mac` and, if `itemId` is present, the request.
+ * `mac`: `pushMacId(RemotePairingPayload.key)` (shared/remote/pairing.ts): sha256 of the Mac's key, 16 base64url characters. The phone
+ * computes it from its pairing and compares; it is not the relay id (whoever sees the push cannot enter the room) and it holds on every transport.
  */
 export interface RemotePushData {
   v: 1
   kind: PushKind
   sessionId: string
-  /** Id della richiesta (kind 'request'), del turno o dell'errore; null se non c'è. */
+  /** Id of the request (kind 'request'), of the turn or of the error; null if none. */
   itemId: string | null
   mac: string
 }
 
-/** Titolo del push: sempre "Ladder". Il testo (`body`) è generico e nella lingua dell'app sul telefono (RemoteClientHello.locale). */
+/** Push title: always "Ladder". The text (`body`) is generic and in the app's language on the phone (RemoteClientHello.locale). */
 export const REMOTE_PUSH_TITLE = 'Ladder'
-/** Canale Android dei push (lo crea l'app: importance alta). */
+/** Android channel for pushes (created by the app: high importance). */
 export const REMOTE_PUSH_CHANNEL = 'sessions'
 
 export interface RemotePage {
   sessionId: string
-  /** In ordine di seq crescente. */
+  /** In increasing seq order. */
   items: ChatItem[]
-  /** Ci sono item più vecchi del primo restituito. */
+  /** There are items older than the first one returned. */
   hasMore: boolean
 }
 
-/** Istantanea per il client remoto: solo ciò che serve alla Home (sidebar) e alle sessioni. */
+/** Snapshot for the remote client: only what the Home (sidebar) and the sessions need. */
 export interface RemoteSnapshot {
   type: 'snapshot'
   projects: Project[]
-  /** Sessioni non archiviate, come nello snapshot della finestra. */
+  /** Non-archived sessions, as in the window's snapshot. */
   sessions: SessionSummary[]
-  /** Di ProjectUiState solo gruppi di sessioni e `seenAt` ("While you were away"). */
+  /** From ProjectUiState only the session groups and `seenAt` ("While you were away"). */
   ui: Record<string, Pick<ProjectUiState, 'groups' | 'groupOf' | 'seenAt'>>
   projectGroups?: ProjectGroupsState
-  /** Agenti e modelli, per le righe di sessione e il permesso. LAD-90: senza `email` né `path`; `usage`/`usageAt`/`limits`/`account` (piano) ci sono. */
+  /** Agents and models, for the session rows and the permission. Without `email` or `path`; `usage`/`usageAt`/`limits`/`account` (plan) are present. */
   agents: RemoteAgentStatus[]
-  /** LAD-90: account (abbonamenti) di Claude Code e Codex: nome e agente, per elencare le sottoscrizioni (`AgentStatus.profileId` le lega allo stato). Mai la cartella di configurazione. */
+  /** Accounts (subscriptions) of Claude Code and Codex: name and agent, to list the subscriptions (`AgentStatus.profileId` links them to the state). Never the configuration folder. */
   profiles: RemoteProfile[]
   /**
-   * LAD-89: predefiniti della nuova sessione per progetto (chiave: id del progetto). Letti all'hello e aggiornati dall'evento
-   * `remote.defaults` quando cambiano i predefiniti globali, i modelli degli agenti, l'elenco dei progetti o la UI del progetto
-   * (ultimo agente, predefiniti del progetto); le modifiche ai file `.ladder/settings*.toml` si vedono al prossimo hello.
+   * Defaults of the new session per project (key: project id). Read at hello and updated by the `remote.defaults`
+   * event when the global defaults, the agents' models, the project list or the project's UI change
+   * (last agent, project defaults); changes to the `.ladder/settings*.toml` files show up at the next hello.
    */
   defaults: Record<string, RemoteProjectDefaults>
   /**
-   * Tetto di permesso per progetto (`permissions_max` delle impostazioni del progetto, già con i file personali): null = nessun tetto.
-   * Il telefono disabilita i livelli sopra il tetto; l'host li clampa comunque. Letto all'hello: se cambia sul Mac si vede al prossimo hello.
+   * Permission cap per project (`permissions_max` of the project settings, personal files included): null = no cap.
+   * The phone disables the levels above the cap; the host clamps them anyway. Read at hello: if it changes on the Mac it shows at the next hello.
    */
   permissionsMax: Record<string, PermissionLevel | null>
-  /** LAD-51: preferenze del Mac che il telefono rispecchia (lette all'hello). */
+  /** Mac preferences that the phone mirrors (read at hello). */
   prefs: RemotePrefs
 }
 
 /**
- * Preferenze del Mac visibili al telefono.
- * - `busySend`: cosa fa il tasto di invio a sessione al lavoro ('steer' inserisce nel turno, 'queue' accoda): è AppPrefs.busySend, come `session.send` con `busy`;
- * - `allowFull`: "Allow Full access from phone". False: il telefono mostra il livello Full disabilitato ("turned off on your Mac"); `session.permission.set` con full torna con un errore.
+ * Mac preferences visible to the phone.
+ * - `busySend`: what the send key does while the session is working ('steer' inserts into the turn, 'queue' queues): it is AppPrefs.busySend, like `session.send` with `busy`;
+ * - `allowFull`: "Allow Full access from phone". False: the phone shows the Full level disabled ("turned off on your Mac"); `session.permission.set` with full comes back with an error.
  */
 export interface RemotePrefs {
   busySend: 'steer' | 'queue'
   allowFull: boolean
 }
 
-/** Eventi inoltrati al client remoto; tutti gli altri restano sul Mac. */
+/** Events forwarded to the remote client; all the others stay on the Mac. */
 export type RemoteEvent =
   | RemoteSnapshot
-  /** LAD-51: le preferenze del Mac sono cambiate (per esempio "Allow Full access from phone"): sostituiscono `RemoteSnapshot.prefs`. */
+  /** The Mac's preferences changed (for example "Allow Full access from phone"): they replace `RemoteSnapshot.prefs`. */
   | { type: 'remote.prefs'; prefs: RemotePrefs }
-  /** LAD-89: sostituisce `RemoteSnapshot.defaults` e `permissionsMax` (cambiano insieme: predefiniti, tetti, modelli). */
-  /** LAD-90: gli account (profili) cambiano: stessi eventi della finestra, ma senza la cartella di configurazione. */
+  /** Replaces `RemoteSnapshot.defaults` and `permissionsMax` (they change together: defaults, caps, models). */
+  /** The accounts (profiles) change: same events as the window, but without the configuration folder. */
   | { type: 'profile.upsert'; profile: RemoteProfile }
   | { type: 'profile.removed'; profileId: string }
   | { type: 'remote.defaults'; defaults: Record<string, RemoteProjectDefaults>; permissionsMax: Record<string, PermissionLevel | null> }
@@ -2347,145 +2347,145 @@ export type RemoteEvent =
       }
     >
 
-/** Dopo l'autenticazione. Il primo messaggio di una connessione è invece un RemoteFirstMessage. */
+/** After authentication. A connection's first message is instead a RemoteFirstMessage. */
 export type ToRemoteHost = { rid?: string; command: RemoteCommand }
 export type FromRemoteHost =
   | { kind: 'event'; event: RemoteEvent }
   | { kind: 'result'; rid: string; ok: true; data?: unknown }
   | { kind: 'result'; rid: string; ok: false; error: string }
-  /** LAD-51: risposta al primo messaggio (`pair`/`auth`); con ok: false il Mac chiude subito. Può arrivare anche dopo, per avvisare di una revoca. */
+  /** Answer to the first message (`pair`/`auth`); with ok: false the Mac closes right away. It can also arrive later, to warn of a revocation. */
   | RemoteAuthResult
 
 /**
- * Frame del canale remoto: testo in chiaro di un messaggio Noise dopo l'handshake. Il primo byte vale
- * REMOTE_FRAME_MORE se il JSON continua nel frame successivo, REMOTE_FRAME_END se finisce qui; il resto è UTF-8.
- * Un messaggio Noise porta al massimo 65535 byte (65519 di testo con il tag), quindi un JSON lungo si spezza.
- * I frame MORE sono sempre pieni (65519 byte): uno più corto chiude la connessione.
- * Il client chiude la connessione se un JSON ricomposto supera REMOTE_MAX_MESSAGE byte; l'host, che riceve solo comandi
- * piccoli: prima dell'autenticazione a REMOTE_MAX_COMMAND, dopo a REMOTE_MAX_ATTACH_COMMAND (LAD-92, per i messaggi con immagini;
- * un messaggio sopra REMOTE_MAX_COMMAND che non porta allegati su `session.send`/`session.create` chiude la connessione).
+ * Remote channel frame: plaintext of a Noise message after the handshake. The first byte is
+ * REMOTE_FRAME_MORE if the JSON continues in the next frame, REMOTE_FRAME_END if it ends here; the rest is UTF-8.
+ * A Noise message carries at most 65535 bytes (65519 of text with the tag), so a long JSON is split.
+ * MORE frames are always full (65519 bytes): a shorter one closes the connection.
+ * The client closes the connection if a reassembled JSON exceeds REMOTE_MAX_MESSAGE bytes; the host, which receives only small
+ * commands: before authentication at REMOTE_MAX_COMMAND, after at REMOTE_MAX_ATTACH_COMMAND (for messages with images;
+ * a message over REMOTE_MAX_COMMAND that carries no attachments on `session.send`/`session.create` closes the connection).
  */
 export const REMOTE_FRAME_END = 0
 export const REMOTE_FRAME_MORE = 1
 export const REMOTE_MAX_MESSAGE = 16 * 1024 * 1024
-/** Massimo di un messaggio del client verso l'host (comandi, non snapshot). */
+/** Maximum size of a client message to the host (commands, not snapshots). */
 export const REMOTE_MAX_COMMAND = 1024 * 1024
-/** LAD-92: massimo di un messaggio di un client AUTENTICATO (solo `session.send`/`session.create` con immagini possono superare REMOTE_MAX_COMMAND). */
+/** Maximum size of an AUTHENTICATED client's message (only `session.send`/`session.create` with images can exceed REMOTE_MAX_COMMAND). */
 export const REMOTE_MAX_ATTACH_COMMAND = 3 * 1024 * 1024
-/** LAD-92: immagini per messaggio, byte decodificati per immagine e in totale, tipi ammessi. */
+/** Images per message, decoded bytes per image and in total, allowed types. */
 export const REMOTE_MAX_ATTACHMENTS = 3
 export const REMOTE_MAX_ATTACHMENT_BYTES = 1024 * 1024
 export const REMOTE_MAX_ATTACHMENTS_TOTAL = 2 * 1024 * 1024
 export const REMOTE_ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
-/** LAD-92: risultati massimi di `project.files.search`. */
+/** Maximum results of `project.files.search`. */
 export const REMOTE_FILE_SEARCH_MAX = 50
 
-// ── fine LAD-49 ──
+// ── end of remote channel ──
 
-// ── LAD-50: relay ──
-// Il relay (app/relay, su Cloudflare) inoltra byte cifrati tra Mac e telefono; il formato dei suoi messaggi sta in shared/remote/relay-protocol.ts.
+// ── Relay ──
+// The relay (app/relay, on Cloudflare) forwards encrypted bytes between Mac and phone; the format of its messages is in shared/remote/relay-protocol.ts.
 
-/** Relay predefinito di Ladder, usato quando HostPrefs.remote.relayUrl è null. Segnaposto: l'indirizzo vero si conferma prima del rilascio. */
+/** Ladder's default relay, used when HostPrefs.remote.relayUrl is null. Placeholder: the real address is confirmed before release. */
 export const REMOTE_DEFAULT_RELAY_URL = 'wss://relay.ladder.app'
 
 /**
- * Perché il Mac non è raggiungibile, per quanto il relay ne sa (arriva al telefono con lo stato del Mac).
- * 'rekeyed': il Mac ha rigenerato la sua chiave ("Regenerate key") e da questo id non tornerà mai più: il telefono deve abbinarsi di nuovo.
+ * Why the Mac is not reachable, as far as the relay knows (it reaches the phone with the Mac's state).
+ * 'rekeyed': the Mac regenerated its key ("Regenerate key") and will never come back at this id: the phone must pair again.
  */
 export type RemoteOfflineReason = 'offline' | 'asleep' | 'quit' | 'rekeyed' | 'unknown'
 
-/** Stato del Mac visto dal telefono attraverso il relay. `since` = ultima volta che il relay ha visto il Mac (ms), null se mai. */
+/** Mac state as seen by the phone through the relay. `since` = last time the relay saw the Mac (ms), null if never. */
 export type RemoteMacStatus = { online: true } | { online: false; since: number | null; reason: RemoteOfflineReason }
 
-// ── fine LAD-50 ──
+// ── end of relay ──
 
-// ── LAD-51: abbinamento dei telefoni, elenco dispositivi, revoca, password, rigenerazione della chiave, log ──
+// ── Phone pairing, device list, revocation, password, key regeneration, log ──
 //
-// Noise NK autentica solo il Mac. Il telefono si identifica DOPO l'handshake con una chiave Ed25519 sua (nell'archivio sicuro del
-// telefono, creata all'abbinamento): finché non l'ha fatto la connessione NON è autenticata e il gateway accetta un solo
-// messaggio, un RemoteFirstMessage (`pair` la prima volta, `auth` le volte dopo). Tutto il resto (hello, comandi) è rifiutato
-// e chiude la connessione. Si ha dieci secondi dall'apertura per autenticarsi.
+// Noise NK authenticates only the Mac. The phone identifies itself AFTER the handshake with its own Ed25519 key (in the phone's
+// secure storage, created at pairing): until it has done so the connection is NOT authenticated and the gateway accepts a single
+// message, a RemoteFirstMessage (`pair` the first time, `auth` afterwards). Everything else (hello, commands) is rejected
+// and closes the connection. There are ten seconds from opening to authenticate.
 //
-// La firma `sig` copre `ladder-device-v1|<pair|auth>|<hash dell'handshake in base64url>` (channelBinding in shared/remote/pairing.ts):
-// l'hash dell'handshake Noise è uguale sui due lati (RemoteSession.handshakeHash) e diverso a ogni connessione, quindi una firma
-// non si riusa su un'altra connessione.
+// The `sig` signature covers `ladder-device-v1|<pair|auth>|<handshake hash in base64url>` (channelBinding in shared/remote/pairing.ts):
+// the Noise handshake hash is the same on both sides (RemoteSession.handshakeHash) and differs on every connection, so a signature
+// cannot be reused on another connection.
 //
-// Flusso del telefono:
-//  1. Scansiona il QR (`ladder://pair#…`) e lo legge con decodePairingUrl. Prima di collegarsi mostra nome del Mac (`mac`),
-//     impronta della chiave (keyFingerprint) e relay: l'utente conferma. Se `pw` chiede la password.
-//  2. Apre il canale (relay `relay`+`id`, oppure `ws` in sviluppo), fa l'handshake Noise NK con `key`.
-//  3. Manda RemotePairRequest firmata. Risposta RemoteAuthResult { ok: true, deviceId }: salva deviceId (e la chiave Mac) e
-//     da qui in poi usa `hello` e i comandi.
-//  4. Alle connessioni successive: handshake, poi RemoteAuthRequest { deviceId, sig }.
-// Un RemoteAuthResult con ok: false chiude la connessione: il telefono mostra `error` (già tradotto nella lingua del Mac) e,
-// per 'device-revoked' / 'unknown-device', dimentica l'abbinamento. Con una chiave del Mac rigenerata l'handshake stesso
-// fallisce (la chiave nota non è più quella del Mac): il telefono deve proporre di abbinarsi di nuovo.
+// Phone flow:
+//  1. Scans the QR (`ladder://pair#…`) and reads it with decodePairingUrl. Before connecting it shows the Mac's name (`mac`),
+//     key fingerprint (keyFingerprint) and relay: the user confirms. If `pw` is set, asks for the password.
+//  2. Opens the channel (relay `relay`+`id`, or `ws` in development), does the Noise NK handshake with `key`.
+//  3. Sends a signed RemotePairRequest. Answer RemoteAuthResult { ok: true, deviceId }: saves deviceId (and the Mac key) and
+//     from here on uses `hello` and the commands.
+//  4. On later connections: handshake, then RemoteAuthRequest { deviceId, sig }.
+// A RemoteAuthResult with ok: false closes the connection: the phone shows `error` (already translated into the Mac's language) and,
+// for 'device-revoked' / 'unknown-device', forgets the pairing. With a regenerated Mac key the handshake itself
+// fails (the known key is no longer the Mac's): the phone must offer to pair again.
 
-/** Versione del formato del QR (campo `v` del payload). */
+/** Version of the QR format (`v` field of the payload). */
 export const REMOTE_PAIRING_VERSION = 1
-/** Durata del QR: passato questo tempo il codice non vale più. */
+/** QR lifetime: after this time the code is no longer valid. */
 export const REMOTE_PAIRING_TTL_MS = 5 * 60 * 1000
-/** Tentativi falliti (firma, password) su uno stesso codice prima che il codice venga bruciato. */
+/** Failed attempts (signature, password) on the same code before the code is burned. */
 export const REMOTE_MAX_PAIR_ATTEMPTS = 5
-/** Lunghezza della password del Mac, in caratteri. */
+/** Length of the Mac's password, in characters. */
 export const REMOTE_PASSWORD_MIN = 4
 export const REMOTE_PASSWORD_MAX = 128
 
 export type RemotePlatform = 'ios' | 'android'
 
 /**
- * Contenuto del QR: JSON → base64url dopo `ladder://pair#` (nel frammento: non va mai a un server). Codifica e lettura:
- * encodePairingUrl / decodePairingUrl in shared/remote/pairing.ts. Raggiungibilità: `relay` + `id`, oppure `ws`, o entrambi.
+ * QR content: JSON → base64url after `ladder://pair#` (in the fragment: it never goes to a server). Encoding and reading:
+ * encodePairingUrl / decodePairingUrl in shared/remote/pairing.ts. Reachability: `relay` + `id`, or `ws`, or both.
  */
 export interface RemotePairingPayload {
   /** REMOTE_PAIRING_VERSION. */
   v: number
-  /** Nome del Mac (lo stesso del RemoteServerHello). */
+  /** Mac name (the same as in RemoteServerHello). */
   mac: string
-  /** Chiave pubblica X25519 del Mac, base64url, 32 byte: è la chiave statica dell'handshake Noise NK. */
+  /** The Mac's X25519 public key, base64url, 32 bytes: it is the static key of the Noise NK handshake. */
   key: string
-  /** Indirizzo del relay (wss://…) e id del Mac su quel relay (RelayTransport({ relayUrl, macId })). */
+  /** Relay address (wss://…) and the Mac's id on that relay (RelayTransport({ relayUrl, macId })). */
   relay?: string
   id?: string
-  /** Solo in sviluppo: WebSocket locale del Mac (ws://127.0.0.1:porta) per abbinarsi dal simulatore senza relay. */
+  /** Development only: the Mac's local WebSocket (ws://127.0.0.1:port) to pair from the simulator without a relay. */
   ws?: string
-  /** Codice monouso, 32 byte casuali base64url. Vale una volta, per 5 minuti; non va mai loggato. */
+  /** One-time code, 32 random bytes base64url. Valid once, for 5 minutes; never to be logged. */
   token: string
-  /** Scadenza del codice, ms da epoch (orologio del Mac). */
+  /** Expiry of the code, ms since epoch (the Mac's clock). */
   exp: number
-  /** Il Mac ha una password: il telefono deve chiederla e mandarla in `password`. */
+  /** The Mac has a password: the phone must ask for it and send it in `password`. */
   pw: boolean
 }
 
-/** Tipo di firma del dispositivo: entra nel testo firmato, così una firma di `auth` non vale come `pair`. */
+/** Kind of device signature: it goes into the signed text, so an `auth` signature is not valid as `pair`. */
 export type RemoteAuthKind = 'pair' | 'auth'
 
-/** Primo abbinamento. `device.publicKey`: Ed25519 del telefono, base64url, 32 byte. `name` al massimo 80 caratteri (es. "Zoë's iPhone"). `sig`: base64url. */
+/** First pairing. `device.publicKey`: the phone's Ed25519, base64url, 32 bytes. `name` at most 80 characters (e.g. "Alex's iPhone"). `sig`: base64url. */
 export interface RemotePairRequest {
   type: 'pair'
   token: string
   device: { publicKey: string; name: string; platform: RemotePlatform }
-  /** Obbligatoria se il Mac ha una password (`RemotePairingPayload.pw`). Si controlla solo qui, mai in `auth`. */
+  /** Required if the Mac has a password (`RemotePairingPayload.pw`). Checked only here, never in `auth`. */
   password?: string
   sig: string
 }
 
-/** Connessione di un dispositivo già abbinato. */
+/** Connection of an already paired device. */
 export interface RemoteAuthRequest {
   type: 'auth'
   deviceId: string
   sig: string
 }
 
-/** Unico messaggio ammesso su una connessione non autenticata. */
+/** The only message allowed on an unauthenticated connection. */
 export type RemoteFirstMessage = RemotePairRequest | RemoteAuthRequest
 
 /**
- * Perché l'autenticazione è fallita (dopo ogni errore il Mac chiude la connessione):
- * - bad-token: codice sconosciuto o non attivo (il QR è stato sostituito o annullato); token-expired: scaduto; token-used: già usato o bruciato;
- * - password-required / wrong-password: manca o è sbagliata; too-many-attempts: troppi errori sul codice (il codice è bruciato) o troppi errori di fila dalla stessa origine;
- * - device-revoked: revocato dal Mac (anche da "rigenera chiave"): l'abbinamento non vale più; unknown-device: il Mac non conosce questo id (per esempio dopo un ripristino);
- * - bad-signature: firma non valida; remote-disabled: "Access from your phone" è spento sul Mac; invalid-request: forma del messaggio sbagliata.
+ * Why authentication failed (after every error the Mac closes the connection):
+ * - bad-token: unknown or inactive code (the QR was replaced or cancelled); token-expired: expired; token-used: already used or burned;
+ * - password-required / wrong-password: missing or wrong; too-many-attempts: too many errors on the code (the code is burned) or too many errors in a row from the same origin;
+ * - device-revoked: revoked by the Mac (also by "regenerate key"): the pairing is no longer valid; unknown-device: the Mac does not know this id (for example after a restore);
+ * - bad-signature: invalid signature; remote-disabled: "Access from your phone" is off on the Mac; invalid-request: wrong message shape.
  */
 export type RemoteAuthErrorCode =
   | 'bad-token'
@@ -2501,74 +2501,74 @@ export type RemoteAuthErrorCode =
   | 'invalid-request'
 
 /**
- * Esito dell'autenticazione. Con ok: true: `deviceId` (da salvare sul telefono), `name` (il nome registrato) e `allowFull`
- * (false = "Allow Full access from phone" è spento: il telefono non offre il livello Full). Con ok: false: `error` è già tradotto.
+ * Authentication result. With ok: true: `deviceId` (to save on the phone), `name` (the registered name) and `allowFull`
+ * (false = "Allow Full access from phone" is off: the phone does not offer the Full level). With ok: false: `error` is already translated.
  */
 export type RemoteAuthResult =
   | { kind: 'auth'; ok: true; deviceId: string; name: string; allowFull: boolean }
   | { kind: 'auth'; ok: false; code: RemoteAuthErrorCode; error: string }
 
-/** Un dispositivo abbinato, come lo vede la finestra (i revocati non ci sono). */
+/** A paired device, as the window sees it (revoked ones are not there). */
 export interface RemoteDeviceInfo {
   id: string
   name: string
   platform: RemotePlatform
   /** Primo abbinamento, ms. */
   createdAt: number
-  /** Ultimo collegamento riuscito o ultima chiusura, ms; null se non si è mai collegato dopo l'abbinamento. Se `connected`, è adesso. */
+  /** Last successful connection or last close, ms; null if it never connected after pairing. If `connected`, it is now. */
   lastSeenAt: number | null
-  /** Ha almeno una connessione autenticata in questo momento. */
+  /** Has at least one authenticated connection right now. */
   connected: boolean
-  /** LAD-53: il telefono ha registrato un token push (riceve le notifiche con l'app chiusa). L'host lo imposta sempre; opzionale solo per le fixture della UI. */
+  /** The phone registered a push token (it receives notifications with the app closed). The host always sets it; optional only for the UI fixtures. */
   pushEnabled?: boolean
 }
 
 /**
- * Stato del canale remoto per Impostazioni → Dispositivi e per l'indicatore nella barra in alto (`connectedCount > 0`).
- * Arriva come risultato di `remote.status` e come evento `remote.status` a ogni cambiamento.
+ * State of the remote channel for Settings → Devices and for the indicator in the top bar (`connectedCount > 0`).
+ * Arrives as the result of `remote.status` and as a `remote.status` event on every change.
  */
 export interface RemoteStatus {
-  /** Il canale è attivo: "Access from your phone" acceso (AppPrefs.remote.enabled) o, in sviluppo, LADDER_REMOTE_PORT / LADDER_RELAY_URL. Spento: niente QR. */
+  /** The channel is active: "Access from your phone" on (AppPrefs.remote.enabled) or, in development, LADDER_REMOTE_PORT / LADDER_RELAY_URL. Off: no QR. */
   enabled: boolean
-  /** Relay in uso; null se il canale è spento o c'è solo il WebSocket locale di sviluppo. */
+  /** Relay in use; null if the channel is off or only the local development WebSocket is used. */
   relayUrl: string | null
-  /** Id del Mac sul relay (cambia con "rigenera chiave"). */
+  /** The Mac's id on the relay (changes with "regenerate key"). */
   relayId: string | null
   macName: string
-  /** Impronta della chiave del Mac ("7F3A 91C2 · E04B 5D18"), la stessa che il telefono mostra prima di collegarsi; null se la chiave non è mai stata creata. */
+  /** Fingerprint of the Mac's key ("7F3A 91C2 · E04B 5D18"), the same one the phone shows before connecting; null if the key was never created. */
   fingerprint: string | null
   hasPassword: boolean
   /** "Allow Full access from phone" (AppPrefs.remote.allowFull). */
   allowFull: boolean
-  /** Dispositivi abbinati (non revocati), dal più recente. */
+  /** Paired devices (not revoked), most recent first. */
   devices: RemoteDeviceInfo[]
-  /** Quanti dispositivi sono collegati adesso (per l'indicatore). */
+  /** How many devices are connected now (for the indicator). */
   connectedCount: number
-  /** QR attivo: scadenza in ms; null se nessun QR è attivo. Alla scadenza arriva un nuovo `remote.status`. */
+  /** Active QR: expiry in ms; null if no QR is active. A new `remote.status` arrives on expiry. */
   pairing: { expiresAt: number } | null
 }
 
-/** Risposta di `remote.pair.start`. */
+/** Answer of `remote.pair.start`. */
 export interface RemotePairStart {
-  /** `ladder://pair#…`: il testo da mettere nel QR. Contiene il codice monouso: non loggarlo. */
+  /** `ladder://pair#…`: the text to put in the QR. It contains the one-time code: do not log it. */
   url: string
   payload: RemotePairingPayload
-  /** Impronta della chiave del Mac, da mostrare accanto al QR. */
+  /** Fingerprint of the Mac's key, to show next to the QR. */
   fingerprint: string
   expiresAt: number
 }
 
-/** Azioni dal telefono che finiscono nel log (visibile sul Mac). */
+/** Actions from the phone that end up in the log (visible on the Mac). */
 export type RemoteLogAction = 'respond' | 'send' | 'queue' | 'interrupt' | 'permission' | 'create'
 
 /**
- * Una voce del log delle azioni remote. `detail` è un riassunto breve, già tradotto nella lingua del Mac al momento
- * dell'azione, mai il testo di un messaggio: "Approved: Run command", "Message (42 chars)", "Permission → Full", "Stopped".
+ * An entry of the remote action log. `detail` is a short summary, already translated into the Mac's language at the time
+ * of the action, never the text of a message: "Approved: Run command", "Message (42 chars)", "Permission → Full", "Stopped".
  */
 export interface RemoteLogEntry {
   id: number
   deviceId: string
-  /** Nome del dispositivo (anche se poi è stato revocato). */
+  /** Device name (even if it was revoked afterwards). */
   deviceName: string
   /** ms. */
   at: number
@@ -2578,90 +2578,90 @@ export interface RemoteLogEntry {
 }
 
 export interface RemoteLogPage {
-  /** Dalla più recente. */
+  /** Most recent first. */
   entries: RemoteLogEntry[]
   hasMore: boolean
 }
 
-// ── fine LAD-51 ──
+// ── end of phone pairing ──
 
-// ── Host ↔ processo main: notifiche, badge del Dock e preferenze ─────────────
+// ── Host ↔ main process: notifications, Dock badge and preferences ───────────
 
-/** Eventi che possono diventare una notifica di macOS. Decide il main, che sa cosa stai guardando. */
+/** Events that can become a macOS notification. Decided by main, which knows what you are looking at. */
 export type AttentionEvent =
   | { kind: 'request'; sessionId: string; projectId: string; itemId: string | null; title: string; body: string }
   | { kind: 'resolved'; sessionId: string; itemId: string | null }
   | { kind: 'turn'; sessionId: string; projectId: string; projectName: string; itemId: string | null; durationMs: number; title: string }
   | { kind: 'error'; sessionId: string; projectId: string; itemId: string | null; title: string; body: string }
   /**
-   * Sotto-agenti in background finiti a sessione ferma: 'done' quando non ne resta nessuno
-   * in corso (finished = quanti sono finiti dall'ultimo avviso), 'failed' subito per ogni errore.
+   * Background sub-agents finished while the session is idle: 'done' when none is left
+   * running (finished = how many finished since the last notice), 'failed' right away for every error.
    */
   | { kind: 'agents'; sessionId: string; projectId: string; projectName: string; itemId: string | null; outcome: 'done' | 'failed'; finished: number; failed: number; title: string; body: string }
 
-/** `open-url`: l'host non ha un browser; il main apre l'indirizzo https (pagina di login) nel browser predefinito. */
+/** `open-url`: the host has no browser; main opens the https address (login page) in the default browser. */
 export type HostToMain =
   | { type: 'attention'; event: AttentionEvent }
   | { type: 'badge'; count: number }
   | { type: 'open-url'; url: string }
-  /** Scorciatoie in uso: il main le applica agli acceleratori del menu e ricostruisce il menu. */
+  /** Shortcuts in use: main applies them to the menu accelerators and rebuilds the menu. */
   | { type: 'shortcuts'; preset: ShortcutPreset; overrides: Keybinding[] }
-  /** Apre keybindings.json (il main sa il percorso) nell'app di sistema. */
+  /** Opens keybindings.json (main knows the path) in the system app. */
   | { type: 'open-keybindings' }
   /**
-   * Sessioni che stanno lavorando (turno in corso, non in attesa di te) e telefoni collegati al canale remoto, a ogni cambiamento di uno dei due:
-   * il main tiene il Mac sveglio se AppPrefs.keepAwake (e c'è lavoro o un telefono) e mostra lo stato nel menu della barra. `phones` assente = 0.
+   * Sessions that are working (turn in progress, not waiting for you) and phones connected to the remote channel, on every change of either:
+   * main keeps the Mac awake if AppPrefs.keepAwake (and there is work or a phone) and shows the state in the menu bar. `phones` absent = 0.
    */
   | { type: 'activity'; running: number; phones?: number }
-  /** LAD-54: risposta a `power` con state 'quit': il relay è stato avvisato (o non c'era), il main può chiudere l'host. */
+  /** Answer to `power` with state 'quit': the relay was notified (or there was none), main can close the host. */
   | { type: 'power-ack'; state: 'quit' }
-  /** Apre una cartella o un file nel Finder / app di sistema: il main lo fa solo dentro la cartella dati dell'app. */
+  /** Opens a folder or a file in Finder / the system app: main does it only inside the app's data folder. */
   | { type: 'open-path'; path: string }
-  // ── LAD-57 parte 2 ──
-  /** Operazione sul browser dell'agente: il main la esegue e risponde con `browser-agent-result` (stesso `rid`). */
+  // ── Agent browser ──
+  /** Operation on the agent's browser: main runs it and answers with `browser-agent-result` (same `rid`). */
   | { type: 'browser-agent'; rid: string; op: BrowserAgentOp }
-  // ── Fine LAD-57 parte 2 ──
-  // ── LAD-70 ──
-  /** Root da cui il main può servire file (ladder-file://<id>/…): elenco completo a ogni cambio, ciò che manca smette di funzionare. */
+  // ── End agent browser ──
+  // ── Media files ──
+  /** Roots main can serve files from (ladder-file://<id>/…): full list on every change, whatever is missing stops working. */
   | { type: 'file-roots'; roots: { id: string; root: string }[] }
-  /** Mostra nel Finder un file della root `id`: il main ricontrolla che sia dentro la root. */
+  /** Shows a file of root `id` in Finder: main rechecks that it is inside the root. */
   | { type: 'reveal-file'; id: string; path: string }
-  // ── Fine LAD-70 ──
+  // ── End media files ──
 
 export interface HostPrefs {
-  /** Lingua di avvisi, errori, notifiche e prompt predefiniti. */
+  /** Language of notices, errors, notifications and default prompts. */
   locale?: Locale
-  /** Titoli generati da un modello piccolo dopo il primo turno. Predefinito true. */
+  /** Titles generated by a small model after the first turn. Default true. */
   generatedTitles?: boolean
-  /** LAD-59: nome del branch, messaggio di commit e testo della PR scritti dal modello; globale, vale per tutti i progetti. Predefinito true. */
+  /** Branch name, commit message and PR text written by the model; global, applies to all projects. Default true. */
   generatedText?: boolean
-  /** Istruzione di autonomia nel prompt di sistema delle sessioni in Edit e Full access. Predefinito true. Vale dall'avvio (o ripresa) della sessione. */
+  /** Autonomy instruction in the system prompt of sessions in Edit and Full access. Default true. Applies from the start (or resume) of the session. */
   autonomyHint?: boolean
-  /** Segnala i turni fermi senza motivo (turn-end.stalled). Predefinito false finché l'euristica non è provata. */
+  /** Flags turns that stopped for no reason (turn-end.stalled). Default false until the heuristic is proven. */
   stallHint?: boolean
-  /** LAD-21: cartella dei worktree nuovi (`<cartella>/<progetto>/<nome>`); null = quella predefinita. Non sposta i worktree esistenti. */
+  /** Folder for new worktrees (`<folder>/<project>/<name>`); null = the default one. Does not move existing worktrees. */
   worktreesDir?: string | null
-  /** LAD-21: prefisso dei branch dei worktree nuovi. Predefinito 'ladder/'. Vedi cleanBranchPrefix in shared/worktree-prefs. */
+  /** Branch prefix for new worktrees. Default 'ladder/'. See cleanBranchPrefix in shared/worktree-prefs. */
   branchPrefix?: string
-  /** LAD-22: archivia le sessioni ferme da tanti giorni; null = mai. */
+  /** Archive sessions idle for this many days; null = never. */
   autoArchiveDays?: number | null
-  // ── LAD-57 parte 2 ──
-  /** Browser per l'agente, globale (vedi AppPrefs.agentBrowser). Predefinito false. */
+  // ── Agent browser ──
+  /** Browser for the agent, global (see AppPrefs.agentBrowser). Default false. */
   agentBrowser?: boolean
-  // ── Fine LAD-57 parte 2 ──
+  // ── End agent browser ──
   /**
-   * LAD-50: canale remoto per il telefono attraverso il relay. Assente = spento.
-   * `relayUrl`: indirizzo del relay (wss://…); null = quello predefinito (REMOTE_DEFAULT_RELAY_URL). Chi ospita il proprio relay mette il suo.
-   * LAD-51: `allowFull` = "Allow Full access from phone": se false il telefono non può passare una sessione a Full (assente = true).
+   * Remote channel for the phone through the relay. Absent = off.
+   * `relayUrl`: relay address (wss://…); null = the default one (REMOTE_DEFAULT_RELAY_URL). Whoever hosts their own relay puts theirs.
+   * `allowFull` = "Allow Full access from phone": if false the phone cannot switch a session to Full (absent = true).
    */
   remote?: { enabled: boolean; relayUrl: string | null; allowFull?: boolean }
-  /** Cosa fa l'invio a sessione al lavoro (AppPrefs.busySend): il telefono lo ripete nel suo tasto di invio (RemotePrefs). Assente = invariato. */
+  /** What send does while a session is working (AppPrefs.busySend): the phone repeats it in its send key (RemotePrefs). Absent = unchanged. */
   busySend?: 'steer' | 'queue'
-  /** LAD-89: predefiniti globali delle nuove sessioni (AppPrefs.defaults), per risolvere quelli mostrati al telefono. */
+  /** Global defaults for new sessions (AppPrefs.defaults), to resolve the ones shown to the phone. */
   defaults?: SessionDefaults
 }
 
-/** LAD-53: evento da mandare ai telefoni; niente testi (il push è generico). */
+/** Event to send to phones; no texts (the push is generic). */
 export interface PushEvent {
   kind: PushKind
   sessionId: string
@@ -2671,118 +2671,118 @@ export interface PushEvent {
 export type MainToHost =
   | { type: 'connect' }
   | { type: 'prefs'; prefs: HostPrefs }
-  /** LAD-54: stato del Mac per il canale remoto (i telefoni vedono "dorme" / "Ladder chiuso"). Con 'quit' l'host risponde `power-ack`. */
+  /** Mac state for the remote channel (phones see "sleeping" / "Ladder closed"). With 'quit' the host answers `power-ack`. */
   | { type: 'power'; state: 'asleep' | 'awake' | 'quit' }
-  /** LAD-53: il main ha deciso che un evento va notificato ai telefoni (nessuno sta guardando la sessione sul Mac, Mac inattivo). Il filtro per dispositivo lo fa l'host. */
+  /** Main decided that an event should be notified to phones (nobody is watching the session on the Mac, Mac idle). The per-device filter is done by the host. */
   | { type: 'push'; event: PushEvent }
-  // ── LAD-57 parte 2 ──
+  // ── Agent browser ──
   | { type: 'browser-agent-result'; rid: string; result: BrowserAgentResult }
-  /** La vista dell'agente non c'è più (l'utente ha chiuso la tab o la finestra): l'host revoca gli strumenti della sessione. */
+  /** The agent's view is gone (the user closed the tab or the window): the host revokes the session's tools. */
   | { type: 'browser-agent-closed'; sessionId: string }
-  // ── Fine LAD-57 parte 2 ──
+  // ── End agent browser ──
 
-/** Preferenze dell'app salvate dal main in settings.json, insieme al tema. */
+/** App preferences saved by main in settings.json, together with the theme. */
 export interface AppPrefs {
   notifications: boolean
-  /** Suono solo per approvazioni e domande. */
+  /** Sound only for approvals and questions. */
   sound: boolean
-  /** "Non disturbare" fino a questo istante: niente notifiche; "In attesa" e badge restano. */
+  /** "Do not disturb" until this instant: no notifications; "Waiting" and the badge stay. */
   dndUntil: number | null
-  /** Lingua dell'interfaccia: inglese per default, italiano a scelta. */
+  /** Interface language: English by default, Italian optional. */
   locale: Locale
-  /** Predefiniti globali delle nuove sessioni. */
+  /** Global defaults for new sessions. */
   defaults: SessionDefaults
-  /** Profili di sessione salvati (LAD-60), nell'ordine in cui si mostrano. */
+  /** Saved session profiles, in the order they are shown. */
   presets: SessionPreset[]
-  /** Vale in tutti i composer. Predefinito 'enter'. */
+  /** Applies in all composers. Default 'enter'. */
   sendKey: SendKey
   /**
-   * Cosa fa il tasto di invio mentre la sessione lavora: 'steer' inserisce nel turno
-   * (dove l'agente lo permette, altrimenti accoda), 'queue' accoda. Predefinito 'steer'.
-   * L'altra azione resta sul tasto di invio con ⌥ (Alt) in più e sui comandi della coda.
+   * What the send key does while the session is working: 'steer' inserts into the turn,
+   * (where the agent allows it, otherwise queues), 'queue' queues. Default 'steer'.
+   * The other action stays on the send key with ⌥ (Alt) added and on the queue commands.
    */
   busySend: 'steer' | 'queue'
-  /** Genera il titolo delle sessioni con un modello piccolo dopo il primo turno (Claude, Codex). Predefinito true; "Rigenera titolo" vale comunque. */
+  /** Generates session titles with a small model after the first turn (Claude, Codex). Default true; "Regenerate title" works regardless. */
   generatedTitles: boolean
   /**
-   * LAD-59: interruttore generale per nome del branch, messaggio di commit e testo della PR.
-   * Predefinito true. Per progetto: ProjectUiState.generatedText. I titoli restano governati da generatedTitles.
+   * Master switch for the branch name, commit message and PR text.
+   * Default true. Per project: ProjectUiState.generatedText. Titles stay governed by generatedTitles.
    */
   generatedText: boolean
-  /** Font dei messaggi in chat (utente e modello); il resto dell'app resta in Mona Sans. Predefinito 'system-sans' (LAD-71; prima 'system-mono', migrato una volta dal main). */
+  /** Font of the chat messages (user and model); the rest of the app stays in Mona Sans. Default 'system-sans' (used to be 'system-mono', migrated once by main). */
   chatFont: ChatFont
   /**
-   * Larghezza del testo della chat, per colonna (container query), non per finestra:
-   * 'comfortable' ~820px (predefinita), 'wide' ~1100px, 'full' tutta la colonna (LAD-71; prima in ch). I blocchi
-   * larghi (codice, diff, tabelle, output) arrivano fino a ~1100px o alla colonna.
+   * Width of the chat text, per column (container query), not per window:
+   * 'comfortable' ~820px (default), 'wide' ~1100px, 'full' the whole column (used to be in ch). Wide
+   * blocks (code, diffs, tables, output) go up to ~1100px or the column.
    */
   chatWidth: 'comfortable' | 'wide' | 'full'
-  /** Vedi HostPrefs.autonomyHint e stallHint. */
+  /** See HostPrefs.autonomyHint and stallHint. */
   autonomyHint: boolean
   stallHint: boolean
   /**
-   * LAD-77: nome con cui l'app saluta l'utente. Stringa tagliata di al più 80 caratteri; null = non impostato (vuota o solo spazi).
-   * Resta solo in settings.json su questo Mac: non va all'host, né ad agenti o servizi.
+   * Name the app greets the user with. String trimmed to at most 80 characters; null = not set (empty or only spaces).
+   * Stays only in settings.json on this Mac: it does not go to the host, agents or services.
    */
   userName: string | null
-  // ── LAD-57 parte 2 ──
+  // ── Agent browser ──
   /**
-   * Browser per l'agente (strumenti browser_* in un browser isolato, visibile in una tab). Predefinito false: dà all'agente
-   * rete e DOM, quindi si accende a mano. Per progetto: ProjectUiState.agentBrowser. Opzionale solo per le fixture.
+   * Browser for the agent (browser_* tools in an isolated browser, shown in a tab). Default false: it gives the agent
+   * network and DOM access, so it is turned on by hand. Per project: ProjectUiState.agentBrowser. Optional only for fixtures.
    */
   agentBrowser?: boolean
-  // ── Fine LAD-57 parte 2 ──
+  // ── End agent browser ──
 
-  // ── LAD-21: leggibilità, editor, worktree ──
-  /** Dimensione del testo dei messaggi in chat, rispetto a quella del font scelto (chatFont). Predefinita 'default'. */
+  // ── Readability, editor, worktrees ──
+  /** Text size of the chat messages, relative to the chosen font (chatFont). Default 'default'. */
   chatTextSize: TextSize
-  /** Dimensione del testo nell'editor dei file, in px (10–24). Predefinita 12. */
+  /** Text size in the file editor, in px (10–24). Default 12. */
   editorTextSize: number
-  /** Font del codice nell'editor dei file (e nei blocchi di codice, se la UI lo vuole). Predefinito 'system-mono'. */
+  /** Code font in the file editor (and in code blocks, if the UI wants it). Default 'system-mono'. */
   editorFont: CodeFont
-  /** Altezza delle righe della sidebar. Predefinita 'comfortable'. */
+  /** Row height of the sidebar. Default 'comfortable'. */
   sidebarDensity: 'comfortable' | 'compact'
-  /** Editor esterno di "Apri nell'editor"; ProjectUiState.editor lo sostituisce per un progetto. Se non è installato si ripiega sul primo installato (Cursor, VS Code, Zed, Xcode). Predefinito 'cursor'. */
+  /** External editor for "Open in editor"; ProjectUiState.editor overrides it for a project. If it is not installed it falls back to the first installed one (Cursor, VS Code, Zed, Xcode). Default 'cursor'. */
   editor: EditorId
-  /** Cartella dei worktree nuovi (assoluta; `~` iniziale accettata); null = predefinita (~/Developer/.ladder/worktrees o ~/.ladder/worktrees). Valori non assoluti diventano null. */
+  /** Folder for new worktrees (absolute; a leading `~` is accepted); null = default (~/Developer/.ladder/worktrees or ~/.ladder/worktrees). Non-absolute values become null. */
   worktreesDir: string | null
-  /** Prefisso dei branch dei worktree nuovi, per esempio 'ladder/' (predefinito) o 'nico/'. Vuoto = nessun prefisso. Valori non validi per git tornano al predefinito. */
+  /** Branch prefix for new worktrees, for example 'ladder/' (default) or 'nico/'. Empty = no prefix. Values invalid for git go back to the default. */
   branchPrefix: string
 
-  // ── LAD-22: dati e sistema ──
-  /** Archivia le sessioni ferme (senza turno, richieste o coda) da tanti giorni; null = mai (predefinito). 1–365. Vedi l'evento `sessions.autoArchived`. */
+  // ── Data and system ──
+  /** Archive sessions idle (no turn, requests or queue) for this many days; null = never (default). 1–365. See the `sessions.autoArchived` event. */
   autoArchiveDays: number | null
-  /** Apre Ladder all'accesso (app.setLoginItemSettings). Ha effetto solo nell'app installata; in sviluppo resta false. Predefinito false. */
+  /** Opens Ladder at login (app.setLoginItemSettings). Only takes effect in the installed app; in development it stays false. Default false. */
   openAtLogin: boolean
-  /** Tiene il Mac sveglio (powerSaveBlocker 'prevent-app-suspension': lo schermo può spegnersi) finché almeno una sessione sta lavorando. Predefinito false. */
+  /** Keeps the Mac awake (powerSaveBlocker 'prevent-app-suspension': the screen may turn off) while at least one session is working. Default false. */
   keepAwake: boolean
-  /** LAD-54/51: canale remoto per il telefono (vedi HostPrefs.remote). Assente = spento. Con il canale acceso Ladder resta nella barra dei menu a finestre chiuse. */
+  /** Remote channel for the phone (see HostPrefs.remote). Absent = off. With the channel on, Ladder stays in the menu bar when windows are closed. */
   remote?: { enabled: boolean; relayUrl: string | null; allowFull: boolean }
-  /** Suono delle notifiche quando `sound` è attivo: 'default' o il nome di un suono di sistema di macOS. Predefinito 'default'. */
+  /** Notification sound when `sound` is on: 'default' or the name of a macOS system sound. Default 'default'. */
   soundName: RequestSound
 }
 
 export type TextSize = 'small' | 'default' | 'large' | 'xlarge'
-/** system-mono: SF Mono / Cascadia Mono / Consolas; monaspace-neon è incluso nell'app. */
+/** system-mono: SF Mono / Cascadia Mono / Consolas; monaspace-neon is bundled with the app. */
 export type CodeFont = 'system-mono' | 'monaspace-neon'
 export type RequestSound = 'default' | 'Glass' | 'Ping' | 'Pop' | 'Hero' | 'Submarine' | 'Funk' | 'Tink'
 
 /** system-mono: SF Mono / Cascadia Mono / Consolas; system-sans: SF Pro / Segoe UI. */
 export type ChatFont = 'system-mono' | 'system-sans' | 'mona-sans' | 'monaspace-neon'
 
-/** Cosa sta guardando la finestra: il main non notifica una richiesta della sessione che hai davanti. */
+/** What the window is looking at: main does not notify a request from the session in front of you. */
 export interface WindowView {
   projectId: string | null
   sessionId: string | null
-  /** Tutte le sessioni visibili nella finestra (colonne affiancate comprese); sessionId è quella attiva. */
+  /** All sessions visible in the window (side-by-side columns included); sessionId is the active one. */
   visibleSessionIds?: string[]
 }
 
-// ── Browser integrato (LAD-57, prima parte) ──────────────────────────────
-// Una WebContentsView del main per tab, con partizione `persist:project-<id>`: cookie e sessioni separati
-// da quelli dell'utente e tra progetti. La UI comunica solo il rettangolo e i comandi; il main gestisce la vista.
+// ── Built-in browser ─────────────────────────────────────────────────────
+// One main WebContentsView per tab, with partition `persist:project-<id>`: cookies and sessions separate
+// from the user's and between projects. The UI only communicates the rectangle and the commands; main manages the view.
 
-/** Rettangolo della vista in pixel CSS della finestra (coordinate del renderer, origine in alto a sinistra). */
+/** View rectangle in CSS pixels of the window (renderer coordinates, origin at top left). */
 export interface BrowserBounds {
   x: number
   y: number
@@ -2791,36 +2791,36 @@ export interface BrowserBounds {
 }
 
 export interface BrowserLoadError {
-  /** Codice di rete di Chromium (es. -102 connessione rifiutata); 0 per errori nostri (schema bloccato, pagina morta). */
+  /** Chromium network code (e.g. -102 connection refused); 0 for our own errors (blocked scheme, dead page). */
   code: number
   description: string
   url: string
 }
 
-/** Stato di una tab browser; il main lo invia intero a ogni cambiamento (evento `ladder:browser-event`). */
+/** State of a browser tab; main sends it whole on every change (event `ladder:browser-event`). */
 export interface BrowserState {
   tabId: string
   projectId: string
-  /** Indirizzo corrente (anche durante il caricamento); stringa vuota prima della prima navigazione. */
+  /** Current address (also during loading); empty string before the first navigation. */
   url: string
   title: string
   loading: boolean
   canGoBack: boolean
   canGoForward: boolean
-  /** Errore dell'ultimo caricamento del frame principale; null appena parte una nuova navigazione. */
+  /** Error of the last main-frame load; null as soon as a new navigation starts. */
   error: BrowserLoadError | null
   /**
-   * Avviso non bloccante: un link mailto: o di altro schema non web è stato bloccato dal frame principale. La pagina resta
-   * quella di prima (non è un `error`). Già tradotto; si azzera quando parte una nuova navigazione. Assente = null.
+   * Non-blocking notice: a mailto: or other non-web scheme link was blocked by the main frame. The page stays
+   * the previous one (it is not an `error`). Already translated; reset when a new navigation starts. Absent = null.
    */
   notice?: string | null
-  // ── LAD-57 parte 2 ──
-  /** Presente solo nella tab del browser dell'agente (tabId `agent:<sessionId>`): partizione isolata, in memoria. Assente = tab dell'utente. */
+  // ── Agent browser ──
+  /** Present only on the agent's browser tab (tabId `agent:<sessionId>`): isolated, in-memory partition. Absent = the user's tab. */
   agent?: { sessionId: string } | null
-  // ── Fine LAD-57 parte 2 ──
+  // ── End agent browser ──
 }
 
-/** Scorciatoia dell'app premuta mentre la pagina del browser ha il focus (evento `ladder:browser-shortcut`): il renderer la tratta come un keydown. */
+/** App shortcut pressed while the browser page has focus (event `ladder:browser-shortcut`): the renderer handles it as a keydown. */
 export interface BrowserShortcut {
   key: string
   code: string
@@ -2832,32 +2832,32 @@ export interface BrowserShortcut {
 
 export type BrowserAction = 'back' | 'forward' | 'reload' | 'hard-reload' | 'stop' | 'focus' | 'devtools'
 
-/** Esito di navigate: `error` è un testo già traducibile da mostrare (indirizzo vuoto o schema non permesso). */
+/** Outcome of navigate: `error` is a translatable text to show (empty address or scheme not allowed). */
 export type BrowserNavigateResult = { ok: true; url: string } | { ok: false; error: string }
-// ── Fine browser integrato ───────────────────────────────────────────────
+// ── End of built-in browser ──────────────────────────────────────────────
 
-// ── LAD-57 parte 2: strumenti del browser per l'agente ───────────────────
-// Il browser dell'agente è una tab Browser dell'utente, marcata "agente" (BrowserState.agent), con partizione isolata e in memoria
-// (`project-<id>-agent-<sessionId>`, senza `persist:`): nessun cookie né storage dell'utente, tutto cancellato a fine sessione.
-// Gli strumenti sono un server MCP dell'host (HTTP su 127.0.0.1, token per sessione) registrato negli adapter solo se
-// AppPrefs.agentBrowser / ProjectUiState.agentBrowser è acceso. Il main possiede la vista e la pilota su richiesta dell'host.
+// ── Browser tools for the agent ──────────────────────────────────────────
+// The agent's browser is a Browser tab of the user, marked "agent" (BrowserState.agent), with an isolated in-memory partition
+// (`project-<id>-agent-<sessionId>`, without `persist:`): no cookies or storage of the user, all deleted at the end of the session.
+// The tools are an MCP server of the host (HTTP on 127.0.0.1, token per session) registered in the adapters only if
+// AppPrefs.agentBrowser / ProjectUiState.agentBrowser is on. Main owns the view and drives it on the host's request.
 //
 // Flusso UI:
-//  1. L'agente chiama uno strumento → il main crea la vista (nascosta) e l'host emette `browser.agent` con `tabId`.
-//  2. La UI, vedendo `state.tabId` nuovo, apre la tab Browser con quell'id (window.ladder.browser.open(tabId, projectId) restituisce
-//     la vista già creata; per un id `agent:` che non esiste il main risponde null) e la mostra: l'agente lavora in vista.
-//     Se la tab non è visibile, screenshot e click funzionano peggio (vista nascosta): conviene portarla in primo piano.
-//  3. `action` è l'azione in corso (una sola alla volta), `last` l'ultima conclusa. Ogni chiamata arriva anche in chat come card
-//     strumento (`mcp__ladder-browser__browser_*`), e le conferme come normali richieste di approvazione (RequestItem, toolName `browser_*`).
-//  4. Stop: `browser.agent.stop` (pulsante nella tab o nella chat). Chiudere la tab dell'agente vale come stop definitivo.
-//     Per la UI: `stopped` = mostra "Agent browser stopped" con un pulsante Resume (`browser.agent.resume`).
+//  1. The agent calls a tool → main creates the (hidden) view and the host emits `browser.agent` with `tabId`.
+//  2. The UI, seeing a new `state.tabId`, opens the Browser tab with that id (window.ladder.browser.open(tabId, projectId) returns
+//     the already created view; for an `agent:` id that does not exist main answers null) and shows it: the agent works in view.
+//     If the tab is not visible, screenshots and clicks work worse (hidden view): it is better to bring it to the front.
+//  3. `action` is the action in progress (one at a time), `last` the last finished one. Every call also arrives in chat as a tool
+//     card (`mcp__ladder-browser__browser_*`), and confirmations as normal approval requests (RequestItem, toolName `browser_*`).
+//  4. Stop: `browser.agent.stop` (button in the tab or in the chat). Closing the agent's tab counts as a final stop.
+//     For the UI: `stopped` = show "Agent browser stopped" with a Resume button (`browser.agent.resume`).
 
-/** Gli strumenti che l'agente vede. */
+/** The tools the agent sees. */
 export type AgentBrowserTool = 'browser_navigate' | 'browser_read_page' | 'browser_screenshot' | 'browser_click' | 'browser_type' | 'browser_console'
 
 export interface AgentBrowserAction {
   tool: AgentBrowserTool
-  /** Su cosa agisce, già pronto da mostrare: l'indirizzo, o `e12 · "Save"`; null per read/screenshot/console. Il testo digitato non c'è. */
+  /** What it acts on, ready to show: the address, or `e12 · "Save"`; null for read/screenshot/console. The typed text is not included. */
   target: string | null
   at: number
 }
@@ -2865,32 +2865,32 @@ export interface AgentBrowserAction {
 export interface AgentBrowserState {
   sessionId: string
   projectId: string
-  /** Id della tab Browser dell'agente (`agent:<sessionId>`), da passare a window.ladder.browser.*; null finché la vista non è stata creata o dopo la chiusura. */
+  /** Id of the agent's Browser tab (`agent:<sessionId>`), to pass to window.ladder.browser.*; null until the view has been created or after it is closed. */
   tabId: string | null
-  /** Strumenti attivi per questa sessione. false: interruttore spento (lo stato non si emette se non c'è mai stato un browser). */
+  /** Tools active for this session. false: switch off (the state is not emitted if there was never a browser). */
   enabled: boolean
   /**
-   * Fermato: gli strumenti rifiutano ogni chiamata. Vale per lo stop esplicito dell'utente e per la chiusura della tab, fino a `browser.agent.resume`
-   * (anche dopo la chiusura: lo stato resta, `tabId` è null e la tab si ricrea alla prima azione dell'agente). La UI lo offre dalla palette comandi
-   * e dal menu "+" della barra delle tab. L'interruzione del turno non imposta `stopped`: ferma l'azione in corso e il turno dopo riparte da sé.
+   * Stopped: the tools reject every call. Applies to the user's explicit stop and to closing the tab, until `browser.agent.resume`
+   * (also after closing: the state stays, `tabId` is null and the tab is recreated at the agent's first action). The UI offers it from the command palette
+   * and from the "+" menu of the tab bar. Interrupting the turn does not set `stopped`: it stops the current action and the next turn restarts on its own.
    */
   stopped: boolean
-  /** Il browser dell'agente non c'è più (sessione chiusa o interruttore spento): la UI chiude la tab. */
+  /** The agent's browser is gone (session closed or switch off): the UI closes the tab. */
   closed: boolean
-  /** Azione in corso (anche in attesa della tua conferma); null se nessuna. */
+  /** Action in progress (also waiting for your confirmation); null if none. */
   action: (AgentBrowserAction & { waitingForYou: boolean }) | null
-  /** Ultima azione conclusa: `ok` false con il motivo già tradotto in `error`. */
+  /** Last finished action: `ok` false with the already translated reason in `error`. */
   last: (AgentBrowserAction & { ok: boolean; error?: string | null }) | null
-  /** Domini fuori da localhost che hai autorizzato in questa sessione (si azzera alla chiusura). */
+  /** Domains other than localhost that you authorized in this session (reset on close). */
   allowedHosts: string[]
 }
 
 /**
- * Canale host → main (HostToMain `browser-agent`). Il main risponde sempre con dati semplici (stringhe, numeri): nessun contenuto della
- * pagina viene mai interpretato come comando. `sessionId` identifica la vista; il main ricontrolla da sé ogni indirizzo.
+ * Host → main channel (HostToMain `browser-agent`). Main always answers with plain data (strings, numbers): no page content
+ * is ever interpreted as a command. `sessionId` identifies the view; main rechecks every address itself.
  */
 export type BrowserAgentOp =
-  /** Crea la vista se manca. `projectId` per la partizione. */
+  /** Creates the view if missing. `projectId` for the partition. */
   | { op: 'open'; sessionId: string; projectId: string }
   | { op: 'navigate'; sessionId: string; url: string }
   | { op: 'read'; sessionId: string; maxChars: number; maxElements: number }
@@ -2899,19 +2899,19 @@ export type BrowserAgentOp =
   | { op: 'type'; sessionId: string; ref: string; text: string }
   | { op: 'console'; sessionId: string; limit: number }
   /**
-   * Cosa la tab può aprire oltre a localhost. Con `host: null` riparte da zero: svuota i domini ammessi e fissa `any` (true solo per Full access).
-   * Con `host` AGGIUNGE quel dominio senza svuotare nulla (né `any`): chi chiama manda prima `host: null` e poi un'aggiunta per ogni dominio ammesso
-   * (approvati per la sessione, più quello approvato una volta). `any` vale solo nel messaggio con `host: null`.
+   * What the tab can open besides localhost. With `host: null` it starts from scratch: empties the allowed domains and sets `any` (true only for Full access).
+   * With `host` it ADDS that domain without emptying anything (nor `any`): the caller first sends `host: null` and then an addition for every allowed domain
+   * (approved for the session, plus the one approved once). `any` only applies in the message with `host: null`.
    */
   | { op: 'allow'; sessionId: string; host: string | null; any?: boolean }
-  /** Ferma caricamento e azione in corso. Con `freeze` (stop dell'utente, predefinito) il main rifiuta ogni operazione fino a `resume`; senza, solo un timeout. */
+  /** Stops the load and the action in progress. With `freeze` (user stop, default) main rejects every operation until `resume`; without it, only a timeout. */
   | { op: 'stop'; sessionId: string; freeze?: boolean }
   | { op: 'resume'; sessionId: string }
-  /** Distrugge la vista e svuota la partizione. */
+  /** Destroys the view and empties the partition. */
   | { op: 'close'; sessionId: string }
 
 export interface AgentPageElement {
-  /** Riferimento stabile per click/type (`e12`): vale finché il documento è lo stesso. */
+  /** Stable reference for click/type (`e12`): valid as long as the document is the same. */
   ref: string
   role: string
   name: string
@@ -2923,92 +2923,92 @@ export interface AgentPageElement {
 }
 
 export type BrowserAgentResult =
-  | { ok: true; url?: string; title?: string; text?: string; elements?: AgentPageElement[]; truncated?: boolean; image?: { mediaType: string; data: string }; /** Avvertenza già tradotta (es. screenshot uniforme). */ note?: string; messages?: { level: string; text: string }[]; tabId?: string }
-  /** `error` è già tradotto; `code` distingue il caso per l'host: `blocked` = indirizzo non ammesso, `stopped`, `closed`, `timeout`, `stale-ref`, `failed`. */
+  | { ok: true; url?: string; title?: string; text?: string; elements?: AgentPageElement[]; truncated?: boolean; image?: { mediaType: string; data: string }; /** Already translated warning (e.g. uniform screenshot). */ note?: string; messages?: { level: string; text: string }[]; tabId?: string }
+  /** `error` is already translated; `code` distinguishes the case for the host: `blocked` = address not allowed, `stopped`, `closed`, `timeout`, `stale-ref`, `failed`. */
   | { ok: false; code: 'blocked' | 'stopped' | 'closed' | 'timeout' | 'stale-ref' | 'failed'; error: string; host?: string }
-// ── Fine LAD-57 parte 2 ──────────────────────────────────────────────────
+// ── End of browser tools for the agent ───────────────────────────────────
 
-// ── LAD-59: testi scritti da un modello ──────────────────────────────────────
+// ── Text written by a model ──────────────────────────────────────────────────
 
-/** Quanto del diff non è arrivato al modello (limite di caratteri): file tagliati o saltati e caratteri non inviati. */
+/** How much of the diff did not reach the model (character limit): files cut or skipped and characters not sent. */
 export interface GeneratedTextCut {
   files: number
   chars: number
 }
 
-/** Risposta di `text.commit`. `body` vuoto = solo oggetto. Il testo è sempre una proposta da modificare. */
+/** Answer of `text.commit`. Empty `body` = subject only. The text is always a proposal to edit. */
 export interface GeneratedCommit {
   subject: string
   body: string
-  /** Quale diff è stato descritto. */
+  /** Which diff was described. */
   source: 'staged' | 'working'
-  /** File modificati nel diff descritto. */
+  /** Files changed in the described diff. */
   files: number
   truncated: GeneratedTextCut | null
 }
 
-// ── LAD-59 commit ──
-/** Oggetto del commit più lungo accettato dall'host (`git.commit`); la UI usa lo stesso limite. */
+// ── Commit ──
+/** Longest commit subject accepted by the host (`git.commit`); the UI uses the same limit. */
 export const MAX_COMMIT_SUBJECT = 200
-/** Titolo e descrizione della PR più lunghi accettati da `pr.prepare`. */
+/** Longest PR title and description accepted by `pr.prepare`. */
 export const MAX_PR_TITLE = 256
 export const MAX_PR_BODY = 65_000
 
-/** Risposta di `pr.prepare`: il prompt da mandare alla sessione e i file scritti. */
+/** Answer of `pr.prepare`: the prompt to send to the session and the files written. */
 export interface PrPrepared {
   prompt: string
   titlePath: string
   bodyPath: string
 }
 
-/** Risposta di `git.commit`: hash corto del nuovo commit e oggetto (senza spazi ai bordi). */
+/** Answer of `git.commit`: short hash of the new commit and subject (trimmed of surrounding spaces). */
 export interface GitCommitResult {
   hash: string
   subject: string
 }
-// ── fine LAD-59 commit ──
+// ── end of commit ──
 
-// ── LAD-68 ──
+// ── Git status ──
 /**
- * Stato git di una cartella per l'intestazione della sessione. Stessa fonte dei campi comuni di `MergeInfo`
- * (`dirty`, `unpushed` = `ahead` se `hasUpstream`, `hasUpstream`).
+ * Git state of a folder for the session header. Same source as the common fields of `MergeInfo`
+ * (`dirty`, `unpushed` = `ahead` if `hasUpstream`, `hasUpstream`).
  */
 export interface GitStatus {
-  /** Cartella di lavoro (worktree se la sessione ne ha uno): chiave per abbinare l'evento `git.status`. */
+  /** Working folder (the worktree if the session has one): key to match the `git.status` event. */
   root: string
-  /** Branch corrente; null con HEAD staccato. */
+  /** Current branch; null with detached HEAD. */
   branch: string | null
-  /** Upstream del branch, per esempio "origin/main"; null se non pubblicato (o HEAD staccato). */
+  /** Upstream of the branch, for example "origin/main"; null if unpublished (or detached HEAD). */
   upstream: string | null
   hasUpstream: boolean
-  /** Commit da inviare (HEAD ha, l'upstream no): la freccia ↑. 0 se non c'è upstream (leggi `hasUpstream`). */
+  /** Commits to send (HEAD has, the upstream does not): the ↑ arrow. 0 if there is no upstream (read `hasUpstream`). */
   ahead: number
-  /** Commit da scaricare (l'upstream ha, HEAD no): la freccia ↓, aggiornata dal fetch in background. */
+  /** Commits to pull (the upstream has, HEAD does not): the ↓ arrow, updated by the background fetch. */
   behind: number
-  /** File con modifiche non committate (stage, cartella di lavoro e non tracciati non ignorati). */
+  /** Files with uncommitted changes (staged, working folder and untracked not ignored). */
   dirty: number
-  /** Righe aggiunte/tolte dalle modifiche non committate (stage + cartella di lavoro vs HEAD; i file nuovi contano per intero). 0 se dirty è 0. */
+  /** Lines added/removed by uncommitted changes (staged + working folder vs HEAD; new files count in full). 0 if dirty is 0. */
   added: number
   removed: number
   isWorktree: boolean
 }
-// ── fine LAD-68 ──
+// ── end of git status ──
 
-// ── LAD-80 ──
-/** Perché una riga della mappa non ha i numeri: i campi dipendenti sono null. */
+// ── Branch map ──
+/** Why a map row has no numbers: the dependent fields are null. */
 export type BranchMapProblem =
-  /** La sessione non ha un branch (HEAD staccato sul checkout principale). */
+  /** The session has no branch (detached HEAD on the main checkout). */
   | 'detached'
-  /** Il branch non esiste più (cancellato, o repository senza commit). */
+  /** The branch no longer exists (deleted, or repository without commits). */
   | 'branch_missing'
-  /** Il ramo principale non esiste (repository senza commit, base cancellata). */
+  /** The main branch does not exist (repository without commits, base deleted). */
   | 'no_base'
-  /** Il branch e il ramo principale hanno storie non correlate: nessun merge-base. */
+  /** The branch and the main branch have unrelated histories: no merge-base. */
   | 'no_merge_base'
 
 /**
- * Una sessione sulla mappa. Tutti i tempi sono ms; l'asse X lo normalizza la UI. Lo stato "a parole" lo calcola la UI da `run`,
- * `archived` e `merged` come per la sidebar (in esecuzione = running/starting, ti aspetta = waiting, unita = merged, ferma = il resto).
+ * A session on the map. All times are ms; the UI normalizes the X axis. The "in words" state is computed by the UI from `run`,
+ * `archived` and `merged` as for the sidebar (running = running/starting, waiting for you = waiting, merged = merged, idle = the rest).
  */
 export interface BranchMapEntry {
   sessionId: string
@@ -3016,47 +3016,47 @@ export interface BranchMapEntry {
   agent: AgentId
   run: RunState
   archived: boolean
-  /** Ultima attività della sessione: ordina la mappa (le più recenti prima) e decide "gli ultimi 6 attivi". */
+  /** Last activity of the session: orders the map (most recent first) and decides "the last 6 active". */
   activityAt: number
-  /** Stato della PR del branch se già in cache (nessuna chiamata a gh per costruire la mappa); null se ignoto o senza PR. */
+  /** State of the branch's PR if already cached (no gh call to build the map); null if unknown or without a PR. */
   prState: PrStatus['state'] | null
-  /** false: la sessione lavora sul checkout principale. L'host manda solo quelle sul ramo principale (`isBase`), le ultime 20: servono a "sei su main". */
+  /** false: the session works on the main checkout. The host sends only those on the main branch (`isBase`), the last 20: they serve "you are on main". */
   isWorktree: boolean
-  /** La cartella del worktree non esiste più (il branch può esserci ancora: i numeri sono quelli del branch). */
+  /** The worktree folder no longer exists (the branch may still be there: the numbers are the branch's). */
   worktreeMissing: boolean
-  /** null con HEAD staccato. */
+  /** null with detached HEAD. */
   branch: string | null
-  /** Il branch è il ramo principale stesso (sessione sul checkout principale): niente curva, nessun conteggio. */
+  /** The branch is the main branch itself (session on the main checkout): no curve, no counts. */
   isBase: boolean
   problem: BranchMapProblem | null
-  /** Punto di stacco da main (`git merge-base`): sha completo e data del commit. Null con `problem`. */
+  /** Fork point from main (`git merge-base`): full sha and commit date. Null with `problem`. */
   mergeBase: string | null
   mergeBaseAt: number | null
-  /** Commit del branch non nel ramo principale (↑) e del ramo principale non nel branch (↓). Da `merged` in poi hanno poco senso: con lo squash ↑ resta > 0. */
+  /** Commits of the branch not in the main branch (↑) and of the main branch not in the branch (↓). From `merged` on they matter little: with squash ↑ stays > 0. */
   ahead: number | null
   behind: number | null
   /**
-   * Unito: 'git' = il branch è già tutto nel ramo principale E c'è la prova che ha avuto commit propri: un merge commit del ramo
-   * principale che lo cita come genitore, oppure (fast-forward) il suo branch su origin, arrivato dopo la nascita, è dentro il ramo
-   * principale. Un branch solo "avanzato" lungo main (pull, reset) NON è unito. 'pr' = la PR del branch è unita (squash e rebase
-   * compresi), era già in cache e il branch non ha commit dopo di lei (oggetto della PR non scaricato: non unito). Gli archiviati
-   * uniti si ricordano dopo un riavvio (colonne `merged_via`/`merged_at`). Nel dubbio null: meglio un mancato "unito" che uno falso.
+   * Merged: 'git' = the branch is already entirely in the main branch AND there is proof it had its own commits: a merge commit of the main
+   * branch that cites it as parent, or (fast-forward) its branch on origin, which arrived after its creation, is inside the main
+   * branch. A branch merely "advanced" along main (pull, reset) is NOT merged. 'pr' = the branch's PR is merged (squash and rebase
+   * included), was already cached and the branch has no commits after it (PR object not fetched: not merged). Archived merged
+   * sessions are remembered after a restart (`merged_via`/`merged_at` columns). When in doubt null: better a missed "merged" than a false one.
    */
   merged: 'git' | 'pr' | null
-  /** Quando: merge commit sul ramo principale se c'è (git), `mergedAt` della PR (pr), data dell'ultimo commit del branch come ripiego. Null se non unito. */
+  /** When: merge commit on the main branch if there is one (git), the PR's `mergedAt` (pr), date of the branch's last commit as a fallback. Null if not merged. */
   mergedAt: number | null
-  /** Ultimo commit del branch. */
+  /** Last commit of the branch. */
   lastCommit: { subject: string; at: number } | null
-  /** Righe aggiunte/tolte dai commit del branch rispetto al merge-base (non le modifiche non committate). */
+  /** Lines added/removed by the branch's commits relative to the merge-base (not uncommitted changes). */
   added: number | null
   removed: number | null
-  /** File con modifiche non committate, solo se il tracker git ha già letto la cartella; altrimenti null. */
+  /** Files with uncommitted changes, only if the git tracker has already read the folder; otherwise null. */
   dirty: number | null
   /**
-   * Riga del checkout principale su un branch che NON è il ramo principale (per esempio `development` con `main` come base): una sola
-   * per progetto, letta dal git (compare anche senza sessioni). `sessionId` è la sessione più recente non archiviata del checkout
-   * principale, o `main-checkout:<projectId>` se non ce n'è (allora non si apre); `isWorktree` è false e `branch` il branch estratto.
-   * `dirty` sono i file non committati del checkout principale. Con HEAD staccato la riga non c'è.
+   * Row of the main checkout on a branch that is NOT the main branch (for example `development` with `main` as base): only one
+   * per project, read from git (it appears even without sessions). `sessionId` is the most recent non-archived session of the main
+   * checkout, or `main-checkout:<projectId>` if there is none (then it does not open); `isWorktree` is false and `branch` the checked-out branch.
+   * `dirty` is the uncommitted files of the main checkout. With detached HEAD the row is absent.
    */
   mainCheckout?: true
 }
@@ -3064,144 +3064,144 @@ export interface BranchMapEntry {
 export interface BranchMap {
   projectId: string
   /**
-   * Ramo principale, letto senza rete (origin/HEAD, poi main o master; se il pannello Merge l'ha già risolto con gh vale quello).
-   * Una PR verso un altro ramo cambia la base del pannello Merge ma non quella della mappa. Null se il progetto non è git o la cartella non c'è.
+   * Main branch, read without network (origin/HEAD, then main or master; if the Merge panel already resolved it with gh, that one applies).
+   * A PR toward another branch changes the Merge panel's base but not the map's. Null if the project is not git or the folder is missing.
    */
   base: string | null
-  /** Data dell'ultimo commit del ramo principale (fine della linea di main); null se non si legge. */
+  /** Date of the last commit of the main branch (end of the main line); null if unreadable. */
   baseAt: number | null
-  /** Sha completo dell'ultimo commit del ramo principale (la stessa ref di `baseAt`); null se non si legge. */
+  /** Full sha of the last commit of the main branch (the same ref as `baseAt`); null if unreadable. */
   baseSha: string | null
-  /** Al massimo 50 righe di worktree (attivi o uniti), le più recenti, più le ultime 20 sessioni sul ramo principale; le altre non ci sono (`hidden`). */
+  /** At most 50 worktree rows (active or merged), the most recent, plus the last 20 sessions on the main branch; the others are not there (`hidden`). */
   entries: BranchMapEntry[]
-  /** Righe che avrebbero un posto sulla mappa (worktree attivi o uniti) ma non ci sono per il limite di 50; stima per difetto. */
+  /** Rows that would have a place on the map (active or merged worktrees) but are not there because of the 50 limit; an underestimate. */
   hidden: number
-  /** Lettura fallita: la mappa è vuota e la UI può dirlo (testo già tradotto). Assente o null se è andata bene. */
+  /** Read failed: the map is empty and the UI can say so (already translated text). Absent or null if it went well. */
   error?: string | null
 }
-// ── fine LAD-80 ──
+// ── end of branch map ──
 
-// ── Branch del checkout principale ──
-/** Un branch locale del progetto, per il menu del branch e per la scelta del punto di partenza di un worktree. */
+// ── Main checkout branch ──
+/** A local branch of the project, for the branch menu and for choosing a worktree's starting point. */
 export interface LocalBranch {
   name: string
-  /** Data (ms) e titolo dell'ultimo commit. */
+  /** Date (ms) and title of the last commit. */
   at: number
   subject: string
-  /** È il branch estratto nel checkout principale. */
+  /** It is the branch checked out in the main checkout. */
   current: boolean
-  /** Cartella del worktree che lo ha estratto (non il checkout principale): git vieta di estrarlo anche altrove. Null se libero. */
+  /** Folder of the worktree that checked it out (not the main checkout): git forbids checking it out elsewhere too. Null if free. */
   worktree: string | null
 }
 
-/** Risposta di `project.branches`. */
+/** Answer of `project.branches`. */
 export interface ProjectBranches {
   projectId: string
-  /** Branch del checkout principale; null con HEAD staccato. */
+  /** Branch of the main checkout; null with detached HEAD. */
   current: string | null
-  /** Branch locali, l'ultimo commit più recente prima. */
+  /** Local branches, most recent last commit first. */
   branches: LocalBranch[]
-  /** File con modifiche non committate nel checkout principale (anche non tracciati). */
+  /** Files with uncommitted changes in the main checkout (untracked too). */
   dirty: number
-  /** Sessione del checkout principale (non in worktree) con un turno o dei sotto-agenti al lavoro: finché c'è, il cambio di branch è rifiutato. */
+  /** Main checkout session (not in a worktree) with a turn or sub-agents at work: while it exists, the branch change is rejected. */
   busy: { sessionId: string; title: string } | null
-  /** Cartella in cui finiscono i worktree di questo progetto (con `~` al posto della cartella di casa), per mostrarla nella nuova chat. */
+  /** Folder where this project's worktrees end up (with `~` in place of the home folder), to show in the new chat. */
   worktreesFolder: string
 }
 
-/** Risposta di `project.branch.switch` e `project.branch.create`. */
+/** Answer of `project.branch.switch` and `project.branch.create`. */
 export interface BranchSwitchResult {
   branch: string
-  /** Messaggio dello stash creato prima del cambio (`git stash push -u`); null se non c'è stato. */
+  /** Message of the stash created before the switch (`git stash push -u`); null if there was none. */
   stash: string | null
 }
-// ── fine Branch del checkout principale ──
+// ── end of main checkout branch ──
 
-// ── LAD-69 ──
+// ── Push and merge ──
 export type PrMergeMethod = 'merge' | 'squash' | 'rebase'
 
-/** Anteprima di `git.push.preview`. */
+/** Preview from `git.push.preview`. */
 export interface GitPushPreview {
   branch: string
-  /** Remote a cui andrebbe il push; null se manca (vedi `problem`). */
+  /** Remote the push would go to; null if missing (see `problem`). */
   remote: string | null
-  /** Remote del repository (`git remote`): per far scegliere quando `problem` è 'choose-remote'. */
+  /** Remotes of the repository (`git remote`): to let the user choose when `problem` is 'choose-remote'. */
   remotes: string[]
-  /** Upstream attuale, per esempio "origin/feat"; null se il branch non è pubblicato (o l'upstream è sparito). */
+  /** Current upstream, for example "origin/feat"; null if the branch is unpublished (or the upstream is gone). */
   upstream: string | null
-  /** Destinazione esatta del push, per esempio "origin/feat" (`<remote>/<branch locale>`); null se manca il remote (vedi `problem`). */
+  /** Exact push destination, for example "origin/feat" (`<remote>/<local branch>`); null if the remote is missing (see `problem`). */
   target: string | null
-  /** L'upstream attuale punta altrove (altro nome di branch o altro remote): NON è la destinazione e dopo il push diventa `target`. Altrimenti null. */
+  /** The current upstream points elsewhere (another branch name or another remote): it is NOT the destination and after the push becomes `target`. Otherwise null. */
   upstreamElsewhere: string | null
-  /** Sha completo di HEAD al momento dell'anteprima: la UI lo rimanda in `git.push.expectedHead`. '' se il branch non ha commit. */
+  /** Full sha of HEAD at preview time: the UI sends it back in `git.push.expectedHead`. '' if the branch has no commits. */
   head: string
-  /** Il push imposta l'upstream su `target` (`-u`): branch non pubblicato, o con upstream altrove. */
+  /** The push sets the upstream to `target` (`-u`): unpublished branch, or one with the upstream elsewhere. */
   willPublish: boolean
-  /** Fino a 50 commit che verrebbero inviati, il più recente prima. */
+  /** Up to 50 commits that would be sent, most recent first. */
   commits: { hash: string; subject: string }[]
-  /** Numero totale dei commit da inviare (può superare commits.length). */
+  /** Total number of commits to send (may exceed commits.length). */
   total: number
-  /** Commit dell'upstream che il branch non ha (da ultimo fetch): se > 0 e total > 0 il push verrebbe rifiutato. */
+  /** Upstream commits the branch does not have (as of the last fetch): if > 0 and total > 0 the push would be rejected. */
   behind: number
-  /** Il push verrebbe rifiutato perché non è un fast-forward (behind > 0 e total > 0): serve prima integrare l'upstream. */
+  /** The push would be rejected because it is not a fast-forward (behind > 0 and total > 0): the upstream must be integrated first. */
   wouldBeRejected: boolean
-  /** no-remote: il repo non ha remote. choose-remote: più remote e nessun upstream, serve `remote`. */
+  /** no-remote: the repo has no remote. choose-remote: several remotes and no upstream, `remote` is needed. */
   problem: 'no-remote' | 'choose-remote' | null
 }
 
-/** Risposta di `git.push`. */
+/** Answer of `git.push`. */
 export interface GitPushResult {
   branch: string
   remote: string
-  /** Commit inviati (contati prima del push sull'upstream o, se si pubblica, su ciò che il remote non ha). */
+  /** Commits sent (counted before the push against the upstream or, when publishing, against what the remote does not have). */
   pushed: number
-  /** Upstream dopo il push, per esempio "origin/feat". */
+  /** Upstream after the push, for example "origin/feat". */
   upstream: string
-  /** Il branch è stato pubblicato con questo push (prima non aveva upstream). */
+  /** The branch was published by this push (it had no upstream before). */
   published: boolean
 }
 
-/** Risposta di `pr.merge`. */
+/** Answer of `pr.merge`. */
 export interface PrMergeResult {
   number: number
   method: PrMergeMethod
-  /** PR riletta dopo il merge (di norma state 'merged'); null se gh non l'ha restituita. */
+  /** PR reread after the merge (normally state 'merged'); null if gh did not return it. */
   pr: PrStatus | null
-  /** Branch remoto cancellato (solo se richiesto con `deleteBranch`). */
+  /** Remote branch deleted (only if requested with `deleteBranch`). */
   branchDeleted: boolean
-  /** Perché il branch remoto non è stato cancellato, se richiesto e fallito (il merge è comunque riuscito). */
+  /** Why the remote branch was not deleted, if requested and failed (the merge succeeded anyway). */
   branchDeleteError: string | null
 }
 
-/** Risposta di `git.archive`. */
+/** Answer of `git.archive`. */
 export interface GitArchiveResult {
-  /** La sessione è stata archiviata. */
+  /** The session was archived. */
   archived: true
   worktreeRemoved: boolean
-  /** Perché il worktree è rimasto: 'none' (la sessione non ha un worktree), 'shared' (un'altra sessione lo usa), 'dirty' (file non committati), 'failed' (git l'ha rifiutato). Il branch resta sempre. */
+  /** Why the worktree stayed: 'none' (the session has no worktree), 'shared' (another session uses it), 'dirty' (uncommitted files), 'failed' (git refused). The branch always stays. */
   worktreeKept: 'none' | 'shared' | 'dirty' | 'failed' | null
-  /** 'failed': perché git non l'ha tolto (stderr ripulito e accorciato); altrimenti assente o null. */
+  /** 'failed': why git did not remove it (stderr cleaned and shortened); otherwise absent or null. */
   worktreeError?: string | null
 }
 
-/** Cosa impedisce di unire la PR, in ordine di priorità (il primo è il motivo mostrato nel tooltip di Merge). */
+/** What prevents merging the PR, in priority order (the first is the reason shown in the Merge tooltip). */
 export type MergeBlockKind = 'draft' | 'conflicts' | 'ci_failing' | 'ci_pending' | 'changes_requested' | 'review_required' | 'behind' | 'blocked'
 
 export interface MergeBlock {
   kind: MergeBlockKind
-  /** conflicts: file in conflitto; ci_failing / ci_pending: numero di check. */
+  /** conflicts: conflicting files; ci_failing / ci_pending: number of checks. */
   count?: number
 }
 
-/** Passo successivo del pannello: Commit → Push/Pubblica → Crea PR → Merge → Archivia. */
+/** Next step of the panel: Commit → Push/Publish → Create PR → Merge → Archive. */
 export type NextActionKind = 'commit' | 'push' | 'publish' | 'create_pr' | 'merge' | 'archive' | 'none'
 
 /**
- * Perché il passo è disabilitato (`blocked`) o la spiegazione di 'none'/'create_pr':
- * detached (HEAD staccato), default_branch (niente PR sul branch predefinito), no_remote, no_commits (niente rispetto alla base),
- * github_missing / github_unauthenticated / no_github_remote / github_error (gh non pronto), pr_closed (la PR precedente è chiusa:
- * se ne apre un'altra), behind_upstream (l'upstream ha commit che il branch non ha: il push verrebbe rifiutato), agent_busy (l'agente
- * sta lavorando), dirty / unpushed (Archivia con modifiche o commit non inviati), oppure il primo MergeBlockKind.
+ * Why the step is disabled (`blocked`) or the explanation of 'none'/'create_pr':
+ * detached (detached HEAD), default_branch (no PR on the default branch), no_remote, no_commits (nothing relative to the base),
+ * github_missing / github_unauthenticated / no_github_remote / github_error (gh not ready), pr_closed (the previous PR is closed:
+ * another one is opened), behind_upstream (the upstream has commits the branch does not: the push would be rejected), agent_busy (the agent
+ * is working), dirty / unpushed (Archive with changes or unpushed commits), or the first MergeBlockKind.
  */
 export type NextActionReason =
   | 'detached' | 'default_branch' | 'no_remote' | 'no_commits' | 'github_missing' | 'github_unauthenticated' | 'no_github_remote' | 'github_error'
@@ -3210,24 +3210,24 @@ export type NextActionReason =
 
 export interface NextAction {
   kind: NextActionKind
-  /** Il pulsante principale è disabilitato (con `reason` nel tooltip). 'none' è sempre blocked. */
+  /** The main button is disabled (with `reason` in the tooltip). 'none' is always blocked. */
   blocked: boolean
   reason: NextActionReason | null
 }
-// ── fine LAD-69 ──
+// ── end of push and merge ──
 
-/** Risposta di `text.pr`. `body` include già il collegamento all'issue (riga "Closes …") se c'è. */
+/** Answer of `text.pr`. `body` already includes the link to the issue ("Closes …" line) if there is one. */
 export interface GeneratedPr {
   title: string
   body: string
-  /** Issue collegata: da source della sessione o citata nel primo messaggio; null se non c'è. */
+  /** Linked issue: from the session's source or mentioned in the first message; null if none. */
   issue: { ref: string; url: string | null } | null
-  /** Branch di base del confronto. */
+  /** Base branch of the comparison. */
   base: string
   files: number
   truncated: GeneratedTextCut | null
 }
-// ── fine LAD-59 ──
+// ── end of text written by a model ──
 
 // ── CLI ──
 

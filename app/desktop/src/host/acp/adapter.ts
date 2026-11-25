@@ -1,6 +1,6 @@
-// Adapter ACP generico (Agent Client Protocol, SDK 2.4.0, protocollo v1): un agente è solo una voce
-// di configurazione (comando, argomenti, ambiente). Regole dello spike S5: opzioni riapplicate dopo la ripresa,
-// tool call aperte chiuse a fine turno, nomi delle opzioni di permesso presi dall'agente, diff calcolato da git.
+// Generic ACP adapter (Agent Client Protocol, SDK 2.4.0, protocol v1): an agent is just a configuration
+// entry (command, arguments, environment). Rules from the spike: options reapplied after resume,
+// open tool calls closed at the end of the turn, permission option names taken from the agent, diff computed by git.
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { Readable, Writable } from 'node:stream'
@@ -9,12 +9,12 @@ import { t } from '@shared/i18n'
 import type { AcpAgentSpec, AgentLogin, Attachment, Effort, PermissionLevel, RequestOption } from '@shared/protocol'
 import { agentEnv, BROWSER_MCP_NAME, LADDER_MCP_NAME, ladderDetail, clip, displayCommand, firstLine, whichInShell, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
 
-/** Chiavi API tolte sempre: vale il login dell'agente. */
+/** API keys always removed: the agent's own login applies. */
 export const STRIP_ENV = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY']
 
 export interface AcpOptions extends SessionOptions {
   spec: AcpAgentSpec
-  /** Cosa il protocollo ha detto sul login (metodi di accesso, sessione aperta o auth_required): l'host lo conserva per il catalogo. */
+  /** What the protocol said about login (sign-in methods, session opened or auth_required): the host keeps it for the catalog. */
   onLogin?: (login: AgentLogin) => void
 }
 
@@ -31,7 +31,7 @@ function flatten(option: ConfigOption): SelectValue[] {
   return out
 }
 
-/** Modalità dell'agente più vicina al livello di Ladder: i nomi cambiano da agente ad agente. */
+/** Agent mode closest to a Ladder level: names change from agent to agent. */
 const MODE_PATTERNS: Record<PermissionLevel, RegExp[]> = {
   plan: [/plan/i, /read[-_ ]?only/i],
   ask: [/^default$/i, /ask|untrusted|manual/i, /read[-_ ]?only/i],
@@ -40,9 +40,9 @@ const MODE_PATTERNS: Record<PermissionLevel, RegExp[]> = {
 }
 
 /**
- * Metodi di accesso dichiarati in `initialize`, nella forma del contratto. `agent` solo se `type` manca (è il predefinito di ACP)
- * o è `agent`; `terminal` per i metodi da terminale; ogni altro tipo (es. `env_var`) è `unsupported`: Ladder non lo sa fare e la
- * UI non lo mostra come "Sign in".
+ * Sign-in methods declared in `initialize`, in the contract's shape. `agent` only if `type` is missing (it is ACP's default)
+ * or is `agent`; `terminal` for terminal methods; any other type (e.g. `env_var`) is `unsupported`: Ladder can't do it and the
+ * UI doesn't show it as "Sign in".
  */
 function authMethodsOf(init: { authMethods?: acp.AuthMethod[] | null }): AgentLogin['methods'] {
   return (init.authMethods ?? []).map((m) => {
@@ -51,29 +51,29 @@ function authMethodsOf(init: { authMethods?: acp.AuthMethod[] | null }): AgentLo
   })
 }
 
-/** Tempo massimo per un accesso: l'agente può aspettare l'utente nel browser. */
+/** Maximum time for a sign-in: the agent may wait for the user in the browser. */
 const AUTH_TIMEOUT_MS = 5 * 60_000
 
 /**
- * Accesso a un agente con un suo metodo `agent` (ACP `authenticate`), fuori da una sessione di chat: avvia l'agente, fa
- * `initialize` senza capacità lato client, chiama `authenticate` e verifica con una sessione di prova (`session/new`,
- * senza prompt). Ladder non vede né tocca le credenziali: le gestisce l'agente. L'esito è lo stato del login:
- * `ready` se la sessione si apre, `required` se l'agente chiede ancora l'accesso (auth_required). Un metodo `terminal` o
- * `unsupported` non si passa mai a `authenticate`. Se l'agente muore o non parte l'attesa finisce subito (non dopo 5 minuti);
- * `signal` annulla: il figlio si ferma e la promessa fallisce con un AbortError. Il figlio si ferma sempre a fine lavoro (SIGKILL dopo 3 secondi).
+ * Sign-in to an agent through its own `agent` method (ACP `authenticate`), outside a chat session: starts the agent, runs
+ * `initialize` without client-side capabilities, calls `authenticate` and verifies with a test session (`session/new`,
+ * without a prompt). Ladder neither sees nor touches the credentials: the agent manages them. The outcome is the login state:
+ * `ready` if the session opens, `required` if the agent still asks to sign in (auth_required). A `terminal` or
+ * `unsupported` method is never passed to `authenticate`. If the agent dies or doesn't start, the wait ends at once (not after 5 minutes);
+ * `signal` cancels: the child stops and the promise fails with an AbortError. The child always stops when done (SIGKILL after 3 seconds).
  */
 export async function acpAuthenticate(spec: AcpAgentSpec, methodId: string, cwd: string, signal?: AbortSignal, timeoutMs = AUTH_TIMEOUT_MS): Promise<AgentLogin> {
   const command = await whichInShell(spec.command)
   if (!command || (command.startsWith('/') && !existsSync(command))) throw new Error(t('command “{command}” not found', { command: spec.command }))
   signal?.throwIfAborted()
   const env = await agentEnv(STRIP_ENV, spec.env ?? {})
-  // Lo Stop può arrivare mentre si prepara l'ambiente: senza questo controllo l'agente partirebbe lo stesso.
+  // Stop can arrive while the environment is being prepared: without this check the agent would start anyway.
   signal?.throwIfAborted()
   const child = spawn(command, spec.args, { cwd, stdio: ['pipe', 'pipe', 'ignore'], env })
   child.on('error', () => undefined)
   let timedOut = false
   let timer: NodeJS.Timeout | undefined
-  // Allo scadere la promessa si rifiuta da sola (un agente che ignora SIGTERM non deve tenere occupato l'accesso); SIGKILL dopo un secondo.
+  // On expiry the promise rejects by itself (an agent that ignores SIGTERM must not keep the sign-in busy); SIGKILL after one second.
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       timedOut = true
@@ -86,7 +86,7 @@ export async function acpAuthenticate(spec: AcpAgentSpec, methodId: string, cwd:
   const onAbort = () => child.kill('SIGKILL')
   signal?.addEventListener('abort', onAbort, { once: true })
   if (signal?.aborted) onAbort()
-  // Un agente che non parte, muore o viene fermato interrompe ogni attesa in corso.
+  // An agent that doesn't start, dies or is stopped interrupts every wait in progress.
   const gone = new Promise<never>((_, reject) => {
     child.once('error', (error) => reject(error))
     child.once('exit', () => reject(new Error(t('The agent stopped before signing in.'))))
@@ -125,7 +125,7 @@ export async function acpAuthenticate(spec: AcpAgentSpec, methodId: string, cwd:
   } catch (error) {
     if (signal?.aborted) throw Object.assign(new Error(t('Sign-in was cancelled.')), { name: 'AbortError' })
     if (timedOut) throw new Error(t('Sign-in timed out.'))
-    // Se l'agente muore subito, l'SDK vede la connessione chiusa prima dell'evento exit: vince il messaggio dell'host (non per gli errori del protocollo).
+    // If the agent dies right away, the SDK sees the connection closed before the exit event: the host's message wins (not for protocol errors).
     if (typeof (error as { code?: unknown }).code !== 'number') {
       const stopped = await Promise.race([gone.then(() => null, (e: Error) => e), new Promise<null>((r) => setTimeout(() => r(null), 300))])
       if (stopped) throw stopped
@@ -136,12 +136,12 @@ export async function acpAuthenticate(spec: AcpAgentSpec, methodId: string, cwd:
     signal?.removeEventListener('abort', onAbort)
     connection.close()
     child.kill()
-    // Un agente che ignora SIGTERM non deve restare in vita: SIGKILL dopo qualche secondo, se è ancora lì.
+    // An agent that ignores SIGTERM must not stay alive: SIGKILL after a few seconds, if it is still there.
     if (child.exitCode === null && child.signalCode === null) setTimeout(() => child.kill('SIGKILL'), 3000).unref()
   }
 }
 
-/** Ferma il gruppo di processi di un programma avviato `detached`: SIGTERM subito, SIGKILL dopo 3 secondi a chi è rimasto. */
+/** Stops the process group of a program started `detached`: SIGTERM at once, SIGKILL after 3 seconds for whoever is left. */
 function stopGroup(child: ChildProcess): void {
   const pid = child.pid
   const signal = (name: NodeJS.Signals): void => {
@@ -149,27 +149,27 @@ function stopGroup(child: ChildProcess): void {
       if (pid) process.kill(-pid, name)
       else child.kill(name)
     } catch {
-      // Gruppo già finito.
+      // Group already gone.
     }
   }
   signal('SIGTERM')
   setTimeout(() => signal('SIGKILL'), 3000).unref()
 }
 
-/** Tempo massimo di una prova di accesso: un avvio a freddo di una CLI può essere lento, ma non deve restare appeso. */
+/** Maximum time for a sign-in probe: a cold start of a CLI can be slow, but must not hang. */
 const PROBE_TIMEOUT_MS = 25_000
 
 /**
- * Prova di accesso (LAD-79): avvia l'agente, `initialize` e `session/new` in `cwd` senza prompt, poi lo ferma. `ready` se la sessione
- * si apre, `required` se risponde auth_required; ogni altro errore (non parte, timeout, non parla ACP) è un'eccezione: l'esito è ignoto.
- * `NO_BROWSER=true` nell'ambiente (anche se la voce dell'agente dice altro): una CLI come Gemini non deve aprire la pagina di login.
- * L'ambiente è quello degli altri agenti (senza ANTHROPIC_*, CLAUDE* e chiavi API). Non legge né tocca file di credenziali.
+ * Sign-in probe: starts the agent, `initialize` and `session/new` in `cwd` without a prompt, then stops it. `ready` if the session
+ * opens, `required` if it answers auth_required; any other error (doesn't start, timeout, doesn't speak ACP) is an exception: the outcome is unknown.
+ * `NO_BROWSER=true` in the environment (even if the agent's entry says otherwise): a CLI like Gemini must not open the login page.
+ * The environment is the one used for the other agents (without ANTHROPIC_*, CLAUDE* and API keys). It neither reads nor touches credential files.
  */
 export async function acpProbe(spec: AcpAgentSpec, cwd: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<AgentLogin> {
   const command = await whichInShell(spec.command)
   if (!command || (command.startsWith('/') && !existsSync(command))) throw new Error(t('command “{command}” not found', { command: spec.command }))
   const env = await agentEnv(STRIP_ENV, { ...(spec.env ?? {}), NO_BROWSER: 'true' })
-  // `detached`: il programma è capo di un gruppo di processi suo, così alla fine si fermano anche i nipoti (server MCP, aggiornamenti).
+  // `detached`: the program leads its own process group, so at the end the grandchildren stop too (MCP servers, updates).
   const child = spawn(command, spec.args, { cwd, stdio: ['pipe', 'pipe', 'ignore'], env, detached: true })
   child.on('error', () => undefined)
   let timer: NodeJS.Timeout | undefined
@@ -240,7 +240,7 @@ export class AcpSession implements AgentSession {
   private model: string | null
   private effort: Effort | null
   private context: { used: number; window: number } | null = null
-  /** Messaggio o ragionamento aperto: ACP non ha un evento di fine messaggio. */
+  /** Open message or reasoning: ACP has no end-of-message event. */
   private open: { kind: 'message' | 'thought'; id: string; text: string } | null = null
   private counter = 0
   private tools = new Map<string, { title: string; kind: string; detail: string | null; output: string; status: string; name?: string }>()
@@ -298,12 +298,12 @@ export class AcpSession implements AgentSession {
       .onRequest('*', ({ method }) => {
         throw acp.RequestError.methodNotFound(method)
       })
-      // Estensioni con "_" (per esempio lo stato del login, con email e piano): ignorate.
+      // Extensions with "_" (for example the login state, with email and plan): ignored.
       .onNotification('*', () => undefined)
     this.connection = app.connect(stream)
     const agent = this.connection.agent
 
-    // Nessuna capacità lato client: gli agenti provati scrivono ed eseguono da sé.
+    // No client-side capabilities: the agents tried write and execute on their own.
     const init = await agent.request(acp.methods.agent.initialize, {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {},
@@ -311,7 +311,7 @@ export class AcpSession implements AgentSession {
     })
     const caps = (init.agentCapabilities ?? {}) as { loadSession?: boolean; sessionCapabilities?: { resume?: unknown } }
     const methods = authMethodsOf(init)
-    // LAD-57 parte 2: browser dell'agente, solo se l'agente dichiara MCP su http (initialize → mcpCapabilities); altrimenti non si registra e si avvisa.
+    // The agent's browser, only if the agent declares MCP over http (initialize → mcpCapabilities); otherwise it is not registered and a notice is shown.
     const browser = this.options.browserTools
     const mcpHttp = (init.agentCapabilities as { mcpCapabilities?: { http?: boolean } } | undefined)?.mcpCapabilities?.http === true
     const ladder = this.options.ladderTools
@@ -329,13 +329,13 @@ export class AcpSession implements AgentSession {
         const res = await agent.request(acp.methods.agent.session.resume, { sessionId: this.sessionId, cwd: this.options.cwd, mcpServers })
         configOptions = (res as { configOptions?: ConfigOption[] | null }).configOptions
       } else {
-        // Senza ripresa (o se l'agente non la supporta) si apre una sessione nuova: la storia resta in Ladder.
+        // Without resume (or if the agent doesn't support it) a new session is opened: the history stays in Ladder.
         const res = await agent.request(acp.methods.agent.session.new, { cwd: this.options.cwd, mcpServers })
         this.sessionId = res.sessionId
         configOptions = res.configOptions
       }
     } catch (error) {
-      // auth_required (-32000): l'agente dice che serve l'accesso. È l'unico caso in cui il login risulta "richiesto".
+      // auth_required (-32000): the agent says sign-in is needed. It is the only case in which login counts as "required".
       if ((error as { code?: number }).code === -32000) {
         this.options.onLogin?.({ state: 'required', methods, checkedAt: Date.now() })
         throw new Error(t('{agent} needs you to sign in before it can start a session.', { agent: spec.name }))
@@ -344,13 +344,13 @@ export class AcpSession implements AgentSession {
     }
     this.options.onLogin?.({ state: 'ready', methods, checkedAt: Date.now() })
     this.config = configOptions ?? []
-    // Il default dell'agente è quello che dichiara prima che Ladder applichi le sue scelte.
+    // The agent's default is what it declares before Ladder applies its choices.
     const startModel = this.optionByCategory('model')
     const startThought = this.optionByCategory('thought_level')
     const defaultModel = startModel ? String(startModel.currentValue) : null
     const defaultThought = startThought ? flatten(startThought).find((v) => v.value === String(startThought.currentValue)) : undefined
     const defaultEffort = defaultThought ? (['low', 'medium', 'high', 'xhigh', 'max'] as const).find((e) => e === defaultThought.value.toLowerCase() || e === defaultThought.name.toLowerCase()) : undefined
-    // Modello, effort e modalità non sopravvivono alla ripresa: si riapplicano sempre.
+    // Model, effort and mode don't survive a resume: they are always reapplied.
     await this.applyConfig()
     const models = this.optionByCategory('model')
     this.events.account({
@@ -372,7 +372,7 @@ export class AcpSession implements AgentSession {
     this.config = (res.configOptions as ConfigOption[] | null | undefined) ?? this.config
   }
 
-  /** Sceglie l'opzione mode del livello. Con `strict`, se l'agente ha un'opzione mode ma nessun valore combacia, è un errore. */
+  /** Picks the level's mode option. With `strict`, if the agent has a mode option but no value matches, it is an error. */
   private async applyMode(strict: boolean): Promise<void> {
     const mode = this.optionByCategory('mode')
     // Read-only child session: without a mode that enforces it the agent would run in auto-edit, so it does not start.
@@ -425,15 +425,15 @@ export class AcpSession implements AgentSession {
     })()
   }
 
-  /** Per ACP un comando / è un prompt "/nome argomenti". */
+  /** For ACP a / command is a "/name arguments" prompt. */
   command(name: string, args: string): void {
     this.send(`/${name} ${args}`.trim())
   }
 
   async interrupt(): Promise<void> {
-    // Le richieste aperte si chiudono con "cancelled", come vuole il protocollo.
+    // Open requests are closed with "cancelled", as the protocol requires.
     for (const controller of this.pending.values()) controller.abort()
-    // Interrotto prima che l'agente sia pronto: il cancel parte appena c'è la sessione.
+    // Interrupted before the agent is ready: the cancel goes out as soon as the session exists.
     if (this.running && (!this.connection || !this.sessionId)) await this.ready?.catch(() => undefined)
     if (this.connection && this.sessionId) await this.connection.agent.notify(acp.methods.agent.session.cancel, { sessionId: this.sessionId }).catch(() => undefined)
   }
@@ -441,13 +441,13 @@ export class AcpSession implements AgentSession {
   async setPermission(level: PermissionLevel): Promise<void> {
     const before = this.permission
     this.permission = level
-    // Durante l'avvio la configurazione non c'è ancora: si aspetta, poi si applica il livello.
+    // During startup the configuration isn't there yet: we wait, then apply the level.
     if (!this.connection && this.ready) await this.ready.catch(() => undefined)
     if (!this.connection) return
     try {
       await this.applyMode(true)
     } catch (error) {
-      // Rifiutato: il livello resta quello di prima, e l'errore risale a chi lo ha chiesto.
+      // Rejected: the level stays what it was, and the error goes up to whoever asked for it.
       this.permission = before
       throw error
     }
@@ -471,7 +471,7 @@ export class AcpSession implements AgentSession {
     this.child = null
   }
 
-  // ── Aggiornamenti della sessione ──────────────────────────────────────────
+  // ── Session updates ───────────────────────────────────────────────────
 
   private closeOpen(): void {
     const open = this.open
@@ -555,7 +555,7 @@ export class AcpSession implements AgentSession {
       if (c.type === 'diff') this.diffs.set(id, { path: c.path, oldText: c.oldText ?? null, newText: c.newText })
       else if (c.type === 'content' && c.content.type === 'text') tool.output += c.content.text
     }
-    // Output dei comandi fuori standard (per esempio _meta.terminal_output_delta di codex-acp).
+    // Output of non-standard commands (for example _meta.terminal_output_delta from codex-acp).
     for (const [key, value] of Object.entries(meta ?? {})) {
       if (!/terminal_output/.test(key)) continue
       const text = typeof value === 'string' ? value : typeof (value as { data?: unknown })?.data === 'string' ? String((value as { data: string }).data) : ''
@@ -578,7 +578,7 @@ export class AcpSession implements AgentSession {
     const raw = (call.rawInput ?? {}) as Record<string, unknown>
     const command = displayCommand(typeof raw.command === 'string' ? raw.command : Array.isArray(raw.command) ? shellJoin(raw.command as string[]) : null) ?? (known?.kind === 'execute' ? known.detail : null)
     const diff = this.diffs.get(call.toolCallId) ?? (call.content ?? []).filter((c): c is Extract<acp.ToolCallContent, { type: 'diff' }> => c.type === 'diff').map((c) => ({ path: c.path, oldText: c.oldText ?? null, newText: c.newText }))[0]
-    // I nomi delle opzioni sono quelli dell'agente: il significato di un rifiuto cambia da agente ad agente.
+    // The option names are the agent's own: the meaning of a refusal changes from agent to agent.
     const options: RequestOption[] = params.options.map((o) => ({
       id: o.optionId,
       label: o.name,
@@ -614,7 +614,7 @@ export class AcpSession implements AgentSession {
     if (!this.running) return
     this.running = false
     this.closeOpen()
-    // Dopo un rifiuto o un annullamento le tool call restano "in corso": le chiude Ladder.
+    // After a refusal or a cancellation the tool calls stay "in progress": Ladder closes them.
     for (const [id, tool] of this.tools) {
       if (tool.status !== 'completed' && tool.status !== 'failed') {
         tool.status = status === 'completed' ? 'completed' : 'failed'
@@ -628,7 +628,7 @@ export class AcpSession implements AgentSession {
   }
 }
 
-/** Testo prima e dopo → righe - e + (diff ingenuo per l'anteprima della card). */
+/** Text before and after → lines - and + (naive diff for the card preview). */
 function textPreview(oldText: string | null, newText: string): UserRequest['preview'] {
   const before = oldText ? oldText.split('\n') : []
   const after = newText.split('\n')
@@ -645,7 +645,7 @@ function textPreview(oldText: string | null, newText: string): UserRequest['prev
   return { text: lines.slice(0, 400).join('\n'), lines: lines.length, truncated: lines.length > 400 }
 }
 
-/** Argomenti di un comando ricomposti come li scriveresti nella shell. */
+/** A command's arguments recomposed as you would type them in the shell. */
 function shellJoin(args: string[]): string {
   return args.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`)).join(' ')
 }

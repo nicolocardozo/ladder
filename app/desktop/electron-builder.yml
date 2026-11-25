@@ -1,4 +1,4 @@
-# Build personale non firmata da sviluppatore Apple: firma ad hoc, solo per questo Mac.
+# Personal build not signed by an Apple developer: ad hoc signature, for this Mac only.
 appId: dev.nicolocardozo.ladder
 productName: Ladder
 directories:
@@ -7,7 +7,7 @@ directories:
 files:
   - out/**/*
   - package.json
-  # Del binario di Claude dell'Agent SDK entra solo quello dell'architettura che si sta costruendo.
+  # Of the Agent SDK's Claude binary, only the one for the architecture being built is included.
   - "!**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-!(${arch})/**"
 # The `ladder` CLI lives outside the asar: the (executable) script launches the bundle with the app binary and ELECTRON_RUN_AS_NODE=1.
 extraResources:
@@ -19,10 +19,10 @@ extraResources:
   - from: src/cli/bin/ladder
     to: bin/ladder
 asar: true
-# node-pty è l'unico modulo nativo: resta fuori dall'asar (lo spawn-helper deve essere un file eseguibile vero).
+# node-pty is the only native module: it stays outside the asar (spawn-helper must be a real executable file).
 asarUnpack:
   - "**/node_modules/node-pty/**"
-  # Il binario di Claude Code dell'SDK deve essere un eseguibile vero, non dentro l'asar.
+  # The SDK's Claude Code binary must be a real executable, not inside the asar.
   - "**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**"
 npmRebuild: false
 mac:

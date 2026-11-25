@@ -1,4 +1,4 @@
-// Archivio locale dell'host: SQLite con node:sqlite (incluso in Node 24, niente moduli nativi da ricompilare).
+// Local store of the host: SQLite via node:sqlite (included in Node 24, no native modules to rebuild).
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -134,7 +134,7 @@ create table if not exists remote_log (
 create index if not exists remote_log_by_at on remote_log (at);
 `
 
-/** Colonne aggiunte dopo la prima versione: si creano se mancano, i dati esistenti restano. */
+/** Columns added after the first version: created if missing, existing data stays. */
 const COLUMNS: [table: string, column: string, definition: string][] = [
   ['sessions', 'mode', "text not null default 'chat'"],
   ['sessions', 'command', 'text'],
@@ -144,16 +144,16 @@ const COLUMNS: [table: string, column: string, definition: string][] = [
   ['sessions', 'agent_ref', 'text'],
   ['sessions', 'activity_at', 'integer not null default 0'],
   ['sessions', 'source', 'text'],
-  // 'provisional' | 'generated' | 'user': le sessioni esistenti diventano 'user' alla migrazione (vedi migrate), nuove partono provvisorie.
+  // 'provisional' | 'generated' | 'user': existing sessions become 'user' on migration (see migrate), new ones start provisional.
   ['sessions', 'title_source', "text not null default 'provisional'"],
-  // Profilo (account) della sessione, fissato alla creazione; null = predefinito (anche per le sessioni nate prima dei profili).
+  // Profile (account) of the session, fixed at creation; null = default (also for sessions created before profiles).
   ['sessions', 'profile_id', 'text'],
-  // Livello chiesto a turno in corso che l'agente applica dal turno successivo (Codex).
+  // Level requested during a running turn that the agent applies from the next turn (Codex).
   ['sessions', 'permission_next', 'text'],
-  // Sessione archiviata dopo l'unione ('git' | 'pr') e quando: la mappa dei branch (LAD-80) la ricorda anche dopo un riavvio. Null = non nota.
+  // Session archived after merging ('git' | 'pr') and when: the branch map remembers it even after a restart. Null = unknown.
   ['sessions', 'merged_via', 'text'],
   ['sessions', 'merged_at', 'integer'],
-  // LAD-53: preferenze push del telefono (JSON di RemoteNotifyPrefs; null = predefinite) e lingua dell'app (RemoteClientHello.locale).
+  // Phone push preferences (JSON of RemoteNotifyPrefs; null = defaults) and app language (RemoteClientHello.locale).
   ['devices', 'notify', 'text'],
   ['devices', 'locale', 'text'],
   // JSON {sessionId, agent} of the session this one comes from ("Switch to…"); null = normal session.
@@ -171,7 +171,7 @@ function migrate(db: DatabaseSync): void {
     const columns = db.prepare(`pragma table_info(${table})`).all() as { name: string }[]
     if (columns.some((c) => c.name === column)) continue
     db.exec(`alter table ${table} add column ${column} ${definition}`)
-    // Non si sa quali titoli esistenti siano stati rinominati a mano: tutti si considerano dell'utente, nessuna rigenerazione automatica li tocca.
+    // We can't tell which existing titles were renamed by hand: all are treated as the user's, no automatic regeneration touches them.
     if (column === 'title_source') db.exec("update sessions set title_source = 'user'")
   }
 }
@@ -187,7 +187,7 @@ export function openDb(path: string): Db {
   return db
 }
 
-/** Esegue `fn` in una transazione: gli aggiornamenti di elementi ed eventi arrivano insieme o per niente. */
+/** Runs `fn` in a transaction: updates to items and events land together or not at all. */
 export function tx<T>(db: Db, fn: () => T): T {
   db.exec('begin')
   try {
@@ -220,24 +220,24 @@ export interface SessionRow {
   context: string | null
   mode: string
   command: string | null
-  /** Cartella di lavoro; null per le sessioni nate prima della fase 2 (= cartella del progetto). */
+  /** Working folder; null for sessions created before worktrees (= the project folder). */
   cwd: string | null
-  /** JSON di WorktreeInfo. */
+  /** JSON of WorktreeInfo. */
   worktree: string | null
   estimated: number
-  /** Riferimento dell'agente per le sessioni terminale: id della conversazione di Claude Code. */
+  /** Agent reference for terminal sessions: Claude Code conversation id. */
   agent_ref: string | null
-  /** Ultima attività dell'agente; 0 per le sessioni nate prima della fase 3 (vale updated_at). */
+  /** Last agent activity; 0 for sessions created before it was tracked (updated_at applies). */
   activity_at: number
-  /** JSON di SessionSource: issue, PR o branch da cui è nata. */
+  /** JSON of SessionSource: the issue, PR or branch it came from. */
   source: string | null
-  /** TitleSource: chi ha scelto il titolo. */
+  /** TitleSource: who chose the title. */
   title_source: string
-  /** Profilo non predefinito con cui gira la sessione; null = predefinito. */
+  /** Non-default profile the session runs with; null = default. */
   profile_id: string | null
-  /** Livello di permessi in attesa del turno successivo; null se nessuno. */
+  /** Permission level waiting for the next turn; null if none. */
   permission_next: string | null
-  /** 'git' | 'pr' se la sessione è stata archiviata come unita (LAD-80); null altrimenti. */
+  /** 'git' | 'pr' if the session was archived as merged; null otherwise. */
   merged_via: string | null
   merged_at: number | null
   /** JSON {sessionId, agent}: session this one comes from via "Switch to…"; null if normal. */

@@ -28,7 +28,7 @@ import { REQUEST_SOUNDS, system } from '@/lib/system-bridge'
 import { cn } from '@/lib/utils'
 import { phoneAccessAllowed } from '@shared/remote/availability'
 
-/** Anteprima del tema con i suoi colori: sidebar, messaggio, risposta, richiesta, stati. */
+/** Theme preview with its colors: sidebar, message, reply, request, states. */
 function ThemePreview({ theme }: { theme: ThemeInfo }) {
   const t = theme.tokens
   return (
@@ -88,8 +88,8 @@ export function SettingsDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(next) => (setOpen(next), !next && useApp.setState({ connectionFocus: null }))}>
-      {/* Dimensioni fisse: passando da una sezione all'altra la finestra non si muove. Il contenuto della sezione è un container (`@container`):
-          da 820 px le sezioni si dispongono su due colonne, sotto stanno una sotto l'altra. */}
+      {/* Fixed size: switching between sections the window does not move. The section content is a container (`@container`):
+          from 820 px sections lay out in two columns, below that they stack. */}
       <DialogContent className="flex h-[min(760px,calc(100vh-48px))] w-[min(1360px,calc(100vw-48px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
         <div className="flex min-h-0 flex-1">
           <nav className="flex w-[210px] shrink-0 flex-col gap-1 border-r border-border bg-sidebar p-3" aria-label={t('Settings sections')}>
@@ -98,7 +98,7 @@ export function SettingsDialog() {
               <button
                 key={item.id}
                 type="button"
-                // Il focus all'apertura va sulla sezione aperta, non sulla prima dell'elenco.
+                // Focus on open goes to the open section, not the first in the list.
                 autoFocus={section === item.id && section !== 'appearance'}
                 aria-current={section === item.id ? 'page' : undefined}
                 onClick={() => setSection(item.id)}
@@ -135,7 +135,7 @@ function AppearanceSection({ open }: { open: boolean }) {
   const setTheme = useSettings((s) => s.setTheme)
   const grid = useRef<HTMLDivElement>(null)
 
-  // All'apertura il focus va sul tema in uso, non sul primo della griglia.
+  // On open, focus goes to the theme in use, not the first in the grid.
   useEffect(() => {
     if (!open) return
     const frame = requestAnimationFrame(() => grid.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
@@ -182,7 +182,7 @@ function AppearanceSection({ open }: { open: boolean }) {
                 )
               })}
             </div>
-            {/* Da 820 px: chat a sinistra (font e larghezza con le loro anteprime), lettura e codice a destra. */}
+            {/* From 820 px: chat on the left (font and width with their previews), reading and code on the right. */}
             <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">
               <div className="min-w-0">
                 <ChatFontPicker />
@@ -203,7 +203,7 @@ const CHAT_FONTS: { id: ChatFont; label: string }[] = [
   { id: 'monaspace-neon', label: 'Monaspace Neon' }
 ]
 
-/** Font della chat: solo risposte e messaggi, il resto dell'app non cambia. Ogni voce è resa nel suo font, sotto l'anteprima. */
+/** Chat font: only replies and messages, the rest of the app does not change. Each entry is rendered in its own font, below the preview. */
 function ChatFontPicker() {
   const [prefs, update] = usePrefs()
   if (!prefs) return null
@@ -254,7 +254,7 @@ function ChatFontPicker() {
   )
 }
 
-/** Anteprima di una finestra larga 1400 px, rimpicciolita per stare nel dialogo: a scala reale 820, 1100 px e tutta la vista non si distinguerebbero. Più larga di 1100 px, così Ampia e Piena restano diverse. */
+/** Preview of a 1400 px wide window, scaled down to fit the dialog: at real scale 820, 1100 px and the full view would not be distinguishable. Wider than 1100 px, so Wide and Full stay different. */
 const PREVIEW_WINDOW = 1400
 function WidthPreview({ width }: { width: AppPrefs['chatWidth'] }) {
   const [measure, frame] = useElementWidth()
@@ -279,7 +279,7 @@ const CHAT_WIDTHS: { id: AppPrefs['chatWidth']; label: string; hint: string }[] 
   { id: 'full', label: 'Full', hint: 'The whole width of the window' }
 ]
 
-/** Larghezza della chat: limite del testo in pixel (in una finestra stretta occupa tutto lo spazio). Codice, tabelle e output dei comandi possono uscirne. */
+/** Chat width: text limit in pixels (in a narrow window it takes all the space). Code, tables and command output can exceed it. */
 function ChatWidthPicker() {
   const [prefs, update] = usePrefs()
   if (!prefs) return null
@@ -328,7 +328,7 @@ function ChatWidthPicker() {
   )
 }
 
-/** Lingua dell'interfaccia: inglese per default. Cambia subito tutta l'app, senza riavviare. */
+/** Interface language: English by default. It changes the whole app right away, without restarting. */
 function LanguagePicker() {
   const [prefs, update] = usePrefs()
   const current = prefs?.locale ?? getLocale()
@@ -383,7 +383,7 @@ function NotificationsSection() {
   )
 }
 
-/** Suono delle richieste: uno dei suoni di sistema di macOS, con prova. Vale quando il suono è acceso. */
+/** Request sound: one of macOS's system sounds, with a preview. It applies when the sound is on. */
 function SoundRow() {
   const [prefs, update] = usePrefs()
   const [note, setNote] = useState<string | null>(null)
@@ -392,8 +392,8 @@ function SoundRow() {
   const play = async () => {
     setNote(null)
     if (await system.playSound(prefs.soundName)) return
-    // Il suono predefinito non ha un file da riprodurre, e fuori dall'app installata la pagina può non leggere quelli di sistema:
-    // il banner di prova usa il suono scelto.
+    // The default sound has no file to play, and outside the installed app the page may not be able to read system ones:
+    // the test banner uses the chosen sound.
     const sent = await system.testNotification()
     setNote(sent ? t('Played with a test notification.') : t('This Mac doesn’t accept notifications from Ladder.'))
   }
@@ -426,7 +426,7 @@ function SoundRow() {
   )
 }
 
-/** Banner vero di macOS: al primo uso il sistema chiede il permesso; il clic riporta su Ladder. */
+/** Real macOS banner: on first use the system asks for permission; the click brings you back to Ladder. */
 function TestNotification() {
   const [state, setState] = useState<'idle' | 'sent' | 'unsupported'>('idle')
   return (
@@ -449,9 +449,9 @@ function TestNotification() {
   )
 }
 
-/** Claude, ChatGPT / Codex e GitHub: stato, account, accesso dal browser, esci e cambia account. Qui si torna dal primo avvio. */
+/** Claude, ChatGPT / Codex and GitHub: status, account, sign in from the browser, sign out and switch account. You come back here from first launch. */
 function SubscriptionsSection() {
-  // Lo stato può essere cambiato fuori da Ladder (logout dal Terminale): all'apertura si rilegge.
+  // The status may be changed outside Ladder (logout from Terminal): it is re-read on open.
   useEffect(() => refreshConnections(), [])
   return (
     <>
@@ -545,7 +545,7 @@ function AgentRow({ agent }: { agent: AgentStatus }) {
   )
 }
 
-/** "Aggiungi un agente": dal registro ufficiale ACP o con un comando scritto a mano. */
+/** "Add an agent": from the official ACP registry or with a hand-written command. */
 function AddAcpAgent() {
   const [tab, setTab] = useState<'registry' | 'custom'>('registry')
   const [problem, setProblem] = useState<string | null>(null)

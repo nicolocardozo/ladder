@@ -1,5 +1,5 @@
-// Git per l'host: informazioni sul repo, checkpoint con indice temporaneo (vedi spikes/git-checkpoint),
-// diff tra checkpoint, stato dei file, ripristino senza toccare indice e branch, log e worktree.
+// Git for the host: repo information, checkpoints with a temporary index (see spikes/git-checkpoint),
+// diff between checkpoints, file state, restore without touching index and branch, log and worktrees.
 import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { appendFile, chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
@@ -12,11 +12,11 @@ import { cleanEnv, shellPath } from './agents/common'
 
 const run = promisify(execFile)
 
-/** Albero vuoto di git: il "prima" dei repo senza commit. */
+/** Git's empty tree: the "before" of repos with no commits. */
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
-/** I file non tracciati più grandi restano fuori dai checkpoint: un video da 2 GB non va copiato negli oggetti di git. */
+/** Untracked files above this size stay out of checkpoints: a 2 GB video must not be copied into git's objects. */
 const MAX_UNTRACKED_BYTES = 20 * 1024 * 1024
-/** Oltre questa dimensione il viewer e il diff non mostrano il contenuto. */
+/** Above this size the viewer and the diff don't show the content. */
 export const MAX_TEXT_BYTES = 1024 * 1024
 
 const IDENTITY = {
@@ -27,16 +27,16 @@ const IDENTITY = {
 }
 
 /**
- * `--no-optional-locks`: le letture non riscrivono l'indice, quindi non si scontrano con git dell'utente o dell'agente.
- * `core.fsmonitor=false`: con un .git/config ostile `core.fsmonitor` è un comando che git esegue a ogni `status`/`diff`; le
- * letture automatiche (intestazione, albero, checkpoint) non lo lanciano mai. Costo: su repo enormi niente accelerazione di fsmonitor.
- * Resta fuori dalla difesa (non si può disattivare senza rompere config legittime): `filter.*.clean`/`process` dichiarati in
- * .git/config e usati da .gitattributes, `core.sshCommand` e `credential.helper` (ci passa solo il fetch/push), `remote.*.uploadpack`
- * con un remote locale. Aprire un progetto non fidato in Ladder equivale a fidarsi della sua .git/config come nel terminale.
+ * `--no-optional-locks`: reads don't rewrite the index, so they don't clash with the user's or the agent's git.
+ * `core.fsmonitor=false`: with a hostile .git/config `core.fsmonitor` is a command git runs on every `status`/`diff`; the
+ * automatic reads (header, tree, checkpoint) never launch it. Cost: on huge repos no fsmonitor speedup.
+ * Left out of the defense (can't be disabled without breaking legitimate configs): `filter.*.clean`/`process` declared in
+ * .git/config and used by .gitattributes, `core.sshCommand` and `credential.helper` (only fetch/push goes through them), `remote.*.uploadpack`
+ * with a local remote. Opening an untrusted project in Ladder amounts to trusting its .git/config, as in the terminal.
  */
 const BASE_ARGS = ['--no-optional-locks', '-c', 'core.quotePath=false', '-c', 'core.fsmonitor=false']
 
-/** Nome di remote accettato: come i nomi usuali di git (`origin`, `upstream`, `my-fork`). Mai un URL né qualcosa che inizia con `-`. */
+/** Accepted remote name: like usual git names (`origin`, `upstream`, `my-fork`). Never a URL nor anything starting with `-`. */
 export function validRemoteName(name: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(name) && !name.includes('..')
 }
@@ -57,7 +57,7 @@ async function gitBuffer(repo: string, args: string[]): Promise<Buffer> {
   return stdout
 }
 
-/** Come `git`, ma con `input` sullo stdin. */
+/** Like `git`, but with `input` on stdin. */
 function gitInput(repo: string, args: string[], input: string, env: Record<string, string> = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn('git', ['-C', repo, ...BASE_ARGS, ...args], { env: { ...cleanEnv(), ...env } })
@@ -93,7 +93,7 @@ export async function repoInfo(path: string): Promise<RepoInfo> {
   return { isGit: true, branch, hasHead: (await resolveCommit(path, 'HEAD')) !== null }
 }
 
-/** Sha del commit a cui punta `ref`, oppure null. */
+/** Sha of the commit `ref` points to, or null. */
 export async function resolveCommit(repo: string, ref: string): Promise<string | null> {
   try {
     return (await git(repo, ['rev-parse', '--verify', '-q', `${ref}^{commit}`])) || null
@@ -102,7 +102,7 @@ export async function resolveCommit(repo: string, ref: string): Promise<string |
   }
 }
 
-/** File del progetto: tracciati più non tracciati non ignorati, al massimo `limit`. */
+/** Project files: tracked plus untracked non-ignored, at most `limit`. */
 export async function listFiles(path: string, limit = 20000): Promise<string[]> {
   const out = await git(path, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])
   const files = out.split('\0').filter(Boolean)
@@ -110,23 +110,23 @@ export async function listFiles(path: string, limit = 20000): Promise<string[]> 
 }
 
 /**
- * File non tracciati che corrispondono ai pattern (`--exclude-from` o `--exclude`), nelle sole regole date: non le ignore standard.
- * `node_modules` (anche annidati) si esclude con un pathspec e non con `--exclude`: così git non vi entra
- * (su 120mila file, 7 ms invece di 95), mentre un pattern `--exclude=node_modules/` li elencherebbe tutti.
+ * Untracked files matching the patterns (`--exclude-from` or `--exclude`), under the given rules only: not the standard ignores.
+ * `node_modules` (even nested) is excluded with a pathspec and not with `--exclude`: this way git doesn't enter it
+ * (on 120k files, 7 ms instead of 95), whereas an `--exclude=node_modules/` pattern would list them all.
  */
 export async function matchingUntracked(repo: string, excludeArgs: string[]): Promise<string[]> {
   const out = await git(repo, ['ls-files', '--others', '--ignored', '-z', ...excludeArgs, '--', '.', ':(exclude,glob)**/node_modules/**'])
   return out.split('\0').filter(Boolean)
 }
 
-/** Quali di `paths` git ignora (regole standard: .gitignore, info/exclude, globali). */
+/** Which of `paths` git ignores (standard rules: .gitignore, info/exclude, global). */
 export async function ignoredAmong(repo: string, paths: string[]): Promise<string[]> {
   if (paths.length === 0) return []
   try {
     const out = await gitInput(repo, ['check-ignore', '-z', '--stdin'], paths.join('\0') + '\0')
     return out.split('\0').filter(Boolean)
   } catch {
-    // check-ignore esce con 1 se nessun percorso è ignorato.
+    // check-ignore exits with 1 if no path is ignored.
     return []
   }
 }
@@ -143,8 +143,8 @@ export async function untrackedLeftOut(repo: string): Promise<string[]> {
 }
 
 /**
- * Fotografa working tree e file non tracciati in un commit su `ref`, senza toccare indice e branch dell'utente.
- * Parte da una copia dell'indice dell'utente (4–5 volte più veloce di read-tree). Funziona anche senza commit iniziale.
+ * Snapshots the working tree and untracked files into a commit on `ref`, without touching the user's index and branch.
+ * Starts from a copy of the user's index (4-5 times faster than read-tree). Works without an initial commit too.
  */
 export async function createCheckpoint(repo: string, ref: string, message: string): Promise<string | null> {
   const info = await repoInfo(repo)
@@ -157,14 +157,14 @@ export async function createCheckpoint(repo: string, ref: string, message: strin
     const userIndex = join(gitDir, 'index')
     if (existsSync(userIndex)) {
       await copyFile(userIndex, tmpIndex)
-      // La copia deve avere la data dell'originale: git confronta le date dei file con quella dell'indice per
-      // ricontrollare i file modificati nello stesso secondo (racy git). Con una data nuova li darebbe per invariati.
+      // The copy must carry the original's date: git compares file dates with the index's to
+      // recheck files modified in the same second (racy git). With a new date it would consider them unchanged.
       const { atime, mtime } = await stat(userIndex)
       await utimes(tmpIndex, atime, mtime)
     } else if (info.hasHead) await git(repo, ['read-tree', 'HEAD'], env)
-    // File tracciati: modifiche e cancellazioni.
+    // Tracked files: changes and deletions.
     await git(repo, ['add', '-u'], env)
-    // Non tracciati e non ignorati, senza i file enormi e senza i repo annidati.
+    // Untracked and not ignored, without huge files and without nested repos.
     const others = (await git(repo, ['ls-files', '--others', '--exclude-standard', '-z'], env)).split('\0').filter(Boolean)
     const small: string[] = []
     for (const file of others) {
@@ -172,7 +172,7 @@ export async function createCheckpoint(repo: string, ref: string, message: strin
         const s = await lstat(join(repo, file))
         if ((s.isFile() && s.size <= MAX_UNTRACKED_BYTES) || s.isSymbolicLink()) small.push(file)
       } catch {
-        // Sparito nel frattempo.
+        // Gone in the meantime.
       }
     }
     if (small.length > 0) await gitInput(repo, ['add', '--pathspec-from-file=-', '--pathspec-file-nul'], small.join('\0'), env)
@@ -186,14 +186,14 @@ export async function createCheckpoint(repo: string, ref: string, message: strin
   }
 }
 
-/** Commit di partenza per il diff di un commit: il genitore, o l'albero vuoto per il primo commit. */
+/** Starting commit for the diff of a commit: the parent, or the empty tree for the first commit. */
 export async function parentOf(repo: string, sha: string): Promise<string> {
   return (await resolveCommit(repo, `${sha}^`)) ?? EMPTY_TREE
 }
 
 /**
- * File cambiati tra due stati, con righe aggiunte e tolte. Rinomine riconosciute con -M.
- * `--relative`: se il progetto è una sottocartella del repository (monorepo), percorsi e diff restano dentro di lei.
+ * Files changed between two states, with added and removed lines. Renames detected with -M.
+ * `--relative`: if the project is a subfolder of the repository (monorepo), paths and diff stay inside it.
  */
 export async function changedFiles(repo: string, from: string, to: string, paths: string[] = []): Promise<FileChange[]> {
   const tail = paths.length ? ['--', ...paths] : []
@@ -202,7 +202,7 @@ export async function changedFiles(repo: string, from: string, to: string, paths
     git(repo, ['diff', '--no-ext-diff', '--relative', '--name-status', '-z', '-M', from, to, ...tail])
   ])
 
-  // name-status -z: "M\0percorso\0" oppure "R100\0vecchio\0nuovo\0".
+  // name-status -z: "M\0path\0" or "R100\0old\0new\0".
   const status = new Map<string, { status: FileChange['status']; oldPath?: string }>()
   const ns = nameStatus.split('\0')
   for (let i = 0; i < ns.length; ) {
@@ -221,7 +221,7 @@ export async function changedFiles(repo: string, from: string, to: string, paths
     }
   }
 
-  // numstat -z: "aggiunte\ttolte\tpercorso\0" oppure "aggiunte\ttolte\t\0vecchio\0nuovo\0".
+  // numstat -z: "added\tremoved\tpath\0" or "added\tremoved\t\0old\0new\0".
   const files: FileChange[] = []
   const nm = numstat.split('\0')
   for (let i = 0; i < nm.length; ) {
@@ -253,7 +253,7 @@ export async function changedFiles(repo: string, from: string, to: string, paths
   return files
 }
 
-/** Diff unificato di un file tra due stati. */
+/** Unified diff of a file between two states. */
 export async function filePatch(repo: string, from: string, to: string, path: string, oldPath: string | null): Promise<string> {
   const paths = oldPath && oldPath !== path ? [oldPath, path] : [path]
   return git(repo, ['diff', '--no-ext-diff', '--relative', '--no-color', '-U3', '-M', from, to, '--', ...paths])
@@ -266,12 +266,12 @@ export interface Blob {
   exists: boolean
 }
 
-/** Contenuto di `path` nello stato `rev` (commit o albero), con limiti di dimensione e controllo dei binari. */
+/** Content of `path` in state `rev` (commit or tree), with size limits and binary detection. */
 export async function blobAt(repo: string, rev: string, path: string): Promise<Blob> {
   if (rev === EMPTY_TREE) return { text: null, binary: false, tooLarge: false, exists: false }
   let size: number
   try {
-    // "./" rende il percorso relativo alla cartella del progetto anche dentro un monorepo.
+    // "./" makes the path relative to the project folder even inside a monorepo.
     size = Number(await git(repo, ['cat-file', '-s', `${rev}:./${path}`]))
   } catch {
     return { text: null, binary: false, tooLarge: false, exists: false }
@@ -288,9 +288,9 @@ export function isBinary(buffer: Buffer): boolean {
   return false
 }
 
-/** Stato git dei file rispetto a HEAD e all'indice: una lettera per file. */
+/** Git state of files against HEAD and the index: one letter per file. */
 export async function statusMap(repo: string): Promise<Record<string, GitStatusCode>> {
-  // Il formato porcelain usa percorsi dalla radice del repository: si riportano alla cartella del progetto.
+  // The porcelain format uses paths from the repository root: they are brought back to the project folder.
   const [out, prefix] = await Promise.all([
     git(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', '--', '.']),
     git(repo, ['rev-parse', '--show-prefix'])
@@ -313,8 +313,8 @@ export async function statusMap(repo: string): Promise<Record<string, GitStatusC
 }
 
 /**
- * Riporta `paths` allo stato di `rev` scrivendo i file direttamente: indice, branch e stash dell'utente restano come sono.
- * Un file che in `rev` non esiste viene cancellato.
+ * Brings `paths` back to the state of `rev` by writing the files directly: the user's index, branch and stash stay as they are.
+ * A file that doesn't exist in `rev` is deleted.
  */
 export async function restorePaths(repo: string, rev: string, paths: string[]): Promise<void> {
   for (const path of paths) {
@@ -326,7 +326,7 @@ export async function restorePaths(repo: string, rev: string, paths: string[]): 
       continue
     }
     const [mode, type, object] = record.slice(0, record.indexOf('\t')).split(' ')
-    if (type !== 'blob') continue // sottomoduli: non si toccano
+    if (type !== 'blob') continue // submodules: not touched
     const content = await gitBuffer(repo, ['cat-file', 'blob', object])
     await mkdir(dirname(target), { recursive: true })
     const existing = await lstat(target).catch(() => null)
@@ -361,7 +361,7 @@ export async function commitLog(repo: string, limit = 40): Promise<CommitInfo[]>
     })
 }
 
-/** Aggiunge righe a .git/info/exclude se mancano: esclude file personali senza toccare il .gitignore. */
+/** Adds lines to .git/info/exclude if missing: excludes personal files without touching .gitignore. */
 export async function ensureExcluded(repo: string, patterns: string[]): Promise<void> {
   const common = await git(repo, ['rev-parse', '--git-common-dir'])
   const file = join(isAbsolute(common) ? common : join(repo, common), 'info', 'exclude')
@@ -374,13 +374,13 @@ export async function ensureExcluded(repo: string, patterns: string[]): Promise<
   await appendFile(file, `${prefix}${t('# Ladder: personal files and session context')}\n${missing.join('\n')}\n`)
 }
 
-/** Nuovo worktree su un nuovo branch, partendo da `base`. */
+/** New worktree on a new branch, starting from `base`. */
 export async function addWorktree(repo: string, path: string, branch: string, base: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   await git(repo, ['worktree', 'add', '-b', branch, path, base])
 }
 
-/** Vero se `path` è un file o una cartella che esiste. */
+/** True if `path` is an existing file or folder. */
 export async function exists(path: string): Promise<boolean> {
   return stat(path).then(
     () => true,
@@ -388,13 +388,13 @@ export async function exists(path: string): Promise<boolean> {
   )
 }
 
-/** Worktree su un branch che esiste già, locale o su origin (git crea il branch locale che lo segue). */
+/** Worktree on an already existing branch, local or on origin (git creates the local branch that tracks it). */
 export async function addWorktreeForBranch(repo: string, path: string, branch: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   await git(repo, ['worktree', 'add', path, branch])
 }
 
-/** Toglie un worktree solo se è pulito: con modifiche o file non tracciati git si rifiuta, e va bene così. Dall'app si passa da removeWorktree in worktrees.ts (script di pulizia compreso). */
+/** Removes a worktree only if it is clean: with changes or untracked files git refuses, and that's fine. From the app it goes through removeWorktree in worktrees.ts (cleanup script included). */
 export async function gitRemoveWorktree(repo: string, path: string): Promise<void> {
   await git(repo, ['worktree', 'remove', path])
 }
@@ -403,7 +403,7 @@ export async function fetchRef(repo: string, refspec: string): Promise<void> {
   await git(repo, ['fetch', '--quiet', 'origin', refspec])
 }
 
-/** Commit di `a` che `b` non ha (a sinistra) e viceversa. */
+/** Commits of `a` that `b` doesn't have (left) and vice versa. */
 export async function aheadBehind(repo: string, head: string, base: string): Promise<{ ahead: number; behind: number } | null> {
   try {
     const [ahead, behind] = (await git(repo, ['rev-list', '--left-right', '--count', `${head}...${base}`])).split(/\s+/).map(Number)
@@ -413,7 +413,7 @@ export async function aheadBehind(repo: string, head: string, base: string): Pro
   }
 }
 
-/** File modificati o non tracciati, come li conta git status. */
+/** Modified or untracked files, as git status counts them. */
 export async function dirtyCount(repo: string): Promise<number> {
   const entries = (await git(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=normal'])).split('\0')
   let count = 0
@@ -421,13 +421,13 @@ export async function dirtyCount(repo: string): Promise<number> {
     const entry = entries[i]
     if (entry.length < 4) continue
     count++
-    // Rinomine e copie hanno il percorso di origine nella voce successiva.
+    // Renames and copies carry the source path in the next entry.
     if (entry[0] === 'R' || entry[0] === 'C') i++
   }
   return count
 }
 
-/** Commit non pubblicati sull'upstream; null se il branch non ne ha uno. */
+/** Commits not published to the upstream; null if the branch has none. */
 export async function unpushedCount(repo: string): Promise<number | null> {
   try {
     return Number(await git(repo, ['rev-list', '--count', '@{upstream}..HEAD'])) || 0
@@ -436,14 +436,14 @@ export async function unpushedCount(repo: string): Promise<number | null> {
   }
 }
 
-// ── LAD-68 stato per l'intestazione ──────────────────────────────────────────
+// ── State for the header ─────────────────────────────────────────────────────
 
-/** Tempo massimo di una lettura di stato: un repo su un disco di rete lento non deve bloccare l'intestazione. */
+/** Maximum time of a state read: a repo on a slow network disk must not block the header. */
 const GIT_READ_TIMEOUT_MS = 20_000
 
 /**
- * Lettura git per lo stato: pathspec letterali, niente prompt, PATH della shell di login, timeout (il processo si ferma).
- * Come `git`, ma con un limite di tempo; lancia se git esce con errore.
+ * Git read for the state: literal pathspecs, no prompts, login shell PATH, timeout (the process is stopped).
+ * Like `git`, but with a time limit; throws if git exits with an error.
  */
 export async function gitRead(repo: string, args: string[], timeoutMs = GIT_READ_TIMEOUT_MS): Promise<string> {
   const PATH = await shellPath().catch(() => process.env.PATH)
@@ -456,7 +456,7 @@ export async function gitRead(repo: string, args: string[], timeoutMs = GIT_READ
   return stdout
 }
 
-/** Commit dell'upstream che HEAD non ha ancora (da scaricare); null se il branch non ha upstream. */
+/** Upstream commits HEAD doesn't have yet (to download); null if the branch has no upstream. */
 export async function behindCount(repo: string): Promise<number | null> {
   try {
     return Number((await gitRead(repo, ['rev-list', '--count', 'HEAD..@{upstream}'])).trim()) || 0
@@ -465,18 +465,18 @@ export async function behindCount(repo: string): Promise<number | null> {
   }
 }
 
-/** Righe dei file non tracciati contate al massimo su questi file/byte: oltre, il conteggio è per difetto. */
+/** Lines of untracked files are counted over at most this many files/bytes: beyond that, the count is a lower bound. */
 const MAX_UNTRACKED_FILES = 200
 const MAX_UNTRACKED_TOTAL_BYTES = 8 * 1024 * 1024
-/** Righe già contate per file non tracciato, valide finché mtime e dimensione non cambiano (il tracker rilegge di continuo durante un turno). */
+/** Lines already counted per untracked file, valid until mtime and size change (the tracker rereads continuously during a turn). */
 const untrackedLines = new Map<string, { mtimeMs: number; size: number; lines: number | null }>()
 const UNTRACKED_CACHE_MAX = 2000
 
 /**
- * Righe aggiunte e tolte dalle modifiche non committate: stage e cartella di lavoro insieme (diff contro HEAD, o contro
- * l'albero vuoto se non ci sono commit). I file non tracciati (non ignorati) contano come interamente aggiunti, con righe
- * contate leggendoli (testo, max 1 MB l'uno e 8 MB in tutto, binari esclusi): così un file nuovo creato dall'agente accende
- * la pillola. I binari tracciati non aggiungono righe.
+ * Lines added and removed by uncommitted changes: stage and working folder together (diff against HEAD, or against
+ * the empty tree if there are no commits). Untracked (non-ignored) files count as entirely added, with lines
+ * counted by reading them (text, max 1 MB each and 8 MB in total, binaries excluded): so a new file created by the agent lights up
+ * the pill. Tracked binaries add no lines.
  */
 export async function diffStats(repo: string): Promise<{ added: number; removed: number }> {
   let added = 0
@@ -492,7 +492,7 @@ export async function diffStats(repo: string): Promise<{ added: number; removed:
       }
     }
   } catch {
-    // Diff illeggibile (repo in uno stato strano): le righe restano a zero.
+    // Unreadable diff (repo in a strange state): lines stay at zero.
   }
   try {
     const untracked = (await gitRead(repo, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean).slice(0, MAX_UNTRACKED_FILES)
@@ -509,19 +509,19 @@ export async function diffStats(repo: string): Promise<{ added: number; removed:
       }
       const data = await readFile(absolute).catch(() => null)
       if (!data) continue
-      // Binario (o vuoto): zero righe. Si ricorda anche questo, per non rileggerlo.
+      // Binary (or empty): zero lines. This is remembered too, to avoid rereading it.
       const lines = data.includes(0) || data.length === 0 ? 0 : data.toString('utf8').split('\n').length - (data[data.length - 1] === 0x0a ? 1 : 0)
       if (untrackedLines.size >= UNTRACKED_CACHE_MAX) untrackedLines.clear()
       untrackedLines.set(absolute, { mtimeMs: info.mtimeMs, size: info.size, lines })
       added += lines
     }
   } catch {
-    // Elenco dei non tracciati non disponibile: si contano solo i tracciati.
+    // Untracked list unavailable: only tracked files are counted.
   }
   return { added, removed }
 }
 
-/** Stato leggero di una cartella per l'intestazione della sessione (`git.status`); la stessa funzione alimenta `merge.info` (che passa `withLines` true: riporta anche added/removed; `archive` lo passa false). */
+/** Light state of a folder for the session header (`git.status`); the same function feeds `merge.info` (which passes `withLines` true: it also reports added/removed; `archive` passes false). */
 export async function gitStatus(repo: string, isWorktree: boolean, withLines = true): Promise<GitStatus | null> {
   try {
     if ((await gitRead(repo, ['rev-parse', '--is-inside-work-tree'])).trim() !== 'true') return null
@@ -529,7 +529,7 @@ export async function gitStatus(repo: string, isWorktree: boolean, withLines = t
     return null
   }
   const branch = (await gitRead(repo, ['symbolic-ref', '--short', '-q', 'HEAD']).catch(() => '')).trim() || null
-  // Senza upstream (mai pubblicato, o upstream non più presente tra i riferimenti remoti) `@{upstream}` non si risolve.
+  // Without an upstream (never published, or upstream no longer among the remote references) `@{upstream}` doesn't resolve.
   const upstream = branch ? (await gitRead(repo, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']).catch(() => '')).trim() || null : null
   let ahead = 0
   let behind = 0
@@ -539,7 +539,7 @@ export async function gitStatus(repo: string, isWorktree: boolean, withLines = t
       ahead = a || 0
       behind = b || 0
     } catch {
-      // Upstream sparito tra i due comandi: si legge come "non pubblicato" al prossimo giro.
+      // Upstream vanished between the two commands: it reads as "unpublished" on the next round.
     }
   }
   const dirty = await gitRead(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']).then(countPorcelain, () => 0)
@@ -547,7 +547,7 @@ export async function gitStatus(repo: string, isWorktree: boolean, withLines = t
   return { root: repo, branch, upstream, hasUpstream: upstream !== null, ahead, behind, dirty, added, removed, isWorktree }
 }
 
-/** Voci di `git status --porcelain=v1 -z`: una per file, con le rinomine che portano l'origine nella voce successiva. */
+/** Entries of `git status --porcelain=v1 -z`: one per file, with renames carrying the source in the next entry. */
 function countPorcelain(out: string): number {
   const entries = out.split('\0')
   let count = 0
@@ -560,13 +560,13 @@ function countPorcelain(out: string): number {
   return count
 }
 
-/** File in conflitto unendo `base` in `head`, calcolati con merge-tree: la cartella di lavoro non cambia. */
+/** Conflicting files when merging `base` into `head`, computed with merge-tree: the working folder doesn't change. */
 export async function mergeConflicts(repo: string, head: string, base: string): Promise<string[]> {
   try {
     await run('git', ['-C', repo, ...BASE_ARGS, 'merge-tree', '--write-tree', '--name-only', '--no-messages', head, base], { maxBuffer: 16 * 1024 * 1024, env: cleanEnv() })
     return []
   } catch (error) {
-    // Codice 1: unione con conflitti. La prima riga è l'albero, poi i file in conflitto.
+    // Code 1: merge with conflicts. The first line is the tree, then the conflicting files.
     const e = error as { code?: number; stdout?: string }
     if (e.code !== 1 || typeof e.stdout !== 'string') return []
     return [...new Set(e.stdout.trim().split('\n').slice(1).map((l) => l.trim()).filter(Boolean))]
@@ -580,7 +580,7 @@ export interface BranchInfo {
   subject: string
 }
 
-/** Branch locali e di origin, i più recenti prima. */
+/** Local and origin branches, most recent first. */
 export async function listBranches(repo: string): Promise<BranchInfo[]> {
   const out = await git(repo, ['for-each-ref', '--sort=-committerdate', '--count=200', '--format=%(refname)%1f%(committerdate:unix)%1f%(contents:subject)', 'refs/heads', 'refs/remotes/origin'])
   const seen = new Set<string>()
@@ -597,20 +597,20 @@ export async function listBranches(repo: string): Promise<BranchInfo[]> {
   return branches
 }
 
-// ── LAD-59 commit ────────────────────────────────────────────────────────────
+// ── Commit ───────────────────────────────────────────────────────────────────
 
-/** Per ogni chiamata di git del commit: hook lenti (lint, test) hanno tempo, uno bloccato no. */
+/** For each git call of the commit: slow hooks (lint, test) get time, a stuck one doesn't. */
 export const GIT_COMMIT_TIMEOUT_MS = 5 * 60_000
 
 /**
- * Esito di un git "grezzo": codice e testo di stdout+stderr insieme (gli hook scrivono su entrambi). Si ferma, con
- * tutto il gruppo di processi (hook compresi), se non finisce entro `timeoutMs`.
+ * Outcome of a "raw" git: code and text of stdout+stderr together (hooks write to both). It stops, with
+ * the whole process group (hooks included), if it doesn't finish within `timeoutMs`.
  */
 async function gitRaw(repo: string, args: string[], input?: string, timeoutMs = GIT_COMMIT_TIMEOUT_MS, literalPathspecs = true): Promise<{ code: number; output: string }> {
-  // Gli hook (husky, lint-staged) chiamano pnpm, npx, node: nell'app pacchettizzata servono il PATH della shell di login.
+  // Hooks (husky, lint-staged) call pnpm, npx, node: in the packaged app they need the login shell PATH.
   const PATH = await shellPath().catch(() => process.env.PATH)
   return new Promise((resolve, reject) => {
-    // Nessuna identità forzata (autore dalle config dell'utente) e nessuna richiesta interattiva.
+    // No forced identity (author from the user's config) and no interactive prompt.
     const child = spawn('git', ['-C', repo, ...(literalPathspecs ? ['--literal-pathspecs'] : []), '-c', 'core.quotePath=false', ...args], {
       env: { ...cleanEnv(), PATH, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' },
       detached: true
@@ -643,29 +643,29 @@ async function gitRaw(repo: string, args: string[], input?: string, timeoutMs = 
 }
 
 /**
- * Scrittura git (switch, stash): hook compresi, PATH della shell di login, mai interattiva, con timeout. Restituisce l'output;
- * se git esce con errore lancia con l'output (ripulito da colori e credenziali), che il chiamante può tradurre.
+ * Git write (switch, stash): hooks included, login shell PATH, never interactive, with a timeout. Returns the output;
+ * if git exits with an error it throws with the output (cleaned of colors and credentials), which the caller can translate.
  */
 export async function gitWrite(repo: string, args: string[], timeoutMs = GIT_COMMIT_TIMEOUT_MS): Promise<string> {
-  // Senza `--literal-pathspecs`: con `stash push -u` git lo passa al suo `git clean` interno e i file non tracciati restano al loro posto. Gli argomenti sono nostri, mai percorsi dell'utente.
+  // Without `--literal-pathspecs`: with `stash push -u` git passes it to its internal `git clean` and untracked files stay in place. The arguments are ours, never user paths.
   const { code, output } = await gitRaw(repo, args, undefined, timeoutMs, false)
   if (code !== 0) throw new Error(redactUrls(tailOutput(output)) || t('git {command} exited with {code}', { command: args[0], code: String(code) }))
   return output
 }
 
-/** Ultime righe dell'output di git, senza colori, per un errore leggibile (gli hook possono scrivere molto). */
+/** Last lines of git's output, without colors, for a readable error (hooks can write a lot). */
 export function tailOutput(output: string): string {
   // eslint-disable-next-line no-control-regex
   const clean = output.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
   return clean.length > 4000 ? `…${clean.slice(-4000)}` : clean
 }
 
-/** Via le credenziali negli URL (`https://utente:token@host`): l'output di git e degli hook finisce in messaggi per l'utente. */
+/** Strip credentials from URLs (`https://user:token@host`): git and hook output ends up in user-facing messages. */
 export function redactUrls(text: string): string {
   return text.replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, '$1***@')
 }
 
-/** Motivo leggibile di un comando git fallito: lo stderr ripulito (senza colori né credenziali) o, se manca, la prima riga dell'errore. */
+/** Readable reason for a failed git command: the cleaned stderr (no colors or credentials) or, if missing, the first line of the error. */
 export function gitFailure(error: unknown): string {
   const e = error as { stderr?: unknown; message?: unknown }
   const text = String(e?.stderr ?? '').trim() || String(e?.message ?? '').split('\n')[0]
@@ -673,9 +673,9 @@ export function gitFailure(error: unknown): string {
 }
 
 /**
- * Commit nella cartella `repo` con il messaggio dato, senza toccarlo (cleanup verbatim, niente trailer) e senza saltare
- * gli hook. Se c'è qualcosa in stage si committa quello; altrimenti `paths` ('all' o un elenco) viene messo in stage
- * prima (git add -A, che rispetta .gitignore). Messaggio dallo stdin: mai interpolato in una shell.
+ * Commit in the `repo` folder with the given message, without touching it (verbatim cleanup, no trailer) and without skipping
+ * the hooks. If something is staged, that is committed; otherwise `paths` ('all' or a list) is staged
+ * first (git add -A, which respects .gitignore). Message from stdin: never interpolated into a shell.
  */
 export async function commitChanges(repo: string, subject: string, body: string | undefined, paths: string[] | 'all' | undefined, timeoutMs = GIT_COMMIT_TIMEOUT_MS): Promise<{ hash: string; subject: string }> {
   const title = subject.trim()
@@ -686,7 +686,7 @@ export async function commitChanges(repo: string, subject: string, body: string 
   if (title.includes('\0') || text.includes('\0')) throw new Error(t('The commit message contains invalid characters.'))
   if (Array.isArray(paths) && paths.some((p) => typeof p !== 'string' || !p || p.includes('\0'))) throw new Error(t('The commit message contains invalid characters.'))
 
-  // Esce 0 = niente in stage, 1 = qualcosa in stage; ogni altro codice (128: non è un repo, indice illeggibile…) è un errore di git.
+  // Exits 0 = nothing staged, 1 = something staged; any other code (128: not a repo, unreadable index…) is a git error.
   const hasStaged = async (): Promise<boolean> => {
     const check = await gitRaw(repo, ['diff', '--cached', '--quiet'], undefined, timeoutMs)
     if (check.code !== 0 && check.code !== 1) throw new Error(t('Could not read the staged changes: {output}', { output: tailOutput(check.output) || `git exit ${check.code}` }))
@@ -708,4 +708,4 @@ export async function commitChanges(repo: string, subject: string, body: string 
   const hash = head.output
   return { hash, subject: title }
 }
-// ── fine LAD-59 commit ───────────────────────────────────────────────────────
+// ── end of commit ────────────────────────────────────────────────────────────

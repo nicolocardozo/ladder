@@ -1,4 +1,4 @@
-// Menu di sessioni e progetti: le stesse azioni per il clic destro (sidebar e tab) e per il pulsante "…" della riga.
+// Menu for sessions and projects: the same actions for the right click (sidebar and tabs) and for the row's "…" button.
 import { useMemo, useRef, useState } from 'react'
 import { Archive, ArrowDown, ArrowRightLeft, ArrowUp, Bookmark, Check, CheckCheck, CircleDot, Columns2, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, ListPlus, MessagesSquare, Pencil, RotateCw, Sparkles, SquarePen, Trash2 } from 'lucide-react'
 import type { Project, SessionSummary } from '@shared/protocol'
@@ -30,7 +30,7 @@ function revealInFinder(path: string): void {
   void window.ladder?.reveal(path)
 }
 
-/** Scelta dell'editor per il progetto: la barra delle tab non ha più il pulsante, la scelta sta qui e in Impostazioni → Workspace. */
+/** Editor choice for the project: the tab bar no longer has the button, the choice lives here and in Settings → Workspace. */
 function EditorSub({ variant, project, itemClass: itemCls }: { variant: Variant; project: Project; itemClass: string }) {
   const { Item, Sub, SubTrigger, SubContent } = parts[variant]
   const current = useEditorOf(project.id)
@@ -60,7 +60,7 @@ interface SessionMenuProps {
   project: Project | null
 }
 
-/** Azioni su una sessione. Rinomina sposta il focus sul campo nella riga, quindi il menu non lo riporta al pulsante. */
+/** Actions on a session. Rename moves focus to the field in the row, so the menu does not return it to the button. */
 export function SessionMenuContent({ variant, session, project }: SessionMenuProps) {
   const { Content, Item, Separator, Sub, SubTrigger, SubContent } = parts[variant]
   const groups = useApp((s) => s.ui[session.projectId]?.groups) ?? []
@@ -75,7 +75,7 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
   const openSplit = useApp((s) => s.openSplit)
   const sessionId = session.id
   const editor = useEditorOf(session.projectId)
-  // Come openSplit: serve una sessione da cui affiancare (la colonna attiva o quella aperta) e questa non deve essere già in colonna.
+  // Like openSplit: it needs a session to split from (the active column or the open one) and this one must not already be in a column.
   const canSplit = useApp((s) => {
     const columns = liveColumns(s, session.projectId)
     if (columns.includes(session.id)) return false
@@ -100,7 +100,7 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
         </Item>
       )}
       {session.mode === 'chat' && (session.agent === 'claude-code' || session.agent === 'codex') && (
-        // Solo gli agenti che riprendono la conversazione da un processo nuovo. Dopo aver aggiunto un server MCP o cambiato le impostazioni dell'agente: il prossimo messaggio riparte con un processo nuovo.
+        // Only agents that resume the conversation from a new process. After adding an MCP server or changing the agent's settings: the next message restarts with a new process.
         <Item className={itemClass} onClick={() => void request({ type: 'session.restartAgent', sessionId }).catch(() => undefined)}>
           <RotateCw />
           {t('Restart agent')}
@@ -142,7 +142,7 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
       )}
       {project && (
         <>
-          {/* La cartella della sessione: il suo worktree se ce l'ha, altrimenti il progetto. */}
+          {/* The session's folder: its worktree if it has one, otherwise the project. */}
           <Item className={itemClass} onClick={() => openInEditor(project.id, session.cwd || project.path)}>
             <ExternalLink />
             {t('Open in {editor}', { editor: EDITOR_NAME[editor] })}
@@ -194,7 +194,7 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
   )
 }
 
-/** Clic destro su un gruppo. Togliere il gruppo lascia le chat nella lista del progetto. */
+/** Right click on a group. Removing the group leaves the chats in the project's list. */
 export function GroupMenuContent({ projectId, groupId }: { projectId: string; groupId: string }) {
   const startRenameGroup = useApp((s) => s.startRenameGroup)
   const deleteGroup = useApp((s) => s.deleteGroup)
@@ -212,7 +212,7 @@ export function GroupMenuContent({ projectId, groupId }: { projectId: string; gr
   )
 }
 
-/** Clic destro o "…" su una sezione di progetti. Toglierla lascia i progetti nella sidebar, in coda a quelli senza sezione. */
+/** Right click or "…" on a project section. Removing it leaves the projects in the sidebar, after those without a section. */
 export function ProjectGroupMenuContent({ groupId, variant = 'context' }: { groupId: string; variant?: Variant }) {
   const { Content, Item, Separator } = parts[variant]
   const groups = useApp((s) => s.projectGroups?.groups)
@@ -255,7 +255,7 @@ interface ProjectMenuProps {
   variant?: Variant
 }
 
-/** Clic destro o "…" su un progetto. "Rimuovi" apre una conferma: il focus va alla finestra di dialogo. */
+/** Right click or "…" on a project. "Remove" opens a confirmation: focus goes to the dialog. */
 export function ProjectMenuContent({ project, onRemove, variant = 'context' }: ProjectMenuProps) {
   const { Content, Item, Separator, Sub, SubTrigger, SubContent } = parts[variant]
   const select = useApp((s) => s.select)
@@ -265,7 +265,7 @@ export function ProjectMenuContent({ project, onRemove, variant = 'context' }: P
   const moveProject = useApp((s) => s.moveProject)
   const removing = useRef(false)
   const projectEditor = useEditorOf(project.id)
-  // Dove sta il progetto: la sua sezione (null: fuori da ogni sezione) e il posto tra i vicini.
+  // Where the project sits: its section (null: outside any section) and its place among its neighbors.
   const place = useMemo(() => {
     const layout = layoutProjects(projects, projectGroups)
     const sections = layout.sections.map(({ group }) => group)
@@ -279,7 +279,7 @@ export function ProjectMenuContent({ project, onRemove, variant = 'context' }: P
       className={contentClass}
       align={variant === 'dropdown' ? 'end' : 'start'}
       finalFocus={() => {
-        // Dopo "Nuovo gruppo" il focus va al campo del nome, dopo "Rimuovi" alla finestra di dialogo.
+        // After "New group" focus goes to the name field, after "Remove" to the dialog.
         const restore = !removing.current && !useApp.getState().renamingGroup && !useApp.getState().renamingProjectGroup
         removing.current = false
         return restore
@@ -358,14 +358,14 @@ export function ProjectMenuContent({ project, onRemove, variant = 'context' }: P
   )
 }
 
-/** Conferma prima di togliere un progetto. Il focus parte da "Annulla". */
+/** Confirmation before removing a project. Focus starts on "Cancel". */
 export function RemoveProjectDialog({ project, onClose }: { project: Project | null; onClose: () => void }) {
   const removeProject = useApp((s) => s.removeProject)
   const sessions = useApp((s) => s.sessions)
   const cancelRef = useRef<HTMLButtonElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // Il testo resta visibile durante l'animazione di chiusura.
+  // The text stays visible during the closing animation.
   const shown = useRef<Project | null>(project)
   if (project) shown.current = project
   const target = shown.current
@@ -374,7 +374,7 @@ export function RemoveProjectDialog({ project, onClose }: { project: Project | n
     ? Object.values(sessions).filter((s) => s.projectId === target.id && !s.archived && !s.parent && s.run !== 'idle' && s.run !== 'error').length
     : 0
 
-  // Il nome del progetto sta in grassetto dentro la frase: si divide il testo tradotto attorno a {name}.
+  // The project name is bold inside the sentence: the translated text is split around {name}.
   const [before, after = ''] = t('{name} leaves the sidebar along with its chats. Its files stay where they are.').split('{name}')
 
   const confirm = async () => {

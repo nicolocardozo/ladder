@@ -1,4 +1,4 @@
-// Stato del renderer: copia di ciò che l'host pubblica più lo stato dell'interfaccia (selezione, cartelle aperte).
+// Renderer state: a copy of what the host publishes plus the interface state (selection, open folders).
 import { create } from 'zustand'
 import { isElectron, onHostConnect, request, send } from '@/lib/host-client'
 import { applyProjectGroupOp, normalizeProjectGroups, type ProjectGroupOp } from '@/lib/project-groups'
@@ -15,7 +15,7 @@ import { useSettings } from '@/hooks/use-theme'
 import { isDefaultProfileId } from '@/lib/profile-id'
 import type { Plan, PlanChoice, PlanState, PlanTemplate } from '@shared/plan'
 
-/** Stati degli agenti dallo snapshot: il predefinito di ciascuno in `agents`, gli altri profili per id. */
+/** Agent states from the snapshot: each one's default in `agents`, the other profiles by id. */
 function splitAgents(list: AgentStatus[]): Pick<AppState, 'agents' | 'profileAgents'> {
   const profileAgents: Record<string, AgentStatus> = {}
   const agents: AgentStatus[] = []
@@ -57,101 +57,101 @@ interface AppState {
   sessions: Record<string, SessionSummary>
   items: Record<string, ChatItem[]>
   drafts: Record<string, string>
-  /** Comandi / dichiarati dall'agente, per sessione. Assente: non ancora caricati. */
+  /** Agent-declared / commands, per session. Absent: not loaded yet. */
   commands: Record<string, SlashCommand[]>
   ui: Record<string, ProjectUiState>
-  /** Stato degli agenti col profilo predefinito (uno per agente). Gli altri profili stanno in `profileAgents`. */
+  /** Agent state with the default profile (one per agent). The other profiles are in `profileAgents`. */
   agents: AgentStatus[]
-  /** Profili di Claude Code e Codex (LAD-23), predefiniti compresi. Vuoto nelle fixture: vale "solo i predefiniti" (vedi lib/profiles.ts). */
+  /** Claude Code and Codex profiles, defaults included. Empty in fixtures: it means "defaults only" (see lib/profiles.ts). */
   profiles: Profile[]
-  /** Stato degli agenti per i profili non predefiniti, per id del profilo: account, modelli e limiti sono suoi. */
+  /** Agent state for non-default profiles, by profile id: account, models and limits are their own. */
   profileAgents: Record<string, AgentStatus>
-  /** Dice anche il progetto selezionato: tab, file, terminale e nuova chat seguono lui. */
+  /** It also says the selected project: tabs, files, terminal and new chat follow it. */
   selection: Selection
-  /** Primo elemento non letto quando la sessione è stata aperta, per il divisore "Nuovo". */
+  /** First unread item when the session was opened, for the "New" divider. */
   firstUnread: Record<string, number | null>
-  /** Sidebar visibile. Si ricorda tra un avvio e l'altro. */
+  /** Sidebar visible. It is remembered between launches. */
   sidebarOpen: boolean
   paletteOpen: boolean
-  /** Sessione con il titolo in modifica nella sidebar. */
+  /** Session whose title is being edited in the sidebar. */
   renaming: string | null
-  /** Gruppo con il nome in modifica nella sidebar. */
+  /** Group whose name is being edited in the sidebar. */
   renamingGroup: string | null
-  /** Sezioni di progetti nella sidebar. Null: nessuna sezione (fixture e host che non le conoscono), tutti i progetti in ordine. */
+  /** Project sections in the sidebar. Null: no sections (fixtures and hosts that don't know them), all projects in order. */
   projectGroups: ProjectGroupsState | null
-  /** Sezione con il nome in modifica nella sidebar. */
+  /** Section whose name is being edited in the sidebar. */
   renamingProjectGroup: string | null
-  /** Ultimo errore di un comando della sidebar (sezioni di progetti, rigenerazione del titolo), già tradotto dall'host. Si toglie da solo dopo 6 s. */
+  /** Last error of a sidebar command (project sections, title regeneration), already translated by the host. It clears itself after 6 s. */
   sidebarNotice: string | null
-  /** 'error' per un comando fallito (rosa), 'info' per un'informazione (tenue), per esempio le sessioni archiviate in automatico. */
+  /** 'error' for a failed command (pink), 'info' for information (dim), for example automatically archived sessions. */
   sidebarNoticeTone: 'error' | 'info'
-  /** File aperti come tab con modifiche non salvate, per id della tab. */
+  /** Files open as tabs with unsaved changes, by tab id. */
   dirtyFiles: Record<string, boolean>
-  /** File di cui si sta chiudendo la tab con modifiche non salvate: si chiede cosa fare. */
+  /** File whose tab is being closed with unsaved changes: the user is asked what to do. */
   closingFile: { projectId: string; root: string; path: string } | null
-  /** Sessione aperta che l'utente ha segnato come da leggere: la vista non deve rileggerla finché non cambia la selezione. */
+  /** Open session that the user marked as unread: the view must not mark it read again until the selection changes. */
   heldUnread: string | null
-  /** Cronologia delle selezioni per Indietro/Avanti; `historyIndex` punta alla selezione corrente. */
+  /** History of selections for Back/Forward; `historyIndex` points to the current selection. */
   history: Selection[]
   historyIndex: number
   terminals: Record<string, TerminalInfo>
-  /** Contatore per cartella: cresce quando l'host segnala un cambiamento, e le viste rileggono. */
+  /** Per-folder counter: it grows when the host reports a change, and the views re-read. */
   fsVersion: Record<string, number>
-  // ── LAD-68 ──
-  /** Stato git leggero per cartella (chiave `GitStatus.root`), solo per le sessioni osservate con `watchGit`. */
+  // ── Git state of watched sessions ──
+  /** Lightweight git state per folder (key `GitStatus.root`), only for sessions watched with `watchGit`. */
   gitStatus: Record<string, GitStatus>
-  /** Cartella git di ogni sessione osservata, nota dopo il primo `git.status`. */
+  /** Git folder of each watched session, known after the first `git.status`. */
   gitRoot: Record<string, string>
-  /** Iscrive la sessione agli aggiornamenti git dell'intestazione (idempotente) e legge lo stato iniziale. */
+  /** Subscribes the session to the header's git updates (idempotent) and reads the initial state. */
   watchGit: (sessionId: string) => void
-  /** Toglie l'iscrizione (idempotente). */
+  /** Removes the subscription (idempotent). */
   unwatchGit: (sessionId: string) => void
-  // ── fine LAD-68 ──
-  // ── LAD-80 ──
-  /** Mappa dei branch per progetto, letta dall'host solo mentre la scheda History o Merge la guarda (`watchBranchMap`). */
+  // ── end of git state ──
+  // ── Branch maps ──
+  /** Branch map per project, read by the host only while the History or Merge tab is looking at it (`watchBranchMap`). */
   branchMaps: Record<string, BranchMap>
-  /** Ultima richiesta della mappa fallita, per progetto: la UI mostra l'errore con "Riprova" invece di "Reading branches…". Sparisce al primo successo. */
+  /** Last failed map request, per project: the UI shows the error with "Retry" instead of "Reading branches…". It clears on the first success. */
   branchMapError: Record<string, string>
-  /** Rilegge la mappa del progetto osservato (il "Riprova" dopo un errore). */
+  /** Re-reads the watched project's map (the "Retry" after an error). */
   retryBranchMap: (projectId: string) => void
-  /** Iscrive la finestra agli aggiornamenti della mappa del progetto (idempotente) e legge la mappa iniziale. */
+  /** Subscribes the window to the project's map updates (idempotent) and reads the initial map. */
   watchBranchMap: (projectId: string) => void
-  /** Toglie l'iscrizione (idempotente). La mappa già letta resta finché il progetto non è rimosso. */
+  /** Removes the subscription (idempotent). The map already read stays until the project is removed. */
   unwatchBranchMap: (projectId: string) => void
-  // ── fine LAD-80 ──
-  /** Ultima richiesta di apertura dell'ispettore: un file nel viewer o un ambito del diff. */
+  // ── end of branch maps ──
+  /** Last request to open the inspector: a file in the viewer or a diff scope. */
   inspectorRequest: InspectorRequest | null
-  /** Testo da inserire nel composer con la chiave indicata (Aggiungi alla chat, @terminal). */
+  /** Text to insert in the composer with the given key (Add to chat, @terminal). */
   composerInsert: { key: string; text: string; nonce: number } | null
-  /** Sostituisce la bozza di un composer già montato (profilo di sessione, ⌘⇧N); lo store e l'host li aggiorna chi chiede. */
+  /** Replaces the draft of an already mounted composer (session profile, ⌘⇧N); whoever asks updates the store and the host. */
   composerReplace: { key: string; text: string; nonce: number } | null
   replaceComposerDraft: (key: string, text: string) => void
-  /** Immagini in attesa di entrare nel composer con la chiave indicata (screenshot del browser): il composer le prende appena è montato. */
+  /** Images waiting to enter the composer with the given key (browser screenshots): the composer takes them as soon as it is mounted. */
   composerAttachments: Record<string, Attachment[]>
-  /** Browser integrato (LAD-57): ultimo stato inviato dal main per ogni tab, anche quelle non aperte in questo momento. */
+  /** Built-in browser: last state sent by main for each tab, including those not open right now. */
   browserStates: Record<string, BrowserState>
-  /** Browser dell'agente (LAD-57 parte 2): ultimo stato intero inviato dall'host per sessione. La tab dell'agente è effimera, non sta in `ui`. */
+  /** Agent browser (part 2): last full state sent by the host per session. The agent's tab is ephemeral, it is not in `ui`. */
   agentBrowser: Record<string, AgentBrowserState>
-  /** sessione -> tabId della vista dell'agente che vive in un'altra finestra (`open` ha restituito null con lo stato ancora attivo): qui non si mostra. */
+  /** session -> tabId of the agent's view that lives in another window (`open` returned null with the state still active): it is not shown here. */
   agentForeign: Record<string, string>
-  /** Ultimo server locale visto nel terminale di ogni progetto e non ancora aperto né scartato. */
+  /** Last local server seen in each project's terminal and not yet opened or dismissed. */
   devServers: Record<string, { url: string; terminalId: string }>
   quickOpen: boolean
-  /** Un tab è trascinato sul bordo destro o in basso della vista: mostra dove si aprirà la nuova colonna. */
+  /** A tab is being dragged onto the right or bottom edge of the view: shows where the new column will open. */
   splitDrop: boolean
-  /** ⌘\ senza altre chat da affiancare: la prossima sessione scelta o creata nel progetto si apre accanto a `base`. */
+  /** ⌘\ with no other chats to split: the next session chosen or created in the project opens next to `base`. */
   pendingSplit: { projectId: string; base: string } | null
-  /** Elemento da raggiungere all'apertura della sessione (⌘⇧A, notifica, ricerca): la vista scorre lì e mette il focus. */
+  /** Item to reach when the session opens (⌘⇧A, notification, search): the view scrolls there and takes focus. */
   focusTarget: { sessionId: string; itemId: string | null; nonce: number } | null
-  /** Popover "In attesa" della sidebar. */
+  /** Sidebar "Waiting" popover. */
   inboxOpen: boolean
-  /** Finestra "Nuova sessione da…" (⌘⇧N). */
+  /** "New session from…" window (⌘⇧N). */
   newFromOpen: boolean
-  /** Issue, PR o branch scelto per la nuova chat del progetto. */
+  /** Issue, PR or branch chosen for the project's new chat. */
   newSource: { projectId: string; item: IssueItem } | null
-  /** Profilo di sessione (LAD-60) da applicare alla nuova chat del progetto: la nuova chat lo legge una volta e lo azzera. */
+  /** Session profile to apply to the project's new chat: the new chat reads it once and clears it. */
   newPreset: { projectId: string; presetId: string } | null
-  /** Finestra "Salva come profilo" aperta da menu di sessione o ⌘K; `seed` precompila i campi, `presetId` modifica uno esistente. */
+  /** "Save as profile" window opened from the session menu or ⌘K; `seed` prefills the fields, `presetId` edits an existing one. */
   presetEditor: { presetId?: string; seed?: Partial<SessionPreset> } | null
   /** "Hand off to…" dialog for the given session; `agent` and `note` prefill the fields (from /handoff <agent> <note>). */
   handoffDialog: { sessionId: string; agent?: AgentId; note?: string } | null
@@ -159,33 +159,33 @@ interface AppState {
   adviceDialog: { sessionId: string; mode: 'advisor' | 'committee'; question?: string } | null
   /** Plan opened as a commentable document: markdown text and the session it comes from. */
   planDocument: { sessionId: string; text: string } | null
-  /** Riepilogo "Mentre eri via" per progetto, calcolato quando torni dopo più di 30 minuti. */
+  /** "While you were away" summary per project, computed when you come back after more than 30 minutes. */
   away: Record<string, AwaySummary>
   prefs: AppPrefs | null
-  /** Stato del canale remoto (LAD-51): dispositivi abbinati, collegati, QR attivo. Null finché l'host non l'ha mandato. */
+  /** State of the remote channel: paired devices, connected, active QR. Null until the host has sent it. */
   remote: RemoteStatus | null
-  /** Collegamenti (Claude, Codex, GitHub). Vuoto finché l'host non li ha letti. */
+  /** Connections (Claude, Codex, GitHub). Empty until the host has read them. */
   connections: Partial<Record<ConnectionId, ConnectionStatus>>
-  /** Collegamenti dei profili non predefiniti (Claude Code, Codex), per id del profilo. */
+  /** Connections of non-default profiles (Claude Code, Codex), by profile id. */
   profileConnections: Record<string, ConnectionStatus>
-  /** LAD-79: "Altri agenti" (CLI come Gemini, Copilot, Cursor) con stato di accesso. Null finché `agents.others` non ha risposto; gli eventi `agent.connection` aggiornano la riga con lo stesso id. */
+  /** "Other agents" (CLIs like Gemini, Copilot, Cursor) with sign-in state. Null until `agents.others` has answered; `agent.connection` events update the row with the same id. */
   otherAgents: OtherAgentConnection[] | null
   setOtherAgents: (list: OtherAgentConnection[]) => void
-  /** Primo avvio: `open` finché non si preme Continua o Salta, anche se nel frattempo un agente si collega. `done` fino al prossimo avvio. */
+  /** First launch: `open` until Continue or Skip is pressed, even if an agent connects in the meantime. `done` until the next launch. */
   onboarding: 'idle' | 'open' | 'done'
-  /** Cresce quando GitHub si collega o si scollega: issue e pannello Merge rileggono. */
+  /** Grows when GitHub connects or disconnects: issues and the Merge panel re-read. */
   githubVersion: number
-  /** Riga di Impostazioni → Abbonamenti su cui portare il focus (dal composer o dal pannello Merge). */
+  /** Row of Settings → Subscriptions to focus (from the composer or the Merge panel). */
   connectionFocus: { id: ConnectionId; profileId?: string | null; nonce: number; highlight?: boolean } | null
   setOnboarding: (state: 'idle' | 'open' | 'done') => void
-  /** "Other agents found on your Mac" nascosta con Hide: vale fino alla chiusura dell'app, non è una preferenza. */
+  /** "Other agents found on your Mac" hidden with Hide: it holds until the app closes, it is not a preference. */
   detectedAgentsHidden: boolean
   hideDetectedAgents: () => void
-  /** Porta l'utente alla riga del collegamento in Impostazioni → Abbonamenti. */
-  /** `highlight`: la riga si evidenzia per un attimo (dal pannello dei limiti nel composer). */
+  /** Takes the user to the connection's row in Settings → Subscriptions. */
+  /** `highlight`: the row is highlighted for a moment (from the limits panel in the composer). */
   focusConnection: (id: ConnectionId, profileId?: string | null, options?: { highlight?: boolean }) => void
   consumeConnectionFocus: (nonce: number) => void
-  /** Review chieste a un altro agente, per id: in corso, finite o fallite. */
+  /** Reviews requested from another agent, by id: running, finished or failed. */
   reviews: Record<string, ReviewState>
   // ── Executable plans ──
   /** Plans by id: from the snapshot and `plan.updated`. The card in the coordinator chat reads from here. */
@@ -208,23 +208,23 @@ interface AppState {
   deletePlanTemplate: (templateId: string) => Promise<PlanResult<unknown>>
   /** Creates a plan in review from the session (idle chat) with a template and a goal. */
   startPlanFromTemplate: (sessionId: string, templateId: string, goal: string) => Promise<PlanResult<PlanState>>
-  /** Scorciatoie in uso (preset, personalizzazioni, avvisi del file). Null finché l'host non le ha mandate: valgono i predefiniti. Ogni nuovo stato fa rileggere le etichette. */
+  /** Shortcuts in use (preset, customizations, file warnings). Null until the host has sent them: defaults apply. Each new state makes labels re-read. */
   shortcuts: ShortcutsState | null
-  /** Applica lo stato delle scorciatoie al registro condiviso (ascoltatore globale, palette, tooltip, editor). */
+  /** Applies the shortcuts state to the shared registry (global listener, palette, tooltips, editor). */
   applyShortcuts: (state: ShortcutsState) => void
-  /** Tab chiuse per progetto, la più recente in fondo (⌘⇧T). Solo in memoria, al massimo MAX_CLOSED_TABS. */
+  /** Closed tabs per project, the most recent last (⌘⇧T). In memory only, at most MAX_CLOSED_TABS. */
   closedTabs: Record<string, ClosedTab[]>
-  /** Richiesta di mettere il focus sul filtro del pannello File (Cerca nel progetto); il pannello la consuma. */
+  /** Request to focus the Files panel filter (Search in project); the panel consumes it. */
   filesFilterFocus: { projectId: string; nonce: number } | null
   consumeFilesFilterFocus: (nonce: number) => void
   applyEvent: (event: HostEvent) => void
-  /** `history: false` cambia la selezione senza aggiungere una voce a ⌘[ ⌘] (per esempio passando da una colonna all'altra). */
+  /** `history: false` changes the selection without adding an entry to ⌘[ ⌘] (for example when moving between columns). */
   select: (selection: Selection, options?: { history?: boolean }) => void
   openFile: (projectId: string, root: string, path: string) => void
   closeFile: (projectId: string, root: string, path: string, force?: boolean) => void
   cancelCloseFile: () => void
   setFileDirty: (id: string, dirty: boolean) => void
-  /** Nuovo gruppo, con le sessioni indicate già dentro. */
+  /** New group, with the given sessions already inside. */
   createGroup: (projectId: string, sessionIds?: string | string[]) => void
   renameGroup: (projectId: string, groupId: string, name: string) => void
   startRenameGroup: (groupId: string) => void
@@ -232,109 +232,109 @@ interface AppState {
   deleteGroup: (projectId: string, groupId: string) => void
   toggleGroup: (projectId: string, groupId: string) => void
   moveToGroup: (projectId: string, sessionId: string, groupId: string | null) => void
-  /** Sposta più sessioni insieme in un gruppo (o fuori, con null). */
+  /** Moves several sessions together into a group (or out, with null). */
   moveSessionsToGroup: (projectId: string, sessionIds: string[], groupId: string | null) => void
-  /** Nuova sezione in fondo, con i progetti indicati già dentro; il nome va in modifica nella sidebar. */
+  /** New section at the end, with the given projects already inside; the name goes into editing in the sidebar. */
   createProjectGroup: (projectIds?: string[]) => Promise<void>
   renameProjectGroup: (groupId: string, name: string) => void
   startRenameProjectGroup: (groupId: string) => void
   stopRenameProjectGroup: () => void
-  /** Elimina la sezione: i progetti restano, in coda a quelli senza sezione. */
+  /** Deletes the section: the projects stay, after those without a section. */
   deleteProjectGroup: (groupId: string) => void
   toggleProjectGroup: (groupId: string) => void
   reorderProjectGroups: (groupIds: string[]) => void
-  /** Sposta un progetto in una sezione (o fuori, con null) alla posizione indicata, contata senza di lui. Serve anche a riordinare. */
+  /** Moves a project into a section (or out, with null) at the given position, counted without it. It also serves to reorder. */
   moveProject: (projectId: string, groupId: string | null, index?: number) => void
   clearSidebarNotice: () => void
-  /** LAD-59: mostra nel banner degli avvisi l'errore di un comando fatto fuori dalla sidebar. */
+  /** Shows in the notices banner the error of a command run outside the sidebar. */
   notifyError: (error: unknown) => void
-  /** LAD-59: conferma nel banner degli avvisi (tono tenue). */
+  /** Confirmation in the notices banner (dim tone). */
   notifyInfo: (text: string) => void
   setDraft: (key: string, text: string) => void
-  /** Chiede all'host i comandi / della sessione (all'apertura e alla riconnessione). */
+  /** Asks the host for the session's / commands (on open and on reconnect). */
   loadCommands: (sessionId: string) => void
   setUi: (projectId: string, state: ProjectUiState) => void
   closeTab: (projectId: string, sessionId: string) => void
-  /** Sposta una tab nella posizione `toIndex` tra quelle dello stesso tipo (chat o file). L'ordine si salva per progetto. */
+  /** Moves a tab to position `toIndex` among those of the same kind (chat or file). The order is saved per project. */
   reorderTab: (projectId: string, tabId: string, toIndex: number) => void
-  /** ⌘⌥⇧← e ⌘⌥⇧→: sposta la tab attiva di una posizione. */
-  /** Sposta la tab attiva di un posto. Restituisce true se si è mossa. */
+  /** ⌘⌥⇧← and ⌘⌥⇧→: move the active tab by one position. */
+  /** Moves the active tab by one place. Returns true if it moved. */
   moveActiveTab: (projectId: string, delta: -1 | 1) => boolean
-  /** Tab successiva (+1) o precedente (-1) del progetto, in ciclo: prima le chat, poi i file, come nella barra. Restituisce true se è cambiata la selezione. */
+  /** Next (+1) or previous (-1) tab of the project, cycling: chats first, then files, as in the bar. Returns true if the selection changed. */
   cycleTab: (projectId: string, delta: -1 | 1) => boolean
-  /** Riapre l'ultima tab chiusa del progetto (chat o file). Salta quelle non più riapribili. Restituisce true se ne ha riaperta una. */
+  /** Reopens the project's last closed tab (chat or file). Skips those that can no longer be reopened. Returns true if it reopened one. */
   reopenClosedTab: (projectId: string) => boolean
-  /** Cerca nel progetto: apre il pannello File dell'ispettore con il focus sul filtro. */
+  /** Search in project: opens the inspector's Files panel with focus on the filter. */
   searchInProject: (projectId: string) => void
-  /** Torna su un progetto: riapre la tab attiva che aveva, oppure la nuova chat. */
+  /** Goes back to a project: reopens the active tab it had, or the new chat. */
   selectProject: (projectId: string) => void
   toggleSidebar: () => void
   setPaletteOpen: (open: boolean) => void
-  /** Avvia la modifica del titolo: apre la sidebar e il progetto se servono. */
+  /** Starts editing the title: opens the sidebar and the project if needed. */
   startRename: (sessionId: string) => void
-  /** Chiede all'host un nuovo titolo generato. Il titolo arriva con session.upsert; l'errore, già tradotto, si mostra come gli altri della sidebar. */
+  /** Asks the host for a newly generated title. The title arrives with session.upsert; the error, already translated, is shown like the other sidebar ones. */
   regenerateTitle: (sessionId: string) => void
   stopRename: () => void
-  /** Indietro (-1) o avanti (+1) nella cronologia, saltando le sessioni archiviate. */
+  /** Back (-1) or forward (+1) in the history, skipping archived sessions. */
   navigate: (delta: -1 | 1) => void
-  /** Archivia: la riga sparisce, la tab si chiude e, se era aperta, si passa alla tab vicina o alla nuova chat. */
+  /** Archives: the row disappears, the tab closes and, if it was open, it moves to the neighboring tab or the new chat. */
   archiveSession: (sessionId: string) => void
-  /** Toglie il progetto da Ladder (i file restano). Le sue sessioni vengono archiviate, così si fermano. */
+  /** Removes the project from Ladder (files stay). Its sessions are archived, so they stop. */
   removeProject: (projectId: string) => Promise<void>
-  /** Apre la prossima sessione in attesa dopo quella corrente. Restituisce false se non ce ne sono. */
+  /** Opens the next waiting session after the current one. Returns false if there are none. */
   goToNextWaiting: () => boolean
   markUnread: (sessionId: string) => void
   markRead: (sessionId: string) => void
-  /** Apre l'ispettore del progetto su una scheda, con un file o un ambito del diff. */
+  /** Opens the project's inspector on a tab, with a file or a diff scope. */
   openInspector: (projectId: string, tab: InspectorTab, extra?: Omit<InspectorRequest, 'projectId' | 'tab' | 'nonce'>) => void
-  /** Apre o chiude l'ispettore; con `tab` diversa da quella aperta cambia scheda. */
+  /** Opens or closes the inspector; with a `tab` different from the open one it switches tab. */
   toggleInspector: (projectId: string, tab?: InspectorTab) => void
   setTerminalPanel: (projectId: string, patch: Partial<NonNullable<ProjectUiState['terminal']>>) => void
   insertIntoComposer: (key: string, text: string) => void
-  /** Mette un'immagine in coda per il composer con la chiave indicata. */
+  /** Queues an image for the composer with the given key. */
   queueComposerAttachment: (key: string, attachment: Attachment) => void
-  /** Il composer ha preso le immagini in coda. */
+  /** The composer took the queued images. */
   takeComposerAttachments: (key: string) => Attachment[]
-  /** Apre la colonna browser del progetto sulla sua pagina attiva (o sulla prima, o ne crea una); `fresh` ne apre sempre una nuova. Con `url` ci naviga. Non cambia la selezione. */
+  /** Opens the project's browser column on its active page (or the first, or creates one); `fresh` always opens a new one. With `url` it navigates there. It does not change the selection. */
   openBrowser: (projectId: string, options?: { url?: string; fresh?: boolean }) => string
-  /** Chiude la pagina e ne distrugge la vista nativa. Chiusa l'ultima, si chiude anche la colonna. */
+  /** Closes the page and destroys its native view. When the last one is closed, the column closes too. */
   closeBrowser: (projectId: string, tabId: string) => void
-  /** Apre la colonna browser (con `tabId` su quella pagina). Non cambia la selezione e non crea pagine. */
+  /** Opens the browser column (with `tabId` on that page). It does not change the selection and does not create pages. */
   showBrowserColumn: (projectId: string, tabId?: string) => void
   closeBrowserColumn: (projectId: string) => void
-  /** Apre o chiude la colonna; aperta senza pagine ne crea una. */
+  /** Opens or closes the column; opened without pages it creates one. */
   toggleBrowserColumn: (projectId: string) => void
-  /** Larghezza scelta della colonna; `undefined` torna al predefinito. */
+  /** Chosen width of the column; `undefined` goes back to the default. */
   setBrowserColumnWidth: (projectId: string, width: number | undefined) => void
   setBrowserState: (state: BrowserState) => void
-  /** Sostituisce lo stato del browser dell'agente di una sessione; con `closed` lo toglie. Apre e mostra la vista alla prima volta. */
+  /** Replaces the agent browser state of a session; with `closed` it removes it. Opens and shows the view the first time. */
   applyAgentBrowser: (state: AgentBrowserState) => void
-  /** Caricamento a ogni connessione (`browser.agent.state`, elenco completo): sostituisce lo stato e ritrova le viste, senza cambiare ciò che si guarda. */
+  /** Load on every connection (`browser.agent.state`, full list): replaces the state and finds the views again, without changing what is being looked at. */
   loadAgentBrowser: (states: AgentBrowserState[]) => void
-  /** Mostra la tab del browser dell'agente della sessione. */
+  /** Shows the session's agent browser tab. */
   showAgentBrowser: (sessionId: string) => void
-  /** Chiede al main la vista dell'agente. `null` con stato attivo = è di un'altra finestra. Senza `force` al massimo un tentativo al secondo per sessione. */
+  /** Asks main for the agent's view. `null` with active state = it belongs to another window. Without `force`, at most one attempt per second per session. */
   probeAgentBrowser: (sessionId: string, force?: boolean) => Promise<void>
-  /** Chiude la tab dell'agente: vale come stop (la vista si distrugge e l'host rifiuta le chiamate successive). */
+  /** Closes the agent's tab: it counts as a stop (the view is destroyed and the host refuses later calls). */
   closeAgentBrowser: (sessionId: string) => void
-  /** Riattiva il browser dell'agente dopo uno stop esplicito o la chiusura della tab: gli strumenti tornano subito, la tab si ricrea alla prima azione dell'agente. */
+  /** Re-enables the agent browser after an explicit stop or tab close: tools come back right away, the tab is recreated at the agent's first action. */
   resumeAgentBrowser: (sessionId: string) => Promise<void>
   dismissDevServer: (projectId: string) => void
-  /** Apre la sessione in una colonna accanto a quella attiva (o in fondo, con `at: 'end'`). Già aperta: la attiva. Colonne piene: prende il posto di quella attiva. Restituisce true se si è aperta una nuova colonna. */
+  /** Opens the session in a column next to the active one (or at the end, with `at: 'end'`). Already open: activates it. Columns full: takes the place of the active one. Returns true if a new column opened. */
   openSplit: (projectId: string, sessionId: string, options?: { at?: 'end' }) => boolean
-  /** ⌘\ Affianca: la prossima chat aperta non ancora in colonna, oppure una nuova chat che si apre accanto. */
+  /** ⌘\ Split: the next open chat not yet in a column, or a new chat that opens next to it. */
   splitActive: () => void
-  /** Toglie la colonna dalla vista; la tab e la sessione restano. */
+  /** Removes the column from the view; the tab and the session stay. */
   closeColumn: (projectId: string, sessionId: string) => void
-  /** ⌘⌥← e ⌘⌥→: la colonna a sinistra o a destra diventa attiva. */
+  /** ⌘⌥← and ⌘⌥→: the column to the left or right becomes active. */
   focusColumn: (delta: -1 | 1) => boolean
   setSplitDrop: (on: boolean) => void
-  /** LAD-75: proporzioni delle colonne affiancate del progetto; undefined = parti uguali. */
+  /** Proportions of the project's split columns; undefined = equal parts. */
   setColumnWidths: (projectId: string, widths: number[] | undefined) => void
   setQuickOpen: (open: boolean) => void
-  /** ⌘P e il nome del progetto nella barra: chiude la palette e apre o chiude la ricerca dei file. */
+  /** ⌘P and the project name in the bar: closes the palette and opens or closes the file search. */
   toggleQuickOpen: () => void
-  /** Apre la sessione (nel suo progetto e nella sua tab) e chiede alla vista di raggiungere l'elemento. */
+  /** Opens the session (in its project and its tab) and asks the view to reach the item. */
   openSessionAt: (sessionId: string, itemId: string | null) => boolean
   consumeFocus: (nonce: number) => void
   setInboxOpen: (open: boolean) => void
@@ -345,20 +345,20 @@ interface AppState {
   setHandoffDialog: (value: { sessionId: string; agent?: AgentId; note?: string } | null) => void
   setAdviceDialog: (value: { sessionId: string; mode: 'advisor' | 'committee'; question?: string } | null) => void
   setPlanDocument: (value: { sessionId: string; text: string } | null) => void
-  /** Hai lasciato il progetto (o la finestra): da qui parte il conto di "Mentre eri via". */
+  /** You left the project (or the window): the "While you were away" count starts from here. */
   markSeen: (projectId: string) => void
-  /** Sei tornato sul progetto: se eri via da più di 30 minuti, prepara il riepilogo. */
+  /** You came back to the project: if you were away for more than 30 minutes, it prepares the summary. */
   checkAway: (projectId: string) => void
   dismissAway: (projectId: string) => void
   setPrefs: (prefs: AppPrefs) => void
 }
 
-/** Una tab chiusa che ⌘⇧T può riaprire. */
+/** A closed tab that ⌘⇧T can reopen. */
 export type ClosedTab = { kind: 'session'; sessionId: string } | { kind: 'file'; root: string; path: string } | { kind: 'browser'; tabId: string; url: string }
 
 const MAX_CLOSED_TABS = 20
 
-/** Pila delle tab chiuse del progetto con `entry` in cima, senza doppioni e limitata a MAX_CLOSED_TABS. */
+/** Stack of the project's closed tabs with `entry` on top, without duplicates and limited to MAX_CLOSED_TABS. */
 function withClosedTab(closed: Record<string, ClosedTab[]>, projectId: string, entry: ClosedTab): Record<string, ClosedTab[]> {
   const same = (other: ClosedTab) => {
     if (entry.kind === 'session') return other.kind === 'session' && other.sessionId === entry.sessionId
@@ -377,7 +377,7 @@ export interface AwaySummary {
   concluded: number
 }
 
-/** Oltre questa assenza, tornando sul progetto compare "Mentre eri via". */
+/** Beyond this absence, coming back to the project shows "While you were away". */
 export const AWAY_MS = 30 * 60_000
 
 export interface InspectorRequest {
@@ -393,13 +393,13 @@ export const DEFAULT_TERMINAL_WIDTH = 480
 export const DEFAULT_TERMINAL_HEIGHT = 260
 
 const MAX_TABS = 8
-/** Colonne affiancate al massimo. */
+/** Maximum number of split columns. */
 export const MAX_COLUMNS = 3
 const NO_COLUMNS: string[] = []
 const MAX_HISTORY = 50
 const SIDEBAR_KEY = 'ladder.sidebar'
 
-// Un timer per progetto: due progetti cambiati a breve distanza non si sovrascrivono il salvataggio.
+// One timer per project: two projects changed close together do not overwrite each other's save.
 const uiTimers = new Map<string, number>()
 function persistUi(projectId: string, state: ProjectUiState): void {
   const timer = uiTimers.get(projectId)
@@ -408,18 +408,18 @@ function persistUi(projectId: string, state: ProjectUiState): void {
     projectId,
     window.setTimeout(() => {
       uiTimers.delete(projectId)
-      // Lo stato attuale al momento dell'invio, non lo snapshot: un salvataggio ritardato non cancella modifiche arrivate dopo.
+      // The current state at the time of sending, not the snapshot: a delayed save does not erase changes that arrived later.
       send({ type: 'ui.set', projectId, state: useApp.getState().ui[projectId] ?? state })
     }, 300)
   )
 }
 const emptyUi = (): ProjectUiState => ({ tabs: [], activeTab: null, scroll: {} })
-/** Ultima chat guardata per progetto: serve ad "Aggiungi alla chat" quando si è su una tab che non è una chat. Solo in memoria. */
+/** Last chat looked at per project: used by "Add to chat" when on a tab that is not a chat. In memory only. */
 const lastSession = new Map<string, string>()
 
 /**
- * Dove vanno screenshot e citazioni del browser: la colonna attiva se ci sono colonne affiancate, altrimenti l'ultima chat
- * guardata, altrimenti la bozza della nuova chat. `key` è la chiave della bozza del composer.
+ * Where browser screenshots and citations go: the active column if there are split columns, otherwise the last chat
+ * looked at, otherwise the new chat's draft. `key` is the composer draft key.
  */
 export function chatTargetFor(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, projectId: string): { key: string; sessionId: string | null } {
   const split = cleanSplit(state, projectId)
@@ -428,14 +428,14 @@ export function chatTargetFor(state: Pick<AppState, 'projects' | 'sessions' | 'u
   return sessionId ? { key: sessionId, sessionId } : { key: `new:${projectId}`, sessionId: null }
 }
 
-/** Libera le viste native di un progetto rimosso e cancella cookie e storage della sua partizione (`persist:project-<id>`). */
+/** Frees the native views of a removed project and clears the cookies and storage of its partition (`persist:project-<id>`). */
 function purgeProjectBrowser(projectId: string): void {
   void window.ladder?.browser?.purge(projectId)?.catch(() => undefined)
 }
 
-/** Indirizzo e titolo di una tab si salvano (e vanno all'host) dopo una pausa di 1 s: durante il caricamento cambiano di continuo. */
+/** A tab's address and title are saved (and go to the host) after a 1 s pause: they change continuously while loading. */
 const BROWSER_SAVE_DELAY = 1000
-// Tentativi di aprire la vista dell'agente: uno alla volta per sessione e a distanza minima, per non fare loop.
+// Attempts to open the agent's view: one at a time per session and with a minimum gap, to avoid loops.
 const AGENT_PROBE_GAP = 1000
 const agentProbing = new Set<string>()
 const agentProbedAt = new Map<string, number>()
@@ -447,19 +447,19 @@ const omitKey = (record: Record<string, string>, key: string): Record<string, st
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let nonce = 0
 
-// ── LAD-68: sessioni di cui l'intestazione osserva lo stato git ──
+// ── Sessions whose git state the header watches ──
 const gitWatched = new Set<string>()
-/** Legge lo stato git della sessione osservata; ignora la risposta se nel frattempo non è più osservata. */
+/** Reads the watched session's git state; ignores the response if it is no longer watched in the meantime. */
 function loadGitStatus(sessionId: string): void {
   request<GitStatus | null>({ type: 'git.status', sessionId })
     .then((status) => {
-      // Tolta nel frattempo, o non è un repository: niente da mostrare.
+      // Removed in the meantime, or not a repository: nothing to show.
       if (!status || !gitWatched.has(sessionId)) return
       useApp.setState((state) => ({ gitStatus: { ...state.gitStatus, [status.root]: status }, gitRoot: { ...state.gitRoot, [sessionId]: status.root } }))
     })
     .catch(() => {})
 }
-// Nuova connessione con l'host (riavvio o porta arrivata dopo): le iscrizioni dell'host vivono per porta e la porta è nuova, quindi la UI le rifà.
+// New connection with the host (restart or port arrived later): the host's subscriptions live per port and the port is new, so the UI redoes them.
 onHostConnect(() => {
   for (const sessionId of gitWatched) {
     send({ type: 'git.watch', sessionId, on: true })
@@ -467,14 +467,14 @@ onHostConnect(() => {
   }
 })
 /**
- * Smettere di osservare una sessione non cancella il suo stato git: tornando sulla tab l'intestazione mostra subito
- * l'ultimo stato noto (poi aggiornato da `loadGitStatus`) invece di sparire e ricomparire spostando le tab.
- * Gli eventi `git.status` arrivano solo per le sessioni osservate, quindi il dato fermo non riceve aggiornamenti
- * finché la tab non torna visibile.
+ * Stopping watching a session does not delete its git state: coming back to the tab the header immediately shows
+ * the last known state (then updated by `loadGitStatus`) instead of disappearing and reappearing when tabs are moved.
+ * `git.status` events arrive only for watched sessions, so the stale data gets no updates
+ * until the tab becomes visible again.
  */
 function dropGit(_sessionId: string): void {}
 
-/** Prima della risposta dell'host: una sessione senza worktree lavora nella cartella del progetto, il cui stato può essere già noto. */
+/** Before the host answers: a session without a worktree works in the project folder, whose state may already be known. */
 function seedGitRoot(sessionId: string): void {
   useApp.setState((state) => {
     if (state.gitRoot[sessionId] !== undefined) return {}
@@ -486,9 +486,9 @@ function seedGitRoot(sessionId: string): void {
   })
 }
 
-// ── LAD-80: progetti di cui la scheda History o Merge guarda la mappa dei branch ──
+// ── Projects whose branch map the History or Merge tab looks at ──
 const branchMapWatched = new Set<string>()
-/** Legge la mappa del progetto osservato; ignora la risposta se nel frattempo non è più osservato. */
+/** Reads the watched project's map; ignores the response if it is no longer watched in the meantime. */
 function loadBranchMap(projectId: string): void {
   request<BranchMap>({ type: 'project.branchMap', projectId })
     .then((map) => {
@@ -503,16 +503,16 @@ function loadBranchMap(projectId: string): void {
       useApp.setState((state) => ({ branchMapError: { ...state.branchMapError, [projectId]: error instanceof Error ? error.message : String(error) } }))
     })
 }
-// Nuova connessione con l'host: le iscrizioni vivono per connessione, quindi la UI le rifà e rilegge.
+// New connection with the host: subscriptions live per connection, so the UI redoes them and re-reads.
 onHostConnect(() => {
   for (const projectId of branchMapWatched) {
     send({ type: 'project.branchMap.watch', projectId, on: true })
     loadBranchMap(projectId)
   }
 })
-// ── fine LAD-80 ──
+// ── end of branch maps ──
 
-// Stato del canale remoto (LAD-51): letto a ogni (ri)connessione, poi aggiornato dagli eventi `remote.status`.
+// Remote channel state: read on every (re)connection, then updated by `remote.status` events.
 onHostConnect(() => {
   request<RemoteStatus>({ type: 'remote.status' })
     .then((status) => useApp.setState({ remote: status }))
@@ -539,14 +539,14 @@ function writeLastProject(projectId: string | null): void {
   try {
     if (projectId) localStorage.setItem(LAST_PROJECT_KEY, projectId)
   } catch {
-    // Solo una comodità: senza storage si riparte dal primo progetto.
+    // Just a convenience: without storage it starts again from the first project.
   }
 }
 function writeSidebarOpen(open: boolean): void {
   try {
     localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed')
   } catch {
-    // Solo una comodità: senza storage la sidebar torna visibile al prossimo avvio.
+    // Just a convenience: without storage the sidebar is visible again at the next launch.
   }
 }
 
@@ -568,7 +568,7 @@ export function sameSelection(a: Selection, b: Selection): boolean {
   return a.kind === b.kind && a.projectId === b.projectId
 }
 
-/** Sessione visibile: non archiviata e con il progetto ancora presente. */
+/** Visible session: not archived and with its project still present. */
 export function isLiveSession(state: Pick<AppState, 'projects'>, session: SessionSummary | undefined): session is SessionSummary {
   return Boolean(session && !session.archived && state.projects.some((p) => p.id === session.projectId))
 }
@@ -583,7 +583,7 @@ function isValidEntry(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, ent
   return entry.projectId === null ? state.projects.length === 0 : state.projects.some((p) => p.id === entry.projectId)
 }
 
-/** Aggiunge `next` dopo la voce corrente, scartando quelle in avanti. Niente doppioni consecutivi. */
+/** Adds `next` after the current entry, discarding the forward ones. No consecutive duplicates. */
 function pushHistory(state: AppState, next: Selection): Pick<AppState, 'history' | 'historyIndex'> {
   let entries = state.history.slice(0, state.historyIndex + 1)
   const last = entries[entries.length - 1]
@@ -593,7 +593,7 @@ function pushHistory(state: AppState, next: Selection): Pick<AppState, 'history'
   return { history: entries, historyIndex: entries.length - 1 }
 }
 
-/** Cronologia senza le voci non più raggiungibili (sessioni archiviate, progetti rimossi). */
+/** History without the entries that can no longer be reached (archived sessions, removed projects). */
 function cleanHistory(state: AppState): { history: Selection[]; index: number } {
   let entries = state.history
   let index = state.historyIndex
@@ -620,7 +620,7 @@ export function canNavigate(state: AppState, delta: -1 | 1): boolean {
   return target >= 0 && target < history.length
 }
 
-/** Effetti di una selezione su tab, cartelle aperte e divisore "Nuovo". Non tocca la cronologia. */
+/** Effects of a selection on tabs, open folders and the "New" divider. It does not touch the history. */
 function selectionPatch(state: AppState, selection: Selection): Partial<AppState> {
   writeLastProject(selection.projectId)
   if (selection.kind === 'file') {
@@ -634,15 +634,15 @@ function selectionPatch(state: AppState, selection: Selection): Partial<AppState
   lastSession.set(selection.projectId, selection.sessionId)
   const session = state.sessions[selection.sessionId]
   const firstUnread = { ...state.firstUnread }
-  // Il divisore "Nuovo" si calcola all'apertura e resta fermo finché la sessione è aperta.
+  // The "New" divider is computed on open and stays fixed while the session is open.
   if (session && !(selection.sessionId in firstUnread)) firstUnread[selection.sessionId] = session.unread ? session.lastReadSeq + 1 : null
-  // La sessione aperta diventa una tab del suo progetto; oltre 8 tab si chiude la meno recente.
+  // The open session becomes a tab of its project; beyond 8 tabs the least recent is closed.
   const ui = state.ui[selection.projectId] ?? emptyUi()
   let tabs = ui.tabs.includes(selection.sessionId) ? ui.tabs : [...ui.tabs, selection.sessionId]
   if (tabs.length > MAX_TABS) tabs = tabs.slice(tabs.length - MAX_TABS)
   let nextUi: ProjectUiState = { ...ui, tabs, activeTab: selection.sessionId }
-  // Con le colonne affiancate la sessione scelta o è già una colonna (diventa attiva) o prende il posto della colonna attiva.
-  // Dopo ⌘\ senza altre chat, la sessione nuova si apre invece accanto a quella da cui si è partiti.
+  // With split columns the chosen session is either already a column (it becomes active) or takes the place of the active column.
+  // After ⌘\ with no other chats, the new session opens next to the one it started from instead.
   const split = cleanSplit(state, selection.projectId)
   const pending = state.pendingSplit?.projectId === selection.projectId && state.pendingSplit.base !== selection.sessionId ? state.pendingSplit : null
   const base = split?.active ?? pending?.base ?? null
@@ -656,7 +656,7 @@ function selectionPatch(state: AppState, selection: Selection): Partial<AppState
   return { selection, firstUnread, ui: { ...state.ui, [selection.projectId]: nextUi }, heldUnread: null, pendingSplit: null }
 }
 
-/** Sessioni nell'ordine della sidebar: progetti in ordine, poi la più recente in alto. */
+/** Sessions in sidebar order: projects in order, then the most recent at the top. */
 function sidebarOrder(state: AppState): SessionSummary[] {
   const rank = new Map(state.projects.map((p, i) => [p.id, i]))
   return Object.values(state.sessions)
@@ -664,7 +664,7 @@ function sidebarOrder(state: AppState): SessionSummary[] {
     .sort((a, b) => rank.get(a.projectId)! - rank.get(b.projectId)! || b.createdAt - a.createdAt)
 }
 
-/** Colonne affiancate del progetto: solo sessioni vive del progetto. Meno di due: nessuna divisione (id sparsi dopo un riavvio). */
+/** Split columns of the project: only live sessions of the project. Fewer than two: no split (stray ids after a restart). */
 export function liveColumns(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, projectId: string): string[] {
   const split = state.ui[projectId]?.split
   if (!split) return NO_COLUMNS
@@ -672,7 +672,7 @@ export function liveColumns(state: Pick<AppState, 'projects' | 'sessions' | 'ui'
   return ids.length >= 2 ? ids : NO_COLUMNS
 }
 
-/** La prossima chat aperta in una tab che non è ancora in colonna, partendo da quella dopo la corrente (regola di ⌘\ e del pulsante Affianca). */
+/** The next chat open in a tab that is not yet in a column, starting from the one after the current (rule of ⌘\ and the Split button). */
 export function splitCandidate(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, projectId: string, currentId: string): string | undefined {
   const open = liveColumns(state, projectId)
   const taken = open.length >= 2 ? open : [currentId]
@@ -681,7 +681,7 @@ export function splitCandidate(state: Pick<AppState, 'projects' | 'sessions' | '
   return [...tabs.slice(from + 1), ...tabs.slice(0, from)].find((id) => !taken.includes(id))
 }
 
-/** Divisione ripulita: colonne vive e colonna attiva valida, oppure undefined se non resta niente da affiancare. */
+/** Cleaned-up split: live columns and a valid active column, or undefined if nothing is left to split. */
 function cleanSplit(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, projectId: string): { sessions: string[]; active: string } | undefined {
   const sessions = liveColumns(state, projectId)
   if (sessions.length < 2) return undefined
@@ -689,7 +689,7 @@ function cleanSplit(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, proje
   return { sessions, active: active && sessions.includes(active) ? active : sessions[0] }
 }
 
-/** Imposta (o toglie) la divisione del progetto. Se cambia l'insieme o l'ordine delle colonne le proporzioni salvate (LAD-75) si azzerano: tornano parti uguali. Unico punto che scrive `split`. */
+/** Sets (or removes) the project's split. If the set or order of columns changes, the saved proportions reset: back to equal parts. The only place that writes `split`. */
 function withSplit(ui: ProjectUiState, split: { sessions: string[]; active: string } | undefined): ProjectUiState {
   const next = { ...ui }
   const before = ui.split?.sessions
@@ -699,7 +699,7 @@ function withSplit(ui: ProjectUiState, split: { sessions: string[]; active: stri
   return next
 }
 
-/** Aggiunge `id` alle colonne: dopo `base` (o in fondo con `end`). Se sono piene prende il posto di `base`. */
+/** Adds `id` to the columns: after `base` (or at the end with `end`). If they are full it takes the place of `base`. */
 function withColumn(sessions: string[], base: string | null, id: string, end = false): string[] {
   if (sessions.includes(id)) return sessions
   const list = base && !sessions.includes(base) ? [base, ...sessions] : sessions
@@ -708,7 +708,7 @@ function withColumn(sessions: string[], base: string | null, id: string, end = f
   return [...list.slice(0, at), id, ...list.slice(at)]
 }
 
-/** Toglie una colonna: restano le altre e la vicina che diventa attiva. Meno di due colonne: niente divisione. */
+/** Removes a column: the others stay and the neighboring one becomes active. Fewer than two columns: no split. */
 function withoutColumn(split: { sessions: string[]; active: string }, id: string): { split: { sessions: string[]; active: string } | undefined; neighbor: string | null } {
   const at = split.sessions.indexOf(id)
   const rest = split.sessions.filter((s) => s !== id)
@@ -717,7 +717,7 @@ function withoutColumn(split: { sessions: string[]; active: string }, id: string
   return { split: rest.length >= 2 ? { sessions: rest, active } : undefined, neighbor }
 }
 
-/** Cosa riaprire tornando su un progetto: la sua tab attiva, chat o file, oppure la nuova chat. */
+/** What to reopen when going back to a project: its active tab, chat or file, or the new chat. */
 function selectionForProject(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, projectId: string): Selection {
   const ui = state.ui[projectId]
   const file = parseFileTab(ui?.activeTab)
@@ -727,14 +727,14 @@ function selectionForProject(state: Pick<AppState, 'projects' | 'sessions' | 'ui
   return { kind: 'new', projectId }
 }
 
-/** Cambia e salva lo stato interfaccia di un progetto. */
+/** Changes and saves a project's interface state. */
 function patchUi(state: AppState, projectId: string, change: (ui: ProjectUiState) => ProjectUiState): Pick<AppState, 'ui'> {
   const next = change(state.ui[projectId] ?? emptyUi())
   persistUi(projectId, next)
   return { ui: { ...state.ui, [projectId]: next } }
 }
 
-/** Pagine della colonna browser: prima le tab salvate, poi quelle degli agenti ancora vive e di questa finestra. */
+/** Pages of the browser column: first the saved tabs, then those of the agents still alive and of this window. */
 export function browserColumnTabs(state: Pick<AppState, 'ui' | 'agentBrowser' | 'agentForeign' | 'sessions'>, projectId: string): string[] {
   const saved = (state.ui[projectId]?.browserTabs ?? []).map((tab) => tab.id)
   const agents = Object.values(state.agentBrowser)
@@ -744,19 +744,19 @@ export function browserColumnTabs(state: Pick<AppState, 'ui' | 'agentBrowser' | 
   return [...saved, ...agents]
 }
 
-/** Pagina mostrata dalla colonna: quella salvata come attiva se c'è ancora, altrimenti la prima. */
+/** Page shown by the column: the one saved as active if it still exists, otherwise the first. */
 export function browserColumnActive(state: Pick<AppState, 'ui' | 'agentBrowser' | 'agentForeign' | 'sessions'>, projectId: string): string | null {
   const tabs = browserColumnTabs(state, projectId)
   const active = state.ui[projectId]?.browserColumn?.active
   return active && tabs.includes(active) ? active : (tabs[0] ?? null)
 }
 
-/** La colonna si vede: è aperta e ha almeno una pagina. */
+/** The column is visible: it is open and has at least one page. */
 export function isBrowserColumnOpen(state: Pick<AppState, 'ui' | 'agentBrowser' | 'agentForeign' | 'sessions'>, projectId: string): boolean {
   return Boolean(state.ui[projectId]?.browserColumn?.open) && browserColumnTabs(state, projectId).length > 0
 }
 
-/** Stato salvato da una versione che apriva il browser come tab a schermo intero: la tab attiva diventa la pagina della colonna e la chat torna a essere la selezione. */
+/** State saved by a version that opened the browser as a full-screen tab: the active tab becomes the column's page and the chat goes back to being the selection. */
 function migrateBrowserUi(ui: Record<string, ProjectUiState>): Record<string, ProjectUiState> {
   let out = ui
   for (const [projectId, state] of Object.entries(ui)) {
@@ -768,7 +768,7 @@ function migrateBrowserUi(ui: Record<string, ProjectUiState>): Record<string, Pr
   return out
 }
 
-/** Dopo un cambio nelle pagine (un agente se n'è andato): se la colonna era aperta e non resta niente si chiude, altrimenti la pagina attiva sparita lascia il posto alla prima. */
+/** After a change in the pages (an agent went away): if the column was open and nothing is left it closes, otherwise the vanished active page gives way to the first. */
 function settleBrowserColumn(state: AppState, projectId: string): Partial<AppState> {
   const column = state.ui[projectId]?.browserColumn
   if (!column) return {}
@@ -779,14 +779,14 @@ function settleBrowserColumn(state: AppState, projectId: string): Partial<AppSta
 
 let errorTimer: ReturnType<typeof setTimeout> | undefined
 
-/** Mostra un errore di un comando della sidebar: banner dismissibile che scompare dopo 6 s. */
+/** Shows an error of a sidebar command: dismissible banner that disappears after 6 s. */
 function failSidebarNotice(error: unknown): void {
   clearTimeout(errorTimer)
   useApp.setState({ sidebarNotice: error instanceof Error ? error.message : String(error), sidebarNoticeTone: 'error' })
   errorTimer = setTimeout(() => useApp.setState({ sidebarNotice: null }), 6000)
 }
 
-/** Informazione nello stesso banner della sidebar, in tono tenue; resta 10 s. */
+/** Information in the same sidebar banner, in a dim tone; it stays 10 s. */
 function infoSidebarNotice(text: string): void {
   clearTimeout(errorTimer)
   useApp.setState({ sidebarNotice: text, sidebarNoticeTone: 'info' })
@@ -812,22 +812,22 @@ function takePlan<T extends PlanState>(result: PlanResult<T>): PlanResult<T> {
   return result
 }
 
-/** Operazioni sui gruppi mandate all'host e non ancora risolte, in ordine, e l'ultimo stato confermato dall'host. */
+/** Group operations sent to the host and not yet resolved, in order, and the last state confirmed by the host. */
 const pendingGroupOps: { id: number; op: ProjectGroupOp }[] = []
 let confirmedGroups: ProjectGroupsState | null = null
 let groupOpId = 0
 
-/** Lo stato confermato con sopra, di nuovo, le operazioni ancora in volo: quello che l'utente deve vedere. */
+/** The confirmed state with the operations still in flight put on top again: what the user must see. */
 function replayGroupOps(projects: Project[], base: ProjectGroupsState | null): ProjectGroupsState | null {
   if (pendingGroupOps.length === 0) return base
   return pendingGroupOps.reduce((state, { op }) => applyProjectGroupOp(state, op), normalizeProjectGroups(projects, base))
 }
 
 /**
- * Applica subito il cambiamento e lo manda all'host, che risponde con lo stato vero (lo stesso arriva a tutte le finestre).
- * Con più comandi in volo ogni risposta, o rifiuto, riparte dall'ultimo stato confermato e ci rimette sopra solo le
- * operazioni ancora in attesa: una risposta in ritardo non cancella l'ottimistico del comando dopo, e un rifiuto toglie
- * solo il suo. Senza host (anteprima web) resta lo stato locale.
+ * Applies the change right away and sends it to the host, which answers with the true state (the same reaches all windows).
+ * With several commands in flight each response, or rejection, starts again from the last confirmed state and puts back only the
+ * operations still waiting: a late response does not erase the optimistic state of the next command, and a rejection removes
+ * only its own. Without a host (web preview) the local state stays.
  */
 function runGroupOp(op: ProjectGroupOp, command: HostCommand): void {
   const state = useApp.getState()
@@ -879,7 +879,7 @@ export const useApp = create<AppState>((set, get) => ({
   fsVersion: {},
   gitStatus: {},
   gitRoot: {},
-  branchMaps: {}, // LAD-80
+  branchMaps: {}, // branch maps per project
   branchMapError: {},
   inspectorRequest: null,
   composerInsert: null,
@@ -919,7 +919,7 @@ export const useApp = create<AppState>((set, get) => ({
   closedTabs: {},
   filesFilterFocus: null,
   applyShortcuts: (shortcuts) => {
-    // Prima il registro condiviso, poi lo stato: chi rilegge le etichette le trova già nuove.
+    // Shared registry first, then the state: whoever re-reads the labels finds them already new.
     applyShortcutConfig({ preset: shortcuts.preset, overrides: shortcuts.overrides })
     set({ shortcuts })
   },
@@ -934,25 +934,25 @@ export const useApp = create<AppState>((set, get) => ({
           const terminals: Record<string, TerminalInfo> = {}
           for (const t of event.terminals) terminals[t.id] = t
           const loaded = { projects: event.projects, sessions, ui: migrateBrowserUi(event.ui) }
-          // All'avvio si torna sull'ultimo progetto guardato, sulla tab che aveva.
+          // At launch it goes back to the last project looked at, on the tab it had.
           let patch: Partial<AppState> = {}
           if (state.selection.kind === 'new' && !state.selection.projectId) {
             const last = readLastProject()
             const projectId = event.projects.some((p) => p.id === last) ? last : (event.projects[0]?.id ?? null)
             patch = selectionPatch({ ...state, ...loaded }, projectId ? selectionForProject(loaded, projectId) : { kind: 'new', projectId })
           }
-          // Senza scorciatoie nello snapshot (fixture, host vecchio) restano quelle già note.
+          // Without shortcuts in the snapshot (fixtures, old host) the ones already known stay.
           if (event.shortcuts) applyShortcutConfig({ preset: event.shortcuts.preset, overrides: event.shortcuts.overrides })
           return {
             connected: true,
             ...(event.shortcuts ? { shortcuts: event.shortcuts } : {}),
-            // Senza sezioni nello snapshot (fixture, host vecchio) restano quelle già note.
+            // Without sections in the snapshot (fixtures, old host) the ones already known stay.
             projectGroups: event.projectGroups ?? state.projectGroups,
             drafts: event.drafts,
             ...splitAgents(event.agents),
-            // Senza profili nello snapshot (fixture, host vecchio) restano quelli già noti: in assenza, solo i predefiniti.
+            // Without profiles in the snapshot (fixtures, old host) the ones already known stay: if there are none, only the defaults.
             profiles: event.profiles ?? state.profiles,
-            // Gli snapshot senza collegamenti (fixture, host vecchio) non cancellano quelli già noti.
+            // Snapshots without connections (fixtures, old host) do not erase the ones already known.
             ...(event.connections ? splitConnections(event.connections) : {}),
             terminals,
             // Without plans in the snapshot (fixtures, older host) the already known ones stay.
@@ -982,16 +982,16 @@ export const useApp = create<AppState>((set, get) => ({
           const branchMapError = { ...state.branchMapError }
           delete branchMapError[event.projectId]
           for (const s of Object.values(state.sessions)) if (s.projectId === event.projectId && gitWatched.delete(s.id)) queueMicrotask(() => dropGit(s.id))
-          // I comandi delle sessioni del progetto rimosso non servono più.
+          // The commands of the removed project's sessions are no longer needed.
           const commands = { ...state.commands }
           for (const s of Object.values(state.sessions)) if (s.projectId === event.projectId) delete commands[s.id]
           if (state.selection.projectId !== event.projectId) return { projects, commands, branchMaps, branchMapError }
-          // La selezione era nel progetto rimosso: si passa alla nuova chat del primo progetto rimasto.
+          // The selection was in the removed project: it moves to the new chat of the first remaining project.
           const selection: Selection = { kind: 'new', projectId: projects[0]?.id ?? null }
           return { projects, commands, branchMaps, branchMapError, selection, ...pushHistory(state, selection) }
         }
         case 'sessions.autoArchived': {
-          // Le tab si chiudono con i session.upsert delle sessioni archiviate; qui si avvisa, una volta sola per giro.
+          // Tabs close with the session.upsert of the archived sessions; here a notice is shown, once per round.
           const n = event.sessionIds.length
           if (n === 0) return {}
           const days = state.prefs?.autoArchiveDays
@@ -1008,7 +1008,7 @@ export const useApp = create<AppState>((set, get) => ({
         }
         case 'session.upsert': {
           const before = state.sessions[event.session.id]
-          // Archiviata dall'host (per esempio a PR unita): la tab si chiude come per un archivio dalla UI.
+          // Archived by the host (for example when the PR is merged): the tab closes as for an archive from the UI.
           if (event.session.archived && before && !before.archived) {
             queueMicrotask(() => {
               const agent = useApp.getState().agentBrowser[event.session.id]
@@ -1016,7 +1016,7 @@ export const useApp = create<AppState>((set, get) => ({
               useApp.getState().closeTab(event.session.projectId, event.session.id)
             })
           }
-          // L'host toglie da solo il watch della sessione archiviata: qui si pulisce lo stato.
+          // The host removes the archived session's watch by itself: here the state is cleaned up.
           if (event.session.archived && gitWatched.delete(event.session.id)) queueMicrotask(() => dropGit(event.session.id))
           return { sessions: { ...state.sessions, [event.session.id]: event.session } }
         }
@@ -1030,9 +1030,9 @@ export const useApp = create<AppState>((set, get) => ({
         case 'session.commands':
           return { commands: { ...state.commands, [event.sessionId]: event.commands } }
         case 'agent.status': {
-          // Un profilo non predefinito ha il suo stato: non tocca quello dell'agente.
+          // A non-default profile has its own state: it does not touch the agent's.
           if (!isDefaultProfileId(event.status.profileId)) return { profileAgents: { ...state.profileAgents, [event.status.profileId!]: event.status } }
-          // Ordine stabile: Claude Code, Codex, poi gli agenti ACP nell'ordine in cui arrivano.
+          // Stable order: Claude Code, Codex, then ACP agents in the order they arrive.
           const exists = state.agents.some((a) => a.agent === event.status.agent)
           return { agents: exists ? state.agents.map((a) => (a.agent === event.status.agent ? event.status : a)) : [...state.agents, event.status] }
         }
@@ -1066,50 +1066,50 @@ export const useApp = create<AppState>((set, get) => ({
           return { terminals }
         }
         case 'terminal.data':
-          // L'output va direttamente a xterm: passare dallo store rifarebbe il rendering a ogni carattere.
+          // Output goes straight to xterm: going through the store would re-render on every character.
           routeTerminalData(event.id, event.data)
           return {}
         case 'terminal.cleared':
           routeTerminalCleared(event.id)
           return {}
         case 'browser.agent':
-          // Intero a ogni cambiamento: va fuori dal `set` perché apre la vista e può cambiare la selezione.
+          // Whole on every change: it goes outside the `set` because it opens the view and may change the selection.
           queueMicrotask(() => useApp.getState().applyAgentBrowser(event.state))
           return {}
         case 'browser.devserver': {
-          // Lo stesso indirizzo già aperto in una tab del progetto non serve proporlo.
+          // The same address already open in a project tab does not need to be suggested.
           let origin = event.url
           try {
             origin = new URL(event.url).origin
           } catch {
-            // Indirizzo non valido: si confronta com'è.
+            // Invalid address: compared as it is.
           }
           const open = state.ui[event.projectId]?.browserTabs?.some((tab) => (state.browserStates[tab.id]?.url ?? tab.url).startsWith(origin))
           return open ? {} : { devServers: { ...state.devServers, [event.projectId]: { url: event.url, terminalId: event.terminalId } } }
         }
         case 'connection.update': {
-          // Una risposta partita prima di `profile.removed` non rimette in vita il profilo tolto.
+          // A response sent before `profile.removed` does not bring the removed profile back to life.
           if (!isDefaultProfileId(event.status.profileId) && !state.profiles.some((p) => p.id === event.status.profileId)) return {}
           if (!isDefaultProfileId(event.status.profileId)) return { profileConnections: { ...state.profileConnections, [event.status.profileId!]: event.status } }
           const before = state.connections[event.status.id]
           const linked = (c: ConnectionStatus | undefined) => c?.state === 'connected' && !c.login
-          // GitHub appena collegato (o scollegato): le viste che lo leggono si rinnovano. Il primo stato letto all'avvio non è una transizione.
+          // GitHub just connected (or disconnected): the views that read it refresh. The first state read at launch is not a transition.
           const github = event.status.id === 'github' && before !== undefined && linked(before) !== linked(event.status)
           return { connections: { ...state.connections, [event.status.id]: event.status }, ...(github ? { githubVersion: state.githubVersion + 1 } : {}) }
         }
         case 'agent.connection': {
-          // Prima della lettura dell'elenco non c'è niente da aggiornare: la lettura porta già lo stato più recente.
+          // Before the list is read there is nothing to update: the read already brings the latest state.
           if (!state.otherAgents) return {}
           const exists = state.otherAgents.some((a) => a.id === event.agent.id)
           return { otherAgents: exists ? state.otherAgents.map((a) => (a.id === event.agent.id ? event.agent : a)) : [...state.otherAgents, event.agent] }
         }
         case 'git.status': {
-          // Un evento in ritardo, dopo l'ultimo `unwatchGit`, non rimette in vita lo stato.
+          // A late event, after the last `unwatchGit`, does not bring the state back to life.
           if (gitWatched.size === 0) return {}
           return { gitStatus: { ...state.gitStatus, [event.status.root]: event.status } }
         }
         case 'project.branchMap': {
-          // Un evento in ritardo, dopo l'ultimo `unwatchBranchMap`, non rimette in vita la mappa.
+          // A late event, after the last `unwatchBranchMap`, does not bring the map back to life.
           if (!branchMapWatched.has(event.projectId)) return {}
           const { [event.projectId]: _gone, ...branchMapError } = state.branchMapError
           return { branchMaps: { ...state.branchMaps, [event.projectId]: event.map }, branchMapError }
@@ -1126,7 +1126,7 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => {
       const patch = selectionPatch(state, selection)
       if (options?.history === false) {
-        // La voce corrente della cronologia passa alla nuova selezione: Indietro torna a prima del gruppo di colonne.
+        // The current history entry moves to the new selection: Back returns to before the group of columns.
         const entry = state.history[state.historyIndex]
         if (!entry || !sameSelection(entry, state.selection)) return patch
         const history = [...state.history]
@@ -1153,10 +1153,10 @@ export const useApp = create<AppState>((set, get) => ({
       persistUi(projectId, nextUi)
       const next = { ...state, ui: { ...state.ui, [projectId]: nextUi } }
       const wasActive = state.selection.kind === 'file' && state.selection.root === root && state.selection.path === path
-      // ⌘⇧T la riapre, ma solo se la tab c'era davvero.
+      // ⌘⇧T reopens it, but only if the tab was really there.
       const closedTabs = ui.fileTabs?.some((f) => f.root === root && f.path === path) ? withClosedTab(state.closedTabs, projectId, { kind: 'file', root, path }) : state.closedTabs
       if (!wasActive) return { ui: next.ui, dirtyFiles, closingFile: null, closedTabs }
-      // Si passa al file aperto prima, poi all'ultima chat aperta, poi alla nuova chat.
+      // It goes to the file open before, then to the last open chat, then to the new chat.
       const lastFile = fileTabs[fileTabs.length - 1]
       const lastSession = [...nextUi.tabs].reverse().find((s) => isLiveSession(state, state.sessions[s]))
       const selection: Selection = lastFile ? { kind: 'file', projectId, ...lastFile } : lastSession ? { kind: 'session', projectId, sessionId: lastSession } : { kind: 'new', projectId }
@@ -1169,7 +1169,7 @@ export const useApp = create<AppState>((set, get) => ({
     const state = get()
     const tabs = state.ui[projectId]?.browserTabs ?? []
     const active = browserColumnActive(state, projectId)
-    // Solo pagine degli agenti e nessun indirizzo da aprire: basta mostrare la colonna su quella attiva.
+    // Only agent pages and no address to open: it is enough to show the column on the active one.
     if (!options.fresh && !options.url && tabs.length === 0 && active) {
       get().showBrowserColumn(projectId, active)
       return active
@@ -1177,14 +1177,14 @@ export const useApp = create<AppState>((set, get) => ({
     const existing = options.fresh ? undefined : (tabs.find((tab) => tab.id === active) ?? tabs[0])
     const tabId = existing?.id ?? newBrowserTabId()
     if (!existing) {
-      // La pagina nasce con il suo indirizzo: la vista lo carica alla prima apertura.
+      // The page is born with its address: the view loads it on first open.
       set((current) => patchUi(current, projectId, (ui) => ({ ...ui, browserTabs: [...(ui.browserTabs ?? []), { id: tabId, url: storableUrl(options.url ?? '') }] })))
     } else if (options.url) {
-      // Pagina già viva: si naviga lì, la vista si aggiorna da sola con l'evento del main.
+      // Page already alive: it navigates there, the view updates by itself with the main event.
       void window.ladder?.browser.navigate(tabId, options.url)
       set((current) => patchUi(current, projectId, (ui) => ({ ...ui, browserTabs: (ui.browserTabs ?? []).map((tab) => (tab.id === tabId ? { ...tab, url: storableUrl(options.url!) } : tab)) })))
     }
-    // L'avviso del server di sviluppo ha fatto il suo lavoro.
+    // The dev server notice has done its job.
     const { [projectId]: _used, ...devServers } = get().devServers
     set({ devServers })
     get().showBrowserColumn(projectId, tabId)
@@ -1208,7 +1208,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   toggleBrowserColumn: (projectId) => {
     if (isBrowserColumnOpen(get(), projectId)) get().closeBrowserColumn(projectId)
-    // Senza pagine ne nasce una vuota; con pagine si riapre dove era.
+    // Without pages an empty one is created; with pages it reopens where it was.
     else if (browserColumnTabs(get(), projectId).length === 0) get().openBrowser(projectId, { fresh: true })
     else get().showBrowserColumn(projectId)
   },
@@ -1222,7 +1222,7 @@ export const useApp = create<AppState>((set, get) => ({
     ),
 
   closeBrowser: (projectId, tabId) => {
-    // Chiudere la tab dell'agente è uno stop, non una chiusura come le altre.
+    // Closing the agent's tab is a stop, not a close like the others.
     if (isAgentTabId(tabId)) {
       get().closeAgentBrowser(agentTabSession(tabId))
       return
@@ -1240,14 +1240,14 @@ export const useApp = create<AppState>((set, get) => ({
       let nextUi: ProjectUiState = { ...ui, browserTabs, activeTab: ui.activeTab === tabId ? null : ui.activeTab }
       const rest = browserColumnTabs({ ...state, ui: { ...state.ui, [projectId]: nextUi } }, projectId)
       const column = ui.browserColumn
-      // Chiusa l'ultima pagina la colonna si chiude; chiusa quella attiva passa alla vicina (la precedente, se c'è).
+      // When the last page is closed the column closes; when the active one is closed it moves to the neighbor (the previous one, if any).
       if (column && rest.length === 0) nextUi = { ...nextUi, browserColumn: { ...column, open: false, active: null } }
       else if (column && wasActive) nextUi = { ...nextUi, browserColumn: { ...column, active: rest[Math.max(0, before.indexOf(tabId) - 1)] ?? rest[0] } }
       persistUi(projectId, nextUi)
       const browserStates = { ...state.browserStates }
       const last = browserStates[tabId]?.url || closing.url
       delete browserStates[tabId]
-      // ⌘⇧T la riapre sullo stesso indirizzo.
+      // ⌘⇧T reopens it on the same address.
       const closedTabs = withClosedTab(state.closedTabs, projectId, { kind: 'browser', tabId, url: last })
       return { ui: { ...state.ui, [projectId]: nextUi }, browserStates, closedTabs }
     })
@@ -1255,15 +1255,15 @@ export const useApp = create<AppState>((set, get) => ({
 
   setBrowserState: (incoming) => {
     const browser = { ...incoming, title: clipTitle(incoming.title) }
-    // Tab dell'agente: esiste finché l'host la dichiara; non si salva né l'indirizzo né il titolo.
+    // Agent tab: it exists as long as the host declares it; neither the address nor the title is saved.
     const agentTab = isAgentTabId(browser.tabId)
     const exists = (state: AppState) =>
       agentTab ? state.agentBrowser[agentTabSession(browser.tabId)]?.tabId === browser.tabId : state.ui[browser.projectId]?.browserTabs?.some((tab) => tab.id === browser.tabId)
-    // Un evento che arriva dopo la chiusura della tab non la rimette in `browserStates`.
+    // An event arriving after the tab is closed does not put it back in `browserStates`.
     if (!exists(get())) return
     set((state) => ({ browserStates: { ...state.browserStates, [browser.tabId]: browser } }))
     if (agentTab) return
-    // Si salvano solo origine e percorso (niente query né frammento: possono portare token) e il titolo tagliato; una tab appena creata, senza pagina, non cancella quelli salvati.
+    // Only origin and path are saved (no query or fragment: they may carry tokens) and the truncated title; a just-created tab, without a page, does not erase the saved ones.
     const url = storableUrl(browser.url)
     if (!url) return
     clearTimeout(saveTimers.get(browser.tabId))
@@ -1287,29 +1287,29 @@ export const useApp = create<AppState>((set, get) => ({
       const agentBrowser = { ...state.agentBrowser }
       if (incoming.closed) delete agentBrowser[sessionId]
       else agentBrowser[sessionId] = incoming
-      // Un'altra tab o nessuna tab: l'appartenenza a un'altra finestra non vale più.
+      // Another tab or no tab: belonging to another window no longer applies.
       const agentForeign = state.agentForeign[sessionId] && state.agentForeign[sessionId] !== incoming.tabId ? omitKey(state.agentForeign, sessionId) : state.agentForeign
       const browserStates = { ...state.browserStates }
       if (lostTab) delete browserStates[lostTab]
       const next = { ...state, agentBrowser, agentForeign, browserStates }
-      // La pagina dell'agente che c'era non c'è più: la colonna passa a un'altra pagina o, se non resta niente, si chiude. La selezione non cambia.
+      // The agent page that was there is gone: the column moves to another page or, if nothing is left, closes. The selection does not change.
       return { agentBrowser, agentForeign, browserStates, ...(lostTab ? settleBrowserColumn(next, incoming.projectId) : {}) }
     })
     if (gone || !incoming.tabId || incoming.stopped) return
-    // Stessa tab: solo se era di un'altra finestra si riprova (può essere cambiata la finestra che la possiede).
+    // Same tab: only if it belonged to another window is it retried (the window that owns it may have changed).
     if (incoming.tabId === before?.tabId) {
       if (get().agentForeign[sessionId] === incoming.tabId) void get().probeAgentBrowser(sessionId)
       return
     }
-    // Vista nuova: si apre dal main (che la restituisce già creata) e, se la colonna browser del progetto è già aperta, si mostra subito.
-    // Altrimenti resta un avviso "Mostra" accanto alle tab: né la chat in cui si scrive né la colonna si toccano.
+    // New view: it is opened from main (which returns it already created) and, if the project's browser column is already open, shown right away.
+    // Otherwise a "Show" notice stays next to the tabs: neither the chat being typed in nor the column is touched.
     void get().probeAgentBrowser(sessionId, true)
   },
 
   probeAgentBrowser: (sessionId, force) => {
     const api = window.ladder?.browser
     const state = get().agentBrowser[sessionId]
-    // Anche da ferma la vista può esistere (stop dell'utente): chi apre una finestra deve ritrovarla o sapere che è di un'altra.
+    // Even when stopped the view may exist (user stop): whoever opens a window must find it again or know it belongs to another one.
     if (!api || !hasAgentTab(state)) return Promise.resolve()
     const now = Date.now()
     if (agentProbing.has(sessionId)) return Promise.resolve()
@@ -1325,11 +1325,11 @@ export const useApp = create<AppState>((set, get) => ({
         if (view) {
           if (get().agentForeign[sessionId]) set((s) => ({ agentForeign: omitKey(s.agentForeign, sessionId) }))
           get().setBrowserState(view)
-          // Vista nuova e la colonna del progetto è già aperta: si mostra subito.
+          // New view and the project's column is already open: it is shown right away.
           if (force && isBrowserColumnOpen(get(), latest.projectId)) get().showAgentBrowser(sessionId)
           return
         }
-        // Nessuna vista qui ma lo stato è attivo: appartiene a un'altra finestra. Non si mostra e sparisce dalla colonna.
+        // No view here but the state is active: it belongs to another window. It is not shown and disappears from the column.
         set((s) => {
           const agentForeign = { ...s.agentForeign, [sessionId]: tabId }
           return { agentForeign, ...settleBrowserColumn({ ...s, agentForeign }, latest.projectId) }
@@ -1342,8 +1342,8 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   loadAgentBrowser: (states) => {
-    // Con la finestra appena aperta la vista c'è già nel main: la UI la ritrova senza cambiare ciò che si sta guardando.
-    // L'elenco è completo: chi non c'è più (host ripartito) si chiude come per un evento `closed`.
+    // With the window just opened the view is already in main: the UI finds it again without changing what is being looked at.
+    // The list is complete: whatever is gone (host restarted) closes as for a `closed` event.
     const listed = new Set(states.filter((state) => !state.closed).map((state) => state.sessionId))
     for (const old of Object.values(get().agentBrowser)) if (!listed.has(old.sessionId)) get().applyAgentBrowser({ ...old, tabId: null, closed: true, action: null })
     const agentBrowser = { ...get().agentBrowser }
@@ -1360,7 +1360,7 @@ export const useApp = create<AppState>((set, get) => ({
   showAgentBrowser: (sessionId) => {
     const state = get().agentBrowser[sessionId]
     if (!hasAgentTab(state)) return
-    // Richiesta di nuovo: riprova prima; se è ancora di un'altra finestra non si apre.
+    // Requested again: it retries first; if it still belongs to another window it is not opened.
     if (get().agentForeign[sessionId] === state.tabId) {
       void get()
         .probeAgentBrowser(sessionId, true)
@@ -1376,7 +1376,7 @@ export const useApp = create<AppState>((set, get) => ({
   closeAgentBrowser: (sessionId) => {
     const before = get().agentBrowser[sessionId]
     if (!before) return
-    // La vista si distrugge (il main avvisa l'host) e si manda comunque lo stop: così vale anche se la vista non c'era più.
+    // The view is destroyed (main notifies the host) and the stop is sent anyway: so it works even if the view was gone.
     if (before.tabId) void window.ladder?.browser?.destroy(before.tabId)
     void request({ type: 'browser.agent.stop', sessionId }).catch(() => undefined)
     get().applyAgentBrowser({ ...before, tabId: null, stopped: true, action: null })
@@ -1416,7 +1416,7 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => patchUi(state, projectId, (ui) => ({ ...ui, groups: ui.groups?.map((g) => (g.id === groupId ? { ...g, name } : g)) }))),
   startRenameGroup: (groupId) => set({ renamingGroup: groupId }),
   stopRenameGroup: () => set({ renamingGroup: null }),
-  // Togliere un gruppo non tocca le chat: tornano nella lista del progetto.
+  // Removing a group does not touch the chats: they go back to the project's list.
   deleteGroup: (projectId, groupId) =>
     set((state) =>
       patchUi(state, projectId, (ui) => ({
@@ -1450,7 +1450,7 @@ export const useApp = create<AppState>((set, get) => ({
     }
     try {
       const state = await request<ProjectGroupsState>({ type: 'projectGroups.create', name, projectIds })
-      // La sezione nuova è l'ultima dello stato restituito.
+      // The new section is the last of the returned state.
       set({ projectGroups: state, renamingProjectGroup: state.groups[state.groups.length - 1]?.id ?? null })
     } catch (error) {
       failSidebarNotice(error)
@@ -1468,7 +1468,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
   reorderProjectGroups: (groupIds) => runGroupOp({ type: 'reorder', groupIds }, { type: 'projectGroups.reorder', groupIds }),
   moveProject: (projectId, groupId, index) => {
-    // Una sezione chiusa che riceve un progetto si apre, come i gruppi di chat.
+    // A closed section that receives a project opens, like chat groups.
     if (groupId && get().projectGroups?.groups.find((g) => g.id === groupId)?.collapsed) {
       runGroupOp({ type: 'collapse', groupId, collapsed: false }, { type: 'projectGroups.collapse', groupId, collapsed: false })
     }
@@ -1481,9 +1481,9 @@ export const useApp = create<AppState>((set, get) => ({
   setDraft: (key, text) => set((state) => ({ drafts: { ...state.drafts, [key]: text } })),
   loadCommands: (sessionId) => {
     request<SlashCommand[]>({ type: 'session.commands', sessionId })
-      // Una risposta vuota non cancella un elenco già arrivato con l'evento (corsa tra richiesta ed evento).
+      // An empty response does not erase a list already arrived with the event (race between request and event).
       .then((commands) => set((state) => (commands.length === 0 && state.commands[sessionId]?.length ? state : { commands: { ...state.commands, [sessionId]: commands } })))
-      // Senza elenco restano solo i comandi di Ladder: niente errori davanti all'utente.
+      // Without a list only Ladder's own commands remain: no errors in front of the user.
       .catch(() => undefined)
   },
   setUi: (projectId, uiState) => set((state) => ({ ui: { ...state.ui, [projectId]: uiState } })),
@@ -1492,19 +1492,19 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => {
       const ui = state.ui[projectId] ?? emptyUi()
       const index = ui.tabs.indexOf(sessionId)
-      // Le tab di sessioni archiviate o sparite si tolgono insieme a questa.
+      // The tabs of archived or vanished sessions are removed together with this one.
       const tabs = ui.tabs.filter((id) => id !== sessionId && isLiveSession(state, state.sessions[id]))
       const wasActive = state.selection.kind === 'session' && state.selection.sessionId === sessionId
-      // Con le colonne affiancate si passa alla colonna vicina, non alla tab vicina.
+      // With split columns it moves to the neighboring column, not the neighboring tab.
       const before = cleanSplit(state, projectId)
       const column = before?.sessions.includes(sessionId) ? withoutColumn(before, sessionId) : null
       const fallback = column ? column.neighbor : (tabs[Math.min(Math.max(index, 0), tabs.length - 1)] ?? null)
       const nextActive = wasActive ? (fallback ?? tabs[Math.min(Math.max(index, 0), tabs.length - 1)] ?? null) : ui.activeTab === sessionId ? null : ui.activeTab
-      // Chiudere una tab che non è una colonna lascia la divisione (e le proporzioni) com'è.
+      // Closing a tab that is not a column leaves the split (and the proportions) as it is.
       const nextUi = withSplit({ ...ui, tabs, activeTab: nextActive }, column ? column.split : before)
       persistUi(projectId, nextUi)
       const next = { ...state, ui: { ...state.ui, [projectId]: nextUi } }
-      // Le sessioni archiviate non si riaprono: ⌘⇧T riguarda solo le tab chiuse a mano.
+      // Archived sessions are not reopened: ⌘⇧T only concerns tabs closed by hand.
       const closedTabs = ui.tabs.includes(sessionId) && isLiveSession(state, state.sessions[sessionId]) ? withClosedTab(state.closedTabs, projectId, { kind: 'session', sessionId }) : state.closedTabs
       if (!wasActive) return { ui: next.ui, closedTabs }
       const selection: Selection = nextActive ? { kind: 'session', projectId, sessionId: nextActive } : { kind: 'new', projectId }
@@ -1531,7 +1531,7 @@ export const useApp = create<AppState>((set, get) => ({
         next.splice(toIndex, 0, files[from])
         return patchUi(state, projectId, (current) => ({ ...current, fileTabs: next }))
       }
-      // Le sessioni archiviate non si vedono: la posizione conta solo tra quelle visibili.
+      // Archived sessions are not visible: the position only counts among the visible ones.
       const visible = ui.tabs.filter((id) => isLiveSession(state, state.sessions[id]))
       const from = visible.indexOf(tabId)
       const target = visible[toIndex]
@@ -1560,14 +1560,14 @@ export const useApp = create<AppState>((set, get) => ({
   cycleTab: (projectId, delta) => {
     const state = get()
     const ui = state.ui[projectId] ?? emptyUi()
-    // Stesso ordine della barra: chat visibili, poi file.
+    // Same order as the bar: visible chats, then files.
     const order: Selection[] = [
       ...ui.tabs.filter((id) => isLiveSession(state, state.sessions[id])).map((sessionId): Selection => ({ kind: 'session', projectId, sessionId })),
       ...(ui.fileTabs ?? []).map((file): Selection => ({ kind: 'file', projectId, root: file.root, path: file.path })),
     ]
     if (order.length === 0) return false
     const at = state.selection.projectId === projectId ? order.findIndex((entry) => sameSelection(entry, state.selection)) : -1
-    // Da "nuova chat" (nessuna tab attiva) si entra dal primo o dall'ultimo.
+    // From "new chat" (no active tab) you enter from the first or the last.
     const target = at < 0 ? (delta > 0 ? 0 : order.length - 1) : (at + delta + order.length) % order.length
     if (at === target) return false
     state.select(order[target])
@@ -1582,7 +1582,7 @@ export const useApp = create<AppState>((set, get) => ({
     while (!reopened && stack.length > 0) {
       const entry = stack.pop()!
       if (entry.kind === 'browser') {
-        // La tab riaperta riparte dallo stesso indirizzo, con una vista nuova.
+        // The reopened tab restarts from the same address, with a new view.
         if (!ui.browserTabs?.some((tab) => tab.id === entry.tabId)) {
           set({ closedTabs: { ...state.closedTabs, [projectId]: stack } })
           state.openBrowser(projectId, { url: entry.url || undefined, fresh: true })
@@ -1594,7 +1594,7 @@ export const useApp = create<AppState>((set, get) => ({
         reopened = { kind: 'session', projectId, sessionId: entry.sessionId }
       }
     }
-    // La pila si accorcia anche se nessuna voce era più riapribile.
+    // The stack shrinks even if no entry could be reopened any more.
     set({ closedTabs: { ...state.closedTabs, [projectId]: stack } })
     if (!reopened) return false
     state.select(reopened)
@@ -1646,7 +1646,7 @@ export const useApp = create<AppState>((set, get) => ({
   archiveSession: (sessionId) => {
     const session = get().sessions[sessionId]
     if (!session) return
-    // Ottimista: la riga sparisce subito, l'host conferma con session.upsert.
+    // Optimistic: the row disappears right away, the host confirms with session.upsert.
     set((state) => ({ sessions: { ...state.sessions, [sessionId]: { ...session, archived: true } } }))
     get().closeTab(session.projectId, sessionId)
     request({ type: 'session.archive', sessionId }).catch(() => {
@@ -1655,7 +1655,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   removeProject: async (projectId) => {
-    // Senza progetto le sessioni non sono più raggiungibili: si archiviano, così l'host chiude i processi.
+    // Without a project the sessions are no longer reachable: they are archived, so the host closes the processes.
     for (const session of Object.values(get().sessions)) {
       if (session.projectId === projectId && !session.archived) send({ type: 'session.archive', sessionId: session.id })
     }
@@ -1664,7 +1664,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   goToNextWaiting: () => {
     const state = get()
-    // In ordine di arrivo: la richiesta più vecchia per prima, in qualunque progetto.
+    // In order of arrival: the oldest request first, in any project.
     const waiting = sidebarOrder(state)
       .filter(needsYou)
       .sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
@@ -1689,7 +1689,7 @@ export const useApp = create<AppState>((set, get) => ({
     dropGit(sessionId)
   },
 
-  // ── LAD-80 ──
+  // ── Branch maps ──
   watchBranchMap: (projectId) => {
     if (branchMapWatched.has(projectId)) return
     branchMapWatched.add(projectId)
@@ -1705,7 +1705,7 @@ export const useApp = create<AppState>((set, get) => ({
     if (!branchMapWatched.delete(projectId)) return
     send({ type: 'project.branchMap.watch', projectId, on: false })
   },
-  // ── fine LAD-80 ──
+  // ── end of branch maps ──
 
   markUnread: (sessionId) => {
     const { selection } = get()
@@ -1764,14 +1764,14 @@ export const useApp = create<AppState>((set, get) => ({
     const select = () => state.select({ kind: 'session', projectId, sessionId })
     if (!isLiveSession(state, session) || session.projectId !== projectId) return false
     const split = cleanSplit(state, projectId)
-    // Già in una colonna: basta attivarla.
+    // Already in a column: it is enough to activate it.
     if (split?.sessions.includes(sessionId)) {
       select()
       return false
     }
     const current = state.selection.kind === 'session' && state.selection.projectId === projectId ? state.selection.sessionId : null
     const base = split?.active ?? current
-    // Niente da cui affiancare (o la stessa sessione): si apre e basta. Colonne piene: prende il posto di quella attiva.
+    // Nothing to split from (or the same session): it just opens. Columns full: it takes the place of the active one.
     if (!base || base === sessionId || (split && split.sessions.length >= MAX_COLUMNS)) {
       select()
       return false
@@ -1788,7 +1788,7 @@ export const useApp = create<AppState>((set, get) => ({
     const projectId = selection.projectId
     const split = cleanSplit(state, projectId)
     if (split && split.sessions.length >= MAX_COLUMNS) return
-    // Sempre una chat nuova accanto a quella aperta: prevedibile. Una chat già aperta si affianca dal menu Affianca o con ⌘clic sulla sua tab.
+    // Always a new chat next to the open one: predictable. An already open chat is split from the Split menu or with ⌘click on its tab.
     state.select({ kind: 'new', projectId })
     set({ pendingSplit: { projectId, base: split?.active ?? selection.sessionId } })
   },
@@ -1814,7 +1814,7 @@ export const useApp = create<AppState>((set, get) => ({
     const target = at < 0 ? undefined : columns[at + delta]
     if (!target) return false
     state.select({ kind: 'session', projectId: selection.projectId, sessionId: target }, { history: false })
-    // Il composer della colonna riceve il focus: le scorciatoie e la scrittura continuano lì.
+    // The column's composer gets focus: shortcuts and typing continue there.
     window.requestAnimationFrame(() => document.getElementById(`composer-${target}`)?.focus())
     return true
   },
@@ -1870,7 +1870,7 @@ export const useApp = create<AppState>((set, get) => ({
         replies: list.filter((s) => s.unread && s.run !== 'error' && s.activityAt > seen).length,
         requests: list.filter(needsYou).length,
         errors: list.filter((s) => s.run === 'error' && s.activityAt > seen).length,
-        // Scese in "Concluse" mentre non c'eri: l'ultima attività ha superato i 3 giorni dopo la tua ultima visita.
+        // Dropped to "Done" while you were away: the last activity went past 3 days after your last visit.
         concluded: list.filter((s) => isConcluded(s, Boolean(state.drafts[s.id]?.trim()), now) && Math.max(s.activityAt, s.createdAt) + CONCLUDED_AFTER_MS > seen).length
       }
       if (summary.replies + summary.requests + summary.errors + summary.concluded === 0) return {}

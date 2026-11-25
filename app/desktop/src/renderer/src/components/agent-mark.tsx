@@ -1,6 +1,6 @@
-// Segno del provider: dice chi sta lavorando senza aprire la sessione (DESIGN.md, "Agent Mark").
-// Icone monocromatiche (set di LobeHub, MIT) disegnate con una maschera nel colore del testo, così restano calme
-// e seguono ogni tema. Per gli agenti ACP: l'icona del registro, poi un'icona nota per nome, poi l'iniziale.
+// Provider mark: shows who is working without opening the session (DESIGN.md, "Agent Mark").
+// Monochrome icons (LobeHub set, MIT) drawn with a mask in the text color, so they stay calm
+// and follow every theme. For ACP agents: the registry icon, then a known icon by name, then the initial.
 import ampIcon from '@lobehub/icons-static-svg/icons/amp.svg?url'
 import claudeIcon from '@lobehub/icons-static-svg/icons/claudecode.svg?url'
 import clineIcon from '@lobehub/icons-static-svg/icons/cline.svg?url'
@@ -19,7 +19,7 @@ import type { AgentId, AgentStatus } from '@shared/protocol'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
 
-/** Agenti noti per nome: valgono anche per le voci ACP aggiunte a mano (codex-acp, claude-acp, gemini…). */
+/** Agents known by name: they also apply to ACP entries added by hand (codex-acp, claude-acp, gemini…). */
 const KNOWN: [RegExp, string][] = [
   [/claude/i, claudeIcon],
   [/codex/i, codexIcon],
@@ -43,7 +43,7 @@ export function agentIcon(agent: AgentId, status?: AgentStatus | null): string |
   return KNOWN.find(([pattern]) => pattern.test(key))?.[1] ?? null
 }
 
-/** Segno da 12–16 px nel colore del testo intorno (di solito tenue). */
+/** 12–16 px mark in the surrounding text color (usually muted). */
 export function AgentMark({ agent, size = 14, className, title }: { agent: AgentId; size?: number; className?: string; title?: string }) {
   const status = useApp((s) => s.agents.find((a) => a.agent === agent) ?? null)
   const icon = agentIcon(agent, status)
@@ -73,7 +73,7 @@ export function AgentMark({ agent, size = 14, className, title }: { agent: Agent
   )
 }
 
-/** "Opus 5.5", "GPT-6 Luna": il nome del modello come lo mostra l'agente, o ricavato dall'id. */
+/** "Opus 5.5", "GPT-6 Luna": the model name as the agent shows it, or derived from the id. */
 export function modelLabel(status: AgentStatus | null | undefined, model: string | null | undefined): string | null {
   if (!model) return null
   const known = status?.models.find((m) => m.id === model)?.label
@@ -86,17 +86,17 @@ export function modelLabel(status: AgentStatus | null | undefined, model: string
   return model
 }
 
-/** Agente e modello di una sessione, per righe, tab e intestazioni: "Claude Code · Opus 5.5". */
+/** A session's agent and model, for rows, tabs and headers: "Claude Code · Opus 5.5". */
 export function useAgentLine(agent: AgentId, model: string | null): { name: string; model: string | null } {
   const status = useApp((s) => s.agents.find((a) => a.agent === agent) ?? null)
   return { name: status?.name ?? (agent === 'claude-code' ? 'Claude' : agent === 'codex' ? 'Codex' : agent.replace(/^acp:/, '')), model: modelLabel(status, model) }
 }
 
-/** Primo grafema di un testo (un'emoji o una lettera con accento restano intere). */
+/** First grapheme of a text (an emoji or an accented letter stays whole). */
 export const firstGrapheme = (text: string): string =>
   typeof Intl.Segmenter === 'function' ? ([...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)][0]?.segment ?? '') : (Array.from(text)[0] ?? '')
 
-/** Segno decorativo di un servizio o di un altro agente (nascosto alle tecnologie assistive: il nome sta accanto). Senza icona, l'iniziale di `name`. */
+/** Decorative mark of a service or another agent (hidden from assistive technology: the name sits next to it). Without an icon, the initial of `name`. */
 export function MaskIcon({ icon, name, size = 14, className }: { icon: string | null; name: string; size?: number; className?: string }) {
   if (!icon) {
     return (
@@ -115,7 +115,7 @@ export function MaskIcon({ icon, name, size = 14, className }: { icon: string | 
   )
 }
 
-/** Icona di un altro agente (LAD-79): quella del registro se c'è, poi una nota per nome. */
+/** Icon of another agent: the registry one if there is one, then a known one by name. */
 export function otherAgentIcon(agent: { id: string; name: string; icon: string | null }): string | null {
   return agentIcon(`acp:${agent.id}`, { name: agent.name, icon: agent.icon } as AgentStatus)
 }

@@ -1,5 +1,5 @@
-// Configurazione del progetto: .ladder/settings.toml (da committare) più .ladder/settings.local.toml (personale).
-// Il file personale vince campo per campo; le azioni [[run]] con lo stesso nome si sostituiscono.
+// Project configuration: .ladder/settings.toml (to be committed) plus .ladder/settings.local.toml (personal).
+// The personal file wins field by field; [[run]] actions with the same name replace each other.
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -21,7 +21,7 @@ const isTable = (value: unknown): value is Table => typeof value === 'object' &&
 
 export async function loadProjectSettings(root: string): Promise<ProjectSettings> {
   const settings = emptySettings()
-  // Servizi per file (progetto, personale): si fondono alla fine, per sapere da dove viene ciascuno.
+  // Services per file (project, personal): merged at the end, to know where each one comes from.
   const byFile: Map<string, { name: string; command: string; port: boolean }>[] = SETTINGS_FILES.map(() => new Map())
   // Delegates per file: merged by name at the end (personal wins).
   const delegatesByFile: Map<string, AgentDelegate>[] = SETTINGS_FILES.map(() => new Map())
@@ -42,11 +42,11 @@ export async function loadProjectSettings(root: string): Promise<ProjectSettings
     }
     apply(settings, data, file, byFile[fileIndex], fileIndex === 0, delegatesByFile[fileIndex])
   }
-  // Uno script vuoto in un file personale serve a togliere quello del progetto: per chi legge è "nessuno".
+  // An empty script in a personal file removes the project one: for readers it means "none".
   settings.worktree.setup ||= null
   settings.worktree.archive ||= null
-  // Fusione: prima i servizi del progetto, poi i soli-personali. Un servizio personale con comando vuoto disattiva quello del progetto
-  // omonimo (resta in elenco con `disabled`); senza omonimo non dice nulla e non entra nell'elenco fuso.
+  // Merge: project services first, then the personal-only ones. A personal service with an empty command disables the project one
+  // with the same name (it stays in the list with `disabled`); without a same-name project service it says nothing and stays out of the merged list.
   const [project, personal] = byFile
   settings.worktree.personalServices = [...personal.values()]
   for (const base of project.values()) {
@@ -66,7 +66,7 @@ export async function loadProjectSettings(root: string): Promise<ProjectSettings
     }
     settings.agents.delegates.push({ ...delegate, permission: clampPermission(delegate.permission, settings.agents.permissionsMax) })
   }
-  // La base resta a setup, shell e [[run]]: con una sola porta i servizi con porta non avrebbero dove partire.
+  // The base stays at setup, shell and [[run]]: with a single port, services with a port would have nowhere to start.
   if (settings.worktree.ports < 2 && settings.worktree.services.some((s) => !s.disabled && s.port)) {
     settings.errors.push(t('worktree.ports must be at least 2 when a service needs a port: the first port is kept for setup and [[run]] actions'))
   }
@@ -103,10 +103,10 @@ function apply(settings: ProjectSettings, data: Table, file: string, services: M
               problem(t('[[worktree.services]] #{n}: port must be true or false', { n: index + 1 }))
               continue
             }
-            // Nome ripetuto nello stesso file: vince l'ultimo.
+            // Repeated name in the same file: the last wins.
             const name = entry.name.trim()
             const command = entry.command.trim()
-            // Nel file del progetto un comando vuoto non ha senso (aprirebbe una shell come «servizio»); in quello personale disattiva il servizio.
+            // In the project file an empty command makes no sense (it would open a shell as a "service"); in the personal one it disables the service.
             if (!command && isProjectFile) {
               problem(t('[[worktree.services]] #{n}: the command can’t be empty (a personal file can turn a service off with an empty command)', { n: index + 1 }))
               continue
@@ -204,18 +204,18 @@ function apply(settings: ProjectSettings, data: Table, file: string, services: M
     }
   }
 
-  // Una sola azione predefinita: vince l'ultima dichiarata.
+  // Only one default action: the last declared wins.
   const defaults = settings.run.filter((r) => r.default)
   if (defaults.length > 1) for (const r of defaults.slice(0, -1)) r.default = false
 }
 
 /**
- * Scrive i campi di [worktree] in .ladder/settings.local.toml (il file personale vince su quello del progetto).
- * Il file si riscrive dal suo contenuto letto: i commenti si perdono. Uno script tolto diventa "" per
- * sovrascrivere anche quello del file del progetto.
+ * Writes the [worktree] fields to .ladder/settings.local.toml (the personal file wins over the project one).
+ * The file is rewritten from the content read: comments are lost. A removed script becomes "" to
+ * also override the one in the project file.
  */
 export function saveWorktreeSettings(root: string, patch: WorktreeSettingsPatch): Promise<void> {
-  // Una coda per file: due salvataggi vicini non si pestano (leggi-modifica-riscrivi).
+  // One queue per file: two close saves don't trample each other (read-modify-rewrite).
   const file = join(root, SETTINGS_FILES[1])
   const run = (saves.get(file) ?? Promise.resolve()).catch(() => undefined).then(() => writeWorktreeSettings(root, patch))
   saves.set(file, run)
@@ -305,7 +305,7 @@ async function updatePersonalFile(root: string, change: (data: Table) => Table):
   }
 }
 
-/** Perché una voce di [[worktree.services]] non sopravvivrebbe a una riscrittura (null se è valida): nome e comando testi, port booleano, nessuna chiave in più. */
+/** Why a [[worktree.services]] entry wouldn't survive a rewrite (null if valid): name and command are text, port is boolean, no extra keys. */
 function invalidService(entry: unknown): string | null {
   if (!isTable(entry) || typeof entry.name !== 'string' || typeof entry.command !== 'string' || !entry.name.trim()) return t('name and command are required')
   if (entry.port !== undefined && typeof entry.port !== 'boolean') return t('port must be true or false')
@@ -316,15 +316,15 @@ function invalidService(entry: unknown): string | null {
 export const LEVELS: PermissionLevel[] = ['plan', 'ask', 'edit', 'full']
 const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
-/** "gemini" e "acp:gemini" indicano lo stesso agente ACP; i nativi restano come sono. */
+/** "gemini" and "acp:gemini" mean the same ACP agent; native ones stay as they are. */
 export function agentKey(name: string): string {
   const id = name.trim()
   return id === 'claude-code' || id === 'codex' || id.startsWith('acp:') ? id : `acp:${id}`
 }
 
-/** Il livello più alto ammesso dal progetto. */
+/** The highest level the project allows. */
 export function clampPermission(level: PermissionLevel, max: PermissionLevel | null): PermissionLevel {
-  // Un livello sconosciuto non passa mai: vale il massimo del progetto, o il livello prudente se non ce n'è.
+  // An unknown level never passes: the project's maximum applies, or the cautious level if there is none.
   if (!LEVELS.includes(level)) return max ?? 'ask'
   if (!max) return level
   return LEVELS.indexOf(level) > LEVELS.indexOf(max) ? max : level

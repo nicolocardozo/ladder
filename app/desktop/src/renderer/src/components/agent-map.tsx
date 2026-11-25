@@ -1,6 +1,6 @@
-// Mappa degli agenti: il badge nella barra del composer e il popover con i sotto-agenti della sessione.
-// Con centinaia di agenti resta leggibile: in corso, poi errori, poi i completati in un gruppo chiuso;
-// figli sotto il genitore, ricerca e filtri oltre 15 agenti, lista virtualizzata.
+// Agent map: the badge in the composer bar and the popover with the session's sub-agents.
+// It stays readable with hundreds of agents: running first, then errors, then completed ones in a collapsed group;
+// children under their parent, search and filters beyond 15 agents, virtualized list.
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Bot, ChevronDown, ChevronRight, Maximize2, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -21,24 +21,24 @@ import { GRAPH_MAX } from '@/lib/agent-graph'
 import { agentElapsed, bucketOf, buildForest, orderedAgents, useSubagentDialog, useSubagentList, type AgentNode, type Bucket } from '@/lib/subagents'
 import { cn } from '@/lib/utils'
 
-/** Agenti in corso, anche in background: il conteggio della sidebar. */
+/** Running agents, including in the background: the sidebar count. */
 export function runningSubagents(session: SessionSummary | null | undefined): number {
   return session?.subagentCounts?.running ?? 0
 }
 
-/** Agenti in corso che tengono occupata la sessione (non in background): "N agents working" sopra la coda. */
+/** Running agents that keep the session busy (not in the background): "N agents working" above the queue. */
 export function runningForegroundSubagents(session: SessionSummary | null | undefined): number {
   return session?.subagentCounts?.runningForeground ?? 0
 }
 
-/** Oltre questo numero compaiono ricerca e filtri. */
+/** Beyond this number, search and filters appear. */
 const FILTER_FROM = 16
 const ALL = '__all__'
 
 type MapView = 'graph' | 'list'
 const VIEW_KEY = 'ladder.agentMapView'
 
-/** La vista scelta dall'utente, ricordata fra le aperture; senza scelta il predefinito è la lista. */
+/** The view chosen by the user, remembered between openings; with no choice the default is the list. */
 function readView(): MapView | null {
   try {
     const value = localStorage.getItem(VIEW_KEY)
@@ -48,7 +48,7 @@ function readView(): MapView | null {
   }
 }
 
-/** Badge nella barra in basso del composer: c'è solo se la sessione ha avviato sotto-agenti. */
+/** Badge in the composer's bottom bar: only present if the session has started sub-agents. */
 export function AgentBadge({
   sessionId,
   counts,
@@ -81,7 +81,7 @@ export function AgentBadge({
         )}
       >
         {running ? <RunningRing /> : <Bot aria-hidden className="size-3.5 text-muted-foreground" strokeWidth={1.8} />}
-        {/* Nella barra del composer (container `bar`) la colonna stretta mostra il solo numero; il testo completo resta nell'aria-label. */}
+        {/* In the composer bar (container `bar`) the narrow column shows only the number; the full text stays in the aria-label. */}
         <span aria-hidden className="hidden @min-[400px]/bar:inline">{label}</span>
         <span aria-hidden className="@min-[400px]/bar:hidden">{count}</span>
         {failed > 0 && <span aria-hidden className="size-1.5 rounded-full bg-destructive" />}
@@ -142,7 +142,7 @@ function buildRows(forest: AgentNode[], agents: SubagentInfo[], { collapsed, don
   }
 
   if (filtered) {
-    // Con un filtro la lista è piatta: l'albero nasconderebbe chi corrisponde sotto un genitore che non corrisponde.
+    // With a filter the list is flat: the tree would hide matches under a parent that doesn't match.
     for (const bucket of ['running', 'failed', 'done'] as const) {
       const list = filtered.filter((a) => bucketOf(a) === bucket)
       if (!list.length) continue
@@ -187,14 +187,14 @@ function AgentMap({
   sessionId: string
   agent: AgentId
   model: string | null
-  /** Quanti agenti dice il badge: serve a scegliere la vista prima che l'elenco arrivi. */
+  /** How many agents the badge reports: needed to pick the view before the list arrives. */
   total: number
   onPick: () => void
   onExpand: () => void
   returnFocus: () => HTMLElement | null
 }) {
   const openDialog = useSubagentDialog((s) => s.open)
-  // Si rilegge a ogni apertura del popover: l'elenco in memoria può essere in ritardo su un evento perso.
+  // Re-read on every popover open: the in-memory list may lag behind a missed event.
   const list = useSubagentList(sessionId, true, 1)
   const agents = useMemo(() => list ?? [], [list])
   const modelOf = useAgentModel(agent, model)
@@ -206,8 +206,8 @@ function AgentMap({
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState(ALL)
   const [status, setStatus] = useState(ALL)
-  // La possibilità del grafico si decide una volta, all'apertura del popover: non cambia sotto il cursore
-  // se gli agenti aumentano. La vista è la scelta ricordata, altrimenti la lista.
+  // Whether the graph is possible is decided once, when the popover opens: it doesn't change under the cursor
+  // if agents increase. The view is the remembered choice, otherwise the list.
   const [chosen, setChosen] = useState<MapView | null>(readView)
   const [graphAllowed] = useState(() => total <= GRAPH_MAX)
   const view: MapView = !graphAllowed ? 'list' : (chosen ?? 'list')
@@ -216,15 +216,15 @@ function AgentMap({
     try {
       localStorage.setItem(VIEW_KEY, next)
     } catch {
-      /* La scelta vale per questa apertura anche senza archivio. */
+      /* The choice holds for this opening even without storage. */
     }
   }
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
-  // Se sono tutti completati, il gruppo dei completati è l'unica cosa da vedere: si apre già aperto.
-  // Con agenti in corso o falliti resta chiuso, per non spingere in basso quelli che contano.
+  // If all are completed, the completed group is the only thing to see: it opens already expanded.
+  // With running or failed agents it stays collapsed, so as not to push down the ones that matter.
   const allDone = agents.length > 0 && agents.every((a) => bucketOf(a) === 'done')
   const [doneOpen, setDoneOpen] = useState(allDone)
-  // L'elenco può arrivare dopo l'apertura: la scelta iniziale si fa una volta, appena c'è, poi decide l'utente.
+  // The list may arrive after opening: the initial choice is made once, as soon as it is there, then the user decides.
   const doneDecided = useRef(agents.length > 0)
   useEffect(() => {
     if (doneDecided.current || agents.length === 0) return
@@ -266,8 +266,8 @@ function AgentMap({
     })
   }, [])
 
-  // Frecce su e giù spostano il focus fra le righe; la lista è virtualizzata, quindi si scorre prima fino alla riga.
-  // Dal campo di ricerca solo ↓ entra nella lista (↑, Home e End restano del testo); dalla prima riga ↑ torna alla ricerca.
+  // Up and down arrows move focus between rows; the list is virtualized, so it scrolls to the row first.
+  // From the search field only ↓ enters the list (↑, Home and End stay with the text); from the first row ↑ goes back to the search.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
     const target = event.target as HTMLElement
@@ -290,7 +290,7 @@ function AgentMap({
     event.preventDefault()
     const index = navigable[next]
     virtualizer.scrollToIndex(index)
-    // Dopo un salto lungo la riga si monta con qualche fotogramma di ritardo: si riprova finché c'è.
+    // After a long jump the row mounts a few frames late: retry until it is there.
     let tries = 0
     const focusRow = () => {
       const el = scrollRef.current?.querySelector<HTMLElement>(`[data-row="${index}"] [data-main]`)
@@ -441,7 +441,7 @@ function AgentMap({
   )
 }
 
-/** Grafico o lista. Oltre 40 agenti il grafico resta visibile ma spento, con la ragione. */
+/** Graph or list. Beyond 40 agents the graph stays visible but disabled, with the reason. */
 function ViewSwitch({ view, graphAllowed, onChange }: { view: MapView; graphAllowed: boolean; onChange: (view: MapView) => void }) {
   const base = 'h-5 rounded px-2 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50'
   const reason = t('The graph is available up to {n} agents. Use the list.', { n: GRAPH_MAX })

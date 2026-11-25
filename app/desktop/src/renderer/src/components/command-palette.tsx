@@ -1,5 +1,5 @@
-// ⌘K: cerca sessioni (in tutti i progetti), progetti e azioni. Il filtro è nostro, così l'ordine resta quello voluto:
-// prima le sessioni che aspettano l'utente, poi le più recenti.
+// ⌘K: searches sessions (across all projects), projects and actions. The filter is ours, so the order stays as intended:
+// first sessions waiting for the user, then the most recent.
 import { useEffect, useMemo, useState } from 'react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { Command as CommandPrimitive } from 'cmdk'
@@ -60,7 +60,7 @@ export function CommandPalette() {
       <DialogContent showCloseButton={false} className="top-[13vh] translate-y-0 gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-[600px]">
         <DialogTitle className="sr-only">{t('Search Ladder')}</DialogTitle>
         <DialogDescription className="sr-only">{t('Sessions from all projects, projects and actions.')}</DialogDescription>
-        {/* Il contenuto si monta a ogni apertura: la ricerca riparte vuota. */}
+        {/* The content mounts on every open: the search starts empty again. */}
         <PaletteBody onClose={() => setPaletteOpen(false)} />
       </DialogContent>
     </Dialog>
@@ -85,7 +85,7 @@ interface Action {
   label: string
   icon: LucideIcon
   keywords: string
-  /** Comando del registro: la scorciatoia mostrata viene da lì. */
+  /** Registry command: the shortcut shown comes from there. */
   command?: CommandId
   hint?: string
   disabled?: boolean
@@ -99,19 +99,19 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const sessions = useApp((s) => s.sessions)
   const sidebarOpen = useApp((s) => s.sidebarOpen)
   const prefs = useApp((s) => s.prefs)
-  // La sessione aperta, se è una chat di Claude Code o Codex: "Rigenera titolo" agisce su di lei (gli agenti ACP rispondono sempre con un errore).
+  // The open session, if it is a Claude Code or Codex chat: "Regenerate title" acts on it (ACP agents always reply with an error).
   const activeChat = useApp((s) => {
     const sel = s.selection
     const session = sel.kind === 'session' ? s.sessions[sel.sessionId] : undefined
     return session?.mode === 'chat' && (session.agent === 'claude-code' || session.agent === 'codex') ? session : null
   })
-  // La sessione aperta se è una chat (non un terminale): "Salva come profilo" parte dai suoi valori.
+  // The open session if it is a chat (not a terminal): "Save as profile…" starts from its values.
   const activeChatId = useApp((s) => {
     const sel = s.selection
     const session = sel.kind === 'session' ? s.sessions[sel.sessionId] : undefined
     return session?.mode === 'chat' ? session.id : null
   })
-  // Sessione aperta con il browser dell'agente fermato (stop esplicito o tab chiusa): si può riattivare da qui.
+  // Open session with the agent browser stopped (explicit stop or closed tab): it can be re-enabled from here.
   const stoppedAgentBrowserId = useApp((s) => {
     const sel = s.selection
     const state = sel.kind === 'session' ? s.agentBrowser[sel.sessionId] : undefined
@@ -139,7 +139,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
 
   const live = useMemo(() => {
     const list = Object.values(sessions).filter((s) => isListedSession({ projects }, s))
-    // Prima chi aspetta l'utente, poi per attività recente.
+    // First whoever waits for the user, then by recent activity.
     return list.sort((a, b) => Number(needsYou(b)) - Number(needsYou(a)) || b.updatedAt - a.updatedAt)
   }, [sessions, projects])
 
@@ -150,7 +150,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     return live.filter((s) => matches(tokens, normalize(`${s.title} ${projectNames.get(s.projectId) ?? ''}`))).slice(0, 50)
   }, [live, tokens, searching, projectNames])
 
-  // Testo delle conversazioni e file toccati, in tutti i progetti: lo cerca l'host.
+  // Conversation text and touched files, across all projects: the host searches for it.
   const [hits, setHits] = useState<SearchHit[]>([])
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -181,7 +181,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     perform()
   }
 
-  /** Azione sul progetto selezionato; senza progetto non fa nulla. */
+  /** Action on the selected project; without a project it does nothing. */
   const inProject = (act: (state: ReturnType<typeof useApp.getState>, projectId: string) => unknown) => () =>
     run(() => {
       const state = useApp.getState()
@@ -203,7 +203,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
           select({ kind: 'new', projectId })
         })
     }))
-    // Senza ricerca non invadono l'elenco: i primi cinque; cercando si trovano tutti.
+    // Without a search they don't flood the list: the first five; when searching, all are found.
     .filter((action, index) => searching || index < 5)
 
   const actions: Action[] = [
@@ -219,7 +219,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
           select({ kind: 'new', projectId: selection.projectId ?? projects[0]?.id ?? null })
         })
     },
-    // Profili di sessione: "Nuova chat con <profilo>" apre la nuova chat del progetto selezionato con il profilo già applicato.
+    // Session profiles: "New chat with <profile>" opens the selected project's new chat with the profile already applied.
     ...presetActions,
     ...(activeChatId
       ? [
@@ -559,7 +559,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       </CommandList>
 
       <div className="flex h-9 items-center gap-3 border-t border-border px-4 text-xs text-faint">
-        {/* Regione sempre presente, così il lettore di schermo annuncia il messaggio quando compare. */}
+        {/* Always-present region, so the screen reader announces the message when it appears. */}
         <span role="status" className={notice ? 'font-medium text-foreground' : 'sr-only'}>
           {notice}
         </span>

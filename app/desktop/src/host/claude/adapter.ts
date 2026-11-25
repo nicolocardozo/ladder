@@ -1,4 +1,4 @@
-// Adapter Claude Code: una sessione di Ladder = un `query()` dell'Agent SDK con input in streaming.
+// Claude Code adapter: one Ladder session = one Agent SDK `query()` with streaming input.
 import { randomUUID } from 'node:crypto'
 import { relative } from 'node:path'
 import {
@@ -46,13 +46,13 @@ export interface UserRequest {
   options: RequestOption[]
   questions: Question[] | null
   preview?: { text: string; lines: number; truncated: boolean } | null
-  /** Tutti i file toccati, quando sono più di uno (apply_patch di Codex). */
+  /** All the files touched, when there is more than one (Codex apply_patch). */
   paths?: string[]
 }
 
 const PREVIEW_MAX_LINES = 400
 
-/** Modifica proposta da Edit, MultiEdit e Write come righe "- " e "+ ": serve alla card e a "In attesa". */
+/** Change proposed by Edit, MultiEdit and Write as "- " and "+ " lines: used by the card and by "Waiting". */
 export function editPreview(toolName: string, input: Record<string, unknown>): UserRequest['preview'] {
   const lines: string[] = []
   const add = (prefix: string, text: unknown) => {
@@ -93,19 +93,19 @@ export interface AdapterEvents {
   activity(text: string | null): void
   request(request: UserRequest, signal: AbortSignal): Promise<RequestResponse>
   turnEnd(result: TurnResult): void
-  /** L'agente ha aperto un turno da solo: un messaggio inserito che ha superato un'interruzione. L'host apre il turno. */
+  /** The agent opened a turn on its own: an inserted message that survived an interruption. The host opens the turn. */
   turnStart?(uuids: string[]): void
   notice(tone: 'info' | 'error', text: string): void
   account(info: { account: string | null; email?: string | null; models: AgentStatus['models']; limits?: string | null }): void
-  /** Finestre dei limiti del piano: si uniscono a quelle già note, per chiave. */
+  /** Plan limit windows: merged into the already known ones, by key. */
   usage(windows: UsageWindow[]): void
-  /** Sotto-agenti avviati dalla sessione: aggiornamenti parziali, uniti dall'host. */
+  /** Sub-agents started by the session: partial updates, merged by the host. */
   subagent(update: SubagentUpdate): void
-  /** Elenco dei comandi / dell'agente: sostituisce quello noto. */
+  /** List of the agent's / commands: replaces the known one. */
   commands(commands: SlashCommand[]): void
-  /** Contesto compattato, a mano o in automatico. */
+  /** Context compacted, by hand or automatically. */
   compacted(info: { trigger: 'manual' | 'auto'; preTokens: number | null; postTokens: number | null }): void
-  /** Contesto aggiornato dopo il turno (arriva in ritardo rispetto a turnEnd): sostituisce quello noto. */
+  /** Context updated after the turn (arrives late relative to turnEnd): replaces the known one. */
   context?(context: NonNullable<TurnResult['context']>): void
   exit(error: string | null): void
 }
@@ -113,15 +113,15 @@ export interface AdapterEvents {
 export interface StartOptions {
   cwd: string
   cli: string | null
-  /** Cartella di configurazione del profilo (CLAUDE_CONFIG_DIR); null = quella della CLI. */
+  /** Profile configuration folder (CLAUDE_CONFIG_DIR); null = the CLI's own. */
   configDir?: string | null
   model: string | null
   effort: Effort | null
   permission: PermissionLevel
   resume: string | null
-  /** Istruzione di autonomia nel prompt di sistema (HostPrefs.autonomyHint), solo con permesso edit o full. */
+  /** Autonomy instruction in the system prompt (HostPrefs.autonomyHint), only with edit or full permission. */
   autonomyHint?: boolean
-  /** LAD-57 parte 2: server MCP del browser dell'agente (URL e token della sessione); assente = nessuna registrazione. */
+  /** MCP server of the agent's browser (session URL and token); absent = no registration. */
   browserTools?: { url: string; token: string } | null
   /** Ladder MCP server (session URL and token); absent = no registration. */
   ladderTools?: { url: string; token: string } | null
@@ -132,10 +132,10 @@ export interface StartOptions {
 }
 
 
-/** Dopo quanto un turno implicito senza messaggi del thread principale si considera mai partito. */
+/** After how long an implicit turn with no main-thread messages is considered never started. */
 const IMPLICIT_TURN_MS = 45_000
 
-/** Coda di messaggi utente letta dall'SDK come prompt in streaming. */
+/** Queue of user messages read by the SDK as a streaming prompt. */
 class InputQueue implements AsyncIterable<SDKUserMessage> {
   private items: SDKUserMessage[] = []
   private wake: (() => void) | null = null
@@ -187,7 +187,7 @@ function firstLine(text: string, max = 80): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
 
-/** Titolo leggibile e categoria di una tool call di Claude Code. */
+/** Readable title and category of a Claude Code tool call. */
 export function describeTool(name: string, input: Block, cwd: string): Pick<ToolUpdate, 'tool' | 'title' | 'detail'> {
   const rel = (p: unknown) => {
     const path = str(p)
@@ -243,73 +243,73 @@ function toolResultText(content: unknown): string | null {
 }
 
 const OUTPUT_LIMIT = 8000
-/** Voci di task_id → sotto-agente che restano per le riprese. */
+/** task_id → sub-agent entries that stay around for resumes. */
 const TASK_MAP_LIMIT = 500
-/** Tolleranza prima di dare per finito un background assente da background_tasks_changed: l'ordine rispetto a task_started/notification non è garantito. */
+/** Grace period before treating a background task missing from background_tasks_changed as finished: the order relative to task_started/notification is not guaranteed. */
 const BG_GRACE_MS = 3000
 const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export class ClaudeSession {
   private input = new InputQueue()
   private q: Query | null = null
-  /** Token dell'ultimo messaggio assistant del loop principale (ultimo per message.id), ripiego se getContextUsage fallisce. */
+  /** Tokens of the last assistant message of the main loop (last per message.id), fallback if getContextUsage fails. */
   private lastMainUsed: number | null = null
   private lastWindow: number | null = null
   private contextSeq = 0
   private abort = new AbortController()
   private toolInputs = new Map<string, { name: string; input: Block }>()
-  /** Blocchi di testo in streaming: indice del blocco → id dell'elemento. */
+  /** Streaming text blocks: block index → item id. */
   private streamBlocks = new Map<number, string>()
-  /** Blocchi di testo aperti nello stream e non ancora chiusi dal messaggio completo, in ordine. */
+  /** Text blocks open in the stream and not yet closed by the complete message, in order. */
   private openTextIds: string[] = []
   private textCounter = 0
   private deniedTools = new Set<string>()
-  /** tool_use di Agent/Task a ogni livello: diventano i nodi della mappa degli agenti. */
+  /** Agent/Task tool_use at every level: they become the nodes of the agent map. */
   private agentTools = new Set<string>()
   /**
-   * task_id dell'SDK (e agentId dell'output di Agent) → id del sotto-agente (il suo tool_use, se c'è).
-   * Non si svuota a fine turno: una ripresa porta lo stesso task_id e deve ritrovare la voce originale. Limitata a TASK_MAP_LIMIT.
+   * SDK task_id (and agentId from the Agent output) → sub-agent id (its tool_use, if any).
+   * Not emptied at the end of the turn: a resume carries the same task_id and must find the original entry. Limited to TASK_MAP_LIMIT.
    */
   private taskIds = new Map<string, string>()
-  /** Ultimo run_id visto per task_id: i messaggi di una run precedente, arrivati in ritardo, non toccano la ripresa. */
+  /** Last run_id seen per task_id: late messages from an earlier run don't touch the resume. */
   private taskRuns = new Map<string, string>()
-  /** task_id dei sotto-agenti in background ancora in corso secondo noi: li confronta background_tasks_changed. */
+  /** task_id of the background sub-agents still running as far as we know: background_tasks_changed is compared against them. */
   private bgTasks = new Set<string>()
-  /** Insieme dei task in background vivi dall'ultimo background_tasks_changed (null: mai ricevuto). */
+  /** Set of live background tasks since the last background_tasks_changed (null: never received). */
   private liveTasks: Set<string> | null = null
-  /** Task in background vivi di ogni tipo (comandi in background, monitor, sotto-agenti) dall'ultimo background_tasks_changed. */
+  /** Live background tasks of every kind (background commands, monitors, sub-agents) since the last background_tasks_changed. */
   private liveBackground = 0
   private bgTimer: ReturnType<typeof setTimeout> | null = null
-  /** Sotto-agenti seguiti dagli eventi task_*: la fine la dice task_notification, non il tool_result. */
+  /** Sub-agents followed by task_* events: the end is told by task_notification, not by tool_result. */
   private trackedTasks = new Set<string>()
-  /** Agent/Task visti dal tool_use e non ancora collegati a un task_started: servono per abbinare i task senza tool_use_id. */
+  /** Agent/Task seen from tool_use and not yet linked to a task_started: used to match tasks without a tool_use_id. */
   private unlinkedAgents = new Map<string, string>()
-  /** Sotto-agenti il cui modello è già noto (da input.model o dal primo messaggio): non si sovrascrive. */
+  /** Sub-agents whose model is already known (from input.model or the first message): not overwritten. */
   private modelKnown = new Set<string>()
-  /** Sotto-agenti finiti: a fine turno le loro voci escono dalle mappe sopra. */
+  /** Finished sub-agents: at the end of the turn their entries leave the maps above. */
   private doneAgents = new Set<string>()
-  /** Strumenti dei sotto-agenti (id → nome e titolo): al risultato se ne aggiorna lo stato nel buffer dell'agente. */
+  /** Sub-agent tools (id → name and title): on the result their state is updated in the agent's buffer. */
   private subTools = new Map<string, { name: string; title: string; parent: string }>()
   private currentMessageId: string | null = null
   private turnStartedAt = 0
   private running = false
   private interrupted = false
-  /** Il turno in corso nasce da un comando /; il testo mostrato (assistente o output locale) evita il doppio. */
+  /** The running turn comes from a / command; the displayed text (assistant or local output) avoids the duplicate. */
   private commandTurn = false
   private turnText = false
-  /** Messaggi inseriti (uuid) che la CLI non ha ancora unito a un turno: se il turno finisce, girano da soli. */
+  /** Inserted messages (uuid) the CLI hasn't merged into a turn yet: if the turn ends, they run on their own. */
   private pendingSteers = new Set<string>()
-  /** Il turno in corso l'ha aperto la CLI per un messaggio inserito, non l'host. */
+  /** The running turn was opened by the CLI for an inserted message, not by the host. */
   private implicitTurn = false
-  /** Nel turno implicito è già arrivato qualcosa dalla CLI. */
+  /** Something has already arrived from the CLI in the implicit turn. */
   private implicitActive = false
-  /** Scatta se il turno implicito non produce nulla: i pendenti non sono mai partiti e non vanno aspettati. */
+  /** Fires if the implicit turn produces nothing: the pending ones never started and must not be waited for. */
   private implicitTimer: ReturnType<typeof setTimeout> | null = null
-  /** Stop: ciò che gira da solo dopo l'interruzione va fermato anche lui (vedi stopSurvivors). */
+  /** Stop: whatever runs on its own after the interruption must be stopped too (see stopSurvivors). */
   private stopSurvivors = new Set<string>()
-  /** Senza elenco degli uuid, lo Stop vale per il primo turno implicito che parte entro questa data. */
+  /** Without the list of uuids, Stop applies to the first implicit turn that starts before this time. */
   private stopFirstUntil = 0
-  /** Il turno implicito aperto contiene messaggi che uno Stop ha già chiesto di fermare. */
+  /** The open implicit turn contains messages that a Stop has already asked to stop. */
   private implicitStop = false
 
   constructor(
@@ -325,7 +325,7 @@ export class ClaudeSession {
     return this.pendingSteers.size
   }
 
-  /** Turno aperto per messaggi inseriti che la CLI non ha ancora fatto partire. */
+  /** Turn opened for inserted messages the CLI hasn't started yet. */
   get idleImplicitTurn(): boolean {
     return this.implicitTurn && !this.implicitActive && this.running
   }
@@ -337,7 +337,7 @@ export class ClaudeSession {
       prompt: this.input,
       options: {
         cwd,
-        // Il token del browser dell'agente viaggia nell'ambiente del processo, non negli argomenti (`ps` li mostra a tutti).
+        // The agent browser's token travels in the process environment, not in the arguments (`ps` shows them to everyone).
         env: { ...claudeEnv(configDir ?? null), ...(this.options.browserTools ? { LADDER_BROWSER_TOKEN: this.options.browserTools.token } : {}), ...(this.options.ladderTools ? { LADDER_MCP_TOKEN: this.options.ladderTools.token } : {}) },
         abortController: this.abort,
         ...(cli ? { pathToClaudeCodeExecutable: cli } : {}),
@@ -347,22 +347,22 @@ export class ClaudeSession {
         permissionMode: PERMISSION_MODE[permission],
         // Read-only: write tools removed and a hook that decides before the settings allow rules (see read-only.ts).
         ...(this.options.readOnly ? { disallowedTools: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'ExitPlanMode'], hooks: readOnlyHooks } : {}),
-        // Sempre il prompt di Claude Code (senza, l'SDK userebbe un prompt vuoto). Snapshot predefinito: il prompt è registrato alla
-        // prima richiesta e riusato (cache stabile), quindi l'istruzione di autonomia vale dalla creazione della sessione
-        // (permesso e preferenza di quel momento); riprese e cambi di permesso successivi non la cambiano.
+        // Always Claude Code's prompt (without it the SDK would use an empty prompt). Default snapshot: the prompt is recorded at the
+        // first request and reused (stable cache), so the autonomy instruction applies from the session's creation
+        // (permission and preference of that moment); later resumes and permission changes don't alter it.
         systemPrompt: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
           append: agentInstructions(autonomyHint && (permission === 'edit' || permission === 'full'), this.options.delegateHint)
         },
-        // Sempre attivo: senza, una sessione nata in Ask non potrebbe passare a Full access (setPermissionMode verrebbe rifiutato).
+        // Always on: without it, a session born in Ask couldn't switch to Full access (setPermissionMode would be rejected).
         allowDangerouslySkipPermissions: !this.options.readOnly,
         includePartialMessages: true,
         settingSources: ['user', 'project', 'local'],
-        // Con il login dell'abbonamento la CLI collegherebbe i connettori di claude.ai (posta, calendario…).
+        // With the subscription login the CLI would attach claude.ai connectors (mail, calendar…).
         settings: { disableClaudeAiConnectors: true },
-        // LAD-57 parte 2: browser dell'agente. Le conferme (click, digitazione, indirizzi fuori da localhost) le chiede il server
-        // stesso con le card di approvazione e secondo il livello della sessione: qui gli strumenti non chiedono una seconda volta.
+        // The agent's browser. Confirmations (click, typing, addresses outside localhost) are asked by the server
+        // itself with approval cards and according to the session level: here the tools don't ask a second time.
         // Ladder MCP server (handoff, delegation, result). Permissions are handled by the server (handoff confirmation) and, for
         // read-only children, by the hook (only list_agents and report_result).
         ...(this.options.browserTools || this.options.ladderTools
@@ -390,13 +390,13 @@ export class ClaudeSession {
     this.turnText = false
     this.turnStartedAt = Date.now()
     this.events.activity(t('Thinking…'))
-    // Con l'uuid la CLI lo elenca nel result del turno.
+    // With the uuid the CLI lists it in the turn's result.
     this.input.push(text, attachments, { uuid: randomUUID() })
   }
 
   /**
-   * Inserisce un messaggio nel turno in corso: la CLI lo accoda e lo unisce al turno tra un giro di strumenti
-   * e l'altro. Non tocca stato e durata del turno. False se non c'è un turno da cui entrare.
+   * Inserts a message into the running turn: the CLI queues it and merges it into the turn between one tool round
+   * and the next. Doesn't touch the turn's state and duration. False if there is no turn to join.
    */
   async steer(text: string, attachments: Attachment[] = [], id?: string): Promise<boolean> {
     if (!this.running || this.interrupted) return false
@@ -406,17 +406,17 @@ export class ClaudeSession {
     return true
   }
 
-  /** Un comando / è un messaggio utente come gli altri: lo gestisce la CLI. */
+  /** A / command is a user message like any other: the CLI handles it. */
   command(name: string, args: string): void {
     this.send(`/${name} ${args}`.trim())
     this.commandTurn = true
   }
 
   /**
-   * `all`: Stop, ferma anche i messaggi inseriti non ancora uniti (l'SDK non espone cancel_queued: se girano,
-   * il loro turno parte e si interrompe subito, con l'output che resta visibile). Gli uuid sopravvissuti si
-   * ricordano: lo Stop vale solo per un turno che li contiene, mai per uno aperto da un sotto-agente in background.
-   * Senza `all` ("invia ora") i pendenti restano e girano insieme al messaggio nuovo.
+   * `all`: Stop, also stops inserted messages not yet merged (the SDK doesn't expose cancel_queued: if they run,
+   * their turn starts and is interrupted at once, with the output staying visible). The surviving uuids are
+   * remembered: Stop applies only to a turn that contains them, never to one opened by a background sub-agent.
+   * Without `all` ("send now") the pending ones stay and run together with the new message.
    */
   async interrupt(all = false): Promise<void> {
     this.interrupted = true
@@ -429,9 +429,9 @@ export class ClaudeSession {
   }
 
   /**
-   * "Invia ora" con messaggi inseriti pendenti: interrompe e, subito dopo la ricevuta, mette il messaggio nello
-   * stream. Così la CLI lo unisce ai pendenti in un solo turno, e l'host ne apre uno (quello implicito, che
-   * riassegna la riga 'user' creata da `beforePush`). False se l'interruzione è fallita.
+   * "Send now" with pending inserted messages: interrupts and, right after the receipt, puts the message in the
+   * stream. This way the CLI merges it with the pending ones into a single turn, and the host opens one (the implicit one, which
+   * reassigns the 'user' row created by `beforePush`). False if the interruption failed.
    */
   async interruptThenSend(text: string, attachments: Attachment[], id: string, beforePush: () => void): Promise<boolean> {
     this.interrupted = true
@@ -449,7 +449,7 @@ export class ClaudeSession {
   }
 
   private async afterReceipt(all: boolean): Promise<void> {
-    // La ricevuta elenca i messaggi ancora in coda, che girerebbero da soli: gli altri sono già nel turno.
+    // The receipt lists the messages still queued, which would run on their own: the others are already in the turn.
     const receipt = await this.q?.interrupt()
     if (Array.isArray(receipt?.still_queued)) {
       for (const uuid of this.pendingSteers) if (!receipt.still_queued.includes(uuid)) this.pendingSteers.delete(uuid)
@@ -460,8 +460,8 @@ export class ClaudeSession {
       this.stopSurvivors.clear()
       if (hadPending && !this.implicitTurn) this.stopFirstUntil = Date.now() + IMPLICIT_TURN_MS
     }
-    // Turno implicito non ancora partito: "invia ora" lo chiude per far posto al messaggio (i pendenti restano e
-    // si uniscono ad esso). Stop lo chiude solo se non resta nulla in coda; altrimenti resta aperto e ferma ciò che parte.
+    // Implicit turn not started yet: "send now" closes it to make room for the message (the pending ones stay and
+    // merge into it). Stop closes it only if nothing is left in the queue; otherwise it stays open and stops what starts.
     if (this.idleImplicitTurn && (!all || this.pendingSteers.size === 0)) this.closeTurn('interrupted')
     if (!this.running && this.stopSurvivors.size === 0) this.resetStop()
   }
@@ -473,14 +473,14 @@ export class ClaudeSession {
   }
 
   async setPermission(level: PermissionLevel): Promise<void> {
-    // Se l'agente rifiuta l'errore risale: il livello salvato non cambia.
+    // If the agent refuses, the error goes up: the saved level doesn't change.
     await this.q?.setPermissionMode(PERMISSION_MODE[level])
-    // Un riavvio della sessione riparte dal livello nuovo.
+    // A session restart starts again from the new level.
     this.options.permission = level
   }
 
   async setEffort(effort: Effort): Promise<void> {
-    // Vale dal prossimo messaggio; con una sessione non ancora avviata basta la scelta salvata.
+    // Applies from the next message; with a session not started yet, the saved choice is enough.
     this.options.effort = effort
     await this.q?.applyFlagSettings({ effortLevel: effort })
   }
@@ -499,18 +499,18 @@ export class ClaudeSession {
     this.closeTurn('interrupted')
   }
 
-  /** Chiude il turno in corso, se c'è, e ferma il timer del turno implicito. */
+  /** Closes the running turn, if any, and stops the implicit turn's timer. */
   private closeTurn(status: 'interrupted' | 'error', error: string | null = null): void {
     if (this.implicitTimer) clearTimeout(this.implicitTimer)
     this.implicitTimer = null
     if (this.running) this.finishTurn({ status, durationMs: Date.now() - this.turnStartedAt, costUsd: null, error, context: null })
   }
 
-  /** Apre il turno per i messaggi pendenti, in attesa che la CLI parta; se non parte, il timer lo chiude. */
+  /** Opens the turn for pending messages, waiting for the CLI to start; if it doesn't start, the timer closes it. */
   private armImplicit(): void {
     this.openImplicit()
-    // Solo un suggerimento: se la CLI non parte, il timer chiude il turno vuoto e svuota i pendenti e lo Stop;
-    // se poi la CLI parte, la rete di sicurezza in handle() lo riapre.
+    // Only a hint: if the CLI doesn't start, the timer closes the empty turn and clears the pending ones and the Stop;
+    // if the CLI then starts, the safety net in handle() reopens it.
     this.implicitTimer = setTimeout(() => {
       this.implicitTimer = null
       if (!this.idleImplicitTurn) return
@@ -520,7 +520,7 @@ export class ClaudeSession {
     }, IMPLICIT_TURN_MS)
   }
 
-  /** Apre un turno che la CLI ha cominciato da sola (un messaggio inserito che ha superato un'interruzione). */
+  /** Opens a turn the CLI started on its own (an inserted message that survived an interruption). */
   private openImplicit(): void {
     this.running = true
     this.interrupted = false
@@ -530,7 +530,7 @@ export class ClaudeSession {
     this.implicitActive = false
     this.turnStartedAt = Date.now()
     const uuids = [...this.pendingSteers]
-    // Lo Stop vale per questo turno solo se contiene un sopravvissuto, o se è il primo dopo uno Stop senza elenco.
+    // Stop applies to this turn only if it contains a survivor, or if it is the first after a Stop with no list.
     this.implicitStop = uuids.some((uuid) => this.stopSurvivors.has(uuid)) || Date.now() < this.stopFirstUntil
     if (Date.now() < this.stopFirstUntil) this.stopFirstUntil = 0
     this.events.turnStart?.(uuids)
@@ -547,7 +547,7 @@ export class ClaudeSession {
         models: claudeModels(models, readClaudeDefaults(this.options.configDir ?? null))
       })
     } catch {
-      // Le informazioni sull'account sono un di più: senza, la sessione funziona lo stesso.
+      // Account information is a bonus: without it the session works anyway.
     }
   }
 
@@ -556,11 +556,11 @@ export class ClaudeSession {
     try {
       this.setCommands(await this.q.supportedCommands())
     } catch {
-      // Senza l'elenco la sessione funziona lo stesso.
+      // Without the list the session works anyway.
     }
   }
 
-  /** Sostituisce l'elenco. Righe con lo stesso nome: vale quella di Claude Code, che è la eseguita da /nome. */
+  /** Replaces the list. Rows with the same name: Claude Code's wins, the one run by /name. */
   private setCommands(raw: SDKSlashCommand[]): void {
     const byName = new Map<string, SlashCommand>()
     for (const c of raw) {
@@ -595,8 +595,8 @@ export class ClaudeSession {
 
   private handle(message: SDKMessage): void {
     const m = message as Block & { type: string }
-    // Rete di sicurezza: l'output del thread principale non si perde mai. Se arriva senza un turno aperto
-    // (messaggio inserito sopravvissuto a un'interruzione, tentativo dell'API), se ne apre uno.
+    // Safety net: the main thread's output is never lost. If it arrives with no open turn
+    // (inserted message that survived an interruption, API retry), one is opened.
     const main =
       !m.parent_tool_use_id && (m.type === 'assistant' || m.type === 'stream_event' || (m.type === 'system' && m.subtype === 'api_retry'))
     if (main && !this.running) {
@@ -607,7 +607,7 @@ export class ClaudeSession {
     if (main && this.implicitTurn) {
       if (this.implicitTimer) clearTimeout(this.implicitTimer)
       this.implicitTimer = null
-      // Stop con messaggi sopravvissuti: il loro turno è partito, si ferma subito.
+      // Stop with surviving messages: their turn started, it stops at once.
       if (this.implicitStop && !this.interrupted) void this.interrupt(true)
     }
     switch (m.type) {
@@ -623,7 +623,7 @@ export class ClaudeSession {
         else if (typeof m.subtype === 'string' && m.subtype.startsWith('task_')) this.handleTask(m)
         return
       case 'stream_event':
-        if (m.parent_tool_use_id) return // testo dei sotto-agenti: per ora non lo mostriamo
+        if (m.parent_tool_use_id) return // sub-agent text: not shown for now
         this.handleStream(m.event as Block)
         return
       case 'assistant':
@@ -693,13 +693,13 @@ export class ClaudeSession {
 
   private handleAssistant(message: Block): void {
     const messageId = String(message.id ?? this.currentMessageId ?? `m${Date.now()}`)
-    // Il messaggio con lo stesso id torna più volte (un blocco alla volta): vale l'ultimo.
+    // The message with the same id comes back several times (one block at a time): the last wins.
     const u = message.usage as Block | undefined
     if (u) this.lastMainUsed = Number(u.input_tokens ?? 0) + Number(u.cache_read_input_tokens ?? 0) + Number(u.cache_creation_input_tokens ?? 0)
     const content = Array.isArray(message.content) ? (message.content as Block[]) : []
     content.forEach((block) => {
       if (block.type === 'text') {
-        // Il messaggio completo arriva un blocco alla volta: chiude il primo blocco di testo ancora aperto.
+        // The complete message arrives one block at a time: it closes the first text block still open.
         const id = this.openTextIds.shift() ?? `${messageId}:t${++this.textCounter}`
         if (String(block.text ?? '').trim()) this.turnText = true
         this.texts.set(id, String(block.text ?? ''))
@@ -709,7 +709,7 @@ export class ClaudeSession {
         const name = String(block.name)
         const input = (block.input ?? {}) as Block
         this.toolInputs.set(id, { name, input })
-        if (name === 'AskUserQuestion') return // diventa una domanda, non una riga di attività
+        if (name === 'AskUserQuestion') return // becomes a question, not an activity row
         if (isAgentTool(name)) this.startSubagent(id, null, input)
         const described = describeTool(name, input, this.options.cwd)
         this.events.tool({ id, name, ...described, status: 'running', output: null })
@@ -718,9 +718,9 @@ export class ClaudeSession {
     })
   }
 
-  /** Messaggio di un sotto-agente: i suoi strumenti diventano la sua attività, i suoi Agent dei figli. */
+  /** Message from a sub-agent: its tools become its activity, its Agents become children. */
   private handleSubagentAssistant(parentToolId: string, message: Block, agentId: string | null): void {
-    // agent_id è il task_id, invariato alla ripresa: porta alla voce originale. Un parent mai visto non crea voci.
+    // agent_id is the task_id, unchanged on resume: it leads to the original entry. A parent never seen creates no entries.
     const parent = (agentId && this.taskIds.get(agentId)) || (this.knowsAgent(parentToolId) ? this.taskIds.get(parentToolId) ?? parentToolId : null)
     if (!parent) return
     const content = Array.isArray(message?.content) ? (message.content as Block[]) : []
@@ -742,8 +742,8 @@ export class ClaudeSession {
   }
 
   /**
-   * background_tasks_changed: l'insieme completo dei task in background vivi (semantica replace).
-   * I sotto-agenti in background che non ci sono più e di cui non è arrivata la notification risultano fermati.
+   * background_tasks_changed: the complete set of live background tasks (replace semantics).
+   * Background sub-agents that are gone and whose notification never arrived are treated as stopped.
    */
   private syncBackground(tasks: unknown): void {
     if (!Array.isArray(tasks)) return
@@ -758,7 +758,7 @@ export class ClaudeSession {
     this.liveTasks = live
     this.liveBackground = background
     if (this.bgTimer || ![...this.bgTasks].some((task) => !live.has(task))) return
-    // Solo i task già mancanti ora: se sono ancora assenti alla scadenza della tolleranza, sono finiti.
+    // Only the tasks missing right now: if they are still absent when the grace period expires, they are finished.
     const missing = [...this.bgTasks].filter((task) => !live.has(task))
     this.bgTimer = setTimeout(() => {
       this.bgTimer = null
@@ -777,13 +777,13 @@ export class ClaudeSession {
     return this.liveBackground > 0
   }
 
-  /** Voci dei sotto-agenti nell'ultimo background_tasks_changed (null: mai ricevuto): la rete di sicurezza dell'host non le tocca. */
+  /** Sub-agent entries in the last background_tasks_changed (null: never received): the host's safety net doesn't touch them. */
   liveAgentIds(): Set<string> | null {
     if (!this.liveTasks) return null
     return new Set([...this.liveTasks].map((task) => this.taskIds.get(task) ?? task))
   }
 
-  /** Il parent_tool_use_id è un agente che conosciamo (tool_use di Agent, task o alias)? */
+  /** Is parent_tool_use_id an agent we know (Agent tool_use, task or alias)? */
   private knowsAgent(id: string): boolean {
     return this.agentTools.has(id) || this.trackedTasks.has(id) || this.taskIds.has(id)
   }
@@ -819,11 +819,11 @@ export class ClaudeSession {
     })
   }
 
-  /** Eventi task_* dell'SDK: inizio, avanzamento con token e strumenti, fine. Solo i sotto-agenti, non i comandi in background. */
+  /** SDK task_* events: start, progress with tokens and tools, end. Sub-agents only, not background commands. */
   private handleTask(m: Block): void {
     const taskId = String(m.task_id ?? '')
     if (!taskId) return
-    // Messaggio di una run precedente a quella che si vede (ripresa): in ritardo, si ignora. Gli id di run si ordinano come stringhe.
+    // Message from a run earlier than the one shown (resume): late, ignored. Run ids sort as strings.
     const run = str(m.run_id)
     const seen = this.taskRuns.get(taskId)
     if (run && seen && run < seen) return
@@ -833,7 +833,7 @@ export class ClaudeSession {
       const isAgent = type ? type === 'local_agent' || type === 'remote_agent' : Boolean(m.subagent_type)
       if (!isAgent || m.ambient === true || m.skip_transcript === true) return
       if (run) this.taskRuns.set(taskId, run)
-      // Task già visto (o agentId dell'output di Agent): è una ripresa, la voce è la stessa e torna in corso.
+      // Task already seen (or agentId from the Agent output): it is a resume, the entry is the same and goes back to running.
       const resumed = this.taskIds.get(taskId)
       const toolUse = resumed ? null : str(m.tool_use_id) ?? this.linkAgentTool(str(m.description))
       const id = resumed ?? toolUse ?? taskId
@@ -848,7 +848,7 @@ export class ClaudeSession {
       this.events.subagent({
         id,
         ...(!resumed && parentTask && this.taskIds.has(parentTask) ? { parentId: this.taskIds.get(parentTask) } : {}),
-        // Alla ripresa tipo e prompt restano quelli della voce originale, il titolo anche (la board non lo sovrascrive).
+        // On resume type and prompt stay those of the original entry, and so does the title (the board doesn't overwrite it).
         title,
         ...(str(m.subagent_type) && !resumed ? { kind: str(m.subagent_type) } : {}),
         ...(toolUse ? { toolId: toolUse } : {}),
@@ -884,14 +884,14 @@ export class ClaudeSession {
     }
   }
 
-  /** task_started senza tool_use_id: lo abbina al suo Agent/Task solo se la descrizione corrisponde a uno solo. */
+  /** task_started without tool_use_id: matches it to its Agent/Task only if the description matches exactly one. */
   private linkAgentTool(description: string | null): string | null {
     if (!description) return null
     const found = [...this.unlinkedAgents].filter(([, d]) => d === description)
     return found.length === 1 ? found[0][0] : null
   }
 
-  /** Output dei comandi locali (/context, /cost…): arriva come <local-command-stdout> in un messaggio utente. */
+  /** Output of local commands (/context, /cost…): arrives as <local-command-stdout> in a user message. */
   private handleLocalOutput(message: Block): void {
     if (!this.commandTurn || this.turnText) return
     const content = message?.content
@@ -912,25 +912,25 @@ export class ClaudeSession {
       if (block.type !== 'tool_result') continue
       const id = String(block.tool_use_id)
       this.unlinkedAgents.delete(id)
-      // L'agentId dell'output di Agent è un alias del task: una ripresa con quel task_id ritrova la voce.
+      // The agentId of the Agent output is an alias of the task: a resume with that task_id finds the entry.
       const agentId = this.agentTools.has(id) && toolUseResult && typeof toolUseResult === 'object' ? str((toolUseResult as Block).agentId) : null
       if (agentId && !this.taskIds.has(agentId)) this.linkTask(agentId, id)
-      // Fine di un sotto-agente senza eventi task_* (CLI più vecchie): la dice il risultato del suo Agent.
+      // End of a sub-agent without task_* events (older CLIs): told by the result of its Agent.
       if (this.agentTools.has(id) && !this.trackedTasks.has(id)) {
         this.events.subagent({ id, status: this.deniedTools.has(id) ? 'stopped' : block.is_error ? 'error' : 'done' })
         this.doneAgents.add(id)
       }
-      // Il testo completo del risultato dell'Agent è il report del primo piano: sta nel buffer pesante, oltre il limite della riga.
+      // The Agent result's full text is the foreground report: it sits in the heavy buffer, beyond the row limit.
       if (this.agentTools.has(id) && !this.deniedTools.has(id) && !block.is_error) {
         const full = toolResultText(block.content)?.trim()
         if (full) this.events.subagent({ id, result: full.slice(0, 60_000) })
       }
       if (parent) {
-        // Lo stato dello strumento del sotto-agente: il titolo è quello già noto.
+        // The sub-agent tool's state: the title is the one already known.
         const inner = this.subTools.get(id)
         if (inner) this.events.subagent({ id: parent, tool: { id, name: inner.name, title: inner.title, status: this.deniedTools.has(id) ? 'denied' : block.is_error ? 'error' : 'done', at: Date.now() } })
         this.subTools.delete(id)
-        continue // risultati interni a un sotto-agente: nella chat non si mostrano
+        continue // internal results of a sub-agent: not shown in the chat
       }
       const known = this.toolInputs.get(id)
       if (!known || known.name === 'AskUserQuestion') continue
@@ -951,21 +951,21 @@ export class ClaudeSession {
   private handleResult(m: Block): void {
     const usage = (m.modelUsage ?? {}) as Record<string, Block>
     const main = Object.values(usage).sort((a, b) => Number(b.contextWindow ?? 0) - Number(a.contextWindow ?? 0))[0]
-    // Ripiego: l'ultimo messaggio del loop principale, mai m.usage (aggregato sul turno, la cache read conta N volte).
+    // Fallback: the last message of the main loop, never m.usage (aggregated over the turn, the cache read counts N times).
     const window = main && Number(main.contextWindow) > 0 ? Number(main.contextWindow) : this.lastWindow
     const context = window && this.lastMainUsed !== null ? { used: this.lastMainUsed, window } : null
     void this.refreshContext()
-    // Gli uuid consumati dal turno: l'elenco, o l'ultimo messaggio per le CLI che non lo mandano. Senza nulla non si sa: niente pendenti appesi.
+    // The uuids consumed by the turn: the list, or the last message for CLIs that don't send it. With nothing we can't tell: no pending ones left hanging.
     if (Array.isArray(m.user_message_uuids)) for (const uuid of m.user_message_uuids as unknown[]) this.pendingSteers.delete(String(uuid))
-    else this.pendingSteers.clear() // CLI senza elenco: i messaggi inseriti prima del result sono stati consumati
+    else this.pendingSteers.clear() // CLI without a list: messages inserted before the result were consumed
     const isError = m.subtype !== 'success' || m.is_error === true
     const status: TurnResult['status'] = this.interrupted ? 'interrupted' : isError ? 'error' : 'completed'
-    // Un comando che finisce senza testo dell'assistente (/context, /cost…): il suo risultato è la risposta.
+    // A command that ends with no assistant text (/context, /cost…): its result is the answer.
     if (this.commandTurn && !this.turnText && status === 'completed' && !isError && str(m.result)?.trim()) {
       this.turnText = true
       this.events.assistant(`result:${Date.now()}`, str(m.result)!.trim(), false)
     }
-    // Risultato senza turno aperto: già chiuso da un'interruzione, o turno senza alcun output. Niente da chiudere.
+    // Result with no open turn: already closed by an interruption, or a turn with no output. Nothing to close.
     if (!this.running) {
       if (this.pendingSteers.size > 0) this.armImplicit()
       else this.resetStop()
@@ -979,14 +979,14 @@ export class ClaudeSession {
       error: status === 'error' ? errors || str(m.result) || t('The session stopped with an error.') : null,
       context
     })
-    // Messaggi inseriti non ancora uniti a un turno girano da soli: il turno è già aperto per loro, l'output non si scarta.
+    // Inserted messages not yet merged into a turn run on their own: the turn is already open for them, the output isn't discarded.
     if (this.pendingSteers.size > 0) this.armImplicit()
     else this.resetStop()
   }
 
   /**
-   * Contesto come lo conta /context: getContextUsage('summary') non fa chiamate di conteggio.
-   * Non blocca la fine del turno: aggiorna il contesto appena risponde, entro un timeout.
+   * Context as /context counts it: getContextUsage('summary') makes no counting calls.
+   * Doesn't block the end of the turn: updates the context as soon as it answers, within a timeout.
    */
   private async refreshContext(): Promise<void> {
     const q = this.q
@@ -1001,8 +1001,8 @@ export class ClaudeSession {
         })
       ])
       if (seq !== this.contextSeq || usage.totalTokens <= 0) return
-      // La finestra è quella con cui percentage = totalTokens / finestra: tra maxTokens e rawMaxTokens
-      // i tipi non lo dicono, si sceglie quella che riproduce la percentuale (a pari merito, maxTokens).
+      // The window is the one with which percentage = totalTokens / window: between maxTokens and rawMaxTokens
+      // the types don't say, the one that reproduces the percentage is chosen (on a tie, maxTokens).
       const fit = (w: number): number => (w > 0 ? Math.abs((usage.totalTokens / w) * 100 - usage.percentage) : Infinity)
       const window = fit(usage.rawMaxTokens) < fit(usage.maxTokens) ? usage.rawMaxTokens : usage.maxTokens
       if (!(window > 0)) return
@@ -1010,7 +1010,7 @@ export class ClaudeSession {
       this.lastMainUsed = usage.totalTokens
       this.events.context?.({ used: usage.totalTokens, window, compactAt: usage.isAutoCompactEnabled ? usage.autoCompactThreshold : null })
     } catch {
-      // Senza: resta il ripiego calcolato a fine turno.
+      // Without it: the fallback computed at the end of the turn stays.
     } finally {
       clearTimeout(timer)
     }
@@ -1033,7 +1033,7 @@ export class ClaudeSession {
     this.events.turnEnd(result)
   }
 
-  /** A fine turno le mappe tengono solo gli agenti ancora vivi (i background che finiranno dopo); taskIds resta per le riprese. */
+  /** At the end of the turn the maps keep only the agents still alive (the background ones that will finish later); taskIds stays for resumes. */
   private forgetFinishedAgents(): void {
     for (const id of this.doneAgents) {
       this.agentTools.delete(id)
@@ -1083,7 +1083,7 @@ export class ClaudeSession {
     return { behavior: 'deny', message }
   }
 
-  /** Toglie dai suggerimenti "Always allow" i cambi di modalità oltre il livello della sessione (mai bypassPermissions se non è Full access). */
+  /** Removes from the "Always allow" suggestions the mode changes beyond the session's level (never bypassPermissions unless it is Full access). */
   private allowedSuggestions(suggestions: PermissionUpdate[] | undefined): PermissionUpdate[] {
     const rank: Record<PermissionLevel, number> = { plan: 0, ask: 1, edit: 2, full: 3 }
     const limit = rank[this.options.permission]

@@ -40,55 +40,55 @@ import { UsageBanner } from '@/components/composer/usage-banner'
 
 
 interface ComposerProps {
-  /** Chiave della bozza: id della sessione o `new:<progetto>`. */
+  /** Draft key: session id or `new:<project>`. */
   draftKey: string
-  /** Progetto da cui prendere i file per le citazioni con @. */
+  /** Project to take files from for @ citations. */
   projectId: string | null
   agentName: string
   models: { id: string; label: string; efforts?: Effort[]; isDefault?: boolean; defaultEffort?: Effort | null }[]
-  /** Scelta esplicita: null = nessuna, parte il predefinito (di Ladder, poi dell'agente). */
+  /** Explicit choice: null = none, the default applies (Ladder's, then the agent's). */
   model: string | null
   onModelChange: (model: string) => void
   effort: Effort | null
   onEffortChange: (effort: Effort) => void
-  /** Effort davvero in uso quando la sessione non ne ha scelto uno (SessionSummary.effortEffective). */
+  /** Effort actually in use when the session hasn't chosen one (SessionSummary.effortEffective). */
   effortEffective?: Effort | null
   permission: PermissionLevel
-  /** Livello chiesto che vale dal prossimo turno; il livello attuale resta quello di `permission`. */
+  /** Requested level that applies from the next turn; the current level stays that of `permission`. */
   permissionNext?: PermissionLevel | null
   onPermissionChange: (permission: PermissionLevel) => void
   /** Advice child session (parent): permission is fixed to Plan, no selector and no ⇧Tab. */
   permissionLocked?: boolean
   running?: boolean
-  /** Il testo non è mai vuoto: con sole immagini arriva un segnaposto. */
+  /** The text is never empty: with images only, a placeholder arrives. */
   onSubmit: (text: string, attachments: Attachment[], busy?: BusyAction) => void
   onStop?: () => void
   queue?: QueuedMessage[]
   onQueueChange?: (queue: QueuedMessage[]) => void
-  /** L'agente accetta messaggi dentro il turno (SessionSummary.canSteer). Senza, "inserisci nel turno" ricade sulla coda. */
+  /** The agent accepts messages inside the turn (SessionSummary.canSteer). Without it, "insert into turn" falls back to the queue. */
   canSteer?: boolean
-  /** Consegna un messaggio in coda adesso: dentro il turno o interrompendolo (session.queue.deliver). */
+  /** Delivers a queued message now: inside the turn or interrupting it (session.queue.deliver). */
   onDeliver?: (id: string, how: 'steer' | 'now') => void
-  /** Perché la coda aspetta ("3 agents working"), mostrato accanto a "Sends when the turn ends". */
+  /** Why the queue is waiting ("3 agents working"), shown next to "Sends when the turn ends". */
   queueReason?: string | null
-  /** La coda parte da sola a fine turno solo se la sessione lavora; da ferma aspetta un nuovo messaggio. Predefinito: running. */
+  /** The queue starts by itself at the end of a turn only if the session is working; when idle it waits for a new message. Default: running. */
   queueWorking?: boolean
   context?: { used: number; window: number; compactAt?: number | null } | null
   disabledReason?: string | null
-  /** Vale solo all'apertura: il composer prende il focus e rimette il cursore dove l'avevi lasciato. */
+  /** Only on open: the composer takes focus and puts the cursor back where you left it. */
   autoFocus?: boolean
-  /** Agente della sessione: dice a cosa corrispondono i livelli di permesso. */
+  /** The session's agent: says what the permission levels correspond to. */
   agent?: AgentId
-  /** Profilo (account) della sessione o scelto per la nuova chat: di lui sono i limiti d'uso. Assente = predefinito. */
+  /** The session's profile (account) or the one chosen for the new chat: the usage limits are its own. Absent = default. */
   profileId?: string | null
-  /** Falso per gli agenti che scelgono il ragionamento con le loro opzioni (ACP). */
+  /** False for agents that choose reasoning with their own options (ACP). */
   showEffort?: boolean
-  /** Comandi / dichiarati dall'agente della sessione. Assenti nella nuova chat: restano solo quelli di Ladder. */
+  /** Commands / declared by the session's agent. Absent in the new chat: only Ladder's remain. */
   commands?: SlashCommand[]
-  /** Esegue un comando dell'agente (richiesta 'session.command'). Gli errori li mostra chi lo implementa. */
-  /** Se restituisce una promessa, il testo si svuota solo quando si risolve; se si rifiuta resta dov'è. */
+  /** Runs an agent command ('session.command' request). Errors are shown by whoever implements it. */
+  /** If it returns a promise, the text is cleared only when it resolves; if it rejects it stays where it is. */
   onCommand?: (name: string, args: string) => Promise<unknown> | void
-  /** /new: apre una nuova sessione nel progetto, con gli argomenti come testo di partenza. Senza, /new non compare. */
+  /** /new: opens a new session in the project, with the arguments as starting text. Without it, /new doesn't appear. */
   onNewSession?: (args: string) => void
   /** /handoff [agent] [note]: opens "Hand off to…" or, with a recognized agent, starts the handoff. */
   onHandoff?: (args: string) => void
@@ -96,18 +96,18 @@ interface ComposerProps {
   onAdvice?: (mode: 'advisor' | 'committee', args: string) => void
   /** Livello massimo ammesso dal progetto ([agents] permissions_max). */
   maxPermission?: PermissionLevel | null
-  /** Sessione e sotto-agenti: se ce ne sono, nella barra in basso compare il badge degli agenti. */
+  /** Session and sub-agents: if there are any, the agents badge appears in the bottom bar. */
   sessionId?: string
   subagentCounts?: SessionSummary['subagentCounts']
   className?: string
 }
 
-/** Cursore per bozza: tornando su una sessione (⌘[) riprendi a scrivere nel punto in cui eri. */
+/** Cursor per draft: going back to a session (⌘[) you resume typing where you were. */
 const carets = new Map<string, [number, number]>()
 
 const NO_OPTIONS: PickerOption[] = []
 
-/** Modello scelto con /model <testo>: id o nome esatti, poi un solo nome che inizia o contiene il testo. */
+/** Model chosen with /model <text>: exact id or name, then a single name that starts with or contains the text. */
 function findModel(models: { id: string; label: string }[], value: string) {
   const q = value.toLowerCase()
   const exact = models.find((m) => m.id.toLowerCase() === q || m.label.toLowerCase() === q)
@@ -119,34 +119,34 @@ function findModel(models: { id: string; label: string }[], value: string) {
   return null
 }
 
-/** Token di @terminal nel testo: il titolo senza spazi. */
+/** @terminal token in the text: the title without spaces. */
 const terminalToken = (title: string) => `@terminal:${title.trim().replace(/\s+/g, '-') || t('terminal')}`
 
 /*
- * Barra sotto il campo di testo: i gradini seguono la larghezza della colonna (container query sul contenitore `bar`),
- * non quella della finestra. Unica fonte dei gradini, la barra non va mai a capo e l'invio resta sempre a destra:
- *   largo   (>= 540 px di contenuto): logo dell'agente, modello ed effort; permessi per esteso;
- *   medio   (400 a 540 px):           logo e modello, permessi con icona e nome breve;
- *   stretto (< 400 px):               solo icone (il modello abbreviato resta finché entra, poi sparisce: è nel tooltip e nell'aria-label).
- * Quello che sparisce dalla barra resta nell'aria-label e nel menu del selettore. Le soglie sono sul contenuto della barra
- * (larghezza del composer meno 20 px di padding), cioè 560 e 420 px di composer.
+ * Bar under the text field: the steps follow the column width (container query on the `bar` container),
+ * not the window's. Single source of the steps, the bar never wraps and send always stays on the right:
+ *   wide   (>= 540 px of content): agent logo, model and effort; permissions in full;
+ *   medium (400 to 540 px):          logo and model, permissions with icon and short name;
+ *   narrow (< 400 px):               icons only (the abbreviated model stays while it fits, then disappears: it is in the tooltip and aria-label).
+ * What disappears from the bar stays in the aria-label and in the picker menu. The thresholds are on the bar content
+ * (composer width minus 20 px of padding), i.e. 560 and 420 px of composer.
  */
-/** Visibile solo nel gradino largo, solo dal medio in su, solo nel medio; il modello (senza "Claude") sparisce sotto i 320 px di contenuto, dove non entra nemmeno un nome corto. Stringhe intere: Tailwind le legge a build. */
+/** Visible only in the wide step, only from medium up, only in medium; the model (without "Claude") disappears below 320 px of content, where not even a short name fits. Whole strings: Tailwind reads them at build time. */
 const showWide = 'hidden @min-[540px]/bar:inline'
 const showModel = 'hidden @min-[320px]/bar:inline'
 const showFromMedium = 'hidden @min-[400px]/bar:inline'
 const showMedium = 'hidden @min-[400px]/bar:inline @min-[540px]/bar:hidden'
 
-/** Nome breve del livello di permesso: "Full access" diventa "Full", gli altri sono già brevi. */
+/** Short name of the permission level: "Full access" becomes "Full", the others are already short. */
 const shortLevelName = (id: PermissionLevel) => (id === 'full' ? t('Full access (short)') : levelLabel(id))
-/** Modello abbreviato per i gradini stretti: senza il prefisso "Claude". */
+/** Abbreviated model for the narrow steps: without the "Claude" prefix. */
 const shortModelName = (name: string) => name.replace(/^claude\s+/i, '')
 
-/** Selettore di agente e modello: una pill piena e compatta (logo, modello, effort più chiaro). */
+/** Agent and model picker: a full, compact pill (logo, model, lighter effort). */
 const modelPill =
   'no-drag inline-flex h-6 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-secondary px-2 text-xs text-foreground outline-none ' +
   'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent disabled:opacity-60'
-/** Selettore dei permessi: ghost, si colora solo al passaggio o quando il menu è aperto. */
+/** Permissions picker: ghost, it only gets color on hover or when the menu is open. */
 const ghost =
   'no-drag inline-flex h-6 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md px-1.5 text-xs text-muted-foreground outline-none ' +
   'hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-accent data-[popup-open]:text-foreground disabled:opacity-60'
@@ -165,7 +165,7 @@ export function Composer(props: ComposerProps) {
   const fileInput = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<number | null>(null)
   const pendingCaret = useRef<number | null>(null)
-  // Comando dell'agente in attesa della risposta dell'host: finché dura, Invio non parte due volte.
+  // Agent command waiting for the host's reply: while it lasts, Enter doesn't fire twice.
   const commandPending = useRef(false)
   const mounted = useRef(true)
   useEffect(() => {
@@ -176,9 +176,9 @@ export function Composer(props: ComposerProps) {
   }, [])
   const [sendingCommand, setCommandPending] = useState(false)
   const level = permissionLevels.find((p) => p.id === permission) ?? permissionLevels[2]
-  // Il modello scelto dice quali livelli di effort esistono; senza informazioni, tutti.
-  // Senza scelta parte il predefinito. Alla creazione conta quello di Ladder (progetto, poi globale); poi quello dell'agente per il progetto.
-  // Una sessione già creata ignora i predefiniti di Ladder: vale ciò che l'agente riporta.
+  // The chosen model says which effort levels exist; without information, all of them.
+  // Without a choice the default applies. At creation Ladder's counts (project, then global); then the agent's for the project.
+  // An already created session ignores Ladder's defaults: what the agent reports applies.
   const isSession = Boolean(props.sessionId)
   const projectDefaults = useApp((s) => (projectId ? s.ui[projectId]?.defaults : undefined))
   const globalDefaults = useApp((s) => s.prefs?.defaults)
@@ -197,7 +197,7 @@ export function Composer(props: ComposerProps) {
     : t('Permissions: {level}', { level: levelLabel(level.id) })
   const disabled = Boolean(disabledReason)
 
-  // Citazioni con @: posizione del cursore (null se c'è una selezione) e citazione chiusa con Esc.
+  // @ citations: cursor position (null if there is a selection) and citation closed with Esc.
   const [caret, setCaret] = useState<number | null>(null)
   const [focused, setFocused] = useState(false)
   const [dismissed, setDismissed] = useState<number | null>(null)
@@ -207,7 +207,7 @@ export function Composer(props: ComposerProps) {
   const files = useProjectFiles(projectId)
   const allTerminals = useApp((s) => s.terminals)
   const mention = useMemo(() => (caret === null ? null : findMention(text, caret)), [text, caret])
-  // Comando / a inizio messaggio: stessa struttura della citazione, mai insieme (una comincia con @, l'altro con /).
+  // Command / at the start of the message: same structure as the citation, never both (one starts with @, the other with /).
   const slash = useMemo(() => (caret === null ? null : findSlash(text, caret)), [text, caret])
   const trigger = mention ?? slash
   const mode = mention ? 'mention' : 'command'
@@ -220,7 +220,7 @@ export function Composer(props: ComposerProps) {
   const pickerOpen = trigger !== null && focused && !disabled && trigger.start !== dismissed
   const query = pickerOpen ? trigger.query : null
   const pickerKey = query === null ? null : `${mode}:${query}`
-  // Terminali citabili con @terminal: compaiono quando scrivi "te…" o parte del loro nome.
+  // Terminals citable with @terminal: they appear when you type "te…" or part of their name.
   const terminalRefs = useRef(new Map<string, string>())
   const results = useMemo<PickerOption[]>(() => {
     if (query === null) return NO_OPTIONS
@@ -251,7 +251,7 @@ export function Composer(props: ComposerProps) {
   const imageCount = useRef(0)
   imageCount.current = images.length
   const [notice, setNotice] = useState<string | null>(null)
-  // Screenshot dal browser integrato: finiscono qui come le immagini incollate, anche se arrivano a composer smontato.
+  // Screenshots from the built-in browser: they end up here like pasted images, even if they arrive when the composer is unmounted.
   const queuedImages = useApp((s) => s.composerAttachments[draftKey])
   useEffect(() => {
     if (!queuedImages?.length) return
@@ -265,16 +265,16 @@ export function Composer(props: ComposerProps) {
   useEffect(() => {
     const el = textarea.current
     if (autoFocus && el) {
-      // Prima si legge il cursore salvato: il focus fa scattare onFocus, che lo riscriverebbe.
+      // The saved cursor is read first: focus fires onFocus, which would overwrite it.
       const saved = carets.get(draftKey)
       el.focus()
       if (saved) el.setSelectionRange(Math.min(saved[0], el.value.length), Math.min(saved[1], el.value.length))
       else el.setSelectionRange(el.value.length, el.value.length)
     }
-    // Solo all'apertura: dopo, il focus lo decide l'utente (o la card di una richiesta).
+    // Only on open: afterwards, focus is up to the user (or a request's card).
   }, [])
 
-  // Uscendo dalla sessione la bozza si salva subito, senza aspettare i 500 ms.
+  // When leaving the session the draft is saved immediately, without waiting for the 500 ms.
   const latestText = useRef(text)
   latestText.current = text
   useEffect(
@@ -291,7 +291,7 @@ export function Composer(props: ComposerProps) {
     if (pickerOpen && mode === 'mention' && projectId) refreshProjectFiles(projectId)
   }, [pickerOpen, mode, projectId])
 
-  // Una @ (o una /) cancellata e riscritta nello stesso punto riapre il selettore.
+  // An @ (or /) deleted and retyped in the same place reopens the picker.
   useEffect(() => {
     if (!trigger && dismissed !== null) setDismissed(null)
   }, [trigger, dismissed])
@@ -302,7 +302,7 @@ export function Composer(props: ComposerProps) {
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  // Dopo un inserimento il cursore va subito dopo il testo inserito.
+  // After an insertion the cursor goes right after the inserted text.
   useLayoutEffect(() => {
     const el = textarea.current
     const next = pendingCaret.current
@@ -312,7 +312,7 @@ export function Composer(props: ComposerProps) {
     setCaret(next)
   }, [text])
 
-  // Il selettore si apre sopra la riga della @, allineato al carattere.
+  // The picker opens above the @ line, aligned to the character.
   const anchor = pickerOpen ? trigger.start : null
   useLayoutEffect(() => {
     const el = textarea.current
@@ -328,7 +328,7 @@ export function Composer(props: ComposerProps) {
     setPickerStyle({ left, width, bottom: container.clientHeight - top + 6 })
   }, [anchor, mode, text, images.length])
 
-  // La bozza si salva 500 ms dopo l'ultima battuta e sopravvive al riavvio.
+  // The draft is saved 500 ms after the last keystroke and survives a restart.
   const updateText = (value: string) => {
     setText(value)
     setDraft(draftKey, value)
@@ -357,7 +357,7 @@ export function Composer(props: ComposerProps) {
     updateText(text.slice(0, mention.start) + token + (spaced ? '' : ' ') + after)
   }
 
-  /** Azzera testo e bozza subito: se il comando cambia sessione, lo smontaggio non deve risalvare "/comando". */
+  /** Clears text and draft immediately: if the command changes session, the unmount must not re-save "/command". */
   const clearDraft = () => {
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
     saveTimer.current = null
@@ -372,7 +372,7 @@ export function Composer(props: ComposerProps) {
     setMenuOpen(true)
   }
 
-  /** Tab: scrive "/nome " al posto del primo token e lascia gli argomenti dove sono. */
+  /** Tab: writes "/name " in place of the first token and leaves the arguments where they are. */
   const completeCommand = (entry: CommandEntry) => {
     if (!slash) return
     const token = `/${entry.name}`
@@ -381,14 +381,14 @@ export function Composer(props: ComposerProps) {
     updateText(token + (/^\s/.test(after) ? '' : ' ') + after)
   }
 
-  /** Esegue un comando: quelli di Ladder qui, quelli dell'agente con onCommand. Il testo si svuota solo se è partito (per l'agente, se la richiesta all'host riesce). */
+  /** Runs a command: Ladder's here, the agent's with onCommand. The text is cleared only if it started (for the agent, if the request to the host succeeds). */
   const runCommand = (entry: CommandEntry, args: string) => {
     if (!isLadderCommand(entry)) {
       if (running) {
         setNotice(t('/{name} can run once the current turn finishes.', { name: entry.name }))
         return
       }
-      if (commandPending.current) return // un secondo Invio mentre la richiesta è in attesa non fa niente
+      if (commandPending.current) return // a second Enter while the request is pending does nothing
       setNotice(null)
       const sent = latestText.current
       commandPending.current = true
@@ -397,15 +397,15 @@ export function Composer(props: ComposerProps) {
         .then(
           () => {
             if (mounted.current) {
-              // Se nel frattempo l'utente ha scritto altro, non si cancella il suo testo.
+              // If the user has typed something else in the meantime, their text is not erased.
               if (latestText.current === sent) clearDraft()
             } else if (useApp.getState().drafts[draftKey] === sent) {
-              // Composer smontato (altra sessione): niente setText, e si svuota la bozza salvata solo se è ancora quella del comando.
+              // Composer unmounted (another session): no setText, and the saved draft is cleared only if it is still the command's.
               setDraft(draftKey, '')
               send({ type: 'draft.set', key: draftKey, text: '' })
             }
           },
-          () => undefined // l'errore lo mostra chi ha passato onCommand; il testo resta
+          () => undefined // the error is shown by whoever passed onCommand; the text stays
         )
         .finally(() => {
           commandPending.current = false
@@ -459,7 +459,7 @@ export function Composer(props: ComposerProps) {
     clearDraft()
   }
 
-  /** Clic o Invio su una riga: i comandi dell'agente con hint e senza argomenti già scritti si completano, gli altri partono. */
+  /** Click or Enter on a row: agent commands with a hint and no arguments already typed are completed, the others run. */
   const chooseOption = (option: PickerOption) => {
     if (option.kind !== 'command') return insertMention(option)
     const args = slash ? argsAfterToken(text, slash) : ''
@@ -467,7 +467,7 @@ export function Composer(props: ComposerProps) {
     else runCommand(option.entry, args)
   }
 
-  /** Pulsante @: scrive una @ al cursore (con uno spazio davanti se serve) e apre il selettore. */
+  /** @ button: writes an @ at the cursor (with a space before if needed) and opens the picker. */
   const startMention = () => {
     const el = textarea.current
     if (!el || disabled) return
@@ -495,8 +495,8 @@ export function Composer(props: ComposerProps) {
       if (file) pasted.push(file)
     }
     if (pasted.length === 0) return
-    // Celle di un foglio di calcolo arrivano come testo più immagine: vince il testo.
-    // Un file copiato dal Finder porta come testo il proprio nome: vince l'immagine.
+    // Spreadsheet cells arrive as text plus image: the text wins.
+    // A file copied from Finder carries its own name as text: the image wins.
     const plain = data.getData('text/plain').trim()
     if (plain && !pasted.some((file) => file.name === plain)) return
     event.preventDefault()
@@ -531,7 +531,7 @@ export function Composer(props: ComposerProps) {
   const canSend = !disabled && !sendingCommand && (text.trim().length > 0 || images.length > 0)
   const idle = !text.trim() && images.length === 0
 
-  /** @terminal:nome diventa un riferimento nel testo, e l'output del terminale va in fondo al messaggio. */
+  /** @terminal:name becomes a reference in the text, and the terminal output goes at the end of the message. */
   const expandTerminals = async (value: string): Promise<string> => {
     const tokens = [...new Set(value.match(/@terminal:[^\s]+/g) ?? [])]
     if (tokens.length === 0) return value
@@ -554,17 +554,17 @@ export function Composer(props: ComposerProps) {
   const sendKey = useSendKey()
   const sendCombo = sendKeyCombos(sendKey).send
   const altCombo = altSendCombo(sendKey)
-  // Durante un turno il tasto di invio fa ciò che dice AppPrefs.busySend; con ⌥ l'altra azione.
+  // During a turn the send key does what AppPrefs.busySend says; with ⌥ the other action.
   const prefBusy = useApp((s) => s.prefs?.busySend ?? 'steer')
   const otherBusy: BusyAction = prefBusy === 'steer' ? 'queue' : 'steer'
   const mainBusy = resolveBusy(prefBusy, canSteer)
-  // Se "inserisci" non è possibile le due azioni coincidono: il suggerimento mostra solo la coda.
+  // If "insert" isn't possible the two actions coincide: the hint shows only the queue.
   const altBusy = resolveBusy(otherBusy, canSteer)
   const busyLabel = (action: BusyAction) => (action === 'steer' ? t('Send into turn') : t('Queue'))
   const sendLabel = running ? busyLabel(mainBusy) : t('Send')
   const submit = (alt = false) => {
     if (!canSend || commandPending.current) return
-    // Un testo che inizia con "/nome" noto è un comando; un "/" sconosciuto parte come messaggio normale.
+    // A text starting with a known "/name" is a command; an unknown "/" is sent as a normal message.
     const parsed = images.length === 0 ? parseSlash(text, commandList) : null
     if (parsed) {
       runCommand(parsed.entry, parsed.args)
@@ -579,7 +579,7 @@ export function Composer(props: ComposerProps) {
     void expandTerminals(value).then((expanded) => onSubmit(expanded, attachments, busy))
   }
 
-  // Testo da "Aggiungi alla chat" (viewer, terminale): va al cursore, o in fondo, e il focus torna qui.
+  // Text from "Add to chat" (viewer, terminal): goes at the cursor, or at the end, and focus returns here.
   const insertRequest = useApp((s) => (s.composerInsert?.key === draftKey ? s.composerInsert : null))
   const handledInsert = useRef(insertRequest?.nonce ?? 0)
   useEffect(() => {
@@ -596,15 +596,15 @@ export function Composer(props: ComposerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [insertRequest])
 
-  // Bozza sostituita da fuori (profilo di sessione, ⌘⇧N): chi chiede ha già scritto store e host. Il testo entra qui senza rimontare, così allegati e cursore restano.
+  // Draft replaced from outside (session profile, ⌘⇧N): whoever asks has already written store and host. The text enters here without remounting, so attachments and cursor stay.
   const replaceRequest = useApp((s) => (s.composerReplace?.key === draftKey ? s.composerReplace : null))
   const handledReplace = useRef(replaceRequest?.nonce ?? 0)
   useEffect(() => {
     if (!replaceRequest || replaceRequest.nonce === handledReplace.current) return
     handledReplace.current = replaceRequest.nonce
-    // Stesso testo: React non ridisegna e il cursore in attesa resterebbe addosso alla prossima modifica.
+    // Same text: React doesn't redraw and the pending cursor would stick to the next edit.
     if (replaceRequest.text === latestText.current) return
-    // Un salvataggio in sospeso porterebbe all'host il testo vecchio.
+    // A pending save would bring the old text to the host.
     if (saveTimer.current) {
       window.clearTimeout(saveTimer.current)
       saveTimer.current = null
@@ -615,7 +615,7 @@ export function Composer(props: ComposerProps) {
   }, [replaceRequest])
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return // accenti e tasti morti: non intercettare durante la composizione
+    if (event.nativeEvent.isComposing) return // accents and dead keys: don't intercept during composition
     if (pickerOpen) {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -639,7 +639,7 @@ export function Composer(props: ComposerProps) {
         }
       }
     }
-    // ⇧Tab cicla i livelli di permesso, come nel CLI di Claude Code.
+    // ⇧Tab cycles the permission levels, as in the Claude Code CLI.
     if (!props.permissionLocked && matchesCommand(event, 'composer.cyclePermission')) {
       event.preventDefault()
       const index = levels.indexOf(permissionNext ?? permission)
@@ -663,7 +663,7 @@ export function Composer(props: ComposerProps) {
   }
 
   const contextRatio = context && context.window > 0 ? Math.min(1, context.used / context.window) : null
-  // Con la soglia di compattazione nota il colore la segue (attenzione da 90% della soglia); senza, resta 80% della finestra.
+  // With the compaction threshold known the color follows it (attention from 90% of the threshold); without it, it stays at 80% of the window.
   const compactAt = context?.compactAt && context.compactAt > 0 ? context.compactAt : null
   const contextWarn = contextRatio !== null && context && (compactAt ? context.used >= compactAt * 0.9 : contextRatio > 0.8)
 
@@ -749,7 +749,7 @@ export function Composer(props: ComposerProps) {
               e.target.value = ''
             }}
           />
-          {/* Il gruppo di destra si restringe (i selettori si accorciano coi puntini) e il pulsante di invio, fuori dal gruppo, resta sempre visibile. Quel che il gruppo taglia resta nell'ordine di tab (il focus lo riporta in vista) e nel menu del selettore. */}
+          {/* The right group shrinks (the pickers shorten with ellipses) and the send button, outside the group, always stays visible. What the group clips stays in the tab order (focus brings it into view) and in the picker menu. */}
           <div className="-mx-0.5 -my-1 flex min-w-0 flex-1 items-center justify-end gap-1 overflow-hidden px-0.5 py-1">
           {props.sessionId && props.subagentCounts && props.subagentCounts.total > 0 && (
             <AgentBadge sessionId={props.sessionId} counts={props.subagentCounts} agent={agent} model={model} />
@@ -781,7 +781,7 @@ export function Composer(props: ComposerProps) {
             open={menuOpen}
             onOpenChange={(open) => {
               setMenuOpen(open)
-              // Aperto con /model o /effort: chiudendo si torna a scrivere.
+              // Opened with /model or /effort: closing returns to typing.
               if (!open && menuFromCommand.current) {
                 menuFromCommand.current = false
                 window.requestAnimationFrame(() => textarea.current?.focus())

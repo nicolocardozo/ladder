@@ -1,5 +1,5 @@
-// Raggruppa gli elementi della chat in turni e mantiene gli oggetti stabili tra un aggiornamento e l'altro,
-// così le righe memorizzate non si ridisegnano quando cambia solo il messaggio in streaming.
+// Groups chat items into turns and keeps objects stable between updates,
+// so memoized rows don't redraw when only the streaming message changes.
 import type { AppPrefs, ChatFont, ChatItem, TextSize } from '@shared/protocol'
 
 export type UserItem = Extract<ChatItem, { kind: 'user' }>
@@ -20,16 +20,16 @@ export type PlanItem = Extract<ChatItem, { kind: 'plan' }>
 
 export interface Turn {
   id: string
-  /** Elementi del turno in ordine di seq. */
+  /** Turn items in seq order. */
   items: ChatItem[]
   user: UserItem | null
-  /** Tutto ciò che sta tra il messaggio dell'utente e la risposta finale (o la fine, se il turno è in corso). */
+  /** Everything between the user message and the final reply (or the end, if the turn is in progress). */
   steps: ChatItem[]
   /** Ultimo messaggio dell'agente, solo a turno finito. */
   final: AssistantItem | null
-  /** Comandi / del turno: righe di sistema che aprono il turno al posto del messaggio dell'utente, sempre visibili. */
+  /** Commands / of the turn: system rows that open the turn in place of the user message, always visible. */
   commands: CommandItem[]
-  /** Riga di sistema dei turni aperti dall'agente, al posto del messaggio dell'utente. */
+  /** System row of turns opened by the agent, in place of the user message. */
   start: AgentStartItem | null
   /** Agent handoff separator that opens the turn in place of the user message. */
   handoff: HandoffChatItem | null
@@ -37,11 +37,11 @@ export interface Turn {
   advice: AdviceChatItem[]
   /** System cards for resuming a delegation and for the plan limit: each has its own group and stays visible even with collapsed steps. */
   cards: (ResumeChatItem | LimitChatItem)[]
-  /** Fine dei sotto-agenti in background con il coordinatore fermo: sta in fondo al turno, mai dentro il riepilogo. */
+  /** End of background sub-agents with the coordinator idle: it sits at the bottom of the turn, never inside the summary. */
   finished: AgentsFinishedItem[]
-  /** Avvisi e compattazioni del turno finito: restano visibili anche quando i passaggi sono chiusi. */
+  /** Notices and compactions of the finished turn: they stay visible even when the steps are closed. */
   notices: (NoticeItem | CompactedItem)[]
-  /** Richieste aperte: non si chiudono mai nel riepilogo. */
+  /** Open requests: they are never closed into the summary. */
   open: RequestItem[]
   end: TurnEndItem | null
   toolCount: number
@@ -65,7 +65,7 @@ function sameValue(a: unknown, b: unknown): boolean {
   return true
 }
 
-/** Uguaglianza per contenuto: regge anche se il chiamante ricrea gli oggetti (per esempio dopo l'IPC). */
+/** Equality by content: it holds even if the caller recreates the objects (for example after IPC). */
 export function sameItem(a: ChatItem, b: ChatItem): boolean {
   return a === b || sameValue(a, b)
 }
@@ -142,8 +142,8 @@ export function createTurnCache(): TurnCache {
 }
 
 /**
- * Raggruppa per turnId (nell'ordine della prima apparizione) riusando gli oggetti precedenti
- * quando il contenuto non è cambiato. Restituisce la stessa lista se nulla è cambiato.
+ * Groups by turnId (in order of first appearance) reusing the previous objects
+ * when the content hasn't changed. Returns the same list if nothing changed.
  */
 export function groupTurns(items: ChatItem[], cache: TurnCache): Turn[] {
   const byId = new Map<string, ChatItem>()
@@ -183,10 +183,10 @@ export function groupTurns(items: ChatItem[], cache: TurnCache): Turn[] {
   return cache.list
 }
 
-/** Larghezza del testo della chat (Impostazioni, Aspetto): prefs.chatWidth. */
+/** Chat text width (Settings, Appearance): prefs.chatWidth. */
 export type ChatWidth = AppPrefs['chatWidth']
 
-/** Metriche per font della chat: corpo, interlinea e larghezza in em del "0" (l'unità ch) e di un carattere medio di testo. */
+/** Metrics per chat font: body, line height and width in em of the "0" (the ch unit) and of an average text character. */
 const FONT_METRICS: Record<ChatFont, { size: number; line: number; ch: number; avg: number }> = {
   'system-mono': { size: 14, line: 23.1, ch: 0.6, avg: 0.6 },
   'monaspace-neon': { size: 14, line: 23.1, ch: 0.6, avg: 0.6 },
@@ -194,31 +194,31 @@ const FONT_METRICS: Record<ChatFont, { size: number; line: number; ch: number; a
   'mona-sans': { size: 15, line: 24, ch: 0.6, avg: 0.49 }
 }
 
-/** Passo in px di ogni dimensione del testo (stesse cifre di --chat-step in globals.css). */
+/** Step in px of each text size (same figures as --chat-step in globals.css). */
 const TEXT_STEP: Record<TextSize, number> = { small: -1, default: 0, large: 2, xlarge: 4 }
 
-/** Limite del testo in px per ogni impostazione (stesse cifre di --chat-measure in chat.css). */
+/** Text limit in px for each setting (same figures as --chat-measure in chat.css). */
 const MEASURE_PX: Record<ChatWidth, number> = { comfortable: 820, wide: 1100, full: Infinity }
 
 export interface ChatColumn {
-  /** Caratteri per riga della risposta e della bolla utente, secondo la larghezza effettiva della colonna di testo. */
+  /** Characters per line of the reply and of the user bubble, according to the effective width of the text column. */
   chars: number
   userChars: number
   line: number
 }
 
 /**
- * Colonna di testo effettiva: la vista meno i margini, limitata a 820 o 1100 px (tutta con 'full'); i caratteri per riga vengono dalle metriche del font.
- * `viewport` è la larghezza della zona che scorre; 0 se non è ancora misurata.
+ * Effective text column: the view minus margins, capped at 820 or 1100 px (all of it with 'full'); characters per line come from the font metrics.
+ * `viewport` is the width of the scrolling area; 0 if not measured yet.
  */
 export function chatColumn(font: ChatFont, width: ChatWidth, viewport: number, compact: boolean, size: TextSize = 'default'): ChatColumn {
   const base = FONT_METRICS[font]
-  // Corpo e interlinea crescono insieme (--chat-step in globals.css somma px al corpo; l'interlinea resta proporzionale).
+  // Body and line height grow together (--chat-step in globals.css adds px to the body; line height stays proportional).
   const body = base.size + TEXT_STEP[size]
   const m = { ...base, size: body, line: base.line * (body / base.size) }
   const room = Math.max(160, (viewport > 0 ? viewport : 900) - (compact ? 24 : 48))
   const text = Math.min(room, MEASURE_PX[width])
-  // La bolla sta all'82% della colonna, al massimo 100 ch, con 12 px di padding per lato.
+  // The bubble sits at 82% of the column, at most 100 ch, with 12 px of padding per side.
   const bubble = Math.min(text * 0.82, 100 * m.ch * m.size) - 24
   const chars = (px: number) => Math.max(12, Math.floor(px / (m.avg * m.size)))
   return { chars: chars(text), userChars: chars(bubble), line: m.line }
@@ -226,7 +226,7 @@ export function chatColumn(font: ChatFont, width: ChatWidth, viewport: number, c
 
 const DEFAULT_COLUMN = chatColumn('system-sans', 'comfortable', 0, false)
 
-/** Stima dell'altezza di un turno prima della misura reale: riduce i salti dello scroll. */
+/** Estimate of a turn's height before the real measurement: reduces scroll jumps. */
 export function estimateTurnHeight(turn: Turn, m: ChatColumn = DEFAULT_COLUMN): number {
   const textHeight = (text: string, lineHeight: number, charsPerLine: number) => {
     let h = 0
@@ -246,16 +246,16 @@ export function estimateTurnHeight(turn: Turn, m: ChatColumn = DEFAULT_COLUMN): 
   h += turn.commands.length * 26 + (turn.start ? 26 : 0) + (turn.handoff ? (turn.handoff.direction === 'in' ? 90 : 26) : 0)
   h += turn.cards.length * 100
   for (const a of turn.advice) h += 56 + (a.entries.length > 1 ? 210 : 180) + 40
-  // Messaggi inseriti nel turno: righe a sé, anche dopo il riepilogo.
+  // Messages inserted into the turn: rows of their own, even after the summary.
   const userHeight = (text: string, steered?: boolean) => Math.min(6, Math.ceil(text.length / m.userChars) + text.split('\n').length - 1) * m.line + 28 + (steered ? 18 : 0)
   if (turn.end) {
     for (const step of turn.steps) if (step.kind === 'user') h += userHeight(step.text, step.steered)
     if (turn.toolCount > 0) h += 34
     if (turn.final) h += textHeight(turn.final.text, m.line, m.chars) * 0.8
-    // Riga unica, chiusa per default: aperta, l'elenco la allunga e la misura reale sostituisce la stima.
+    // Single row, closed by default: when open, the list lengthens it and the real measurement replaces the estimate.
     if (turn.end.files.length > 0) h += 36
     if (turn.end.status !== 'completed') h += 30
-    // Avviso "si è fermato senza chiedere": una riga e il suggerimento sotto.
+    // "It stopped without asking" notice: one row and the hint below.
     if (turn.end.stalled && turn.end.status === 'completed') h += 44
   } else {
     for (const step of turn.steps) {
@@ -266,7 +266,7 @@ export function estimateTurnHeight(turn: Turn, m: ChatColumn = DEFAULT_COLUMN): 
     }
     h += turn.open.length * 190 + 32
   }
-  // Righe di fine agenti: "waiting" con pulsante e spiegazione (due righe), "continued" una riga; 'resumed' di solito è nascosta dalla riga di avvio e 'dismissed' non si vede.
+  // Agents-finished rows: "waiting" with a button and explanation (two lines), "continued" one line; 'resumed' is usually hidden by the start row and 'dismissed' isn't shown.
   // Plan card: tall while in review or running (the measured height replaces the estimate), one row once closed.
   h += turn.items.filter((i) => i.kind === 'plan').length * 260
   for (const f of turn.finished) {

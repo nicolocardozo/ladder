@@ -1,4 +1,4 @@
-// Worktree delle sessioni e porte per cartella di lavoro.
+// Session worktrees and per-folder ports.
 import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -16,7 +16,7 @@ import { addWorktree, addWorktreeForBranch, fetchRef, gitFailure, gitRemoveWorkt
 import { insideRoot } from './files'
 import { loadProjectSettings } from './project-settings'
 
-/** La cartella scelta nelle preferenze, altrimenti ~/Developer/.ladder/worktrees se esiste ~/Developer (come nel piano), altrimenti ~/.ladder/worktrees. LADDER_WORKTREES per le prove vince su tutto. */
+/** The folder chosen in preferences, otherwise ~/Developer/.ladder/worktrees if ~/Developer exists, otherwise ~/.ladder/worktrees. LADDER_WORKTREES wins over everything, for tests. */
 export function worktreesRoot(custom?: string | null): string {
   if (process.env.LADDER_WORKTREES) return process.env.LADDER_WORKTREES
   if (custom) return custom
@@ -39,20 +39,20 @@ export function slugify(text: string): string {
 
 export interface WorktreeBranch {
   name: string
-  /** Vero: il branch esiste già (in locale, su origin o come PR) e si estrae. Falso: nuovo branch da HEAD. */
+  /** True: the branch already exists (locally, on origin or as a PR) and is checked out. False: new branch from HEAD. */
   existing: boolean
   pr?: number
 }
 
-/** Preferenze dei worktree (AppPrefs.worktreesDir e branchPrefix). */
+/** Worktree preferences (AppPrefs.worktreesDir and branchPrefix). */
 export interface WorktreeOptions {
   dir?: string | null
   branchPrefix?: string
-  /** Branch locale da cui parte un worktree con un branch nuovo; assente = il commit attuale del checkout principale. Non esiste: errore. */
+  /** Local branch a new-branch worktree starts from; absent = the current commit of the main checkout. If it doesn't exist: error. */
   startFrom?: string
   /** Exact commit the worktree starts from with a new branch (takes precedence over `startFrom`): for example the real HEAD of another working folder. */
   startCommit?: string
-  /** Il nome del branch nuovo l'ha scelto l'utente: se esiste già (creato nel frattempo) è un errore, non lo si estrae in silenzio. */
+  /** The user chose the new branch name: if it already exists (created in the meantime) it is an error, not silently checked out. */
   strictName?: boolean
 }
 
@@ -60,9 +60,9 @@ const INCLUDE_FILE = '.worktreeinclude'
 const DEFAULT_INCLUDE = ['.env*']
 
 /**
- * I file ignorati da copiare in un worktree nuovo (LAD-58): quelli che `.worktreeinclude` (sintassi .gitignore) indica
- * e che git ignora; senza il file, `.env*`. Si usa il motore di git per i pattern, quindi `!`, `**` e le cartelle
- * funzionano come in .gitignore. Non si entra in `node_modules`.
+ * The ignored files to copy into a new worktree: those listed by `.worktreeinclude` (.gitignore syntax)
+ * and ignored by git; without the file, `.env*`. Git's own engine matches the patterns, so `!`, `**` and folders
+ * work as in .gitignore. `node_modules` is never entered.
  */
 export async function worktreeIncludeFiles(root: string): Promise<WorktreeFiles> {
   const file = join(root, INCLUDE_FILE)
@@ -76,10 +76,10 @@ export async function worktreeIncludeFiles(root: string): Promise<WorktreeFiles>
 }
 
 /**
- * Crea un worktree e copia i file non tracciati: quelli di `copy` (percorsi espliciti) e quelli di `.worktreeinclude`.
- * Senza `wanted` il branch è `<prefisso><slug>` (predefinito `ladder/`) dal commit attuale;
- * con un branch esistente (una PR, un branch scelto) il worktree lo estrae, dopo averlo letto da origin.
- * La copia non sovrascrive; i symlink restano symlink e si saltano se puntano fuori dal progetto.
+ * Creates a worktree and copies untracked files: those in `copy` (explicit paths) and those from `.worktreeinclude`.
+ * Without `wanted` the branch is `<prefix><slug>` (default `ladder/`) from the current commit;
+ * with an existing branch (a PR, a chosen branch) the worktree checks it out, after fetching it from origin.
+ * Copying never overwrites; symlinks stay symlinks and are skipped if they point outside the project.
  */
 export async function createWorktree(
   project: Project,
@@ -89,7 +89,7 @@ export async function createWorktree(
   options: WorktreeOptions = {}
 ): Promise<{ info: WorktreeInfo; copied: string[]; missing: string[] }> {
   const start = options.startFrom && !wanted?.existing ? options.startFrom : null
-  // Il punto di partenza scelto è un branch locale: un nome valido, mai un'opzione o una revisione (`main~3`, `HEAD^`).
+  // The chosen starting point is a local branch: a valid name, never an option or a revision (`main~3`, `HEAD^`).
   if (start && !validBranchName(start)) throw new Error(t('The branch “{branch}” does not exist in this project.', { branch: start }))
   const exact = options.startCommit && !wanted?.existing ? await resolveCommit(project.path, options.startCommit) : null
   const head = exact ?? (await resolveCommit(project.path, start ? `refs/heads/${start}` : 'HEAD'))
@@ -99,11 +99,11 @@ export async function createWorktree(
   const slug = slugify((wanted?.name.startsWith(prefix) && prefix ? wanted.name.slice(prefix.length) : wanted?.name.replace(/^ladder\//, '')) ?? title)
   const path = join(worktreesRoot(options.dir), project.name, slug)
   let branch = wanted?.name ?? `${prefix}${slug}`
-  // Un branch "nuovo" che esiste già (una seconda sessione sulla stessa issue) si estrae invece di ricrearlo.
+  // A "new" branch that already exists (a second session on the same issue) is checked out instead of recreated.
   const existing = wanted?.existing || (wanted ? Boolean(await resolveCommit(project.path, `refs/heads/${wanted.name}`)) : false)
   if (options.strictName && wanted && !wanted.existing && existing) throw new Error(t('A branch named “{name}” already exists.', { name: wanted.name }))
   if (wanted && existing) {
-    // Il branch aggiornato da origin; se la PR viene da un fork, il suo ref pull/N/head in un branch locale.
+    // The branch updated from origin; if the PR comes from a fork, its pull/N/head ref into a local branch.
     await fetchRef(project.path, wanted.name).catch(() => undefined)
     try {
       await addWorktreeForBranch(project.path, path, wanted.name)
@@ -124,11 +124,11 @@ export async function createWorktree(
       const from = insideRoot(project.path, rel)
       if (!(await lstat(from).then(() => true, () => false))) return false
       const to = insideRoot(path, rel)
-      // Niente uscite dalle radici: cartelle di origine e destinazione (anche via symlink) e origine che non punta fuori.
+      // No escaping the roots: source and destination folders (even via symlink) and a source that doesn't point outside.
       const [rootReal, wtReal] = await Promise.all([realpath(project.path), realpath(path)])
       const under = (child: string, parent: string) => child === parent || child.startsWith(parent + sep)
       if (!under(await realpath(dirname(from)), rootReal)) return false
-      // Anche un symlink si copia solo se il suo bersaglio sta dentro il progetto (uno che punta fuori o è rotto si salta).
+      // A symlink is also copied only if its target is inside the project (one pointing outside, or broken, is skipped).
       if (!under(await realpath(from), rootReal)) return false
       await mkdir(dirname(to), { recursive: true })
       if (!under(await realpath(dirname(to)), wtReal)) return false
@@ -139,17 +139,17 @@ export async function createWorktree(
     }
   }
   for (const rel of copy) (await copyOne(rel)) ? copied.push(rel) : missing.push(rel)
-  // File ignorati: un errore su uno non ferma gli altri e non è un "mancante" (il file c'era, non si è potuto copiare).
+  // Ignored files: an error on one doesn't stop the others and doesn't count as "missing" (the file was there, it just couldn't be copied).
   const include = await worktreeIncludeFiles(project.path).catch(() => null)
   for (const rel of include?.files ?? []) if (!copied.includes(rel) && (await copyOne(rel))) copied.push(rel)
   return { info: { path, branch, base }, copied, missing }
 }
 
-/** Quanto può durare lo script di pulizia prima che lo si fermi e si proceda comunque. */
+/** How long the cleanup script can run before it is stopped and the removal proceeds anyway. */
 export const CLEANUP_TIMEOUT_MS = 60_000
 
 export interface CleanupResult {
-  /** Codice d'uscita; null se è scaduto o è stato ucciso da un segnale. */
+  /** Exit code; null if it timed out or was killed by a signal. */
   code: number | null
   timedOut: boolean
   /** Coda dell'output (stdout e stderr insieme). */
@@ -157,8 +157,8 @@ export interface CleanupResult {
 }
 
 /**
- * Esegue lo script di pulizia (`[worktree] archive`) nella cartella del worktree, in questo processo e non in un
- * terminale della sessione: si aspetta la fine (o il timeout) e l'output si cattura. Non lancia mai.
+ * Runs the cleanup script (`[worktree] archive`) in the worktree folder, in this process and not in a
+ * session terminal: it waits for the end (or the timeout) and captures the output. Never throws.
  */
 export async function runCleanupScript(cwd: string, script: string, port: number | null, timeoutMs = CLEANUP_TIMEOUT_MS): Promise<CleanupResult> {
   const env: Record<string, string | undefined> = { ...cleanEnv(), PATH: await shellPath().catch(() => process.env.PATH) }
@@ -168,7 +168,7 @@ export async function runCleanupScript(cwd: string, script: string, port: number
     let output = ''
     let timedOut = false
     let done = false
-    // Gruppo di processi a sé: allo scadere si ferma anche quello che lo script ha avviato.
+    // Its own process group: on timeout, whatever the script started is stopped too.
     const child = spawn(process.env.SHELL || '/bin/zsh', ['-lc', script], { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
     const take = (chunk: Buffer) => {
       output = (output + chunk.toString('utf8')).slice(-4000)
@@ -179,7 +179,7 @@ export async function runCleanupScript(cwd: string, script: string, port: number
       if (done) return
       done = true
       clearTimeout(timer)
-      // Un processo in background può tenere aperti i pipe: si chiudono, l'output già letto resta.
+      // A background process can keep the pipes open: they are closed, the output already read stays.
       child.stdout.destroy()
       child.stderr.destroy()
       resolve({ code, timedOut, output: output.trim() })
@@ -197,7 +197,7 @@ export async function runCleanupScript(cwd: string, script: string, port: number
       output += error.message
       finish(null)
     })
-    // Si finisce all'uscita dello script, non alla chiusura dei pipe; una breve attesa lascia arrivare l'ultimo output.
+    // It finishes when the script exits, not when the pipes close; a short wait lets the last output arrive.
     child.on('exit', (code) => {
       const wait = setTimeout(() => finish(code), 200)
       child.once('close', () => {
@@ -209,17 +209,17 @@ export async function runCleanupScript(cwd: string, script: string, port: number
 }
 
 /**
- * L'unico modo in cui Ladder toglie un worktree: prima si fermano i servizi, poi lo script di pulizia (se c'è), poi `git worktree remove`.
- * Se lo script fallisce o scade si procede lo stesso; il chiamante riceve l'esito per lasciare una nota.
- * Git rifiuta se ci sono modifiche o file non tracciati: `removed` è falso e il worktree resta.
+ * The only way Ladder removes a worktree: first the services are stopped, then the cleanup script (if any), then `git worktree remove`.
+ * If the script fails or times out it proceeds anyway; the caller gets the outcome to leave a note.
+ * Git refuses if there are changes or untracked files: `removed` is false and the worktree stays.
  */
 export async function removeWorktree(
   project: Project,
   path: string,
   options: { port?: number | null; skipCleanup?: boolean; stopServices?: () => Promise<void> } = {}
-): Promise<{ removed: boolean; cleanup: CleanupResult | null; /** Perché git non l'ha tolto (stderr ripulito); null se è stato tolto o la cartella non c'era. */ error: string | null }> {
+): Promise<{ removed: boolean; cleanup: CleanupResult | null; /** Why git didn't remove it (cleaned stderr); null if it was removed or the folder was already gone. */ error: string | null }> {
   if (!existsSync(path)) return { removed: false, cleanup: null, error: null }
-  // I servizi del worktree (LAD-66) si fermano per primi: lo script di pulizia, per esempio `docker compose down`, li trova già spenti e le porte libere.
+  // The worktree's services are stopped first: the cleanup script, for example `docker compose down`, finds them already off and the ports free.
   await options.stopServices?.().catch(() => undefined)
   const script = options.skipCleanup ? null : (await loadProjectSettings(project.path)).worktree.archive
   const cleanup = script ? await runCleanupScript(path, script, options.port ?? null) : null
@@ -238,8 +238,8 @@ const PORT_BASE = 4100
 const PORT_BLOCK = 100
 
 /**
- * Un blocco di porte per cartella di lavoro: LADDER_PORT è il primo. Il checkout principale ha 4100,
- * ogni worktree il blocco successivo libero, così due dev server girano insieme.
+ * A block of ports per working folder: LADDER_PORT is the first. The main checkout has 4100,
+ * each worktree the next free block, so two dev servers run together.
  */
 export class Ports {
   constructor(private readonly db: Db) {}
@@ -249,7 +249,7 @@ export class Ports {
     return row ? (JSON.parse(row.value) as Record<string, number>) : {}
   }
 
-  /** Libera lo slot di una cartella di lavoro tolta: il blocco torna disponibile per un worktree nuovo. */
+  /** Frees the slot of a removed working folder: the block becomes available for a new worktree. */
   release(cwd: string): void {
     const slots = this.load()
     if (slots[cwd] === undefined) return
@@ -258,15 +258,15 @@ export class Ports {
   }
 
   /**
-   * Come allocate per un worktree nuovo, ma salta gli slot la cui porta base risulta occupata (bind di prova): setup, shell e [[run]]
-   * ricevono la base senza altri controlli. Lo slot già assegnato resta.
+   * Like allocate for a new worktree, but skips slots whose base port is taken (probe bind): setup, shell and [[run]]
+   * get the base without further checks. An already assigned slot stays.
    */
   async reserve(cwd: string): Promise<number> {
     if (this.load()[cwd] !== undefined) return this.allocate(cwd)
     for (let slot = 0; slot < 400; slot++) {
       if (Object.values(this.load()).includes(slot) || !(await portIsFree(PORT_BASE + slot * PORT_BLOCK))) continue
       const slots = this.load()
-      // L'attesa può aver dato lo slot a un altro: si ricontrolla e si scrive subito, senza altri await.
+      // The wait may have given the slot to someone else: check again and write right away, with no further await.
       if (Object.values(slots).includes(slot)) continue
       slots[cwd] = slot
       this.db.prepare(`insert into kv (key, value) values ('ports', ?) on conflict(key) do update set value = excluded.value`).run(JSON.stringify(slots))
@@ -290,7 +290,7 @@ export class Ports {
   }
 }
 
-/** Prova ad aprire la porta su `host`: false se è occupata. Un indirizzo che il computer non ha (niente IPv6) non conta come occupato. */
+/** Tries to open the port on `host`: false if it is taken. An address the computer doesn't have (no IPv6) doesn't count as taken. */
 function canBind(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
     const server = createServer()
@@ -299,15 +299,15 @@ function canBind(port: number, host: string): Promise<boolean> {
   })
 }
 
-/** Vero se nessuno ascolta la porta, né su loopback IPv4 e IPv6 né su tutte le interfacce: un dev server può legarsi a ognuno dei tre. */
+/** True if nobody listens on the port, neither on IPv4 and IPv6 loopback nor on all interfaces: a dev server can bind to any of the three. */
 export async function portIsFree(port: number): Promise<boolean> {
   for (const host of ['127.0.0.1', '::1', '0.0.0.0']) if (!(await canBind(port, host))) return false
   return true
 }
 
 /**
- * La prima porta libera tra le `count` che partono da `base` e non sono in `taken`, o null. Si parte sempre da `base`:
- * a parità di condizioni un worktree ha la stessa porta a ogni avvio, e i blocchi di worktree diversi non si sovrappongono.
+ * The first free port among the `count` starting at `base` that are not in `taken`, or null. It always starts from `base`:
+ * under the same conditions a worktree gets the same port on every start, and blocks of different worktrees don't overlap.
  */
 export async function freePort(base: number, count: number, taken: ReadonlySet<number>): Promise<number | null> {
   for (let port = base; port < base + count && port <= 65535; port++) if (!taken.has(port) && (await portIsFree(port))) return port

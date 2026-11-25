@@ -8,7 +8,7 @@ const LINKS = [
   { href: "/privacy", label: "Privacy" },
 ] as const
 
-// Anno corrente, ricalcolato al massimo una volta al giorno (con cacheComponents la data va in cache)
+// Current year, recomputed at most once a day (with cacheComponents the date is cached)
 async function Year() {
   "use cache"
   cacheLife("days")

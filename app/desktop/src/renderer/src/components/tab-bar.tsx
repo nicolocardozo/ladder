@@ -22,12 +22,12 @@ const NO_TABS: string[] = []
 const NO_FILES: { root: string; path: string }[] = []
 
 /**
- * Tab delle sessioni e dei file aperti nel progetto. Chiudere una tab non ferma la sessione. Clic destro: le azioni della sessione.
- * Le pagine del browser non stanno qui: vivono nella colonna browser a destra (components/browser/browser-column.tsx).
- * Si riordinano trascinandole (chat tra chat, file tra file) o con ⌘⌥⇧← e ⌘⌥⇧→ sulla tab attiva.
+ * Tabs for the sessions and files open in the project. Closing a tab does not stop the session. Right click: the session's actions.
+ * Browser pages are not here: they live in the browser column on the right (components/browser/browser-column.tsx).
+ * They are reordered by dragging (chats among chats, files among files) or with ⌘⌥⇧← and ⌘⌥⇧→ on the active tab.
  */
 export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: string; activeSessionId: string | null; activeFile?: string }) {
-  // Il ripiego deve essere una costante: zustand 5 confronta i risultati del selettore per riferimento.
+  // The fallback must be a constant: zustand 5 compares selector results by reference.
   const tabs = useApp((s) => s.ui[projectId]?.tabs ?? NO_TABS)
   const files = useApp((s) => s.ui[projectId]?.fileTabs ?? NO_FILES)
   const agentBrowser = useApp((s) => s.agentBrowser)
@@ -45,27 +45,27 @@ export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: 
   const closeColumn = useApp((s) => s.closeColumn)
   const reorderTab = useApp((s) => s.reorderTab)
   const visible = tabs.filter((id) => sessions[id] && !sessions[id].archived)
-  // Colonne affiancate del progetto (vuoto se non c'è divisione).
+  // Split columns of the project (empty if there is no split).
   const columns = liveColumns({ projects, sessions, ui }, projectId)
-  // ⌘clic (Ctrl fuori da macOS) su una tab di chat: la aggiunge alle colonne o, se c'è già, la toglie. Il clic dopo un trascinamento è assorbito altrove.
+  // ⌘click (Ctrl outside macOS) on a chat tab: adds it to the columns or, if already there, removes it. The click after a drag is absorbed elsewhere.
   const toggleColumn = (id: string) => {
     if (columns.includes(id)) closeColumn(projectId, id)
     else openSplit(projectId, id)
   }
-  // Una richiesta in un'altra sessione dello stesso progetto: niente notifica, un avviso qui con "Vai".
+  // A request in another session of the same project: no notification, a notice here with "Go".
   const waitingHere = Object.values(sessions)
     .filter((s) => s.projectId === projectId && !s.archived && !s.parent && needsYou(s) && s.id !== activeSessionId)
     .sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
 
-  // Browser degli agenti di questo progetto: le loro pagine stanno nella colonna browser; qui resta solo l'avviso.
+  // Browser of this project's agents: their pages live in the browser column; only the notice stays here.
   const agentTabs = Object.values(agentBrowser)
     .filter((agent): agent is AgentBrowserState & { tabId: string } => agent.projectId === projectId && hasAgentTab(agent) && agentForeign[agent.sessionId] !== agent.tabId && Boolean(sessions[agent.sessionId]) && !sessions[agent.sessionId].archived)
     .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
-  // Un agente al lavoro nel browser mentre la colonna non mostra la sua pagina: avviso discreto con "Mostra" (apre la colonna su quella pagina).
+  // An agent working in the browser while the column does not show its page: a discreet notice with "Show" (opens the column on that page).
   const columnActive = useApp((s) => (isBrowserColumnOpen(s, projectId) ? browserColumnActive(s, projectId) : null))
   const agentWorking = agentTabs.filter((agent) => agent.action && agent.tabId !== columnActive)
 
-  // Un solo ascoltatore sulla fila: dal pointerdown si sa quale tab è e quali sono le sue pari.
+  // A single listener on the row: from the pointerdown it knows which tab it is and who its siblings are.
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     if (event.button !== 0 || event.ctrlKey || target.closest('[data-tab-close]')) return
@@ -73,7 +73,7 @@ export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: 
     const id = tab?.dataset.tabId
     if (!tab || !id) return
     const nodes = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(`[data-tab-kind="${tab.dataset.tabKind}"]`))
-    // Una tab di chat trascinata sul bordo destro o in basso della vista si apre in una nuova colonna. I file no.
+    // A chat tab dragged onto the right or bottom edge of the view opens in a new column. Files do not.
     const splittable = tab.dataset.tabKind === 'session' && canDropOnEdge(projectId, id)
     const { setSplitDrop, openSplit } = useApp.getState()
     startSortDrag({
@@ -94,7 +94,7 @@ export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: 
 
   return (
     <div className="no-drag flex min-w-0 items-center gap-0.5">
-      {/* Annuncio vocale dell'agente al lavoro nel browser; con la sua pagina in vista lo dice già la colonna. */}
+      {/* Screen reader announcement of the agent working in the browser; with its page in view the column already says it. */}
       <span role="status" className="sr-only">
         {agentWorking[0] ? agentStatusText(agentWorking[0]) : ''}
       </span>
@@ -118,7 +118,7 @@ export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: 
               <button
                 type="button"
                 onClick={(event) => {
-                  // Su macOS Ctrl+clic è il clic destro: resta al menu.
+                  // On macOS Ctrl+click is the right click: it stays with the menu.
                   if (isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey) {
                     toggleColumn(id)
                     return
@@ -128,13 +128,13 @@ export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: 
                 className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:underline"
                 title={session.titleGenerating ? `${session.title} · ${t('Generating title…')}` : session.title}
               >
-                {/* A riposo il segno del provider; quando lavora o ti aspetta, lo stato. */}
+                {/* At rest the provider mark; when it works or waits for you, the status. */}
                 <span className="grid w-3.5 shrink-0 place-items-center">
                   {sessionState(session) === 'idle' ? <AgentMark agent={session.agent} size={13} /> : <SessionGlyph state={sessionState(session)} />}
                 </span>
                 <span className={cn('truncate', active && 'font-medium', session.titleGenerating && 'animate-pulse motion-reduce:animate-none')}>{session.title}</span>
                 {agentBrowser[id]?.action && <Globe role="img" aria-label={t('The agent is using the browser')} className="size-3 shrink-0 text-running" strokeWidth={2} />}
-                {/* Colonna affiancata: il numero (oltre al colore) dice quale; pieno se è la colonna attiva. */}
+                {/* Split column: the number (besides the color) says which one; filled if it is the active column. */}
                 {column > 0 && (
                   <span
                     role="img"
@@ -221,7 +221,7 @@ export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: 
         </button>
       )}
       {(visible.length > 0 || files.length > 0) && (
-        // Solo una chat nuova: affiancare e browser stanno a destra nella barra (top-bar-actions).
+        // Only a new chat: split and browser are on the right of the bar (top-bar-actions).
         <Tooltip>
           <TooltipTrigger
             aria-label={t('New chat')}

@@ -1,5 +1,5 @@
-// "In attesa": richieste bloccanti di tutti i progetti, con le azioni, poi errori e risposte da leggere.
-// Si apre dalla sidebar sopra la sessione che hai davanti: approvi e resti dove sei, con la bozza intatta.
+// "Waiting": blocking requests from all projects, with actions, then errors and replies to read.
+// It opens from the sidebar over the session in front of you: you approve and stay where you are, with the draft intact.
 import { shortcutLabel } from '@shared/shortcuts'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { ArrowUpRight, Check, CircleX, SquareTerminal } from 'lucide-react'
@@ -24,7 +24,7 @@ export interface InboxGroups {
   unread: SessionSummary[]
 }
 
-/** Prima le richieste bloccanti per anzianità, poi gli errori, poi le risposte da leggere (le più recenti prima). */
+/** First blocking requests by age, then errors, then replies to read (most recent first). */
 export function useInboxGroups(): InboxGroups {
   const sessions = useApp((s) => s.sessions)
   const projects = useApp((s) => s.projects)
@@ -49,8 +49,8 @@ export function InboxPanel() {
   const root = useRef<HTMLDivElement>(null)
   const total = waiting.length + errors.length + unread.length
 
-  // Risposta data: la card sparisce e il focus passa alla prossima richiesta, così continui da tastiera.
-  // Dopo l'ultima richiesta: il pannello si chiude e il focus torna dov'eri (il composer, con il cursore al suo posto).
+  // Answer given: the card disappears and focus moves to the next request, so you carry on from the keyboard.
+  // After the last request: the panel closes and focus returns to where you were (the composer, with the cursor in place).
   const previous = useRef(waiting.length)
   useEffect(() => {
     const answered = waiting.length < previous.current
@@ -131,7 +131,7 @@ function EntryHeader({ session, projectName, at, trailing }: { session: SessionS
   const { name, model } = useAgentLine(session.agent, session.model)
   const profile = useSessionProfileName(session)
   const open = () => useApp.getState().openSessionAt(session.id, session.request?.id ?? null)
-  // Tutta la riga apre la sessione: il pulsante del titolo si allarga sull'intera riga (after:inset-0); le azioni a destra stanno sopra.
+  // The whole row opens the session: the title button stretches over the entire row (after:inset-0); the actions on the right sit on top.
   return (
     <div className="group/entry relative flex min-h-8 min-w-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/60 has-[[data-entry-open]:focus-visible]:ring-2 has-[[data-entry-open]:focus-visible]:ring-ring/50">
       <span className="grid w-3 shrink-0 place-items-center">
@@ -159,14 +159,14 @@ function EntryHeader({ session, projectName, at, trailing }: { session: SessionS
   )
 }
 
-/** Richiesta aperta: la stessa card della chat, con le stesse scorciatoie, inviata con via "inbox". */
+/** Open request: the same card as in the chat, with the same shortcuts, sent with via "inbox". */
 function WaitingEntry({ session, projectName, first }: { session: SessionSummary; projectName: string; first: boolean }) {
   const actions = useMemo<ChatActions>(
     () => ({
       respond: (requestId: string, response: RequestResponse) => {
         request({ type: 'session.respond', sessionId: session.id, requestId, response, via: 'inbox' }).catch(() => undefined)
       },
-      // Solo la prima card prende il focus quando si apre il pannello.
+      // Only the first card takes focus when the panel opens.
       canTakeFocus: () => first,
       openFile: () => useApp.getState().openSessionAt(session.id, session.request?.id ?? null),
       openDiff: () => useApp.getState().openSessionAt(session.id, null),
@@ -174,7 +174,7 @@ function WaitingEntry({ session, projectName, first }: { session: SessionSummary
       toggles: createToggleStore(),
       surface: 'inbox'
     }),
-    // La card si ricrea quando cambia la richiesta, non a ogni aggiornamento della sessione.
+    // The card is recreated when the request changes, not on every session update.
     [session.id, session.request?.id, first]
   )
   const terminal = session.mode === 'terminal'

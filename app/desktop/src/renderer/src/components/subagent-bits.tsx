@@ -1,4 +1,4 @@
-// Pezzi condivisi dei sotto-agenti: segno di stato, testi del modello e dell'effort, token.
+// Shared pieces of sub-agents: status mark, model and effort texts, tokens.
 import { Check, CircleX, Square } from 'lucide-react'
 import { useCallback } from 'react'
 import { localeTag, t } from '@shared/i18n'
@@ -13,7 +13,7 @@ export function formatTokens(n: number): string {
   return new Intl.NumberFormat(localeTag(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
 }
 
-/** Stato in uno slot da 16 px: anello, spunta menta, croce rosa, quadrato tenue. */
+/** Status in a 16 px slot: ring, mint check, pink cross, dim square. */
 export function StatusMark({ status, className }: { status: SubagentInfo['status']; className?: string }) {
   switch (status) {
     case 'running':
@@ -34,8 +34,8 @@ export function effortLabel(effort: SubagentInfo['effort']): string | null {
 }
 
 /**
- * Il modello di un sotto-agente come lo mostra la UI: quello suo, o (se non noto) quello della sessione con "inherited".
- * Restituisce una funzione stabile finché non cambiano agente e modello della sessione.
+ * A sub-agent's model as the UI shows it: its own, or (if unknown) the session's with "inherited".
+ * Returns a stable function until the agent and the session's model change.
  */
 export function useAgentModel(agent: AgentId, sessionModel: string | null): (a: Pick<SubagentInfo, 'model'> & { kind?: string | null }) => string | null {
   const agents = useApp((s) => s.agents)
