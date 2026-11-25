@@ -8,7 +8,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, Moon, Sun } from "lucide-react";
 import { setTheme, useTheme } from "@/lib/theme";
-import { CTA } from "@/lib/site";
+import { CTA, SITE } from "@/lib/site";
+import { GitHubIcon } from "@/components/brand/github-icon";
 import { cn } from "@/lib/utils";
 import { DownloadLink } from "@/components/download-link";
 
@@ -167,11 +168,20 @@ export function MobileMenu({
             )}
             {theme === "dark" ? "Light" : "Dark"}
           </button>
+          {SITE.githubUrl ? (
+            <a
+              href={SITE.githubUrl}
+              aria-label="Ladder on GitHub"
+              className="inline-flex size-12 flex-none items-center justify-center rounded-[12px] border border-hairline text-ink transition-colors hover:bg-frame"
+            >
+              <GitHubIcon />
+            </a>
+          ) : null}
           <DownloadLink
             onClick={close}
-            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[12px] bg-ink px-4 text-[15px] font-medium text-page transition-colors hover:bg-ink/85"
+            className="inline-flex h-12 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-[12px] bg-ink px-4 text-[15px] font-medium text-page transition-colors hover:bg-ink/85"
           >
-            {CTA.label}
+            {CTA.short}
           </DownloadLink>
         </div>
       </div>

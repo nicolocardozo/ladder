@@ -5,8 +5,8 @@ export const SITE = {
   description:
     "Ladder is a calm desktop app for macOS that runs Claude Code, Codex, Gemini CLI and other coding agents across all your repos, with approvals, worktrees and plan limits in one window.",
   url: "https://itsladder.dev",
-  // Link to the public repo, if and when there is one: with null header and footer don't show GitHub
-  githubUrl: null as string | null,
+  // Public repository: header, mobile menu and footer link to it (null hides the links)
+  githubUrl: "https://github.com/nicolocardozo/ladder" as string | null,
   // Link to the app file (structured data): /download redirects to the latest DMG (see next.config.ts)
   downloadUrl: "https://itsladder.dev/download" as string | null,
   // Contact address for privacy and questions (must be enabled on Cloudflare Email Routing)

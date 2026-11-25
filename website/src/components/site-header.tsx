@@ -1,5 +1,6 @@
 // Fixed header: logo with no background on the left, compact nav on the right (blurred white pill).
 import Link from "next/link"
+import { GitHubIcon } from "@/components/brand/github-icon"
 import { Logo } from "@/components/brand/logo"
 import { MobileMenu } from "@/components/mobile-menu"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -33,12 +34,17 @@ export function SiteHeader() {
               {l.label}
             </Link>
           ))}
-          {SITE.githubUrl ? (
-            <a href={SITE.githubUrl} className={item}>
-              GitHub
-            </a>
-          ) : null}
         </div>
+        {SITE.githubUrl ? (
+          <a
+            href={SITE.githubUrl}
+            aria-label="Ladder on GitHub"
+            title="Ladder on GitHub"
+            className={`${item} w-[34px] justify-center px-0 text-muted-ink hover:text-ink`}
+          >
+            <GitHubIcon />
+          </a>
+        ) : null}
         <ThemeToggle className={`${item} w-[34px] justify-center px-0 text-muted-ink hover:text-ink`} />
         <DownloadLink
           className="inline-flex h-[34px] items-center rounded-[9px] bg-ink px-3.5 text-[13.5px] font-medium leading-none text-page shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(24_20_36/0.2)] transition hover:-translate-y-px hover:bg-ink/85"
