@@ -1,19 +1,19 @@
 # Ladder
 
-A macOS desktop workspace for working on several repositories at once with coding agents (Claude, Codex, ACP agents). Public website at itsladder.dev. Open source under Apache-2.0.
+A macOS desktop workspace for working on several repositories at once with coding agents (Claude, Codex, ACP agents), with a phone app that controls it remotely through an end-to-end encrypted relay. Public website at itsladder.dev. Open source under Apache-2.0.
 
 ## Parts
 
 | Folder | What | Instructions |
 |---|---|---|
 | `app/desktop` | Electron app | `app/desktop/CLAUDE.md` |
+| `app/mobile` | Phone app (Expo), remote control for the Mac app | `app/mobile/CLAUDE.md` |
+| `app/relay` | Relay between Mac and phone (Cloudflare Worker) | `app/relay/CLAUDE.md` |
 | `website` | Next.js website | `website/CLAUDE.md` |
 | `brand` | Themes and logo, the source for app and website | app: change `brand/themes.json`, then `pnpm --filter @ladder/desktop sync-brand`; website: update it by hand (see `website/CLAUDE.md`) |
 | `app/spikes` | Technical prototypes, not in production | read only |
 
 A part's instructions load when a file in that folder is read. Before verifying or reviewing a change, read the CLAUDE.md of the part it touches.
-
-The mobile app (`app/mobile`, Expo) and the Cloudflare relay (`app/relay`) of milestone M6 are being developed on the `m6/*` branches, with worktrees in `.claude/worktrees/m6-*`, and are not in `development` yet. When they land, each gets its own row here and its own CLAUDE.md.
 
 ## Commands
 
@@ -23,6 +23,8 @@ Run from the repository root:
 pnpm install
 pnpm --filter @ladder/desktop typecheck
 pnpm --filter @ladder/desktop build
+pnpm --filter @ladder/mobile typecheck
+pnpm --filter @ladder/relay test
 pnpm --filter @ladder/website build
 ```
 

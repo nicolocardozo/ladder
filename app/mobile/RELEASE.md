@@ -1,6 +1,6 @@
 # Ladder mobile: release checklist
 
-Everything here is for you to do: nothing was built in the cloud, logged into or submitted. Linear: LAD-55. Listing texts and screenshots are in `store/`. Run commands from `app/mobile` with Node 24 (`export PATH="$HOME/.nvm/versions/node/v24.20.0/bin:$PATH"`).
+Everything here is for you to do: nothing was built in the cloud, logged into or submitted. Listing texts and screenshots are in `store/`. Run commands from `app/mobile` with Node 24.
 
 ## 1. Before any build
 
@@ -64,7 +64,7 @@ The `development` profile is a simulator build (no expo-dev-client: it did not c
 3. **Personal accounts created after 13 Nov 2023** (check yours): a **closed test with at least 12 testers opted in for 14 days** is required before applying for production access. Start it early: recruit testers, add them to a Google Group, run the closed track, then apply. Organisation accounts are exempt.
 4. **Direct APK** (outside Play): the `preview` Android profile gives an APK. Google's Android developer verification (rolling out 2026 for sideloaded apps; check the current dates and your region) requires a registered developer for APKs to install on certified devices, so it is not a way around Play long term.
 
-## 8. Lock Screen: Live Activity and widget (LAD-93)
+## 8. Lock Screen: Live Activity and widget
 
 iOS only. Android has neither (see "Android" below). Built with `expo-widgets` + `@expo/ui` (SwiftUI layouts written in TypeScript), which adds a second Xcode target, `ExpoWidgetsTarget` (bundle id `dev.nicolocardozo.ladder.mobile.widgets`), to the app. Config: the `expo-widgets` entry in `app.json`, the asset plugin `plugins/withWidgetAssets.cjs`, layouts in `src/widgets/`, logic in `src/lib/live-activity.ts` and `src/lib/widget-snapshot.ts`, native glue in `src/host/live-activity.ts`.
 

@@ -31,7 +31,7 @@ If Codex, the `gh` CLI or an ACP agent's binary is missing, Ladder can download 
 
 GitHub goes through the `gh` CLI and its own sign-in. Linear uses a personal API key, stored encrypted in the macOS Keychain; it is the only secret Ladder stores.
 
-There is no Ladder server, no Ladder account and no telemetry. Ladder talks to the network only for what you use: the agents' own services, GitHub (including app updates from GitHub Releases), the ACP registry, Linear, and downloads you confirm.
+There is no Ladder account and no telemetry. Ladder talks to the network only for what you use: the agents' own services, GitHub (including app updates from GitHub Releases), the ACP registry, Linear, downloads you confirm and, if you turn on access from your phone, the relay and Expo's push service (see below).
 
 ## Features
 
@@ -68,6 +68,10 @@ There is no Ladder server, no Ladder account and no telemetry. Ladder talks to t
 - Fifteen light and dark themes around the Circuit identity, Mona Sans and Monaspace Neon, keyboard shortcuts everywhere (customizable, with VS Code and Cursor presets).
 - English by default, with an Italian translation (Settings → Appearance → Language).
 - WCAG AA contrast checked by a script for every theme, no text under 12 px, states that don't rely on color alone, reduced motion respected.
+
+**From your phone (coming soon)**
+- A phone app for iPhone and Android, paired with your Mac by a QR code: approve requests, answer questions, start sessions and check plan limits; on iPhone, a Live Activity and a widget.
+- Off until you turn it on. Messages travel end-to-end encrypted through a small relay ([`app/relay`](app/relay)) that forwards them without being able to read them; you can run your own.
 
 ## Project configuration
 
@@ -140,6 +144,8 @@ node-pty is the only native module: it uses the bundled N-API prebuild (no node-
 | Folder | Contents |
 |---|---|
 | `app/desktop` | The Electron app: React 19, TypeScript, Tailwind 4, shadcn/ui on Base UI |
+| `app/mobile` | The phone app (Expo), a remote control for Ladder on the Mac; not in the stores yet |
+| `app/relay` | The relay between Mac and phone: a Cloudflare Worker that forwards end-to-end encrypted bytes; see its README |
 | `app/spikes` | Phase 0 technical prototypes, standalone npm packages outside the workspace |
 | `website` | The website (Next.js) |
 | `brand` | Themes, logo, app icons and boards, shared by the app and the website |
