@@ -220,10 +220,12 @@ function ladderToolName(title: string, raw: Record<string, unknown>): string | n
   if (named) return named[1]
   // Plan and session tools are not rendered as delegations, whatever shape their input has.
   if (/(propose_plan|revise_plan|ladder_(list_sessions|start_session|send|wait))/.test(title)) return null
-  if ('prompt' in raw && 'agent' in raw) return 'delegate'
+  // Shape detection only for keys that exist in no plan or session tool: delegate's read_only and handoff's summary are unique,
+  // and {agent, prompt} alone is also ladder_start_session, so it stays unknown (no wrong delegation row).
+  if ('read_only' in raw && 'prompt' in raw) return 'delegate'
   if ('summary' in raw && 'agent' in raw) return 'handoff'
   if ('summary' in raw && 'status' in raw) return 'report_result'
-  return Object.keys(raw).length === 0 ? 'list_agents' : null
+  return null
 }
 
 export class AcpSession implements AgentSession {

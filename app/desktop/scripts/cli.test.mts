@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { AgentSessions, type AgentSessionsDeps, type ListedSession, type SessionInfo, type StartSpec } from '../src/host/agent-sessions.ts'
 import { CLI_ALLOWED, CliSocket, checkCliCommand } from '../src/host/cli-socket.ts'
 import { CliInstall } from '../src/host/cli-install.ts'
-import { LadderMcpServer, parseReport, type LadderBackend, type LadderToolName } from '../src/host/ladder-mcp.ts'
+import { LadderMcpServer, parseReport, toolsForRole, type LadderBackend, type LadderToolName } from '../src/host/ladder-mcp.ts'
 import { decideWait } from '../src/host/session-wait.ts'
 import { exitCodeFor, parseArgs } from '../src/cli/args.ts'
 import { connectSocket } from '../src/cli/client.ts'
@@ -851,6 +851,21 @@ await step('report_result from a delegation folds the plan-style fields into the
   }
   assert.equal(parseReport({ status: 'nope', summary: 'x' }).ok, false)
   assert.equal(parseReport({ status: 'done', summary: '  ' }).ok, false)
+})
+
+await step('tools by role: agent-started sessions have no handoff; report_result only where someone waits', () => {
+  const base = { planTask: false, childRole: null, started: false, handedOff: false, canDelegate: true } as const
+  const user = toolsForRole(base)
+  assert.ok(user.includes('handoff') && user.includes('propose_plan') && user.includes('ladder_wait'))
+  assert.ok(!user.includes('report_result'), 'nobody waits on a plain chat')
+  const started = toolsForRole({ ...base, started: true })
+  assert.ok(!started.includes('handoff') && !started.includes('report_result') && started.includes('ladder_start_session'))
+  assert.ok(toolsForRole({ ...base, handedOff: true }).includes('report_result'))
+  assert.deepEqual(toolsForRole({ ...base, planTask: true }), ['report_result'])
+  assert.deepEqual(toolsForRole({ ...base, childRole: 'advisor' }), ['list_agents'])
+  assert.deepEqual(toolsForRole({ ...base, childRole: 'review' }), ['list_agents'])
+  assert.deepEqual(toolsForRole({ ...base, childRole: 'delegate', canDelegate: false }), ['list_agents', 'report_result'])
+  assert.deepEqual(toolsForRole({ ...base, childRole: 'delegate' }), ['list_agents', 'report_result', 'delegate'])
 })
 
 cliServer2.close()

@@ -168,7 +168,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'report_result',
     description:
-      'Report the outcome of the work Ladder gave you, once, when you are done, then end your turn. Use it only if you were given work: a task of an executable plan, a task delegated by another agent, or a handoff from another agent. The result goes back to the plan, to the agent that delegated, or to the session you came from. status: done = the work is complete; blocked = you need something you cannot get (in a plan task: a decision from the user); failed = it could not be done. summary: what you did and found, in concise Markdown. files: paths you changed (delegated task or handoff). Plan tasks also list the checks you ran, the decisions later tasks must respect, issues found and any command with effects outside the folder (installs, migrations) so that nobody repeats it. Do not call it in a plain conversation with the user, and do not call it more than once.',
+      'Report the outcome of the work Ladder gave you, once, when you are done, then end your turn. You only have it when someone waits for your result: you run a task of an executable plan, a task delegated by another agent, or a handoff from another agent. The result goes back to the plan, to the agent that delegated, or to the session you came from. status: done = the work is complete; blocked = you need something you cannot get (in a plan task: a decision from the user); failed = it could not be done. summary: what you did and found, in concise Markdown. files: paths you changed (delegated task or handoff). Plan tasks also list the checks you ran, the decisions later tasks must respect, issues found and any command with effects outside the folder (installs, migrations) so that nobody repeats it. Do not call it in a plain conversation with the user, and do not call it more than once.',
     inputSchema: REPORT_SCHEMA,
     readOnly: false
   },
@@ -226,6 +226,43 @@ const TOOLS: ToolDef[] = [
     readOnly: false
   }
 ]
+
+/** What decides which tools a session sees (computed by the Host from the session row). */
+export interface ToolRole {
+  /** The session runs a task of an executable plan. */
+  planTask: boolean
+  /** Child session: advice, review ('advisor', 'review') or delegation ('delegate'); null for a session the user talks to. */
+  childRole: 'advisor' | 'delegate' | 'review' | null
+  /** Started from the CLI or by another agent: its starter waits on this very session. */
+  started: boolean
+  /** Born from a handoff: it can report back to the session it came from. */
+  handedOff: boolean
+  /** Delegate child that may delegate once more (writes files and is below the depth limit). */
+  canDelegate: boolean
+}
+
+/**
+ * Tools of a session. A plan task only reports. Advice only lists agents. A delegated child reports and maybe delegates. A session the
+ * user talks to has the rest; a session started from the CLI or by an agent has no handoff (the work would move to a session its
+ * starter cannot wait on). report_result is only for sessions someone waits on: plan tasks, delegates and handoff targets.
+ */
+export function toolsForRole(role: ToolRole): LadderToolName[] {
+  if (role.planTask) return ['report_result']
+  if (role.childRole === 'delegate') return ['list_agents', 'report_result', ...(role.canDelegate ? (['delegate'] as const) : [])]
+  if (role.childRole) return ['list_agents']
+  return [
+    'list_agents',
+    ...(role.started ? [] : (['handoff'] as const)),
+    'delegate',
+    ...(role.handedOff ? (['report_result'] as const) : []),
+    'propose_plan',
+    'revise_plan',
+    'ladder_list_sessions',
+    'ladder_start_session',
+    'ladder_send',
+    'ladder_wait'
+  ]
+}
 
 const toolSchema = (tool: ToolDef) => ({
   name: tool.name,

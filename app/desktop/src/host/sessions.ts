@@ -64,7 +64,7 @@ import { isValidEffort, isValidModel, resolveRemoteDefaults } from './remote/def
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
 import { acpAuthenticate, AcpSession } from './acp/adapter'
 import { BrowserAgent } from './browser-agent'
-import { LadderMcpServer, parseReport, type DelegateArgs, type HandoffArgs, type LadderCall, type LadderToolName, type ReportArgs, type ToolOutcome } from './ladder-mcp'
+import { LadderMcpServer, parseReport, toolsForRole, type DelegateArgs, type HandoffArgs, type LadderCall, type LadderToolName, type ReportArgs, type ToolOutcome } from './ladder-mcp'
 import { isReadOnlyBash } from './claude/read-only'
 import { Plans } from './plans'
 import { AgentSessions, type StartSpec } from './agent-sessions'
@@ -541,7 +541,7 @@ export class Host {
       isGit: (projectId) => this.projects.get(projectId)?.isGit === true,
       list: (projectId) =>
         [...this.rows.values()]
-          .filter((r) => r.project_id === projectId && !r.archived && r.mode !== 'terminal')
+          .filter((r) => r.project_id === projectId && !r.archived && !r.parent && r.mode !== 'terminal')
           .map((r) => ({ id: r.id, title: r.title, agent: r.agent as AgentId, model: this.modelOf(r), state: r.run_state, cwd: this.cwdOf(r), branch: this.branchOf(r), origin: r.origin ? (JSON.parse(r.origin) as NonNullable<SessionSummary['origin']>) : null })),
       start: (spec) => this.startAgentSession(spec),
       send: (sessionId, text) => this.send(sessionId, text),
@@ -3966,14 +3966,16 @@ export class Host {
     // Summary ready (or failed): deliver to the other agent, without holding up the end of the turn.
     if (handoff) void this.finishHandoff(sessionId, handoff, result.status === 'error' && wasInterrupting ? 'interrupted' : result.status, result.error, handoffSummary, checkpoints?.end ?? null)
     // Plan limit: limit error or 'limited' window of the session's agent. With autoSwitch the handoff starts on its own.
-    // A plan task is left to the plan, which fails it and offers retry or reassign.
+    // A plan task is left to the plan, which fails it and offers retry or reassign. A session started by the CLI or by an agent stays
+    // where its starter waits: no switch to another session and no review turn that nobody waits for.
+    const started = !!row.origin
     let switching = false
-    if (!child && !planTask && !handoff && !superseded && !wasInterrupting && result.status !== 'interrupted') {
+    if (!child && !planTask && !started && !handoff && !superseded && !wasInterrupting && result.status !== 'interrupted') {
       const hit = this.limitHit(row, result)
       if (hit) switching = await this.onLimit(sessionId, turnId, hit).catch(() => false)
     }
     // Cross-review: turn ended with changes, not a child's nor born from advice forwarded by the review.
-    if (!child && !planTask && !handoff && !superseded && !fromReview && !switching && result.status === 'completed' && files.length > 0) void this.startCrossReview(sessionId, files).catch(() => undefined)
+    if (!child && !planTask && !started && !handoff && !superseded && !fromReview && !switching && result.status === 'completed' && files.length > 0) void this.startCrossReview(sessionId, files).catch(() => undefined)
     // A plan task reports its outcome to the runner (any correction is queued and sent below).
     if (this.plans.isTask(sessionId)) await this.plans.onTurnEnd(sessionId, { status: result.status, error: result.error }).catch(() => undefined)
 
@@ -4702,11 +4704,14 @@ export class Host {
    */
   private ladderToolsFor(row: SessionRow | undefined): LadderToolName[] | null {
     if (!row || row.mode === 'terminal' || row.archived) return null
-    if (this.plans.isTask(row.id)) return ['report_result']
     const parent = this.parentOf(row)
-    if (!parent) return ['list_agents', 'handoff', 'delegate', 'report_result', 'propose_plan', 'revise_plan', 'ladder_list_sessions', 'ladder_start_session', 'ladder_send', 'ladder_wait']
-    if (parent.role !== 'delegate') return ['list_agents']
-    return ['list_agents', 'report_result', ...(!this.isReadOnlyRow(row) && this.delegationDepth(row) < MAX_DELEGATION_DEPTH ? (['delegate'] as const) : [])]
+    return toolsForRole({
+      planTask: this.plans.isTask(row.id),
+      childRole: parent?.role ?? null,
+      started: !!row.origin,
+      handedOff: !!row.handoff_from,
+      canDelegate: !this.isReadOnlyRow(row) && this.delegationDepth(row) < MAX_DELEGATION_DEPTH
+    })
   }
 
   /** Agent id from what the model wrote: id, ACP id without prefix or display name. */
@@ -4737,7 +4742,7 @@ export class Host {
     const row = this.rows.get(sessionId)
     const runtime = this.runtimes.get(sessionId)
     if (!row || !runtime?.turnId || this.isGone(sessionId)) return fail(t('The session is not working right now.'))
-    if (row.parent || row.mode !== 'chat') return fail(t('This session cannot hand its work over.'))
+    if (row.parent || row.origin || row.mode !== 'chat') return fail(t('This session cannot hand its work over.'))
     if (runtime.handoff || row.handoff || this.handoffStarting.has(sessionId)) return fail(t('A handoff is already scheduled for this session.'))
     const agent = this.resolveAgent(args.agent)
     if (!agent) return fail(t('Unknown agent “{agent}”. Call list_agents to see which agents you can use.', { agent: stripControl(args.agent).slice(0, 40) }))
