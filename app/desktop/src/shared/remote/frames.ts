@@ -46,11 +46,11 @@ export class FrameReassembler {
   push(frame: Uint8Array): string | null {
     if (frame.length < 1) throw new Error('Remote: frame vuoto')
     const flag = frame[0]
-    if (flag !== REMOTE_FRAME_END && flag !== REMOTE_FRAME_MORE) throw new Error('Remote: flag del frame non valido')
+    if (flag !== REMOTE_FRAME_END && flag !== REMOTE_FRAME_MORE) throw new Error('Remote: invalid frame flag')
     // A MORE frame is always full: without this, millions of empty frames would fill memory without touching the limit.
-    if (flag === REMOTE_FRAME_MORE && frame.length !== REMOTE_MAX_FRAME) throw new Error('Remote: frame MORE non pieno')
+    if (flag === REMOTE_FRAME_MORE && frame.length !== REMOTE_MAX_FRAME) throw new Error('Remote: MORE frame not full')
     this.size += frame.length - 1
-    if (this.size > this.maxMessage || this.parts.length >= Math.ceil(this.maxMessage / (REMOTE_MAX_FRAME - 1)) + 1) throw new Error('Remote: messaggio troppo grande')
+    if (this.size > this.maxMessage || this.parts.length >= Math.ceil(this.maxMessage / (REMOTE_MAX_FRAME - 1)) + 1) throw new Error('Remote: message too large')
     this.parts.push(frame.slice(1))
     if (flag === REMOTE_FRAME_MORE) return null
     const bytes = new Uint8Array(this.size)

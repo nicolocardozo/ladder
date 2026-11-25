@@ -104,7 +104,7 @@ test('handshake: different version rejected by the Mac', () => {
   const s = serverHandshake({ identity, hello: { mac: 'mac', app: '0' } })
   // A future client: same handshake but a different v. Obtained by replacing the hello by hand.
   const bad = clientHandshake({ macPublicKey: identity.publicKey, hello: { device: 'x', v: REMOTE_PROTOCOL_VERSION + 1 } as never })
-  assert.throws(() => s.accept(bad.start()), /versione/)
+  assert.throws(() => s.accept(bad.start()), /protocol version/)
 })
 
 test('a MORE frame that is not full (empty or short) is rejected: no memory consumed for free', () => {

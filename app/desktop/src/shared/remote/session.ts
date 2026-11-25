@@ -66,7 +66,7 @@ export function clientHandshake(options: { macPublicKey: Uint8Array; hello: Omit
     finish(message2: Uint8Array): { session: RemoteSession; hello: RemoteServerHello } {
       const { payload, transport } = noise.readMessage2(message2)
       const hello = toJson<RemoteServerHello>(payload)
-      if (hello.v !== REMOTE_PROTOCOL_VERSION) throw new Error('Remote: versione del protocollo non supportata')
+      if (hello.v !== REMOTE_PROTOCOL_VERSION) throw new Error('Remote: unsupported protocol version')
       return { session: new RemoteSession(transport), hello }
     }
   }
@@ -78,7 +78,7 @@ export function serverHandshake(options: { identity: NoiseKeyPair; hello: Omit<R
   return {
     accept(message1: Uint8Array): { reply: Uint8Array; session: RemoteSession; client: RemoteClientHello } {
       const client = toJson<RemoteClientHello>(noise.readMessage1(message1))
-      if (client.v !== REMOTE_PROTOCOL_VERSION) throw new Error('Remote: versione del protocollo non supportata')
+      if (client.v !== REMOTE_PROTOCOL_VERSION) throw new Error('Remote: unsupported protocol version')
       const hello: RemoteServerHello = { v: REMOTE_PROTOCOL_VERSION, ...options.hello }
       const { message, transport } = noise.writeMessage2(encoder.encode(JSON.stringify(hello)))
       return { reply: message, session: new RemoteSession(transport, options.maxInbound ?? REMOTE_MAX_COMMAND), client }

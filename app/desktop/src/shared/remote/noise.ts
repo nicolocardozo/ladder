@@ -81,7 +81,7 @@ export class CipherState {
 
   encryptWithAd(ad: Uint8Array, plaintext: Uint8Array): Uint8Array {
     if (!this.k) return plaintext
-    if (plaintext.length + NOISE_TAG_LEN > NOISE_MAX_MESSAGE) throw new Error('Noise: messaggio troppo lungo')
+    if (plaintext.length + NOISE_TAG_LEN > NOISE_MAX_MESSAGE) throw new Error('Noise: message too long')
     const out = chacha20poly1305(this.k, this.nonce(), ad).encrypt(plaintext)
     this.n++
     return out
@@ -90,8 +90,8 @@ export class CipherState {
   /** Throws if the tag does not match; the counter advances only after successful decryption (§5.1). */
   decryptWithAd(ad: Uint8Array, ciphertext: Uint8Array): Uint8Array {
     if (!this.k) return ciphertext
-    if (ciphertext.length > NOISE_MAX_MESSAGE) throw new Error('Noise: messaggio troppo lungo')
-    if (ciphertext.length < NOISE_TAG_LEN) throw new Error('Noise: messaggio troppo corto')
+    if (ciphertext.length > NOISE_MAX_MESSAGE) throw new Error('Noise: message too long')
+    if (ciphertext.length < NOISE_TAG_LEN) throw new Error('Noise: message too short')
     const out = chacha20poly1305(this.k, this.nonce(), ad).decrypt(ciphertext)
     this.n++
     return out
@@ -192,7 +192,7 @@ export class NoiseInitiator {
   private step: 0 | 1 | 2 = 0
 
   constructor(options: InitiatorOptions) {
-    if (options.remoteStatic.length !== DH_LEN) throw new Error('Noise: chiave del Mac non valida')
+    if (options.remoteStatic.length !== DH_LEN) throw new Error('Noise: invalid Mac key')
     this.rs = options.remoteStatic
     this.e = options.ephemeral ?? generateKeyPair()
     this.ss = new SymmetricState(NOISE_PROTOCOL_NAME)
@@ -206,15 +206,15 @@ export class NoiseInitiator {
     this.ss.mixHash(this.e.publicKey)
     this.ss.mixKey(dh(this.e.secretKey, this.rs)) // es
     const message = concat(this.e.publicKey, this.ss.encryptAndHash(payload))
-    if (message.length > NOISE_MAX_MESSAGE) throw new Error('Noise: messaggio troppo lungo')
+    if (message.length > NOISE_MAX_MESSAGE) throw new Error('Noise: message too long')
     return message
   }
 
   readMessage2(message: Uint8Array): { payload: Uint8Array; transport: NoiseTransport } {
     if (this.step !== 1) throw new Error('Noise: handshake fuori sequenza')
     this.step = 2
-    if (message.length > NOISE_MAX_MESSAGE) throw new Error('Noise: messaggio troppo lungo')
-    if (message.length < DH_LEN + NOISE_TAG_LEN) throw new Error('Noise: messaggio troppo corto')
+    if (message.length > NOISE_MAX_MESSAGE) throw new Error('Noise: message too long')
+    if (message.length < DH_LEN + NOISE_TAG_LEN) throw new Error('Noise: message too short')
     const re = message.subarray(0, DH_LEN)
     this.ss.mixHash(re)
     this.ss.mixKey(dh(this.e.secretKey, re)) // ee
@@ -252,8 +252,8 @@ export class NoiseResponder {
   readMessage1(message: Uint8Array): Uint8Array {
     if (this.step !== 0) throw new Error('Noise: handshake fuori sequenza')
     this.step = 1
-    if (message.length > NOISE_MAX_MESSAGE) throw new Error('Noise: messaggio troppo lungo')
-    if (message.length < DH_LEN + NOISE_TAG_LEN) throw new Error('Noise: messaggio troppo corto')
+    if (message.length > NOISE_MAX_MESSAGE) throw new Error('Noise: message too long')
+    if (message.length < DH_LEN + NOISE_TAG_LEN) throw new Error('Noise: message too short')
     // Copy: the client's key stays valid even if the network buffer is reused.
     this.re = message.slice(0, DH_LEN)
     this.ss.mixHash(this.re)
@@ -267,7 +267,7 @@ export class NoiseResponder {
     this.ss.mixHash(this.e.publicKey)
     this.ss.mixKey(dh(this.e.secretKey, this.re)) // ee
     const message = concat(this.e.publicKey, this.ss.encryptAndHash(payload))
-    if (message.length > NOISE_MAX_MESSAGE) throw new Error('Noise: messaggio troppo lungo')
+    if (message.length > NOISE_MAX_MESSAGE) throw new Error('Noise: message too long')
     const [c1, c2] = this.ss.split()
     // The responder sends with c2 and receives with c1.
     return { message, transport: new NoiseTransport(c2, c1, this.ss.h) }

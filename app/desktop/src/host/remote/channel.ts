@@ -327,7 +327,7 @@ export class RemoteChannel {
     if (!raw) return null
     const port = Number(raw)
     if (!Number.isInteger(port) || port < 0 || port > 65535) {
-      console.error('[remote] LADDER_REMOTE_PORT non valida, WebSocket locale spento')
+      console.error('[remote] invalid LADDER_REMOTE_PORT, local WebSocket disabled')
       return null
     }
     return port

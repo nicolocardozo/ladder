@@ -37,10 +37,10 @@ test('reasonKind recognizes the categories and hides the rest', () => {
   assert.equal(reasonKind('The Mac did not answer in time.'), 'timeout')
   assert.equal(reasonKind('Connection failed'), 'refused')
   assert.equal(reasonKind('Connection lost'), 'lost')
-  assert.equal(reasonKind('Remote: frame MORE non pieno'), 'secure')
+  assert.equal(reasonKind('Remote: MORE frame not full'), 'secure')
   assert.equal(reasonKind('Noise: decrypt failed'), 'secure')
   assert.equal(reasonKind(undefined), null)
-  assert.equal(reasonKind('boh'), null)
+  assert.equal(reasonKind('something else'), null)
 })
 
 const session = (id: string, projectId: string, archived = false): SessionSummary => ({ id, projectId, archived }) as unknown as SessionSummary
