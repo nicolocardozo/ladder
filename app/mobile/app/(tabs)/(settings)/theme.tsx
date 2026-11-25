@@ -1,11 +1,9 @@
 // Impostazione "Theme": Same as Mac (predefinito) o un tema scelto; "Match system appearance" con un tema chiaro e uno scuro.
 import { ScrollView, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '@shared/i18n'
 import { usePrefs } from '@/store/prefs'
 import { THEMES, useTheme, type ThemeId, type ThemeInfo } from '@/theme/theme'
 import { Group, Row, ToggleRow } from '@/ui/List'
-import { ScreenHeader } from '@/ui/ScreenHeader'
 
 function Swatch({ theme }: { theme: ThemeInfo }) {
   const k = theme.tokens
@@ -24,15 +22,12 @@ function ThemeRow({ theme, selected, onPress, last }: { theme: ThemeInfo; select
 
 export default function ThemeScreen() {
   const { c } = useTheme()
-  const insets = useSafeAreaInsets()
   const prefs = usePrefs((s) => s.theme)
   const setTheme = usePrefs((s) => s.setTheme)
   const light = THEMES.filter((x) => x.appearance === 'light')
   const dark = THEMES.filter((x) => x.appearance === 'dark')
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
-      <ScreenHeader title={t('Theme')} />
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}>
+    <ScrollView style={{ backgroundColor: c.background }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: 32 }}>
         <Group footer={t('Same as Mac follows the theme your Mac uses. Until your Mac sends it, Circuit is used.')}>
           <ToggleRow label={t('Match system appearance')} detail={t('One light and one dark theme that follow your phone.')} value={prefs.matchSystem} onChange={(v) => setTheme({ matchSystem: v })} last />
         </Group>
@@ -66,7 +61,6 @@ export default function ThemeScreen() {
             </Group>
           </>
         )}
-      </ScrollView>
-    </View>
+    </ScrollView>
   )
 }

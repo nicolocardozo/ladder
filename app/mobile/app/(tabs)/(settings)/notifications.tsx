@@ -1,8 +1,7 @@
 // Impostazioni → Notifiche: stato del permesso, quali eventi notificare, fascia silenziosa. Le preferenze stanno sul telefono e
 // arrivano al Mac con `device.notify.set` (push.ts le manda a ogni cambio).
 import { useEffect } from 'react'
-import { AppState, ScrollView, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { AppState, ScrollView } from 'react-native'
 import { t } from '@shared/i18n'
 import { openSystemSettings, pushStatusLabel, refreshPermission, requestPermission } from '@/host/push'
 import { phoneTimeZone } from '@/lib/notify-prefs'
@@ -11,12 +10,10 @@ import { usePrefs } from '@/store/prefs'
 import { usePush } from '@/store/push'
 import { useTheme } from '@/theme/theme'
 import { Group, Row, ToggleRow } from '@/ui/List'
-import { ScreenHeader } from '@/ui/ScreenHeader'
 import { TimeRow } from '@/ui/TimeRow'
 
 export default function NotificationSettings() {
   const { c } = useTheme()
-  const insets = useSafeAreaInsets()
   const notify = usePrefs((s) => s.notify)
   const setNotify = usePrefs((s) => s.setNotify)
   const { permission, canAsk, tokenFailed } = usePush()
@@ -38,9 +35,7 @@ export default function NotificationSettings() {
       : t('Notifications only say that something needs you. Your messages and code stay in the encrypted channel with your Mac.')
   const { events, quiet } = notify
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
-      <ScreenHeader title={t('Notifications')} />
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}>
+    <ScrollView style={{ backgroundColor: c.background }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: 32 }}>
         <Group footer={statusFooter}>
           <Row label={t('Status')} value={status} last={granted || mode !== 'remote'} />
           {!granted && mode === 'remote' ? <Row label={permission === 'denied' && !canAsk ? t('Open phone settings') : t('Turn on notifications')} onPress={() => (permission === 'denied' && !canAsk ? openSystemSettings() : void requestPermission())} last /> : null}
@@ -61,7 +56,6 @@ export default function NotificationSettings() {
             </>
           ) : null}
         </Group>
-      </ScrollView>
-    </View>
+    </ScrollView>
   )
 }

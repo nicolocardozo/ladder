@@ -12,7 +12,8 @@ import { alpha, useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
 import { Button } from '@/ui/Button'
 import { Icon } from '@/ui/Icon'
-import { Sheet } from '@/ui/Sheet'
+import { useOnce } from '@/lib/use-once'
+import { SheetTitle } from '@/ui/NativeSheet'
 import { Text } from '@/ui/Text'
 import { useToast } from '@/ui/toast'
 
@@ -26,7 +27,9 @@ const levelHelp = (level: PermissionLevel): string =>
     full: t('Runs everything without asking.')
   })[level]
 
-export function PermissionSheet({ sessionId, visible, onClose }: { sessionId: string; visible: boolean; onClose: () => void }) {
+/** Contenuto dello sheet del permesso, uguale nello sheet nativo (iOS) e in quello nostro (Android, schermi larghi). */
+export function PermissionContent({ sessionId, onClose: onCloseRaw }: { sessionId: string; onClose: () => void }) {
+  const onClose = useOnce(onCloseRaw)
   const { c } = useTheme()
   const session = useApp((s) => s.sessions[sessionId])
   const max = useApp((s) => (session ? s.permissionsMax[session.projectId] : undefined)) ?? null
@@ -34,9 +37,10 @@ export function PermissionSheet({ sessionId, visible, onClose }: { sessionId: st
   const online = useApp((s) => canAct(s.conn))
   const [confirmFull, setConfirmFull] = useState(false)
   const [busy, setBusy] = useState(false)
+  // La sessione sparisce (archiviata sul Mac, scollegamento): lo sheet non ha più nulla da mostrare e si chiude.
   useEffect(() => {
-    if (!visible) setConfirmFull(false)
-  }, [visible])
+    if (!session) onClose()
+  }, [session, onClose])
   if (!session) return null
   const working = session.run === 'running' || session.run === 'starting' || session.run === 'waiting'
   const nextTurnOnly = session.agent === 'codex' && working
@@ -57,7 +61,8 @@ export function PermissionSheet({ sessionId, visible, onClose }: { sessionId: st
   if (confirmFull) {
     const open = session.openRequests
     return (
-      <Sheet visible={visible} onClose={onClose} title={t('Switch to Full?')}>
+      <>
+        <SheetTitle>{t('Switch to Full?')}</SheetTitle>
         <View style={{ paddingHorizontal: 20, gap: 16 }}>
           <Text variant="body">{t('The agent will run commands and edit files without asking you first.')}</Text>
           {open > 0 ? (
@@ -77,12 +82,13 @@ export function PermissionSheet({ sessionId, visible, onClose }: { sessionId: st
             <Button label={t('Switch to Full')} variant="primary" grow disabled={busy || !online} onPress={() => void apply('full')} />
           </View>
         </View>
-      </Sheet>
+      </>
     )
   }
 
   return (
-    <Sheet visible={visible} onClose={onClose} title={t('Permission')}>
+    <>
+      <SheetTitle>{t('Permission')}</SheetTitle>
       <View style={{ paddingHorizontal: 16, gap: 8 }}>
         {PERMISSION_LEVELS.map((level) => {
           const aboveMax = !allowedLevel(level, max)
@@ -126,6 +132,6 @@ export function PermissionSheet({ sessionId, visible, onClose }: { sessionId: st
           </Text>
         ) : null}
       </View>
-    </Sheet>
+    </>
   )
 }

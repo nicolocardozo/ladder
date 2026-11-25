@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type { Locale } from '@shared/i18n'
+import { applyLocale } from '@/i18n'
 import { DEFAULT_NOTIFY_PREFS, normalizeNotifyPrefs, type NotifyPrefs } from '@/lib/notify-prefs'
 import { DEFAULT_THEME_PREFS, type ThemePrefs } from '@/theme/prefs-types'
 
@@ -31,7 +32,11 @@ export const usePrefs = create<PrefsState>()(
       collapsed: {},
       drafts: {},
       setTheme: (patch) => set((s) => ({ theme: { ...s.theme, ...patch } })),
-      setLanguage: (language) => set({ language }),
+      // La lingua si applica prima di notificare: chi si ridisegna per il cambio vede già i testi nuovi.
+      setLanguage: (language) => {
+        applyLocale(language)
+        set({ language })
+      },
       setNotify: (patch) =>
         set((s) => ({ notify: { ...s.notify, ...patch, events: { ...s.notify.events, ...patch.events }, quiet: { ...s.notify.quiet, ...patch.quiet } } })),
       setCollapsed: (sectionId, collapsed) => set((s) => ({ collapsed: { ...s.collapsed, [sectionId]: collapsed } })),
@@ -54,3 +59,6 @@ export const usePrefs = create<PrefsState>()(
     }
   )
 )
+
+/** Segue la lingua scelta: serve a far ridisegnare ciò che traduce testi fuori dai componenti (titoli di header, etichette dei tab). */
+export const useLanguage = (): 'system' | Locale => usePrefs((s) => s.language)

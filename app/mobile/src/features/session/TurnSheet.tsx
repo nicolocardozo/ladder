@@ -7,7 +7,7 @@ import type { TurnSummary } from '@/lib/turns'
 import { useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
 import { Icon } from '@/ui/Icon'
-import { Sheet } from '@/ui/Sheet'
+import { SheetTitle } from '@/ui/NativeSheet'
 import { StateGlyph } from '@/ui/StateGlyph'
 import { Text } from '@/ui/Text'
 import { summaryText } from './rows'
@@ -64,11 +64,12 @@ function Step({ item }: { item: ChatItem }) {
   )
 }
 
-export function TurnSheet({ turn, onClose }: { turn: TurnSummary | null; onClose: () => void }) {
+/** Contenuto dello sheet del turno, uguale nello sheet nativo (iOS) e in quello nostro. */
+export function TurnContent({ turn }: { turn: TurnSummary }) {
   const { c } = useTheme()
   return (
-    <Sheet visible={!!turn} onClose={onClose} title={turn ? summaryText(turn) : undefined}>
-      {turn ? (
+    <>
+      <SheetTitle>{summaryText(turn)}</SheetTitle>
         <View style={{ paddingHorizontal: 20, gap: 16 }}>
           {turn.end ? (
             <Text variant="caption" tone="muted" style={{ marginTop: -8 }}>
@@ -110,7 +111,6 @@ export function TurnSheet({ turn, onClose }: { turn: TurnSummary | null; onClose
             </View>
           ) : null}
         </View>
-      ) : null}
-    </Sheet>
+    </>
   )
 }

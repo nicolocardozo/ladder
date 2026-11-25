@@ -17,7 +17,8 @@ import { SessionRow } from './SessionRow'
 
 type Item = { kind: 'header'; name: string; key: string } | { kind: 'session'; session: SessionSummary }
 
-export function ProjectSessions({ projectId, header }: { projectId: string; header?: ReactElement }) {
+/** `native`: sotto un header e sopra la barra dei tab nativi (default); `false` nel pannello fisso a sinistra, che non li ha. */
+export function ProjectSessions({ projectId, header, native = true }: { projectId: string; header?: ReactElement; native?: boolean }) {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const sessionsMap = useApp((s) => s.sessions)
@@ -57,7 +58,8 @@ export function ProjectSessions({ projectId, header }: { projectId: string; head
           </Text>
         </View>
       }
-      contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+      contentContainerStyle={{ paddingBottom: native ? 24 : insets.bottom + 24 }}
+      contentInsetAdjustmentBehavior={native ? 'automatic' : 'never'}
       showsVerticalScrollIndicator={false}
     />
   )

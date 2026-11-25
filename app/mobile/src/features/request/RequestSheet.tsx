@@ -13,7 +13,8 @@ import { RADIUS } from '@/theme/type'
 import { AgentMark, useModelLabel } from '@/ui/AgentMark'
 import { Button } from '@/ui/Button'
 import { Icon } from '@/ui/Icon'
-import { Sheet } from '@/ui/Sheet'
+import { useOnce } from '@/lib/use-once'
+import { SheetTitle } from '@/ui/NativeSheet'
 import { Text } from '@/ui/Text'
 import { CodeBlock, EditPreview, subjectOf } from './parts'
 
@@ -30,18 +31,25 @@ export function useRequest(sessionId: string | null, requestId: string | null): 
   })
 }
 
-export function RequestSheet({ sessionId, requestId, onClose }: { sessionId: string | null; requestId: string | null; onClose: () => void }) {
+/** Titolo dello sheet: la domanda o il titolo del permesso. */
+const requestTitle = (request: RequestItem): string => (request.requestType === 'question' ? t('Question') : request.title)
+
+/** Contenuto dello sheet della richiesta, uguale nello sheet nativo (iOS) e in quello nostro (Android, schermi larghi). */
+export function RequestContent({ sessionId, requestId, onClose: onCloseRaw }: { sessionId: string; requestId: string; onClose: () => void }) {
   const request = useRequest(sessionId, requestId)
-  const session = useApp((s) => (sessionId ? s.sessions[sessionId] : undefined))
-  // Se la richiesta si chiude mentre lo sheet è aperto (risposta dal Mac), lo sheet si chiude.
+  const session = useApp((s) => s.sessions[sessionId])
+  // Una sola chiusura, qualunque strada la chieda: la risposta (onDone) e la richiesta che si chiude dopo, quasi insieme.
+  const onClose = useOnce(onCloseRaw)
+  // Se la richiesta si chiude mentre lo sheet è aperto (risposta dal Mac o da qui), lo sheet si chiude.
   useEffect(() => {
-    if (requestId && request && request.state !== 'open') onClose()
-  }, [request?.state, requestId, onClose, request])
-  const visible = !!sessionId && !!requestId && !!request
+    if (!request || request.state !== 'open') onClose()
+  }, [request, onClose])
+  if (!request || !session) return null
   return (
-    <Sheet visible={visible} onClose={onClose} title={request ? (request.requestType === 'question' ? t('Question') : request.title) : undefined}>
-      {request && session && sessionId ? <Body sessionId={sessionId} request={request} onDone={onClose} /> : null}
-    </Sheet>
+    <>
+      <SheetTitle>{requestTitle(request)}</SheetTitle>
+      <Body sessionId={sessionId} request={request} onDone={onClose} />
+    </>
   )
 }
 

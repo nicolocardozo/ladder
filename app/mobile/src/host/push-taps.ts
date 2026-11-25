@@ -16,8 +16,11 @@ export function useNotificationTaps(): void {
   const navReady = !!useRootNavigationState()?.key
   // Risposte già gestite: la stessa può arrivare dall'ascolto e dalla lettura "ultima risposta" all'avvio.
   const seen = useRef(new Set<string>())
+  // Il percorso "vero": uno sheet nativo aperto (/sheet/…) non conta, sotto c'è la schermata che si vede e su cui decidere.
   const pathRef = useRef(pathname)
-  pathRef.current = pathname
+  if (!pathname.startsWith('/sheet/')) pathRef.current = pathname
+  const sheetOpen = useRef(false)
+  sheetOpen.current = pathname.startsWith('/sheet/')
 
   useEffect(() => {
     if (!navReady) return
@@ -40,6 +43,8 @@ export function useNotificationTaps(): void {
       const href = `/session/${target.sessionId}`
       // Già su quella sessione: solo la richiesta. Su un'altra sessione si sostituisce (i tocchi non impilano chat); altrove si aggiunge.
       if (pathRef.current === href) return
+      // Uno sheet nativo aperto (rotta /sheet/…) si chiude: la sessione si apre sotto, nella sua pila, senza impilare doppioni.
+      if (sheetOpen.current) router.dismissAll()
       if (pathRef.current.startsWith('/session/')) router.replace({ pathname: '/session/[id]', params: { id: target.sessionId } })
       else router.push({ pathname: '/session/[id]', params: { id: target.sessionId } })
     }
