@@ -321,6 +321,7 @@ export class Host {
       upsert: (terminal) => this.broadcast({ type: 'terminal.upsert', terminal }),
       removed: (id) => this.broadcast({ type: 'terminal.removed', id }),
       data: (id, data) => this.broadcast({ type: 'terminal.data', id, data }),
+      cleared: (id) => this.broadcast({ type: 'terminal.cleared', id }),
       agent: (terminal, signal) => this.onAgentSignal(terminal, signal),
       devServer: (terminal, url) => this.broadcast({ type: 'browser.devserver', projectId: terminal.projectId, terminalId: terminal.id, url })
     })
@@ -1155,6 +1156,9 @@ export class Host {
       }
       case 'terminal.restart':
         return this.restartTerminal(command.id)
+      case 'terminal.clear':
+        this.terminals.clear(command.id)
+        return null
       case 'terminal.output':
         return this.terminals.output(command.id, command.lines ?? 200)
 

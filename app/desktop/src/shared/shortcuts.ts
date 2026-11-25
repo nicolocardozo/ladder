@@ -55,6 +55,7 @@ export type CommandId =
   | 'inspector.merge'
   | 'inspector.toggle'
   | 'terminal.toggle'
+  | 'terminal.clear'
   | 'file.save'
   | 'session.nextWaiting'
   | 'session.interrupt'
@@ -109,6 +110,8 @@ export const COMMANDS: Record<CommandId, CommandSpec> = {
   'inspector.toggle': spec('cmd+alt+b'),
   // ⌃` non richiede ⌘ e vale anche con ⇧ o ⌥; il terminale la lascia passare all'app.
   'terminal.toggle': spec('ctrl+`', ['global', 'terminal'], ['shift', 'alt']),
+  // Solo nel terminale: lì ⌘K pulisce (come in Terminal.app e VS Code) e vince su palette.toggle; con il fuoco altrove ⌘K apre la palette.
+  'terminal.clear': spec('cmd+k', ['terminal']),
   // ⌘S salva anche se il cursore non è nel testo, per esempio dopo un clic su un avviso.
   'file.save': spec('cmd+s', ['global', 'editor'], ['alt']),
   'session.nextWaiting': spec('cmd+shift+a', ['global'], ['alt']),
@@ -132,9 +135,12 @@ export const DEFAULT_SHORTCUT_PRESET: ShortcutPreset = 'ladder'
 
 export const isShortcutPreset = (value: unknown): value is ShortcutPreset => typeof value === 'string' && (SHORTCUT_PRESETS as readonly string[]).includes(value)
 
+/** Voci di tutti i preset, "ladder" compreso: nel terminale ⌘K pulisce, quindi la palette ha bisogno di ⌘⇧P. */
+const BASE: Keybinding[] = [{ key: 'cmd+shift+p', command: 'palette.toggle' }]
+
 /** Cosa aggiunge ogni preset ai predefiniti (più voci per lo stesso comando = più scorciatoie attive: ⌘K resta e ⌘⇧P si aggiunge). */
 const VSCODE_LIKE: Keybinding[] = [
-  { key: 'cmd+shift+p', command: 'palette.toggle' },
+  ...BASE,
   { key: 'ctrl+tab', command: 'tab.next' },
   { key: 'ctrl+shift+tab', command: 'tab.previous' },
   { key: 'cmd+shift+t', command: 'tab.reopenClosed' },
@@ -142,7 +148,7 @@ const VSCODE_LIKE: Keybinding[] = [
 ]
 
 export const PRESET_BINDINGS: Record<ShortcutPreset, readonly Keybinding[]> = {
-  ladder: [],
+  ladder: BASE,
   vscode: VSCODE_LIKE,
   // Oggi identico a vscode: i nomi restano distinti per poter divergere.
   cursor: VSCODE_LIKE
@@ -334,6 +340,18 @@ export function applyShortcutConfig(config: { preset: ShortcutPreset; overrides:
 
 export const isCommandId = (value: unknown): value is CommandId => typeof value === 'string' && Object.hasOwn(COMMANDS, value)
 
+/** Vero se l'utente ha assegnato `key` a un comando diverso da `id` (vale la sua ultima voce valida per comando). */
+function takenByUser(key: string, id: CommandId): boolean {
+  const last = new Map<string, string>()
+  for (const entry of overrides) {
+    if (entry.command.startsWith('-') || entry.command === id) continue
+    const chord = parseShortcut(entry.key)
+    if (chord) last.set(entry.command, serializeShortcut(chord))
+  }
+  for (const value of last.values()) if (value === key) return true
+  return false
+}
+
 function resolve(id: CommandId): Binding[] {
   const { contexts, loose = [] } = COMMANDS[id]
   let removed = false
@@ -357,7 +375,12 @@ function resolve(id: CommandId): Binding[] {
   // Le voci del preset si aggiungono ai predefiniti (alias), senza doppioni.
   for (const entry of PRESET_BINDINGS[preset]) {
     const chord = entry.command === id ? parseShortcut(entry.key) : null
-    if (chord && !list.some((b) => serializeShortcut(b.chord) === serializeShortcut(chord))) list.push({ id, chord, loose: [], contexts, source: 'preset' })
+    if (!chord) continue
+    const key = serializeShortcut(chord)
+    if (list.some((b) => serializeShortcut(b.chord) === key)) continue
+    // Una combinazione che l'utente ha dato a un altro comando resta sua: l'alias non gliela toglie.
+    if (takenByUser(key, id)) continue
+    list.push({ id, chord, loose: [], contexts, source: 'preset' })
   }
   return list
 }

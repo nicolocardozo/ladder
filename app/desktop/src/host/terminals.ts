@@ -96,6 +96,7 @@ export interface TerminalEvents {
   upsert: (terminal: TerminalInfo) => void
   removed: (id: string) => void
   data: (id: string, data: string) => void
+  cleared: (id: string) => void
   agent: (terminal: TerminalInfo, signal: AgentSignal) => void
   /** Indirizzo locale stampato dall'output (server di sviluppo), una volta per progetto e origine. */
   devServer: (terminal: TerminalInfo, url: string) => void
@@ -232,6 +233,20 @@ export class TerminalManager {
     } else this.resize(id, cols, rows)
     this.flush(live)
     return live.serializer.serialize({ scrollback: SCROLLBACK })
+  }
+
+  /** Pulisce la copia headless come `clear()` di xterm (schermo e scrollback, resta la riga del cursore); niente alla shell. */
+  clear(id: string): void {
+    const live = this.terminals.get(id)
+    if (!live) return
+    // Prima l'output già in coda, così arriva ai renderer prima dell'evento di pulizia; poi la pulizia dopo le scritture
+    // ancora da analizzare (write() è differito, clear() no). Sul buffer alternativo (vim, less) non si pulisce.
+    this.flush(live)
+    live.screen.write('', () => {
+      if (live.screen.buffer.active.type === 'alternate') return
+      live.screen.clear()
+      this.events.cleared(id)
+    })
   }
 
   input(id: string, data: string): void {

@@ -32,6 +32,20 @@ export function routeTerminalData(id: string, data: string): void {
   if (entry?.state === 'live') entry.term.write(data)
 }
 
+/** L'host ha azzerato la sua copia dello schermo: anche questa finestra pulisce lo xterm di quel terminale, se ce l'ha. */
+export function routeTerminalCleared(id: string): void {
+  const entry = entries.get(id)
+  if (entry) clearAfterWrites(entry.term)
+}
+
+// write() analizza in differita, clear() agisce subito: la pulizia va in coda alle scritture, o l'output appena arrivato ricompare.
+// Sul buffer alternativo (vim, less, la CLI di un agente) pulire romperebbe l'interfaccia.
+function clearAfterWrites(term: Terminal): void {
+  term.write('', () => {
+    if (term.buffer.active.type !== 'alternate') term.clear()
+  })
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '')
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
@@ -136,6 +150,17 @@ function create(id: string): Entry {
   term.attachCustomKeyEventHandler((event) => {
     if (event.type !== 'keydown') return true
     if (matchesCommand(event, 'terminal.toggle')) return false
+    // Pulisce schermo e scrollback (il prompt resta). stopPropagation: l'ascoltatore globale non deve aprire la palette.
+    if (matchesCommand(event, 'terminal.clear')) {
+      event.preventDefault()
+      event.stopPropagation()
+      // Sul buffer alternativo l'evento si consuma e basta.
+      if (term.buffer.active.type !== 'alternate') {
+        clearAfterWrites(term)
+        send({ type: 'terminal.clear', id })
+      }
+      return false
+    }
     if (event.metaKey && !TERMINAL_NATIVE_KEYS.includes(event.key.toLowerCase())) return false
     // Una scorciatoia globale con ⌃ (⌃Tab per cambiare tab) è dell'app: xterm la inghiottirebbe come tasto del terminale.
     // Quelle senza ⌃ né ⌘ restano al terminale, così scrivere non viene intercettato.

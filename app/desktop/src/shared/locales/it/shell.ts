@@ -147,6 +147,7 @@ const it: Record<string, string> = {
   'until {time}': 'fino alle {time}',
   'Open file…': 'Apri file…',
   'Show or hide terminal': 'Mostra o nascondi il terminale',
+  'Clear terminal': 'Pulisci il terminale',
   'New terminal': 'Nuovo terminale',
   'Add project…': 'Aggiungi progetto…',
   'Change theme…': 'Cambia tema…',

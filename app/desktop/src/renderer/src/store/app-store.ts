@@ -4,7 +4,7 @@ import { isElectron, onHostConnect, request, send } from '@/lib/host-client'
 import { applyProjectGroupOp, normalizeProjectGroups, type ProjectGroupOp } from '@/lib/project-groups'
 import type { AgentBrowserState, AgentStatus, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
-import { routeTerminalData } from '@/lib/terminal-registry'
+import { routeTerminalCleared, routeTerminalData } from '@/lib/terminal-registry'
 import { disposeBuffer } from '@/components/editor/buffers'
 import { fileTabId, parseFileTab } from '@shared/file-tabs'
 import { clipTitle, isBrowserTabId, newBrowserTabId, storableUrl } from '@/lib/browser-tabs'
@@ -976,6 +976,9 @@ export const useApp = create<AppState>((set, get) => ({
         case 'terminal.data':
           // L'output va direttamente a xterm: passare dallo store rifarebbe il rendering a ogni carattere.
           routeTerminalData(event.id, event.data)
+          return {}
+        case 'terminal.cleared':
+          routeTerminalCleared(event.id)
           return {}
         case 'browser.agent':
           // Intero a ogni cambiamento: va fuori dal `set` perché apre la vista e può cambiare la selezione.

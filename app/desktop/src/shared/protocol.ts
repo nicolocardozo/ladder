@@ -1307,6 +1307,8 @@ export type HostCommand =
   | { type: 'terminal.resize'; id: string; cols: number; rows: number }
   | { type: 'terminal.close'; id: string }
   | { type: 'terminal.restart'; id: string }
+  /** Pulisce la copia dello schermo dell'host (schermo e scrollback, resta la riga del cursore): non scrive nulla alla shell. Terminale inesistente: ignorata. */
+  | { type: 'terminal.clear'; id: string }
   /** Ultime righe del terminale come testo semplice, per @terminal. */
   | { type: 'terminal.output'; id: string; lines?: number }
   // Configurazione del progetto (.ladder/settings.toml) e azioni di avvio.
@@ -1637,6 +1639,8 @@ export type HostEvent =
   | { type: 'terminal.upsert'; terminal: TerminalInfo }
   | { type: 'terminal.removed'; id: string }
   | { type: 'terminal.data'; id: string; data: string }
+  /** Il terminale è stato pulito (`terminal.clear`): ogni renderer svuota il proprio xterm per `id`. */
+  | { type: 'terminal.cleared'; id: string }
   /** Il terminale del progetto ha stampato un indirizzo locale (server di sviluppo): la UI può proporre o aprire la tab Browser. Una volta per progetto e indirizzo. */
   | { type: 'browser.devserver'; projectId: string; terminalId: string; url: string }
   // ── LAD-57 parte 2 ──

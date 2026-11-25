@@ -69,6 +69,7 @@ const LABELS: Record<CommandId, string> = {
   'inspector.merge': 'Branches',
   'inspector.toggle': 'Show or hide the right panel',
   'terminal.toggle': 'Show or hide terminal',
+  'terminal.clear': 'Clear terminal',
   'file.save': 'Save file',
   'composer.cyclePermission': 'Change permission level',
   'composer.stop': 'Stop the reply from the message box',
@@ -87,7 +88,7 @@ const GROUPS: { title: string; ids: CommandId[] }[] = [
     title: 'Sessions and tabs',
     ids: ['chat.new', 'chat.newFrom', 'chat.split', 'column.focusLeft', 'column.focusRight', 'tab.next', 'tab.previous', 'tab.reopenClosed', 'tab.moveLeft', 'tab.moveRight', 'tab.close', 'session.nextWaiting', 'session.interrupt']
   },
-  { title: 'Panels', ids: ['inspector.changes', 'inspector.files', 'inspector.history', 'inspector.merge', 'inspector.toggle', 'terminal.toggle'] },
+  { title: 'Panels', ids: ['inspector.changes', 'inspector.files', 'inspector.history', 'inspector.merge', 'inspector.toggle', 'terminal.toggle', 'terminal.clear'] },
   { title: 'Editor and message box', ids: ['file.save', 'composer.cyclePermission', 'composer.stop'] },
   { title: 'App', ids: ['app.openSettings', 'window.close'] }
 ]
@@ -114,7 +115,10 @@ const keyOf = (binding: Binding) => serializeShortcut(binding.chord)
 /** Vero se due contesti si pestano i piedi: il globale e il menu valgono ovunque, gli altri solo in sé stessi. */
 function overlaps(a: readonly ShortcutContext[], b: readonly ShortcutContext[]): boolean {
   const everywhere = (context: ShortcutContext) => context === 'global' || context === 'menu'
-  return a.some((x) => b.some((y) => x === y || everywhere(x) || everywhere(y)))
+  // Un comando del terminale ha la precedenza su uno globale sullo stesso tasto (⌘K pulisce lì, apre la palette altrove): non è un doppione.
+  // Non vale per il menu: gli acceleratori li prende il main prima del renderer, quindi lì il conflitto è vero.
+  const terminalVsGlobal = (x: ShortcutContext, y: ShortcutContext) => (x === 'terminal' && y === 'global') || (x === 'global' && y === 'terminal')
+  return a.some((x) => b.some((y) => x === y || ((everywhere(x) || everywhere(y)) && !terminalVsGlobal(x, y))))
 }
 
 /** Gli altri comandi che usano già questa combinazione in un contesto in comune. */
@@ -366,7 +370,9 @@ export function ShortcutsSection() {
 
   const addressable = !state.invalid
   const customCount = new Set(state.overrides.map((entry) => entry.command.replace(/^-/, ''))).size
-  const added = PRESET_BINDINGS[state.preset].map((entry) => formatShortcut(entry.key)).filter(Boolean)
+  // Il preset "ladder" ha già ⌘⇧P: l'elenco mostra solo ciò che il preset scelto aggiunge a quei predefiniti.
+  const own = new Set(PRESET_BINDINGS.ladder.map((entry) => `${entry.command} ${entry.key}`))
+  const added = PRESET_BINDINGS[state.preset].filter((entry) => !own.has(`${entry.command} ${entry.key}`)).map((entry) => formatShortcut(entry.key)).filter(Boolean)
 
   return (
     <>
