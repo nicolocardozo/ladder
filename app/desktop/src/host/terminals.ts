@@ -175,6 +175,15 @@ export class TerminalManager {
     return live.info
   }
 
+  /** Hands the terminal to another session (same folder): it stays alive when the session that opened it is archived. */
+  reassign(id: string, sessionId: string): void {
+    const live = this.must(id)
+    live.info.sessionId = sessionId
+    live.options = { ...live.options, sessionId }
+    this.db.prepare('update terminals set session_id = ?, meta = ? where id = ?').run(sessionId, JSON.stringify(this.meta(live.options)), id)
+    this.events.upsert(live.info)
+  }
+
   /** Si risolve quando il processo del terminale esce (subito se non sta girando). */
   onceExit(id: string): Promise<number | null> {
     const live = this.terminals.get(id)

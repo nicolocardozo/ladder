@@ -9,7 +9,8 @@ import type { AgentId, SessionSummary, SubagentInfo } from '@shared/protocol'
 import { useNow } from '@/components/chat/chat-context'
 import { formatDuration } from '@/components/chat/format'
 import { AgentGraph, AgentGraphDialog } from '@/components/agent-graph'
-import { effortLabel, formatTokens, StatusMark, useAgentModel } from '@/components/subagent-bits'
+import { AgentMark } from '@/components/agent-mark'
+import { effortLabel, formatTokens, StatusMark, useAgentModel, useDelegateAgent } from '@/components/subagent-bits'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -421,6 +422,7 @@ function AgentMap({
                       row={row}
                       now={now}
                       model={modelOf(row.agent)}
+                      sessionAgent={agent}
                       onToggle={() => toggleChildren(row.agent.id)}
                       onOpen={() => {
                         onPick()
@@ -471,16 +473,20 @@ function AgentRow({
   row,
   now,
   model,
+  sessionAgent,
   onToggle,
   onOpen
 }: {
   row: Extract<Row, { kind: 'agent' }>
   now: number
   model: string | null
+  sessionAgent: AgentId
   onToggle: () => void
   onOpen: () => void
 }) {
   const a = row.agent
+  // A delegation has the agent name as its type: its logo is shown in front.
+  const delegate = useDelegateAgent(a.kind, sessionAgent)
   const meta = [a.kind, model, effortLabel(a.effort), a.background && t('background')].filter(Boolean).join(' · ')
   const stats = [a.tokens != null && t('{tokens} tokens', { tokens: formatTokens(a.tokens) })].filter(Boolean).join(' · ')
   return (
@@ -515,6 +521,7 @@ function AgentRow({
             <span className="shrink-0 text-xs text-faint tabular-nums">{formatDuration(agentElapsed(a, now))}</span>
           </span>
           <span className="flex items-baseline gap-2 text-xs text-muted-foreground">
+            {delegate && <AgentMark agent={delegate} size={12} className="self-center" />}
             <span className="min-w-0 flex-1 truncate">{meta}</span>
             {stats && <span className="shrink-0 tabular-nums">{stats}</span>}
           </span>

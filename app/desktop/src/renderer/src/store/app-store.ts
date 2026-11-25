@@ -2,7 +2,7 @@
 import { create } from 'zustand'
 import { isElectron, onHostConnect, request, send } from '@/lib/host-client'
 import { applyProjectGroupOp, normalizeProjectGroups, type ProjectGroupOp } from '@/lib/project-groups'
-import type { AgentBrowserState, AgentStatus, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
+import type { AgentBrowserState, AgentId, AgentStatus, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalCleared, routeTerminalData } from '@/lib/terminal-registry'
 import { disposeBuffer } from '@/components/editor/buffers'
@@ -142,6 +142,12 @@ interface AppState {
   newPreset: { projectId: string; presetId: string } | null
   /** Finestra "Salva come profilo" aperta da menu di sessione o ⌘K; `seed` precompila i campi, `presetId` modifica uno esistente. */
   presetEditor: { presetId?: string; seed?: Partial<SessionPreset> } | null
+  /** "Hand off to…" dialog for the given session; `agent` and `note` prefill the fields (from /handoff <agent> <note>). */
+  handoffDialog: { sessionId: string; agent?: AgentId; note?: string } | null
+  /** "Ask for advice…" dialog: /advisor without an agent (single mode) or /committee. `question` prefills the question. */
+  adviceDialog: { sessionId: string; mode: 'advisor' | 'committee'; question?: string } | null
+  /** Plan opened as a commentable document: markdown text and the session it comes from. */
+  planDocument: { sessionId: string; text: string } | null
   /** Riepilogo "Mentre eri via" per progetto, calcolato quando torni dopo più di 30 minuti. */
   away: Record<string, AwaySummary>
   prefs: AppPrefs | null
@@ -302,6 +308,9 @@ interface AppState {
   setNewSource: (source: { projectId: string; item: IssueItem } | null) => void
   setNewPreset: (value: { projectId: string; presetId: string } | null) => void
   setPresetEditor: (value: { presetId?: string; seed?: Partial<SessionPreset> } | null) => void
+  setHandoffDialog: (value: { sessionId: string; agent?: AgentId; note?: string } | null) => void
+  setAdviceDialog: (value: { sessionId: string; mode: 'advisor' | 'committee'; question?: string } | null) => void
+  setPlanDocument: (value: { sessionId: string; text: string } | null) => void
   /** Hai lasciato il progetto (o la finestra): da qui parte il conto di "Mentre eri via". */
   markSeen: (projectId: string) => void
   /** Sei tornato sul progetto: se eri via da più di 30 minuti, prepara il riepilogo. */
@@ -523,6 +532,11 @@ export function isLiveSession(state: Pick<AppState, 'projects'>, session: Sessio
   return Boolean(session && !session.archived && state.projects.some((p) => p.id === session.projectId))
 }
 
+/** Session to list (sidebar, ⌘K, order, "while you were away"): alive and not a child of another (advice, delegations), which opens from its parent. */
+export function isListedSession(state: Pick<AppState, 'projects'>, session: SessionSummary | undefined): session is SessionSummary {
+  return isLiveSession(state, session) && !session.parent
+}
+
 function isValidEntry(state: Pick<AppState, 'projects' | 'sessions' | 'ui'>, entry: Selection): boolean {
   if (entry.kind === 'session') return isLiveSession(state, state.sessions[entry.sessionId])
   return entry.projectId === null ? state.projects.length === 0 : state.projects.some((p) => p.id === entry.projectId)
@@ -605,7 +619,7 @@ function selectionPatch(state: AppState, selection: Selection): Partial<AppState
 function sidebarOrder(state: AppState): SessionSummary[] {
   const rank = new Map(state.projects.map((p, i) => [p.id, i]))
   return Object.values(state.sessions)
-    .filter((s) => isLiveSession(state, s))
+    .filter((s) => isListedSession(state, s))
     .sort((a, b) => rank.get(a.projectId)! - rank.get(b.projectId)! || b.createdAt - a.createdAt)
 }
 
@@ -824,6 +838,9 @@ export const useApp = create<AppState>((set, get) => ({
   newSource: null,
   newPreset: null,
   presetEditor: null,
+  handoffDialog: null,
+  adviceDialog: null,
+  planDocument: null,
   away: {},
   prefs: null,
   connections: {},
@@ -1752,6 +1769,9 @@ export const useApp = create<AppState>((set, get) => ({
   setNewSource: (source) => set({ newSource: source }),
   setNewPreset: (value) => set({ newPreset: value }),
   setPresetEditor: (value) => set({ presetEditor: value }),
+  setHandoffDialog: (value) => set({ handoffDialog: value }),
+  setAdviceDialog: (value) => set({ adviceDialog: value }),
+  setPlanDocument: (value) => set({ planDocument: value }),
 
   markSeen: (projectId) =>
     set((state) => {
@@ -1767,7 +1787,7 @@ export const useApp = create<AppState>((set, get) => ({
       const seen = state.ui[projectId]?.seenAt
       const now = Date.now()
       if (!seen || now - seen < AWAY_MS) return {}
-      const list = Object.values(state.sessions).filter((s) => s.projectId === projectId && isLiveSession(state, s))
+      const list = Object.values(state.sessions).filter((s) => s.projectId === projectId && isListedSession(state, s))
       const summary: AwaySummary = {
         since: seen,
         replies: list.filter((s) => s.unread && s.run !== 'error' && s.activityAt > seen).length,

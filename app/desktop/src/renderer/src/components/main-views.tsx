@@ -60,6 +60,10 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { request, send } from '@/lib/host-client'
+import { runHandoffCommand } from '@/lib/handoff'
+import { runAdviceCommand } from '@/lib/advice'
+import { AdviceParentNote } from '@/components/advice-bits'
+import { HandoffFromNote } from '@/components/handoff-bits'
 import { cn } from '@/lib/utils'
 import { useSettings } from '@/hooks/use-theme'
 import { isBrowserColumnOpen, liveColumns, useApp } from '@/store/app-store'
@@ -1040,6 +1044,7 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
   const agentStatus = useAgentStatus(session?.agent, session?.profileId) ?? FALLBACK_AGENT
   const signInNeeded = useSignInNeeded(session?.agent ?? FALLBACK_AGENT.agent, session?.profileId)
   const sessionSettings = useProjectSettings(project)
+  const allAgents = useApp((s) => s.agents)
   const [error, setError] = useState<string | null>(null)
   const uiTimer = useRef<number | null>(null)
   const isTerminal = session?.mode === 'terminal'
@@ -1144,7 +1149,7 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
     <div ref={measure} className="flex min-h-0 min-w-0 flex-1 flex-col">
       {column && !column.single && <ColumnHeader session={session} active={column.active} hidden={column.hidden} onClose={column.onClose} />}
       {/* Solo note che non stanno altrove: agente e modello di una chat sono già nel composer, il titolo nella tab. */}
-      {(isTerminal || headerNotes || (session.run === 'waiting' && !(column && !column.single))) && (
+      {(isTerminal || headerNotes || session.handoffFrom || session.parent || (session.run === 'waiting' && !(column && !column.single))) && (
         <div
           className={cn('w-full pb-1 text-xs text-muted-foreground', isTerminal ? 'flex min-w-0 items-center gap-1.5 px-5' : 'chat-col chat-gutter')}
           data-compact={!isTerminal && compact ? '' : undefined}
@@ -1163,6 +1168,18 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
             <>
               {isTerminal && <span aria-hidden className="text-faint">·</span>}
               <span className="min-w-0 truncate">{headerNotes}</span>
+            </>
+          )}
+          {session.handoffFrom && (
+            <>
+              {(isTerminal || headerNotes) && <span aria-hidden className="text-faint">·</span>}
+              <HandoffFromNote session={session} />
+            </>
+          )}
+          {session.parent && (
+            <>
+              {(isTerminal || headerNotes || session.handoffFrom) && <span aria-hidden className="text-faint">·</span>}
+              <AdviceParentNote session={session} />
             </>
           )}
           {session.run === 'waiting' && !(column && !column.single) && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
@@ -1250,9 +1267,12 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
                 }
                 useApp.getState().select({ kind: 'new', projectId: session.projectId })
               }}
+              permissionLocked={Boolean(session.parent)}
+              onHandoff={session.parent ? undefined : (args) => runHandoffCommand(session, args, allAgents, sessionSettings?.agents?.allowed ?? [], setError)}
+              onAdvice={session.parent ? undefined : (mode, args) => runAdviceCommand(session, mode, args, allAgents, sessionSettings?.agents?.allowed ?? [], setError)}
               queue={session.queue}
               onQueueChange={(queue) => send({ type: 'session.queue.set', sessionId, queue })}
-              canSteer={session.canSteer && session.run === 'running' && !items.some((i) => i.kind === 'command' && i.status === 'running')}
+              canSteer={session.canSteer && session.run === 'running' && !items.some((i) => (i.kind === 'command' && i.status === 'running') || (i.kind === 'handoff' && i.direction === 'out' && i.state === 'summarizing'))}
               queueWorking={session.run === 'running' || session.run === 'starting' || session.run === 'waiting'}
               onDeliver={(id, how) =>
                 request({ type: 'session.queue.deliver', sessionId, id, how }).catch((e: Error) => setError(e.message))

@@ -1,5 +1,8 @@
 // Catalogo italiano: un file per area del codice, uniti qui. Importarlo registra le traduzioni.
 import { registerCatalog } from '../../i18n'
+import advice from './advice'
+import agentFlow from './agent-flow'
+import delegation from './delegation'
 import agentCatalog from './agent-catalog'
 import agents from './agents'
 import browser from './browser'
@@ -16,4 +19,4 @@ import shell from './shell'
 import shortcuts from './shortcuts'
 import views from './views'
 
-registerCatalog('it', { ...agents, ...agentCatalog, ...browser, ...connections, ...nav, ...editor, ...chat, ...shell, ...views, ...inspector, ...media, ...host, ...shortcuts, ...presets, ...settings })
+registerCatalog('it', { ...agents, ...agentCatalog, ...advice, ...agentFlow, ...delegation, ...browser, ...connections, ...nav, ...editor, ...chat, ...shell, ...views, ...inspector, ...media, ...host, ...shortcuts, ...presets, ...settings })

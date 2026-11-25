@@ -57,6 +57,8 @@ interface ComposerProps {
   /** Livello chiesto che vale dal prossimo turno; il livello attuale resta quello di `permission`. */
   permissionNext?: PermissionLevel | null
   onPermissionChange: (permission: PermissionLevel) => void
+  /** Advice child session (parent): permission is fixed to Plan, no selector and no ⇧Tab. */
+  permissionLocked?: boolean
   running?: boolean
   /** Il testo non è mai vuoto: con sole immagini arriva un segnaposto. */
   onSubmit: (text: string, attachments: Attachment[], busy?: BusyAction) => void
@@ -88,6 +90,10 @@ interface ComposerProps {
   onCommand?: (name: string, args: string) => Promise<unknown> | void
   /** /new: apre una nuova sessione nel progetto, con gli argomenti come testo di partenza. Senza, /new non compare. */
   onNewSession?: (args: string) => void
+  /** /handoff [agent] [note]: opens "Hand off to…" or, with a recognized agent, starts the handoff. */
+  onHandoff?: (args: string) => void
+  /** /advisor <agent> [question] and /committee [question]: ask for advice even while the session works. Without it, the commands do not appear. */
+  onAdvice?: (mode: 'advisor' | 'committee', args: string) => void
   /** Livello massimo ammesso dal progetto ([agents] permissions_max). */
   maxPermission?: PermissionLevel | null
   /** Sessione e sotto-agenti: se ce ne sono, nella barra in basso compare il badge degli agenti. */
@@ -149,7 +155,7 @@ export function Composer(props: ComposerProps) {
   useShortcutsRevision()
   const { draftKey, projectId, agentName, models, model, onModelChange, effort, onEffortChange, effortEffective, permission, permissionNext, onPermissionChange } = props
   const { running, onSubmit, onStop, queue = [], onQueueChange, canSteer = false, onDeliver, queueReason, queueWorking = running, context, disabledReason, autoFocus, className } = props
-  const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession } = props
+  const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession, onHandoff, onAdvice } = props
   const levels = allowedLevels(maxPermission)
   const initial = useApp.getState().drafts[draftKey] ?? ''
   const setDraft = useApp((s) => s.setDraft)
@@ -206,8 +212,8 @@ export function Composer(props: ComposerProps) {
   const trigger = mention ?? slash
   const mode = mention ? 'mention' : 'command'
   const commandList = useMemo(
-    () => mergeCommands(onCommand ? agentCommands : undefined, { model: true, effort: showEffort, new: Boolean(onNewSession), restart: Boolean(props.sessionId) && (agent === 'claude-code' || agent === 'codex') }),
-    [agentCommands, onCommand, onNewSession, showEffort, props.sessionId, agent]
+    () => mergeCommands(onCommand ? agentCommands : undefined, { model: true, effort: showEffort, new: Boolean(onNewSession), restart: Boolean(props.sessionId) && (agent === 'claude-code' || agent === 'codex'), handoff: Boolean(onHandoff), advisor: Boolean(onAdvice), committee: Boolean(onAdvice) }),
+    [agentCommands, onCommand, onNewSession, onHandoff, onAdvice, showEffort, props.sessionId, agent]
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const menuFromCommand = useRef(false)
@@ -411,6 +417,18 @@ export function Composer(props: ComposerProps) {
       setNotice(null)
       clearDraft()
       onNewSession?.(args)
+      return
+    }
+    if (entry.name === 'handoff') {
+      setNotice(null)
+      clearDraft()
+      onHandoff?.(args)
+      return
+    }
+    if (entry.name === 'advisor' || entry.name === 'committee') {
+      setNotice(null)
+      clearDraft()
+      onAdvice?.(entry.name, args)
       return
     }
     if (entry.name === 'restart') {
@@ -622,7 +640,7 @@ export function Composer(props: ComposerProps) {
       }
     }
     // ⇧Tab cicla i livelli di permesso, come nel CLI di Claude Code.
-    if (matchesCommand(event, 'composer.cyclePermission')) {
+    if (!props.permissionLocked && matchesCommand(event, 'composer.cyclePermission')) {
       event.preventDefault()
       const index = levels.indexOf(permissionNext ?? permission)
       onPermissionChange(levels[(index + 1) % levels.length])
@@ -794,6 +812,7 @@ export function Composer(props: ComposerProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {!props.permissionLocked && (
           <DropdownMenu>
             <DropdownMenuTrigger
               className={ghost}
@@ -835,6 +854,7 @@ export function Composer(props: ComposerProps) {
               {permissionNext && <p className="px-2 pt-1 pb-1.5 text-xs text-attention">{t('{level} from next turn', { level: levelLabel(permissionNext) })}</p>}
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
           </div>
 
           {running && idle && onStop ? (

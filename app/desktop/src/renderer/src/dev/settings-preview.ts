@@ -48,7 +48,22 @@ export function installSettingsPreview(): void {
         worktree: { setup: projectId === 'api' ? null : 'pnpm install && pnpm build:shared', setupWait: true, copy: [], ports: 3, archive: null },
         run: [],
         prompts: {},
-        agents: { allowed: [], default: null, permissionsMax: null },
+        agents: {
+          allowed: [],
+          default: null,
+          permissionsMax: null,
+          // Project "api" has them off; the other starts with automatic handoff to Codex.
+          autoSwitch: projectId === 'api' ? null : 'codex',
+          crossReview: null,
+          // Project "api" has none: the empty state with the example is shown.
+          delegates:
+            projectId === 'api'
+              ? []
+              : [
+                  { name: 'reviewer', agent: 'codex', model: 'gpt-6-luna', effort: 'high', permission: 'plan', note: 'Reviews and second opinions' },
+                  { name: 'researcher', agent: 'claude-code', model: null, effort: null, permission: 'plan', note: 'Reads the codebase and answers questions, never edits' }
+                ]
+        },
         sources: [],
         errors: []
       }
@@ -96,6 +111,13 @@ export function installSettingsPreview(): void {
         const w = window as unknown as { __worktreeSets?: unknown[] }
         ;(w.__worktreeSets ??= []).push({ projectId: command.projectId, patch, personalServices: next.worktree.personalServices })
         return { ok: true, data: next }
+      }
+      case 'project.agents.set': {
+        const current = settingsOf(command.projectId)
+        // With «acp:gemini» the host rejects (agent not allowed), to see the error next to the control.
+        if (command.patch.autoSwitch === 'acp:gemini' || command.patch.crossReview === 'acp:gemini') return { ok: false, error: 'Gemini is not allowed in this project.' }
+        base.set(command.projectId, { ...current, agents: { ...current.agents, ...command.patch } })
+        return { ok: true, data: settingsOf(command.projectId) }
       }
       case 'project.worktreeFiles': {
         const extra = settingsOf(command.projectId).worktree.copy

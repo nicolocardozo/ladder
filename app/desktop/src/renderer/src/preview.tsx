@@ -27,6 +27,19 @@ import {
   agentsNoticeFixture,
   agentsWaitingFixture,
   stalledFixture,
+  handoffFixture,
+  adviceFixture,
+  ladderChildFixture,
+  ladderDelegateFixture,
+  ladderHandoffFixture,
+  handoffResumeFixture,
+  resumeFixture,
+  limitFixture,
+  reviewFixture,
+  planFixture,
+  implementFixture,
+  HANDOFF_FILES,
+  HANDOFF_SUMMARY,
   previewSubagentDetail,
   busyFixture,
   commandFixture,
@@ -43,6 +56,15 @@ import {
 import { AgentCatalogPreview } from './dev/agent-catalog-preview'
 import { ConnectionsPreview } from './dev/connections-preview'
 import { TerminalsPreview } from './dev/terminals-preview'
+import { installHandoffPreview } from './dev/handoff-preview'
+import { installAdvicePreview } from './dev/advice-preview'
+import { installAgentFlowPreview, type AgentFlowSink } from './dev/agent-flow-preview'
+import { AdviceDialog } from './components/advice-dialog'
+import { AdviceParentNote } from './components/advice-bits'
+import { PlanDialog } from './components/plan-dialog'
+import { runAdviceCommand } from './lib/advice'
+import { HandoffDialog } from './components/handoff-dialog'
+import { runHandoffCommand } from './lib/handoff'
 import { installShortcutsHost } from './dev/shortcuts-preview'
 import { emitAutoArchived, installSettingsPreview } from './dev/settings-preview'
 import { cn } from './lib/utils'
@@ -56,7 +78,7 @@ import { SettingsDialog } from './components/settings-dialog'
 import { useApp } from './store/app-store'
 import { allowedLevels } from './lib/agents'
 import { usePermissionChange, type PermissionChangeResult } from './lib/use-permission-change'
-import type { AgentStatus, AppPrefs, ChatFont, Effort, Project, SessionSummary, SubagentInfo } from '@shared/protocol'
+import type { AgentStatus, AppPrefs, ChatFont, Effort, HostCommand, Project, SessionSummary, SubagentInfo } from '@shared/protocol'
 import { SubagentDialog } from './components/subagent-dialog'
 import { countsOf, setSubagentDetailLoader, useSubagentLists } from './lib/subagents'
 
@@ -68,10 +90,15 @@ const INITIAL_LOCALE: Locale = isLocale(initialLang) ? initialLang : 'en'
 setLocale(INITIAL_LOCALE)
 document.documentElement.lang = INITIAL_LOCALE
 
-type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question' | 'command' | 'busy' | 'agents' | 'agents-tree' | 'agents-12' | 'agents-45' | 'agents-idle' | 'agents-errors' | 'notice-done' | 'notice-failed' | 'agents-waiting' | 'finished-states' | 'stalled'
+type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question' | 'command' | 'busy' | 'agents' | 'agents-tree' | 'agents-12' | 'agents-45' | 'agents-idle' | 'agents-errors' | 'notice-done' | 'notice-failed' | 'agents-waiting' | 'finished-states' | 'stalled' | 'handoff-out' | 'handoff-in' | 'handoff-summarizing' | 'advice' | 'plan' | 'implement-out' | 'implement-in' | 'ladder-handoff' | 'ladder-handoff-in' | 'ladder-delegate' | 'ladder-child' | 'handoff-resume' | 'ladder-resume' | 'limit' | 'review'
+
+/** Modes with sessions on the other side (handoff, advice, plan): the "Open" links and the current agent are read from the store. */
+const withPeers = (mode: Mode) => mode.startsWith('handoff') || mode === 'advice' || mode === 'plan' || mode.startsWith('implement') || mode.startsWith('ladder') || mode === 'limit' || mode === 'review'
 
 // Sessione finta con cento sotto-agenti: la board, il popover e il dialogo leggono da qui come nell'app.
 const PREVIEW_SESSION = 'preview-agents'
+const ADVICE_PREVIEW_A = '**In short**: the direction is right. Two points: the `pageCount === 0` case and the query string name.'
+const ADVICE_PREVIEW_B = 'I agree. Update the `PaymentsTable` tests in the same commit too.'
 setSubagentDetailLoader(
   (_sessionId, id) =>
     new Promise((resolve) => window.setTimeout(() => resolve(previewSubagentDetail(useSubagentLists.getState().lists[PREVIEW_SESSION] ?? [], id)), 250))
@@ -224,7 +251,22 @@ const MODES: { id: Mode; label: string }[] = [
   { id: 'notice-failed', label: 'Avviso: agente fallito' },
   { id: 'agents-waiting', label: 'In attesa di 3 agenti' },
   { id: 'finished-states', label: 'Agenti finiti: stati' },
-  { id: 'stalled', label: 'Turno fermo senza chiedere' }
+  { id: 'stalled', label: 'Stalled turn without asking' },
+  { id: 'handoff-out', label: 'Handoff: outgoing' },
+  { id: 'handoff-in', label: 'Handoff: incoming' },
+  { id: 'handoff-summarizing', label: 'Handoff: summary in progress' },
+  { id: 'advice', label: 'Advice: advisor and committees' },
+  { id: 'plan', label: 'Plan: Open plan' },
+  { id: 'implement-out', label: 'Implement: plan handed over' },
+  { id: 'implement-in', label: 'Implement: plan received' },
+  { id: 'ladder-handoff', label: 'MCP: handoff requested by the agent (waiting, outcomes)' },
+  { id: 'ladder-handoff-in', label: 'MCP: handoff received from the agent' },
+  { id: 'ladder-delegate', label: 'MCP: delegations and agent map' },
+  { id: 'ladder-child', label: 'MCP: child session of a delegation' },
+  { id: 'handoff-resume', label: 'Interrupted handoff: resume, reassign, Stop' },
+  { id: 'ladder-resume', label: 'Interrupted delegation: resume cards (5 states)' },
+  { id: 'limit', label: 'Plan limit: proposal, automatic, available again' },
+  { id: 'review', label: 'Cross-review: severe forwarded, minor, ok, in progress' }
 ]
 
 /** Avviso dei sotto-agenti sulla sessione di anteprima: stesso stato e nota della riga in sidebar. */
@@ -266,6 +308,36 @@ function load(mode: Mode): Fixture {
       return agentsFinishedFixture()
     case 'stalled':
       return stalledFixture()
+    case 'handoff-out':
+      return handoffFixture('out')
+    case 'handoff-in':
+      return handoffFixture('in')
+    case 'handoff-summarizing':
+      return handoffFixture('summarizing')
+    case 'advice':
+      return adviceFixture()
+    case 'plan':
+      return planFixture()
+    case 'implement-out':
+      return implementFixture('out')
+    case 'implement-in':
+      return implementFixture('in')
+    case 'handoff-resume':
+      return handoffResumeFixture()
+    case 'ladder-resume':
+      return resumeFixture()
+    case 'limit':
+      return limitFixture()
+    case 'review':
+      return reviewFixture()
+    case 'ladder-handoff':
+      return ladderHandoffFixture('out')
+    case 'ladder-handoff-in':
+      return ladderHandoffFixture('in')
+    case 'ladder-delegate':
+      return ladderDelegateFixture()
+    case 'ladder-child':
+      return ladderChildFixture()
     case 'stream':
       return streamingBase().fixture
     default:
@@ -406,6 +478,7 @@ function Preview() {
   const frameWidth = twoColumns ? Math.max(MIN_COLUMN_WIDTH, Math.floor(windowWidth / 2)) : windowWidth
   const narrow = frameWidth < COMPACT_WIDTH
   const [subagents, setSubagents] = useState<SubagentInfo[]>([])
+  const previewSession = useApp((s) => s.sessions[PREVIEW_SESSION])
   const [anchor, setAnchor] = useState<ChatAnchor | null>(null)
   const [restoreAnchor, setRestoreAnchor] = useState<ChatAnchor | null>(null)
   const theme = useSettings((s) => s.theme)
@@ -482,15 +555,152 @@ function Preview() {
   useStreamingSimulation(mode === 'stream', setFixture, runId)
 
 
+  // Fake host for session.handoff: the 'out' row starts as "summarizing", the summary arrives as an assistant message, then the row becomes "done" with the link to the target session.
+  const simulateHandoff = (command: Extract<HostCommand, { type: 'session.handoff' }>) => {
+    const id = `ho-${++counter.current}`
+    const turnId = `turn-${id}`
+    const setRun = (run: SessionSummary['run']) => useApp.setState((st) => (st.sessions[PREVIEW_SESSION] ? { sessions: { ...st.sessions, [PREVIEW_SESSION]: { ...st.sessions[PREVIEW_SESSION], run } } } : {}))
+    const add = (item: ChatItem) => setFixtureState((f) => ({ ...f, items: [...f.items, item], run: item.kind === 'turn-end' ? 'idle' : 'running', activity: item.kind === 'turn-end' ? null : 'Writing the summary' }))
+    const next = () => (fixtureSeq.current += 1)
+    setRun('running')
+    add({ id, turnId, seq: next(), at: Date.now(), kind: 'handoff', direction: 'out', agent: command.agent, peerSessionId: null, state: 'summarizing', note: command.note ?? null, summary: null, checkpoint: null, files: [], error: null })
+    window.setTimeout(() => add({ id: `${id}-a`, turnId, seq: next(), at: Date.now(), kind: 'assistant', text: HANDOFF_SUMMARY, streaming: false }), 1500)
+    window.setTimeout(() => {
+      setFixtureState((f) => ({ ...f, items: f.items.map((i) => (i.id === id && i.kind === 'handoff' ? { ...i, state: 'done' as const, peerSessionId: 'preview-peer', summary: HANDOFF_SUMMARY, checkpoint: '9f3c2ab41d7e', files: HANDOFF_FILES } : i)) }))
+      add({ id: `${id}-e`, turnId, seq: next(), at: Date.now(), kind: 'turn-end', status: 'completed', durationMs: 9_000, counts: { commands: 0, edits: 0, reads: 0, searches: 0 }, files: [], error: null, costUsd: null })
+      setRun('idle')
+    }, 2600)
+  }
+
+  // Fake host for advice: entries start 'running' with one child session each and finish at different times (with «error» in the question, the second fails).
+  const simulateAdvise = (command: Extract<HostCommand, { type: 'session.advise' }>) => {
+    const id = `adv-${++counter.current}`
+    const at = Date.now()
+    const committee = command.agents.length > 1
+    const kids = command.agents.map((_, i) => `preview-${id}-${i}`)
+    useApp.setState((st) => ({
+      sessions: {
+        ...st.sessions,
+        ...Object.fromEntries(
+          kids.map((kid, i) => [kid, { ...usageSession(kid, command.agents[i].agent === 'codex' ? 'codex' : 'claude-code', undefined, 'running', at), title: `Advice: ${command.question || 'general review'}`, permission: 'plan' as const, parent: { sessionId: PREVIEW_SESSION, role: 'advisor' as const, itemId: id } }])
+        )
+      }
+    }))
+    setFixtureState((f) => ({
+      ...f,
+      items: [
+        ...f.items,
+        { id, turnId: 'system', seq: (fixtureSeq.current += 1), at, kind: 'advice', mode: committee ? 'committee' : 'advisor', question: command.question, entries: command.agents.map((a, i) => ({ agent: a.agent, model: a.model ?? null, sessionId: kids[i], state: 'running' as const, text: null, error: null })), forwarded: false }
+      ]
+    }))
+    command.agents.forEach((_, i) =>
+      window.setTimeout(() => {
+        const fail = /error/i.test(command.question) && i === 1
+        setFixtureState((f) => ({
+          ...f,
+          items: f.items.map((it) =>
+            it.id === id && it.kind === 'advice'
+              ? { ...it, entries: it.entries.map((e, j) => (j === i && e.state === 'running' ? (fail ? { ...e, state: 'error' as const, error: 'Codex is not available right now. Try again in a moment.' } : { ...e, state: 'done' as const, text: i % 2 === 0 ? ADVICE_PREVIEW_A : ADVICE_PREVIEW_B }) : e)) }
+              : it
+          )
+        }))
+      }, 1500 + i * 2200)
+    )
+    return id
+  }
+  const simulateStop = (command: Extract<HostCommand, { type: 'session.advice.stop' }>) =>
+    setFixtureState((f) => ({ ...f, items: f.items.map((it) => (it.id === command.itemId && it.kind === 'advice' ? { ...it, entries: it.entries.map((e) => (e.state === 'running' ? { ...e, state: 'stopped' as const } : e)) } : it)) }))
+  const simulateForward = (command: Extract<HostCommand, { type: 'session.advice.forward' }>) =>
+    setFixtureState((f) => ({ ...f, items: f.items.map((it) => (it.id === command.itemId && it.kind === 'advice' ? { ...it, forwarded: true } : it)) }))
+  // Fake host for session.implement: with another agent the 'out' row with reason 'implement' is created 'done' and the linked session exists; with the same agent the plan restarts in the session.
+  const simulateImplement = (command: Extract<HostCommand, { type: 'session.implement' }>) => {
+    const id = `imp-${++counter.current}`
+    const turnId = `turn-${id}`
+    const same = command.agent === (useApp.getState().sessions[PREVIEW_SESSION]?.agent ?? 'claude-code')
+    const notes = command.comments.map((c) => `- line ${c.line}: ${c.text}`).join('\n')
+    const body = notes ? `${command.plan}\n\n**Comments**\n${notes}` : command.plan
+    setFixtureState((f) => ({
+      ...f,
+      items: [
+        ...f.items,
+        same
+          ? { id, turnId, seq: (fixtureSeq.current += 1), at: Date.now(), kind: 'user', text: `Implement this plan.\n\n${body}` }
+          : { id, turnId, seq: (fixtureSeq.current += 1), at: Date.now(), kind: 'handoff', reason: 'implement', direction: 'out', agent: command.agent, peerSessionId: 'preview-peer', state: 'done', note: null, summary: body, checkpoint: null, files: [], error: null }
+      ]
+    }))
+    setLast(`session.implement → ${same ? 'stessa sessione' : 'preview-peer'} · ${command.comments.length} commenti · ${command.permission ?? 'edit'}`)
+    return same ? PREVIEW_SESSION : 'preview-peer'
+  }
+
+  // Fake host for resuming and the plan limit: stop, resume and reassign a handoff; resume a delegation; answer a limit card.
+  const patchItem = (id: string, change: (item: ChatItem) => ChatItem) => setFixtureState((f) => ({ ...f, items: f.items.map((it) => (it.id === id ? change(it) : it)) }))
+  const simulateFlow: AgentFlowSink = {
+    currentAgent: () => useApp.getState().sessions[PREVIEW_SESSION]?.agent ?? 'claude-code',
+    stop: (command) => patchItem(command.itemId, (it) => (it.kind === 'handoff' ? { ...it, state: 'interrupted' as const, resumable: true, error: 'Stopped by you.' } : it)),
+    resume: (command) => {
+      setLast(`session.handoff.resume → ${command.agent ?? 'stesso agente'}${command.model ? ` · ${command.model}` : ''}${command.effort ? ` · ${command.effort}` : ''}`)
+      let had = false
+      patchItem(command.itemId, (it) => {
+        if (it.kind !== 'handoff') return it
+        had = Boolean(it.summary)
+        return { ...it, agent: command.agent ?? it.agent, resumable: false, error: null, state: had ? ('done' as const) : ('summarizing' as const), peerSessionId: had ? 'preview-peer' : null }
+      })
+      // Without a saved summary the summarizing turn restarts and then delivers.
+      window.setTimeout(() => patchItem(command.itemId, (it) => (it.kind === 'handoff' && it.state === 'summarizing' ? { ...it, state: 'done' as const, peerSessionId: 'preview-peer', summary: HANDOFF_SUMMARY, checkpoint: '9f3c2ab41d7e', files: HANDOFF_FILES } : it)), 1800)
+    },
+    delegation: (command) => {
+      setLast(`session.delegation.resume → ${command.action}`)
+      patchItem(command.itemId, (it) => (it.kind === 'resume' ? { ...it, state: command.action === 'resume' ? ('resumed' as const) : ('dismissed' as const), error: null } : it))
+      if (command.action === 'resume') window.setTimeout(() => patchItem(command.itemId, (it) => (it.kind === 'resume' && it.state === 'resumed' ? { ...it, state: 'done' as const } : it)), 3000)
+    },
+    limit: (command) => {
+      setLast(`session.limit.respond → ${command.action}${command.agent ? ` · ${command.agent}` : ''}`)
+      patchItem(command.itemId, (it) => {
+        if (it.kind !== 'limit') return it
+        if (command.action === 'dismiss') return { ...it, state: 'dismissed' as const }
+        if (command.action === 'return') return { ...it, state: 'returned' as const, peerSessionId: 'preview-origin', error: null }
+        return { ...it, state: 'switched' as const, target: command.agent ?? it.target, peerSessionId: 'preview-peer', automatic: false, error: null }
+      })
+    }
+  }
+
   const choose = (next: Mode) => {
+    if (next.startsWith('handoff')) {
+      installSettingsPreview()
+      installHandoffPreview(() => useApp.getState().sessions[PREVIEW_SESSION]?.agent ?? 'claude-code', simulateHandoff)
+    }
+    if (withPeers(next)) {
+      installSettingsPreview()
+      installAgentFlowPreview(simulateFlow)
+      installAdvicePreview({ currentAgent: () => useApp.getState().sessions[PREVIEW_SESSION]?.agent ?? 'claude-code', advise: simulateAdvise, stop: simulateStop, forward: simulateForward, implement: simulateImplement })
+    }
     setMode(next)
     const loaded = load(next)
-    const agents = next.startsWith('agents') ? ((loaded as { subagents?: SubagentInfo[] }).subagents ?? []) : []
+    const agents = next.startsWith('agents') || next === 'ladder-delegate' ? ((loaded as { subagents?: SubagentInfo[] }).subagents ?? []) : []
     setSubagents(agents)
     useSubagentLists.getState().set(PREVIEW_SESSION, agents)
     const { [PREVIEW_SESSION]: _drop, ...others } = useApp.getState().sessions
     const notice = NOTICES[next] ?? null
-    useApp.setState({
+    if (withPeers(next)) {
+      // Preview session with the sessions on the other side: the "Open session" links and the current agent are read from here.
+      const at = Date.now()
+      const inbound = next === 'handoff-in' || next === 'implement-in' || next === 'ladder-handoff-in'
+      const delegateTools = next === 'ladder-delegate' ? ((loaded as { delegateToolIds?: string[] }).delegateToolIds ?? []) : []
+      const delegateChildren = Object.fromEntries(
+        delegateTools.map((toolId, i) => [`preview-delegate-${i + 1}`, { ...usageSession(`preview-delegate-${i + 1}`, 'codex', undefined, i === 0 ? 'running' : 'idle', at), title: 'Review the pagination change', model: 'gpt-6-luna', permission: 'plan' as const, parent: { sessionId: PREVIEW_SESSION, role: 'delegate' as const, itemId: toolId } }])
+      )
+      const { 'preview-peer': _p, 'preview-origin': _o, ...rest } = others
+      useApp.setState({
+        sessions: {
+          ...rest,
+          [PREVIEW_SESSION]: { ...usageSession(PREVIEW_SESSION, inbound || next === 'ladder-child' ? 'codex' : 'claude-code', undefined, loaded.run, at), title: 'Shared pagination', permission: next === 'plan' ? ('plan' as const) : ('edit' as const), handoffFrom: inbound ? { sessionId: 'preview-origin', agent: 'claude-code' } : undefined, subagentCounts: agents.length ? countsOf(agents) : undefined, parent: next === 'ladder-child' ? { sessionId: 'preview-origin', role: 'delegate' as const, itemId: 'preview-delegate-tool' } : undefined },
+          ...delegateChildren,
+          ...(next === 'ladder-resume' ? { 'preview-delegate-1': { ...usageSession('preview-delegate-1', 'codex', undefined, 'idle', at), title: 'Review the pagination change', model: 'gpt-6-luna', permission: 'plan' as const, parent: { sessionId: PREVIEW_SESSION, role: 'delegate' as const, itemId: 'preview-delegate-tool' } } } : {}),
+          'preview-peer': { ...usageSession('preview-peer', 'codex', undefined, 'idle', at), title: 'Shared pagination', handoffFrom: { sessionId: PREVIEW_SESSION, agent: 'claude-code' } },
+          'preview-origin': { ...usageSession('preview-origin', 'claude-code', undefined, 'idle', at), title: 'Shared pagination' }
+        }
+      })
+    } else useApp.setState({
       sessions: agents.length || notice ? { ...others, [PREVIEW_SESSION]: { id: PREVIEW_SESSION, agent: 'claude-code', model: 'claude-opus-5-5', run: 'idle', unread: false, updatedAt: Date.now(), agentsNotice: notice, subagentCounts: agents.length ? countsOf(agents) : undefined } as unknown as SessionSummary } : others
     })
     setFixtureState(loaded)
@@ -684,6 +894,21 @@ function Preview() {
         >
           Shortcuts
         </button>
+        {(mode === 'advice' || mode === 'plan') && (
+          <>
+            <button type="button" className={btn} onClick={() => useApp.getState().setAdviceDialog({ sessionId: PREVIEW_SESSION, mode: 'advisor' })} title="Opens «Ask for advice» in single mode (with the question «fail» the fake host answers with an error, with «error» the second entry fails)">
+              Ask for advice…
+            </button>
+            <button type="button" className={btn} onClick={() => useApp.getState().setAdviceDialog({ sessionId: PREVIEW_SESSION, mode: 'committee' })}>
+              Committee…
+            </button>
+          </>
+        )}
+        {mode.startsWith('handoff') && (
+          <button type="button" className={btn} onClick={() => useApp.getState().setHandoffDialog({ sessionId: PREVIEW_SESSION })} title="Opens the Hand off to… dialog (with the note «fail» the fake host answers with an error)">
+            Hand off to…
+          </button>
+        )}
         <button type="button" className={btn} onClick={() => setCanSteer((v) => !v)}>
           Agente: {canSteer ? 'inserisce nel turno' : 'solo coda (ACP)'}
         </button>
@@ -764,7 +989,10 @@ function Preview() {
         <button type="button" className={btn} onClick={() => setUsageProfile((p) => (p === 'work' ? 'default' : 'work'))}>
           Profile: {usageProfile}
         </button>
-        <button type="button" className={btn} onClick={() => useSettings.getState().openSection('defaults')}>
+        <button type="button" className={btn} onClick={() => {
+          installSettingsPreview()
+          useSettings.getState().openSection('defaults')
+        }}>
           Predefiniti
         </button>
         <button type="button" className={btn} onClick={() => useSettings.getState().openSection('appearance')} title="Dimensione del testo, font del codice, densità della sidebar (in fondo alla sezione)">
@@ -848,12 +1076,17 @@ function Preview() {
           <span className="text-[12px] text-muted-foreground">
             acme-monorepo · main · Claude Code · {fixture.items.length} elementi · {fixture.run}
           </span>
+          {mode === 'ladder-child' && previewSession?.parent && (
+            <span className="flex min-w-0 items-center text-xs text-muted-foreground">
+              <AdviceParentNote session={previewSession} />
+            </span>
+          )}
           {(NOTICES[mode] || mode === 'agents-waiting') && <NoticeSample />}
         </div>
         <div className="flex min-h-0 flex-1 flex-col" onKeyDown={permissionChange.onKeyDown}>
         <ChatView
           key={`${mode}-${runId}-${mountId}-${locale}`}
-          sessionId={mode.startsWith('agents') ? PREVIEW_SESSION : `${mode}-${runId}-${mountId}`}
+          sessionId={mode.startsWith('agents') || withPeers(mode) ? PREVIEW_SESSION : `${mode}-${runId}-${mountId}`}
           items={fixture.items}
           run={fixture.run}
           activity={fixture.activity}
@@ -880,7 +1113,7 @@ function Preview() {
             onEffortChange={setEffort}
             effortEffective={previewCase === 'unknown' ? undefined : 'medium'}
             draftKey="preview"
-            sessionId={subagents.length ? PREVIEW_SESSION : undefined}
+            sessionId={subagents.length || withPeers(mode) ? PREVIEW_SESSION : undefined}
             subagentCounts={subagents.length ? countsOf(subagents) : undefined}
             projectId={PREVIEW_PROJECT}
             agent={previewCase === 'codex' ? 'codex' : 'claude-code'}
@@ -896,6 +1129,22 @@ function Preview() {
             commands={previewCommands}
             onCommand={onCommand}
             onNewSession={(args) => setLast(`onNewSession ${JSON.stringify(args)}`)}
+            onHandoff={
+              mode.startsWith('handoff')
+                ? (args) => {
+                    const session = useApp.getState().sessions[PREVIEW_SESSION]
+                    if (session) runHandoffCommand(session, args, useApp.getState().agents, [], (message) => setLast(message ? `onHandoff: ${message}` : `onHandoff ${JSON.stringify(args)}`))
+                  }
+                : undefined
+            }
+            onAdvice={
+              withPeers(mode)
+                ? (adviceMode, args) => {
+                    const session = useApp.getState().sessions[PREVIEW_SESSION]
+                    if (session) runAdviceCommand(session, adviceMode, args, useApp.getState().agents, [], (message) => setLast(message ? `onAdvice: ${message}` : `onAdvice /${adviceMode} ${JSON.stringify(args)}`))
+                  }
+                : undefined
+            }
             onSubmit={onSubmit}
             canSteer={canSteer}
             onDeliver={onDeliver}
@@ -936,6 +1185,9 @@ function Preview() {
       ) : null}
       </div>
       <SettingsDialog />
+      <HandoffDialog />
+      <AdviceDialog />
+      <PlanDialog />
       <SubagentDialog sessionId={PREVIEW_SESSION} />
       <p className="font-mono text-[11px] text-muted-foreground">
         ancora: {anchor ? `${anchor.itemId} +${anchor.offset}px` : '—'} · ultimo evento: {last || '—'}

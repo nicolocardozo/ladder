@@ -8,6 +8,8 @@ import { Kbd } from '@/components/ui/kbd'
 import { AgentMark, modelLabel } from '@/components/agent-mark'
 import { EffortTrack, effortName } from '@/components/composer/effort-slider'
 import { useProjectSettings } from '@/components/main-views'
+import { ProjectAgentSwitches } from '@/components/settings-agent-switches'
+import { ProjectDelegates } from '@/components/settings-delegates'
 import { PresetsSection } from '@/components/settings-presets'
 import { usePrefs } from '@/hooks/use-prefs'
 import { agentBrowserEnabled } from '@/lib/browser-agent'
@@ -444,6 +446,9 @@ export function DefaultsSection() {
           <span>{t('No agent available')}</span>
         )}
       </p>
+
+      {project && settings && <ProjectAgentSwitches project={project} settings={settings} />}
+      {project && settings && <ProjectDelegates project={project} delegates={settings.agents.delegates ?? []} />}
 
       {/* Da 820 px su due colonne: profili e tasto di invio, poi titoli, testo scritto e browser. */}
       <div className="grid items-start gap-x-10 @[820px]:grid-cols-2">

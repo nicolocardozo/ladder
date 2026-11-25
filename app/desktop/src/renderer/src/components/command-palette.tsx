@@ -19,7 +19,7 @@ import { useSettings } from '@/hooks/use-theme'
 import { relativeAge, sessionState } from '@/lib/session-state'
 import { newShell } from '@/components/terminal/terminal-panel'
 import { focusNextTerminal } from '@/lib/terminal-registry'
-import { isLiveSession, useApp } from '@/store/app-store'
+import { isListedSession, useApp } from '@/store/app-store'
 import { openSavePreset, presetSummary } from '@/lib/session-presets'
 import { Kbd } from '@/components/ui/kbd'
 import { shortcutLabel, type CommandId } from '@shared/shortcuts'
@@ -126,7 +126,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const projectNames = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
 
   const live = useMemo(() => {
-    const list = Object.values(sessions).filter((s) => isLiveSession({ projects }, s))
+    const list = Object.values(sessions).filter((s) => isListedSession({ projects }, s))
     // Prima chi aspetta l'utente, poi per attività recente.
     return list.sort((a, b) => Number(b.run === 'waiting') - Number(a.run === 'waiting') || b.updatedAt - a.updatedAt)
   }, [sessions, projects])

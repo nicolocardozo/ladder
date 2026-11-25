@@ -153,6 +153,41 @@ export class ConversationBuilder {
     return this.push('command', { name, args, status, error }, 30_000)
   }
 
+  /** Agent handoff: row that opens the turn in place of the user message. */
+  handoff(fields: Partial<Omitted<'handoff'>> & Pick<Omitted<'handoff'>, 'direction' | 'agent' | 'state'>) {
+    return this.push(
+      'handoff',
+      { peerSessionId: null, note: null, summary: null, checkpoint: null, files: [], error: null, ...fields },
+      30_000
+    )
+  }
+
+  /** Card of /advisor or /committee: system row, with turnId 'system' as in the contract. */
+  advice(fields: Partial<Omitted<'advice'>> & Pick<Omitted<'advice'>, 'mode' | 'entries'>) {
+    const saved = this.turnId
+    this.turnId = 'system'
+    const item = this.push('advice', { question: '', forwarded: false, ...fields }, 20_000)
+    this.turnId = saved
+    return item
+  }
+
+  /** System card (resuming a delegation, plan limit): turnId 'system'. */
+  resume(fields: Partial<Omitted<'resume'>> & Pick<Omitted<'resume'>, 'toolItemId' | 'agent' | 'state'>) {
+    const saved = this.turnId
+    this.turnId = 'system'
+    const item = this.push('resume', { childSessionId: 'preview-delegate-1', reason: 'Ladder was closed while it was working.', error: null, ...fields }, 15_000)
+    this.turnId = saved
+    return item
+  }
+
+  limit(fields: Partial<Omitted<'limit'>> & Pick<Omitted<'limit'>, 'phase' | 'agent' | 'state'>) {
+    const saved = this.turnId
+    this.turnId = 'system'
+    const item = this.push('limit', { window: '5-hour limit', resetsAt: Math.floor(Date.now() / 1000) + 2 * 3600, target: null, peerSessionId: null, automatic: false, error: null, ...fields }, 15_000)
+    this.turnId = saved
+    return item
+  }
+
   /** Contesto compattato, a mano o in automatico. */
   compacted(trigger: Kind<'compacted'>['trigger'], preTokens: number | null = null, postTokens: number | null = null) {
     return this.push('compacted', { trigger, preTokens, postTokens }, 4_000)
@@ -514,7 +549,7 @@ function paginationStart(b: ConversationBuilder) {
   b.turn()
   b.user('Ora estrai la paginazione in un componente riutilizzabile e usalo anche in Movimenti.')
   b.tool('read', 'Read', 'Legge src/features/payments/PaymentsTable.tsx', 'src/features/payments/PaymentsTable.tsx', { ms: 100 })
-  b.tool('read', 'Read', 'Legge src/features/movements/MovementsList.tsx', 'src/features/movements/MovementsList.tsx', { ms: 120 })
+  b.tool('read', 'Read', 'Reads src/features/movements/MovementsList.tsx', 'src/features/movements/MovementsList.tsx', { ms: 120 })
   b.tool('search', 'Grep', 'Cerca usePageRange', 'usePageRange', { output: 'Nessun risultato', ms: 300 })
 }
 
@@ -1153,6 +1188,320 @@ export function stalledFixture(): Fixture {
   b.user('Migra tutti i componenti della tabella ai nuovi token, poi aggiorna le storie.')
   b.assistant('Ho guardato il piano: sono quattordici componenti, conviene partire da Pagination e poi passare alle celle.', false, 6_000)
   b.end({ durationMs: 11_000, stalled: true })
+  b.shiftToNow(30_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+/** Sample handoff summary: goal, decisions, state. */
+export const HANDOFF_SUMMARY = `**Goal**: unify the pagination of Payments and Movements in a single controlled component.
+
+**Decisions**
+- \`Pagination\` lives in \`src/components/Pagination/\` and takes \`page\`, \`pageCount\`, \`onPageChange\`.
+- \`usePageRange\` computes the visible pages and stays separate, so it can be tested on its own.
+
+**State**: Payments already uses the new component. Movements does not: the tests for \`MovementsList\` are missing.
+
+**Next steps**: migrate Movements, then add the tests.`
+
+export const HANDOFF_FILES: FileChange[] = [
+  { path: 'src/components/Pagination/Pagination.tsx', added: 64, removed: 0, status: 'A' },
+  { path: 'src/components/Pagination/usePageRange.ts', added: 41, removed: 0, status: 'A' },
+  { path: 'src/features/payments/PaymentsTable.tsx', added: 9, removed: 33, status: 'M' }
+]
+
+export type HandoffScenario = 'out' | 'in' | 'summarizing'
+
+/** Agent handoffs: 'out' done (to Codex), 'in' (from Claude Code, with note, summary and files), 'summarizing' (summary in progress). */
+export function handoffFixture(scenario: HandoffScenario): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  if (scenario === 'out') {
+    b.handoff({ direction: 'out', agent: 'codex', peerSessionId: 'preview-peer', state: 'done', note: 'Migrate Movements and add the tests.', summary: HANDOFF_SUMMARY, checkpoint: '9f3c2ab41d7e', files: HANDOFF_FILES })
+    b.assistant(HANDOFF_SUMMARY, false, 6_000)
+    b.end({ durationMs: 9_000 })
+    b.shiftToNow(60_000)
+    return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+  }
+  if (scenario === 'in') {
+    b.handoff({ direction: 'in', agent: 'claude-code', peerSessionId: 'preview-origin', state: 'done', note: 'Migrate Movements and add the tests.', summary: HANDOFF_SUMMARY, checkpoint: '9f3c2ab41d7e', files: HANDOFF_FILES })
+    b.assistant('I read the summary. I will start from `MovementsList`: replace its pagination with `Pagination`, then write the tests.', false, 5_000)
+    b.end({ durationMs: 14_000 })
+    b.shiftToNow(60_000)
+    return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+  }
+  b.handoff({ direction: 'out', agent: 'codex', state: 'summarizing', note: 'Migrate Movements and add the tests.' })
+  b.assistant(HANDOFF_SUMMARY.slice(0, 220), true, 3_000)
+  b.shiftToNow(3_000)
+  return { items: b.items, run: 'running', activity: 'Writing the summary', firstUnreadSeq: null }
+}
+
+export const ADVICE_TEXT_A = `**In short**: the direction is right, but \`Pagination\` should not know about \`usePageRange\`.
+
+- Pass the page computation in from outside (\`pages\` as a prop): the component stays presentational and can be tested without hooks.
+- \`siblings\` has a default value but no limit: with \`siblings > pageCount\` the range repeats.
+- The \`pageCount === 0\` case is missing: today it shows an empty \`nav\`, better to render nothing.
+
+**Risks**: migrating Movements changes the page URL (\`?p=\` instead of \`?page=\`). If there are saved links, both names are needed for a while.`
+
+export const ADVICE_TEXT_B = `I agree with the unification. Two notes:
+
+1. The \`PaymentsTable\` tests still touch the old pagination: update them in the same commit.
+2. \`aria-label="Pagination"\` is hard-coded: pass it as a prop or use \`t()\`.`
+
+type AdviceEntries = Kind<'advice'>['entries']
+const advEntry = (fields: Partial<AdviceEntries[number]> & Pick<AdviceEntries[number], 'agent' | 'state'>): AdviceEntries[number] => ({ model: null, sessionId: null, text: null, error: null, ...fields })
+
+/** Advice cards: a finished advisor, a running committee (one entry working, one done), and a committee with one entry in error and one stopped. */
+export function adviceFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.advice({
+    mode: 'advisor',
+    question: 'Does the unified pagination convince you? What would you change?',
+    entries: [advEntry({ agent: 'codex', model: 'gpt-6-luna', sessionId: 'preview-advice-1', state: 'done', text: ADVICE_TEXT_A })]
+  })
+  b.advice({
+    mode: 'committee',
+    question: '',
+    entries: [
+      advEntry({ agent: 'claude-code', model: 'claude-opus-5-5', sessionId: 'preview-advice-2', state: 'done', text: ADVICE_TEXT_B }),
+      advEntry({ agent: 'codex', model: 'gpt-6-luna', sessionId: 'preview-advice-3', state: 'running' })
+    ]
+  })
+  b.advice({
+    mode: 'committee',
+    question: 'Can I remove the old usePagination hook?',
+    entries: [
+      advEntry({ agent: 'claude-code', model: 'claude-opus-5-5', sessionId: 'preview-advice-4', state: 'done', text: 'Yes: it has no more uses. I searched for `usePagination` across `src/` and only its definition and a comment remain.' }),
+      advEntry({ agent: 'codex', model: 'gpt-6-luna', sessionId: 'preview-advice-5', state: 'error', error: 'Codex is not available right now. Try again in a moment.' }),
+      advEntry({ agent: 'acp:gemini', model: null, sessionId: 'preview-advice-6', state: 'stopped' })
+    ],
+    forwarded: false
+  })
+  b.shiftToNow(30_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+export const PLAN_TEXT = `# Migrate Movements to the shared pagination
+
+## Goal
+Use \`Pagination\` in **Movements** too, without changing the look of the table.
+
+## Steps
+1. Replace the pagination of \`MovementsList\` with \`Pagination\`.
+2. Read \`page\` from the URL (\`?page=\`) and keep it in sync with \`onPageChange\`.
+3. Remove \`useMovementsPaging\`, which has no more uses after the migration.
+   - Check with a search in \`src/\` before deleting it.
+
+## Test
+- Update the \`MovementsList\` tests for the new API.
+- Add a case with \`pageCount === 0\`.
+
+\`\`\`ts
+// expected shape of the call
+<Pagination page={page} pageCount={pageCount} onPageChange={setPage} />
+\`\`\`
+
+> Out of scope: the server-side pagination of Refunds.`
+
+/** A turn that ends with a plan ('tool' row with tool 'plan', like ExitPlanMode) and one without (last message in a Plan session). */
+export function planFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Make a plan to move Movements to the shared pagination. Do not touch the code yet.')
+  b.tool('read', 'Read', 'Reads src/features/movements/MovementsList.tsx', 'src/features/movements/MovementsList.tsx', { ms: 120 })
+  b.tool('plan', 'ExitPlanMode', 'Proposes a plan', PLAN_TEXT, { ms: 400 })
+  b.assistant('The plan is ready: six steps, with tests. Open it to comment on it line by line.', false, 3_000)
+  b.end({ durationMs: 21_000, counts: { commands: 0, edits: 0, reads: 1, searches: 0 } })
+  b.shiftToNow(60_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+export type ImplementScenario = 'out' | 'in'
+
+/** Handoff rows with reason 'implement': "Plan handed to Codex" in the source session, "Plan from Claude Code" in the implementing one. */
+export function implementFixture(scenario: ImplementScenario): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  if (scenario === 'out') {
+    b.handoff({ reason: 'implement', direction: 'out', agent: 'codex', peerSessionId: 'preview-peer', state: 'done', note: 'Start from step 2.', summary: PLAN_TEXT })
+    b.end({ durationMs: 1_000 })
+  } else {
+    b.handoff({ reason: 'implement', direction: 'in', agent: 'claude-code', peerSessionId: 'preview-origin', state: 'done', note: 'Start from step 2.', summary: PLAN_TEXT })
+    b.assistant('Plan read. Starting from step 2: I read `page` from the URL, then move on to the replacement.', false, 5_000)
+    b.end({ durationMs: 12_000 })
+  }
+  b.shiftToNow(60_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+const RESULT_DONE = `**Done**: \`MovementsList\` uses \`Pagination\`.
+
+- Removed \`useMovementsPaging\`, it had no other uses.
+- The tests pass (\`pnpm test movements\`: 14 of 14).`
+
+const RESULT_BLOCKED = `I am stopping before touching the URL: \`?page=\` is also read by \`ExportButton\`, outside the folder you pointed me to.
+
+**Decision needed**: do I change \`ExportButton\` too, or keep both names?`
+
+export type LadderHandoffScenario = 'out' | 'in'
+
+/** Handoffs requested by the agent. 'out': one waiting for end of turn, one finished with outcome "done", one "blocked" and one "failed". 'in': from Claude Code. */
+export function ladderHandoffFixture(scenario: LadderHandoffScenario): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  if (scenario === 'in') {
+    b.turn()
+    b.handoff({ reason: 'agent', direction: 'in', agent: 'claude-code', peerSessionId: 'preview-origin', state: 'done', note: 'Start from the MovementsList tests.', summary: HANDOFF_SUMMARY, checkpoint: '9f3c2ab41d7e', files: HANDOFF_FILES })
+    b.assistant('Read the Claude Code summary. Starting from the `MovementsList` tests.', false, 5_000)
+    b.end({ durationMs: 14_000 })
+    b.shiftToNow(60_000)
+    return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+  }
+  const out = (fields: Partial<Omitted<'handoff'>>) => b.handoff({ reason: 'agent', direction: 'out', agent: 'codex', peerSessionId: 'preview-peer', state: 'done', note: 'Migrate Movements and add the tests.', summary: HANDOFF_SUMMARY, ...fields })
+  b.turn()
+  b.user('When you are done analyzing, hand off to Codex for the implementation.')
+  b.tool('other', 'mcp__ladder__handoff', 'Uses ladder · handoff', JSON.stringify({ agent: 'codex', summary: HANDOFF_SUMMARY }), { output: 'Handoff to Codex scheduled for the end of this turn. Stop now.' })
+  out({ state: 'pending', peerSessionId: null })
+  b.end({ durationMs: 9_000 })
+  b.turn()
+  b.user('Hand the tests part off to Codex too.')
+  out({ checkpoint: '9f3c2ab41d7e', files: HANDOFF_FILES, result: { status: 'done', summary: RESULT_DONE, files: ['src/features/movements/MovementsList.tsx', 'src/features/movements/MovementsList.test.tsx'], at: Date.now() } })
+  b.end({ durationMs: 9_000 })
+  b.turn()
+  b.user('And then the page URL.')
+  out({ note: null, result: { status: 'blocked', summary: RESULT_BLOCKED, at: Date.now() } })
+  b.end({ durationMs: 9_000 })
+  b.turn()
+  b.user('One last handoff.')
+  out({ note: null, summary: null, result: { status: 'failed', summary: 'I could not run the tests: `pnpm` is not installed in this environment.', at: Date.now() } })
+  b.end({ durationMs: 9_000 })
+  b.shiftToNow(60_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+const DELEGATE_PROMPT = `Review the pagination change in src/components/Pagination and tell me what breaks for existing callers.
+
+Do not edit any file. Answer with a short list and the paths involved.`
+
+/** The mcp__ladder__delegate call running and finished, with the child session (`delegateToolIds`) and the agent map with the two delegations. */
+export function ladderDelegateFixture(): Fixture & { subagents: SubagentInfo[]; delegateToolIds: string[] } {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Get a second opinion from Codex on the new pagination while I look at the tests.')
+  b.assistant('I will delegate the review to Codex and read the tests meanwhile.', false, 4_000)
+  const input = (agent: string, prompt: string) => JSON.stringify({ agent, prompt, read_only: true })
+  const running = b.tool('other', 'mcp__ladder__delegate', 'Uses ladder · delegate', input('codex', DELEGATE_PROMPT), { status: 'running' })
+  const done = b.tool('other', 'mcp__ladder__delegate', 'Uses ladder · delegate', input('codex', 'Check whether usePagination still has callers.'), {
+    output: 'Codex: `usePagination` has no callers left. Only its definition and one comment remain.',
+    ms: 74_000
+  })
+  b.tool('other', 'mcp__ladder__list_agents', 'Uses ladder · list_agents', null, { output: 'codex (available): gpt-6-luna, gpt-6\nacp:gemini (available)' })
+  b.tool('other', 'mcp__ladder__report_result', 'Uses ladder · report_result', null, { output: 'Result delivered.' })
+  b.assistant('Waiting for the Codex answer.', false, 2_000)
+  b.shiftToNow(4_000)
+  const now = Date.now()
+  const subagents: SubagentInfo[] = [
+    { id: 'delegate-1', parentId: null, title: DELEGATE_PROMPT.split('\n')[0], kind: 'Codex', model: 'gpt-6-luna', effort: 'high', toolId: running.id, status: 'running', startedAt: now - 52_000, endedAt: null, activity: 'Reads src/components/Pagination/Pagination.tsx', tokens: 18_400, toolUses: 7, background: false },
+    { id: 'delegate-2', parentId: null, title: 'Check whether usePagination still has callers.', kind: 'Codex', model: 'gpt-6-luna', effort: null, toolId: done.id, status: 'done', startedAt: now - 140_000, endedAt: now - 66_000, activity: null, tokens: 9_200, toolUses: 4, background: false },
+    ...previewSubagents({}, now).slice(0, 2).map((a) => ({ ...a, parentId: null }))
+  ]
+  return { items: b.items, run: 'running', activity: 'Waits for Codex', firstUnreadSeq: null, subagents, delegateToolIds: [running.id, done.id] }
+}
+
+/** Child session of a delegation, with its chat; the preview adds the "Delegated by …" header. */
+export function ladderChildFixture(): Fixture {
+  const b = new ConversationBuilder()
+  b.turn()
+  b.user(DELEGATE_PROMPT)
+  b.tool('read', 'Read', 'Reads src/components/Pagination/Pagination.tsx', 'src/components/Pagination/Pagination.tsx', { ms: 120 })
+  b.tool('other', 'mcp__ladder__report_result', 'Uses ladder · report_result', null, { output: 'Result delivered.' })
+  b.assistant('No caller breaks: `page` and `pageCount` stay the same. Only `siblings` changes, and it now has a limit.', false, 5_000)
+  b.end({ durationMs: 19_000 })
+  b.shiftToNow(60_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+/** Interrupted handoffs to resume: with a saved summary, without (error), one waiting with Stop and one not resumable. */
+export function handoffResumeFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.handoff({ direction: 'out', agent: 'codex', state: 'interrupted', resumable: true, note: 'Migrate Movements and add the tests.', summary: HANDOFF_SUMMARY, error: 'Ladder was closed before the handoff finished.', files: HANDOFF_FILES })
+  b.assistant(HANDOFF_SUMMARY, false, 6_000)
+  b.end({ durationMs: 9_000, status: 'interrupted' })
+  b.turn()
+  b.handoff({ direction: 'out', agent: 'codex', state: 'error', resumable: true, note: null, error: 'Codex is not available right now. Try again in a moment.' })
+  b.end({ durationMs: 3_000, status: 'error' })
+  b.turn()
+  b.handoff({ direction: 'out', agent: 'codex', state: 'interrupted', resumable: false, note: null, error: null })
+  b.end({ durationMs: 3_000, status: 'interrupted' })
+  b.turn()
+  b.user('When you are done, hand off to Codex.')
+  b.handoff({ reason: 'agent', direction: 'out', agent: 'codex', state: 'pending', note: 'Add the MovementsList tests.' })
+  b.shiftToNow(30_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+/** Interrupted delegations in the parent, one per state (open, error, resumed, done, closed). */
+export function resumeFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Get a second opinion from Codex on the new pagination.')
+  b.assistant('I will delegate the review to Codex.', false, 4_000)
+  const input = JSON.stringify({ agent: 'codex', prompt: 'Review the pagination change in src/components/Pagination.', read_only: true })
+  const tool = (output: string | null = null) => b.tool('other', 'mcp__ladder__delegate', 'Uses ladder · delegate', input, { status: 'error', output })
+  const cards: [string, Omitted<'resume'>['state'], string | null][] = [
+    ['open', 'open', null],
+    ['error', 'error', 'The session of Codex no longer exists.'],
+    ['resumed', 'resumed', null],
+    ['done', 'done', null],
+    ['dismissed', 'dismissed', null]
+  ]
+  for (const [, state, error] of cards) {
+    const row = tool('The delegation was interrupted.')
+    b.resume({ toolItemId: row.id, agent: 'codex', state, error, childSessionId: state === 'error' || state === 'dismissed' ? null : 'preview-delegate-1' })
+  }
+  b.end({ durationMs: 40_000, status: 'interrupted' })
+  b.shiftToNow(60_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+/** Plan limit. Proposal, handoff error, automatic handoff (with the 'limit' handoff row) and agent available again. */
+export function limitFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.turn()
+  b.user('Continue with the Movements migration.')
+  b.assistant('Starting from MovementsList.', false, 3_000)
+  b.end({ durationMs: 12_000, status: 'error', error: 'Usage limit reached.' })
+  b.limit({ phase: 'reached', agent: 'claude-code', state: 'proposed', target: 'codex' })
+  b.limit({ phase: 'reached', agent: 'claude-code', state: 'error', target: 'codex', error: 'Codex is not available right now. Try again in a moment.' })
+  b.limit({ phase: 'reached', agent: 'claude-code', state: 'proposed', target: null, window: 'Weekly limit' })
+  b.turn()
+  b.limit({ phase: 'reached', agent: 'claude-code', state: 'switched', target: 'codex', automatic: true, peerSessionId: 'preview-peer' })
+  b.handoff({ reason: 'limit', direction: 'out', agent: 'codex', peerSessionId: 'preview-peer', state: 'done', note: null, summary: HANDOFF_SUMMARY, checkpoint: '9f3c2ab41d7e', files: HANDOFF_FILES })
+  b.end({ durationMs: 5_000 })
+  b.turn()
+  b.handoff({ reason: 'limit', direction: 'out', agent: 'codex', state: 'pending', note: null })
+  b.limit({ phase: 'reset', agent: 'claude-code', state: 'proposed', resetsAt: null })
+  b.shiftToNow(30_000)
+  return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
+}
+
+/** Cross-review cards: severe and forwarded automatically, minor, no issues and one in progress. */
+export function reviewFixture(): Fixture {
+  const b = new ConversationBuilder()
+  history(b)
+  b.advice({ mode: 'review', question: '', verdict: 'serious', forwarded: true, entries: [advEntry({ agent: 'codex', model: 'gpt-6-luna', sessionId: 'preview-advice-1', state: 'done', text: ADVICE_TEXT_A })] })
+  b.advice({ mode: 'review', question: '', verdict: 'minor', forwarded: false, entries: [advEntry({ agent: 'codex', model: 'gpt-6-luna', sessionId: 'preview-advice-2', state: 'done', text: ADVICE_TEXT_B })] })
+  b.advice({ mode: 'review', question: '', verdict: 'ok', forwarded: false, entries: [advEntry({ agent: 'codex', model: 'gpt-6-luna', sessionId: 'preview-advice-3', state: 'done', text: 'No issues found in the diff. The new `Pagination` keeps the old props and the tests cover the empty case.' })] })
+  b.advice({ mode: 'review', question: '', verdict: null, forwarded: false, entries: [advEntry({ agent: 'codex', model: 'gpt-6-luna', sessionId: 'preview-advice-4', state: 'running' })] })
   b.shiftToNow(30_000)
   return { items: b.items, run: 'idle', activity: null, firstUnreadSeq: null }
 }

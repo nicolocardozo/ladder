@@ -12,6 +12,10 @@ export type CommandItem = Extract<ChatItem, { kind: 'command' }>
 export type AgentStartItem = Extract<ChatItem, { kind: 'agent-start' }>
 export type AgentsFinishedItem = Extract<ChatItem, { kind: 'agents-finished' }>
 export type CompactedItem = Extract<ChatItem, { kind: 'compacted' }>
+export type HandoffChatItem = Extract<ChatItem, { kind: 'handoff' }>
+export type AdviceChatItem = Extract<ChatItem, { kind: 'advice' }>
+export type ResumeChatItem = Extract<ChatItem, { kind: 'resume' }>
+export type LimitChatItem = Extract<ChatItem, { kind: 'limit' }>
 
 export interface Turn {
   id: string
@@ -26,6 +30,12 @@ export interface Turn {
   commands: CommandItem[]
   /** Riga di sistema dei turni aperti dall'agente, al posto del messaggio dell'utente. */
   start: AgentStartItem | null
+  /** Agent handoff separator that opens the turn in place of the user message. */
+  handoff: HandoffChatItem | null
+  /** Cards of /advisor and /committee: system rows, each with its own turn (see groupTurns). */
+  advice: AdviceChatItem[]
+  /** System cards for resuming a delegation and for the plan limit: each has its own group and stays visible even with collapsed steps. */
+  cards: (ResumeChatItem | LimitChatItem)[]
   /** Fine dei sotto-agenti in background con il coordinatore fermo: sta in fondo al turno, mai dentro il riepilogo. */
   finished: AgentsFinishedItem[]
   /** Avvisi e compattazioni del turno finito: restano visibili anche quando i passaggi sono chiusi. */
@@ -77,12 +87,27 @@ function buildTurn(id: string, items: ChatItem[]): Turn {
   const notices: (NoticeItem | CompactedItem)[] = []
   const commands: CommandItem[] = []
   let start: AgentStartItem | null = null
+  let handoff: HandoffChatItem | null = null
+  const advice: AdviceChatItem[] = []
+  const cards: (ResumeChatItem | LimitChatItem)[] = []
   const open: RequestItem[] = []
   const finished: AgentsFinishedItem[] = []
   for (const item of items) {
     if (item === user || item === end || item === final) continue
     if (item.kind === 'agent-start') {
       start ??= item
+      continue
+    }
+    if (item.kind === 'handoff') {
+      handoff ??= item
+      continue
+    }
+    if (item.kind === 'advice') {
+      advice.push(item)
+      continue
+    }
+    if (item.kind === 'resume' || item.kind === 'limit') {
+      cards.push(item)
       continue
     }
     if (item.kind === 'agents-finished') {
@@ -95,8 +120,15 @@ function buildTurn(id: string, items: ChatItem[]): Turn {
     else steps.push(item)
   }
 
-  return { id, items, user, start, commands, steps, final, notices, open, finished, end, toolCount, startedAt: items[0]?.at ?? 0 }
+  return { id, items, user, start, handoff, advice, cards, commands, steps, final, notices, open, finished, end, toolCount, startedAt: items[0]?.at ?? 0 }
 }
+
+/** Group key: the turnId, except for advice cards (system rows that belong to no turn). */
+export const turnKey = (item: ChatItem): string =>
+  item.kind === 'advice' || item.kind === 'resume' || item.kind === 'limit' ? `${item.kind}:${item.id}` : item.kind === 'handoff' && item.turnId === 'system' ? `handoff:${item.id}` : item.turnId
+
+/** The turn is only a system row (advice card, or 'implement' handoff with turnId 'system'): it is never "the running turn". */
+export const isAdviceTurn = (turn: Turn): boolean => (turn.advice.length > 0 && turn.items.length === turn.advice.length) || (turn.cards.length > 0 && turn.items.length === turn.cards.length) || (turn.items.length === 1 && turn.handoff !== null && turn.id.startsWith('handoff:'))
 
 export interface TurnCache {
   byId: Map<string, ChatItem>
@@ -119,10 +151,12 @@ export function groupTurns(items: ChatItem[], cache: TurnCache): Turn[] {
     const prev = cache.byId.get(raw.id)
     const item = prev && sameItem(prev, raw) ? prev : raw
     byId.set(item.id, item)
-    let group = groups.get(item.turnId)
+    // Advice cards have turnId 'system': each gets its own group, otherwise they would all merge into the first one.
+    const key = turnKey(item)
+    let group = groups.get(key)
     if (!group) {
       group = []
-      groups.set(item.turnId, group)
+      groups.set(key, group)
     }
     group.push(item)
   }
@@ -208,7 +242,9 @@ export function estimateTurnHeight(turn: Turn, m: ChatColumn = DEFAULT_COLUMN): 
   }
   let h = 28
   if (turn.user) h += Math.min(6, Math.ceil(turn.user.text.length / m.userChars) + turn.user.text.split('\n').length - 1) * m.line + 28
-  h += turn.commands.length * 26 + (turn.start ? 26 : 0)
+  h += turn.commands.length * 26 + (turn.start ? 26 : 0) + (turn.handoff ? (turn.handoff.direction === 'in' ? 90 : 26) : 0)
+  h += turn.cards.length * 100
+  for (const a of turn.advice) h += 56 + (a.entries.length > 1 ? 210 : 180) + 40
   // Messaggi inseriti nel turno: righe a sé, anche dopo il riepilogo.
   const userHeight = (text: string, steered?: boolean) => Math.min(6, Math.ceil(text.length / m.userChars) + text.split('\n').length - 1) * m.line + 28 + (steered ? 18 : 0)
   if (turn.end) {

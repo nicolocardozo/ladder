@@ -7,7 +7,7 @@ import { Readable, Writable } from 'node:stream'
 import * as acp from '@agentclientprotocol/sdk'
 import { t } from '@shared/i18n'
 import type { AcpAgentSpec, AgentLogin, Attachment, Effort, PermissionLevel, RequestOption } from '@shared/protocol'
-import { agentEnv, BROWSER_MCP_NAME, clip, displayCommand, firstLine, whichInShell, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
+import { agentEnv, BROWSER_MCP_NAME, LADDER_MCP_NAME, ladderDetail, clip, displayCommand, firstLine, whichInShell, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
 
 /** Chiavi API tolte sempre: vale il login dell'agente. */
 export const STRIP_ENV = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY']
@@ -214,6 +214,16 @@ export async function acpProbe(spec: AcpAgentSpec, cwd: string, timeoutMs = PROB
   }
 }
 
+/** Ladder MCP tool from the tool call title or, if the title does not say, from the input shape. */
+function ladderToolName(title: string, raw: Record<string, unknown>): string | null {
+  const named = /(list_agents|handoff|delegate|report_result)/.exec(title)
+  if (named) return named[1]
+  if ('prompt' in raw && 'agent' in raw) return 'delegate'
+  if ('summary' in raw && 'agent' in raw) return 'handoff'
+  if ('summary' in raw && 'status' in raw) return 'report_result'
+  return Object.keys(raw).length === 0 ? 'list_agents' : null
+}
+
 export class AcpSession implements AgentSession {
   private child: ChildProcess | null = null
   private connection: acp.ClientConnection | null = null
@@ -229,7 +239,7 @@ export class AcpSession implements AgentSession {
   /** Messaggio o ragionamento aperto: ACP non ha un evento di fine messaggio. */
   private open: { kind: 'message' | 'thought'; id: string; text: string } | null = null
   private counter = 0
-  private tools = new Map<string, { title: string; kind: string; detail: string | null; output: string; status: string }>()
+  private tools = new Map<string, { title: string; kind: string; detail: string | null; output: string; status: string; name?: string }>()
   private diffs = new Map<string, { path: string; oldText: string | null; newText: string }>()
   private pending = new Map<string, AbortController>()
   private closed = false
@@ -300,7 +310,14 @@ export class AcpSession implements AgentSession {
     // LAD-57 parte 2: browser dell'agente, solo se l'agente dichiara MCP su http (initialize → mcpCapabilities); altrimenti non si registra e si avvisa.
     const browser = this.options.browserTools
     const mcpHttp = (init.agentCapabilities as { mcpCapabilities?: { http?: boolean } } | undefined)?.mcpCapabilities?.http === true
-    const mcpServers: acp.McpServer[] = browser && mcpHttp ? [{ type: 'http', name: BROWSER_MCP_NAME, url: browser.url, headers: [{ name: 'Authorization', value: `Bearer ${browser.token}` }] }] : []
+    const ladder = this.options.ladderTools
+    const mcpServers: acp.McpServer[] = mcpHttp
+      ? [
+          ...(browser ? [{ type: 'http' as const, name: BROWSER_MCP_NAME, url: browser.url, headers: [{ name: 'Authorization', value: `Bearer ${browser.token}` }] }] : []),
+          // Ladder MCP server; without MCP over http the agent silently works without handoff or delegation.
+          ...(ladder ? [{ type: 'http' as const, name: LADDER_MCP_NAME, url: ladder.url, headers: [{ name: 'Authorization', value: `Bearer ${ladder.token}` }] }] : [])
+        ]
+      : []
     if (browser && !mcpHttp) this.events.notice('info', t('{agent} cannot use the browser tools: it does not support MCP servers over HTTP.', { agent: spec.name }))
     let configOptions: ConfigOption[] | null | undefined
     try {
@@ -354,6 +371,8 @@ export class AcpSession implements AgentSession {
   /** Sceglie l'opzione mode del livello. Con `strict`, se l'agente ha un'opzione mode ma nessun valore combacia, è un errore. */
   private async applyMode(strict: boolean): Promise<void> {
     const mode = this.optionByCategory('mode')
+    // Read-only child session: without a mode that enforces it the agent would run in auto-edit, so it does not start.
+    if (this.options.readOnly && !mode) throw new Error(t('{agent} has no plan or read-only mode, so it cannot run read-only.', { agent: this.options.spec.name }))
     let hit: SelectValue | undefined
     if (mode) {
       const values = flatten(mode)
@@ -374,10 +393,12 @@ export class AcpSession implements AgentSession {
         const match = flatten(thought).find((v) => v.value.toLowerCase() === this.effort || v.name.toLowerCase() === this.effort)
         await this.setOption(thought, match?.value ?? null)
       }
-      await this.applyMode(false)
+      if (!this.options.readOnly) await this.applyMode(false)
     } catch (error) {
       this.events.notice('info', t('{agent} did not accept the settings: {message}', { agent: this.options.spec.name, message: (error as Error).message }))
     }
+    // Read-only: plan mode must really apply, a refusal fails the start (it is not just a warning).
+    if (this.options.readOnly) await this.applyMode(true)
   }
 
   send(text: string, attachments: Attachment[] = []): void {
@@ -481,7 +502,10 @@ export class AcpSession implements AgentSession {
         const command = displayCommand(typeof raw.command === 'string' ? raw.command : Array.isArray(raw.command) ? (raw.command as string[]).join(' ') : null)
         const location = u.locations?.[0]?.path ?? null
         const kind = u.kind ?? 'other'
-        const tool = { title: u.title || command || kind, kind, detail: command ?? location, output: '', status: u.status ?? 'pending' }
+        // Ladder server tools (title contains "ladder"): the input as JSON in detail.
+        const ladderName = kind === 'other' && /ladder/i.test(u.title ?? '') ? ladderToolName(u.title ?? '', raw) : null
+        const ladder = ladderName ? ladderDetail(raw) : null
+        const tool = { title: u.title || command || kind, kind, detail: ladder ?? command ?? location, output: '', status: u.status ?? 'pending', ...(ladderName ? { name: `${LADDER_MCP_NAME}.${ladderName}` } : {}) }
         this.tools.set(u.toolCallId, tool)
         this.captureContent(u.toolCallId, u.content, (u as { _meta?: Record<string, unknown> })._meta)
         this.events.activity(tool.title)
@@ -540,7 +564,7 @@ export class AcpSession implements AgentSession {
     if (!tool) return
     const status = tool.status === 'completed' ? 'done' : tool.status === 'failed' ? 'error' : 'running'
     const category = tool.kind === 'execute' ? 'command' : tool.kind === 'edit' || tool.kind === 'delete' || tool.kind === 'move' ? 'edit' : tool.kind === 'read' ? 'read' : tool.kind === 'search' ? 'search' : tool.kind === 'fetch' ? 'web' : tool.kind === 'think' ? 'plan' : 'other'
-    this.events.tool({ id, tool: category, name: tool.kind, title: firstLine(tool.title), detail: tool.detail, status, output: clip(tool.output) })
+    this.events.tool({ id, tool: category, name: tool.name ?? tool.kind, title: firstLine(tool.title), detail: tool.detail, status, output: clip(tool.output) })
   }
 
   private async onPermission(params: acp.RequestPermissionRequest, signal: AbortSignal): Promise<acp.RequestPermissionResponse> {

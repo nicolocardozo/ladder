@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, RefreshCw, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import { ArrowRightLeft, Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, RefreshCw, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { shortcutLabel } from '@shared/shortcuts'
 import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
@@ -105,7 +105,8 @@ export function AppSidebar() {
     const known = new Set(projects.map((p) => p.id))
     const map = new Map<string, SessionSummary[]>()
     for (const session of Object.values(sessions)) {
-      if (session.archived || !known.has(session.projectId)) continue
+      // Child sessions (advice, delegations) open from the parent card: they are not listed and do not count as "Waiting".
+      if (session.archived || session.parent || !known.has(session.projectId)) continue
       const list = map.get(session.projectId) ?? []
       list.push(session)
       map.set(session.projectId, list)
@@ -981,6 +982,8 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
   const profile = useSessionProfileName(session)
   const agents = runningSubagents(session)
   const browsing = useApp((s) => Boolean(s.agentBrowser[session.id]?.action))
+  const origin = useApp((s) => (session.handoffFrom ? s.sessions[session.handoffFrom.sessionId]?.title : null))
+  const handoffLabel = origin ? t('Handed off from “{title}”', { title: origin }) : t('Handed off from another session')
   const doing =
     (session.run === 'running' || session.run === 'starting' || session.run === 'waiting' ? (session.request?.command ?? session.activity) : null) ??
     (session.mode === 'terminal' ? t('Terminal · {command}', { command: session.command ?? 'claude' }) : null) ??
@@ -1009,6 +1012,7 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
         </span>
       )}
       {browsing && <Globe role="img" aria-label={t('The agent is using the browser')} className="size-3 shrink-0 text-running" strokeWidth={2} />}
+      {session.handoffFrom && <ArrowRightLeft role="img" aria-label={handoffLabel} className="size-3 shrink-0 text-faint" strokeWidth={1.9}><title>{handoffLabel}</title></ArrowRightLeft>}
       {session.worktree && <GitFork aria-label={`Worktree ${session.worktree.branch}`} className="size-3 shrink-0 text-faint" />}
       {session.pr && <GitPullRequest aria-label={`PR #${session.pr.number}`} className="size-3 shrink-0 text-faint" />}
       {session.titleGenerating && <Sparkles aria-label={t('Generating title…')} className="size-3 shrink-0 animate-pulse text-faint motion-reduce:animate-none" />}
@@ -1141,7 +1145,7 @@ function AwayRow({ projectId, summary }: { projectId: string; summary: AwaySumma
   ].filter(Boolean)
   const openFirst = () => {
     const state = useApp.getState()
-    const list = Object.values(state.sessions).filter((s) => s.projectId === projectId && !s.archived)
+    const list = Object.values(state.sessions).filter((s) => s.projectId === projectId && !s.archived && !s.parent)
     const target =
       list.filter((s) => s.run === 'waiting').sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))[0] ??
       list.filter((s) => s.unread).sort((a, b) => b.activityAt - a.activityAt)[0]

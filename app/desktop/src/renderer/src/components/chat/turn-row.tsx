@@ -1,15 +1,21 @@
 // Un turno della conversazione: messaggio dell'utente, passaggi, risposta finale, modifiche.
 import { Bot, Check, ChevronRight, CirclePause, CircleStop, CircleX, CornerDownRight, FoldVertical, Info, X } from 'lucide-react'
 import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import type { ChatItem, FileChange, RunState } from '@shared/protocol'
+import type { ChatItem, RunState } from '@shared/protocol'
 import { localeTag, plural, t } from '@shared/i18n'
 import { isImagePlaceholder } from '@/components/composer/attachments'
+import { planOfTool } from '@/lib/plan'
 import { cn } from '@/lib/utils'
 import { AgentsFinishedLine } from './agents-lines'
+import { AdviceCard } from './advice-card'
 import { AttachmentChips, NewDivider, Spinner } from './bits'
+import { ChangedFileList } from './changed-files'
+import { HandoffLine } from './handoff-line'
+import { LimitCard, ResumeCard } from './system-cards'
 import { useChatActions, useNow, useToggle } from './chat-context'
 import { formatDuration, turnSummary } from './format'
 import { Markdown } from './markdown'
+import { FinalPlanAction, OpenPlanButton } from './plan-bits'
 import { RequestCard, ResolvedRequest } from './request-card'
 import { MonoTitle, ToolRow } from './tool-row'
 import type { AgentStartItem, AssistantItem, CommandItem, CompactedItem, NoticeItem, Turn, TurnEndItem, UserItem } from './turns'
@@ -275,14 +281,6 @@ function LiveLine({ activity, detail, startedAt, run }: { activity: string | nul
   )
 }
 
-// Testo inglese: si traduce con t() dove si mostra.
-const STATUS_LABEL: Record<FileChange['status'], string> = {
-  A: 'Added',
-  M: 'Modified',
-  D: 'Deleted',
-  R: 'Renamed'
-}
-
 function ChangesCard({ end }: { end: TurnEndItem }) {
   const { openFile, openDiff } = useChatActions()
   // Chiusa per default; lo stato resta in memoria per turno.
@@ -325,35 +323,12 @@ function ChangesCard({ end }: { end: TurnEndItem }) {
         </button>
       </div>
       {open ? (
-        <ul id={listId} className="overflow-hidden rounded-[10px] border border-border dark:border-input/70">
-          {end.files.map((file) => {
-            const slash = file.path.lastIndexOf('/')
-            const dir = slash >= 0 ? file.path.slice(0, slash + 1) : ''
-            const base = slash >= 0 ? file.path.slice(slash + 1) : file.path
-            return (
-              <li key={file.path} className="border-b border-border last:border-b-0 dark:border-input/50">
-                <button
-                  type="button"
-                  onClick={(event) => (event.altKey ? openFile(file.path, undefined, true) : openDiff(end.turnId, file.path))}
-                  title={`${t(STATUS_LABEL[file.status])} · ${file.path}\n${t('Click to view the turn diff · ⌥-click to open in editor')}`}
-                  className="flex w-full min-w-0 items-center gap-2.5 px-3 py-[5px] text-left font-mono text-xs text-foreground/85 outline-none hover:bg-accent focus-visible:bg-accent"
-                >
-                  <span aria-label={t(STATUS_LABEL[file.status])} className="w-3 shrink-0 text-faint">
-                    {file.status}
-                  </span>
-                  <span className="flex min-w-0 flex-1">
-                    {dir ? <span className="min-w-0 truncate text-muted-foreground">{dir}</span> : null}
-                    <span className="shrink-0">{base}</span>
-                  </span>
-                  <span className="flex shrink-0 gap-2 tabular-nums">
-                    {file.added > 0 ? <span className="text-diff-added">+{file.added}</span> : null}
-                    {file.removed > 0 ? <span className="text-diff-removed">−{file.removed}</span> : null}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        <ChangedFileList
+          id={listId}
+          files={end.files}
+          hint={t('Click to view the turn diff · ⌥-click to open in editor')}
+          onPick={(file, altKey) => (altKey ? openFile(file.path, undefined, true) : openDiff(end.turnId, file.path))}
+        />
       ) : null}
     </div>
   )
@@ -448,9 +423,11 @@ export interface TurnRowProps {
   dividerBefore: string | null
   /** Seq dell'ultima riga "Started by the agent after background agents finished" (-1 se non c'è): una riga "picked up" prima di lei sarebbe un doppione. */
   bgStartSeq: number
+  /** Last turn of the conversation (not counting advice cards): only its final answer can be the plan. */
+  last?: boolean
 }
 
-export const TurnRow = memo(function TurnRow({ turn, live, run, activity, dividerBefore, bgStartSeq }: TurnRowProps) {
+export const TurnRow = memo(function TurnRow({ turn, live, run, activity, dividerBefore, bgStartSeq, last = false }: TurnRowProps) {
   const { end } = turn
   const { compact } = useChatActions()
   const parts: { key: string; ids: string[]; node: ReactNode }[] = []
@@ -459,7 +436,13 @@ export const TurnRow = memo(function TurnRow({ turn, live, run, activity, divide
 
   if (turn.start) parts.push({ key: turn.start.id, ids: [turn.start.id], node: <AgentStartLine item={turn.start} /> })
 
+  if (turn.handoff) parts.push({ key: turn.handoff.id, ids: [turn.handoff.id], node: <HandoffLine item={turn.handoff} /> })
+
   for (const command of turn.commands) parts.push({ key: command.id, ids: [command.id], node: <CommandLine item={command} /> })
+
+  for (const advice of turn.advice) parts.push({ key: advice.id, ids: [advice.id], node: <AdviceCard item={advice} /> })
+
+  for (const card of turn.cards) parts.push({ key: card.id, ids: [card.id], node: card.kind === 'resume' ? <ResumeCard item={card} /> : <LimitCard item={card} /> })
 
   const summarize = end !== null && turn.toolCount > 0
   if (summarize) {
@@ -499,6 +482,10 @@ export const TurnRow = memo(function TurnRow({ turn, live, run, activity, divide
   }
 
   if (turn.final) parts.push({ key: turn.final.id, ids: [turn.final.id], node: <AssistantMessage item={turn.final} /> })
+  // Plan in a Plan session without ExitPlanMode (Codex, ACP): the final answer of the last finished turn is the plan.
+  const planText = turn.steps.reduce<string | null>((found, s) => (s.kind === 'tool' ? (planOfTool(s) ?? found) : found), null)
+  if (planText && summarize) parts.push({ key: 'plan-tool', ids: [], node: <div className="flex"><OpenPlanButton text={planText} /></div> })
+  else if (!planText && turn.final && last) parts.push({ key: `plan:${turn.final.id}`, ids: [], node: <FinalPlanAction text={turn.final.text} /> })
 
   if (live && turn.open.length === 0 && run !== 'waiting' && run !== 'idle' && run !== 'error') {
     const runningTool = [...turn.steps].reverse().find((s) => s.kind === 'tool' && s.status === 'running')
