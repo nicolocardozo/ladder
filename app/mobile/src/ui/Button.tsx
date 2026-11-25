@@ -1,4 +1,4 @@
-import { Platform, Pressable, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native'
+import { ActivityIndicator, Platform, Pressable, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native'
 import { alpha, useTheme } from '@/theme/theme'
 import { RADIUS, TOUCH } from '@/theme/type'
 import { Icon, type IconName } from './Icon'
@@ -13,10 +13,12 @@ interface ButtonProps extends Omit<PressableProps, 'style' | 'children'> {
   style?: StyleProp<ViewStyle>
   /** Occupa tutta la riga (nelle coppie Deny/Approve). */
   grow?: boolean
+  /** Al posto dell'icona un indicatore: l'azione è in corso (il pulsante resta com'è, non si tocca di nuovo). */
+  loading?: boolean
 }
 
 /** Pulsante piatto: primario = accento pieno, secondario = superficie, danger = testo rosa su superficie. */
-export function Button({ label, variant = 'secondary', icon, style, grow, disabled, ...rest }: ButtonProps) {
+export function Button({ label, variant = 'secondary', icon, style, grow, loading, disabled, ...rest }: ButtonProps) {
   const { c } = useTheme()
   const bg = variant === 'primary' ? c.accent : variant === 'quiet' ? 'transparent' : c.surface
   const fg = variant === 'primary' ? c.onAccent : variant === 'danger' ? c.error : variant === 'quiet' ? c.accent : c.text
@@ -24,7 +26,7 @@ export function Button({ label, variant = 'secondary', icon, style, grow, disabl
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
       disabled={disabled}
       {...rest}
       style={({ pressed }) => [
@@ -45,7 +47,7 @@ export function Button({ label, variant = 'secondary', icon, style, grow, disabl
         style
       ]}
     >
-      {icon ? <Icon name={icon} size={18} color={fg} /> : null}
+      {loading ? <ActivityIndicator size="small" color={fg} /> : icon ? <Icon name={icon} size={18} color={fg} /> : null}
       <Text variant="title" style={{ color: fg }} numberOfLines={1}>
         {label}
       </Text>

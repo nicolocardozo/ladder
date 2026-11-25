@@ -3,13 +3,13 @@
 // decide cosa fare (tenere aperto lo sheet, rimettere il testo nel composer).
 import * as Haptics from 'expo-haptics'
 import { t } from '@shared/i18n'
-import type { PermissionLevel, QueuedMessage } from '@shared/protocol'
+import type { PermissionLevel, QueuedMessage, RemoteSessionCreate, SessionSummary } from '@shared/protocol'
 import type { RequestItem } from '@/lib/turns'
 import { useToast } from '@/ui/toast'
 import { request } from './controller'
 
 /** Errori noti, in inglese come arrivano: si traducono qui. Il resto è già un testo dell'host e si mostra com'è. */
-function explain(error: unknown): string {
+export function explain(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error)
   switch (text) {
     case 'offline':
@@ -42,7 +42,21 @@ async function run<T>(fn: () => Promise<T>, opts: { haptic?: boolean } = {}): Pr
 
 const done = async (p: Promise<{ ok: boolean }>): Promise<boolean> => (await p).ok
 
+/** Esito di una nuova sessione: l'errore resta nel modulo (testo già tradotto), niente toast. */
+export type CreateResult = { ok: true; session: SessionSummary } | { ok: false; error: string }
+
 export const actions = {
+  /** `session.create` (LAD-89). Il modulo mostra l'errore da sé e conserva il testo; vibra solo sull'esito. */
+  async create(command: RemoteSessionCreate): Promise<CreateResult> {
+    try {
+      const session = await request<SessionSummary>(command)
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      return { ok: true, session }
+    } catch (error) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+      return { ok: false, error: explain(error) }
+    }
+  },
   approve(sessionId: string, req: RequestItem): Promise<boolean> {
     const option = req.options.find((o) => o.kind === 'allow') ?? req.options[0]
     return done(run(() => request({ type: 'session.respond', sessionId, requestId: req.requestId, response: { optionId: option.id }, via: 'phone' }), { haptic: true }))

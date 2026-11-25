@@ -1,8 +1,9 @@
 // Dati del Mac sul telefono: progetti, sessioni, chat. Stesso stile del desktop (zustand), alimentati dagli eventi del canale
 // (reale o demo). Lo stato della connessione e le azioni stanno in src/host.
 import { create } from 'zustand'
-import type { AgentStatus, ChatItem, PermissionLevel, Project, ProjectGroupsState, RemoteEvent, RemotePrefs, RemoteSnapshot, SessionSummary, SubagentInfo } from '@shared/protocol'
+import type { ChatItem, PermissionLevel, Project, ProjectGroupsState, RemoteAgentStatus, RemoteEvent, RemotePrefs, RemoteProfile, RemoteProjectDefaults, RemoteSnapshot, SessionSummary, SubagentInfo } from '@shared/protocol'
 import { applyItemsEvent, mergeById, mergeSnapshotSessions } from '@/lib/items'
+import { runWorldReset } from '@/lib/world-reset'
 import type { ConnState } from '@/remote/client'
 
 export type Mode = 'none' | 'demo' | 'remote'
@@ -18,7 +19,11 @@ export interface AppState {
   sessions: Record<string, SessionSummary>
   ui: RemoteSnapshot['ui']
   projectGroups: ProjectGroupsState | null
-  agents: AgentStatus[]
+  agents: RemoteAgentStatus[]
+  /** Account (abbonamenti) di Claude Code e Codex; `AgentStatus.profileId` li lega allo stato. */
+  profiles: RemoteProfile[]
+  /** Come parte una nuova sessione, per progetto (agenti ammessi, modello ed effort scelti da Ladder, permesso). */
+  defaults: Record<string, RemoteProjectDefaults>
   /** Tetto di permesso per progetto (null = nessun tetto), dallo snapshot. */
   permissionsMax: Record<string, PermissionLevel | null>
   /** Preferenze del Mac che il telefono rispecchia: cosa fa l'invio a sessione al lavoro, e se Full è permesso dal telefono. */
@@ -39,7 +44,7 @@ export interface AppState {
   addArchived: (sessions: SessionSummary[]) => void
   /** Svuota i dati del Mac (uscita dalla demo, scollegamento). */
   reset: () => void
-  restore: (data: Partial<Pick<AppState, 'projects' | 'sessions' | 'ui' | 'projectGroups' | 'agents' | 'items' | 'macName' | 'macTheme' | 'hasMore' | 'permissionsMax' | 'prefs'>>) => void
+  restore: (data: Partial<Pick<AppState, 'projects' | 'sessions' | 'ui' | 'projectGroups' | 'agents' | 'profiles' | 'defaults' | 'items' | 'macName' | 'macTheme' | 'hasMore' | 'permissionsMax' | 'prefs'>>) => void
 }
 
 const empty = {
@@ -47,7 +52,9 @@ const empty = {
   sessions: {} as Record<string, SessionSummary>,
   ui: {} as RemoteSnapshot['ui'],
   projectGroups: null as ProjectGroupsState | null,
-  agents: [] as AgentStatus[],
+  agents: [] as RemoteAgentStatus[],
+  profiles: [] as RemoteProfile[],
+  defaults: {} as Record<string, RemoteProjectDefaults>,
   permissionsMax: {} as Record<string, PermissionLevel | null>,
   prefs: { busySend: 'queue', allowFull: true } as RemotePrefs,
   items: {} as Record<string, ChatItem[]>,
@@ -65,6 +72,8 @@ function snapshotPatch(snap: RemoteSnapshot, previous: Record<string, SessionSum
     ui: snap.ui,
     projectGroups: snap.projectGroups ?? null,
     agents: snap.agents,
+    profiles: snap.profiles ?? [],
+    defaults: snap.defaults ?? {},
     permissionsMax: snap.permissionsMax ?? {},
     prefs: snap.prefs ?? { busySend: 'queue', allowFull: true },
     items: Object.fromEntries(Object.entries(items).filter(([id]) => sessions[id]))
@@ -89,6 +98,14 @@ export const useApp = create<AppState>((set) => ({
           return snapshotPatch(event, s.sessions, s.items)
         case 'remote.prefs':
           return { prefs: event.prefs }
+        case 'remote.defaults':
+          return { defaults: event.defaults, permissionsMax: event.permissionsMax }
+        case 'profile.upsert': {
+          const exists = s.profiles.some((p) => p.id === event.profile.id)
+          return { profiles: exists ? s.profiles.map((p) => (p.id === event.profile.id ? event.profile : p)) : [...s.profiles, event.profile] }
+        }
+        case 'profile.removed':
+          return { profiles: s.profiles.filter((p) => p.id !== event.profileId) }
         case 'session.upsert': {
           const sessions = { ...s.sessions }
           if (event.session.archived) delete sessions[event.session.id]
@@ -139,7 +156,10 @@ export const useApp = create<AppState>((set) => ({
       for (const x of list) if (!sessions[x.id] || sessions[x.id].archived) sessions[x.id] = x
       return { sessions }
     }),
-  reset: () => set({ ...empty, macName: null, macTheme: null }),
+  reset: () => {
+    runWorldReset()
+    set({ ...empty, macName: null, macTheme: null })
+  },
   restore: (data) => set((s) => ({ ...s, ...data, loaded: s.loaded }))
 }))
 

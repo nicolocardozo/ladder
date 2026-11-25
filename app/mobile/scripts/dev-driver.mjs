@@ -4,6 +4,8 @@
 // L'app (solo __DEV__, src/dev-driver.ts) legge GET /cmd ogni secondo ed esegue ogni comando nuovo.
 import { createServer } from 'node:http'
 
+// Porta: 8099, o DEV_DRIVER_PORT (con la stessa EXPO_PUBLIC_DEV_DRIVER_PORT per l'app).
+const PORT = Number(process.env.DEV_DRIVER_PORT ?? 8099)
 let current = { id: 0 }
 createServer((req, res) => {
   if (req.method === 'POST') {
@@ -17,4 +19,4 @@ createServer((req, res) => {
   }
   res.setHeader('content-type', 'application/json')
   res.end(JSON.stringify(current))
-}).listen(8099, '127.0.0.1', () => console.log('dev-driver su 127.0.0.1:8099 (l\'emulatore Android lo raggiunge come 10.0.2.2)'))
+}).listen(PORT, '127.0.0.1', () => console.log(`dev-driver su 127.0.0.1:${PORT} (l'emulatore Android lo raggiunge come 10.0.2.2)`))

@@ -74,7 +74,7 @@ async function writeCache(): Promise<void> {
   const items: Record<string, ChatItem[]> = {}
   for (const x of recent) if (s.items[x.id]) items[x.id] = s.items[x.id].slice(-60)
   try {
-    await writeSecureCache({ projects: s.projects, sessions: s.sessions, ui: s.ui, projectGroups: s.projectGroups, agents: s.agents, items, macName: s.macName, macTheme: s.macTheme })
+    await writeSecureCache({ projects: s.projects, sessions: s.sessions, ui: s.ui, projectGroups: s.projectGroups, agents: s.agents, profiles: s.profiles, defaults: s.defaults, permissionsMax: s.permissionsMax, items, macName: s.macName, macTheme: s.macTheme })
   } catch {
     // portachiavi o archivio non disponibili: la prossima volta
   }
@@ -302,8 +302,13 @@ export async function disconnect(): Promise<void> {
   stopAll()
   store.getState().reset()
   store.setState({ mode: 'none', conn: { kind: 'connecting', since: Date.now() } })
-  usePrefs.setState({ drafts: {}, collapsed: {} })
+  usePrefs.setState({ drafts: {}, collapsed: {}, lastProject: null })
   await Promise.all([clearPairing().catch(() => {}), clearDeviceKey().catch(() => {}), clearSecureCache()])
+}
+
+/** Solo sviluppo: porta i limiti d'uso della demo a uno scenario (screenshot e prove). */
+export function devUsage(scenario: Parameters<FakeHost['setUsage']>[0]): void {
+  demo?.setUsage(scenario)
 }
 
 export function retryNow(): void {

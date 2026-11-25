@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router'
+import { useMemo } from 'react'
 import { ScrollView } from 'react-native'
 import Constants from 'expo-constants'
 import { t, LOCALES } from '@shared/i18n'
@@ -10,6 +11,9 @@ import { usePrefs } from '@/store/prefs'
 import { usePush } from '@/store/push'
 import { themeById } from '@/theme/theme'
 import { useTheme } from '@/theme/theme'
+import { useNow } from '@/lib/use-now'
+import { buildUsageAccounts, usageAlert, worstText, worstWindow } from '@/lib/usage'
+import { AlertGlyph } from '@/features/usage/UsageBits'
 import { Group, Row } from '@/ui/List'
 
 export default function Settings() {
@@ -21,12 +25,27 @@ export default function Settings() {
   const macName = useApp((s) => s.macName)
   const permission = usePush((s) => s.permission)
   const tokenFailed = usePush((s) => s.tokenFailed)
+  // Riga dei limiti: la finestra peggiore fra gli abbonamenti, con il segno d'avviso se è vicina al limite.
+  const agents = useApp((s) => s.agents)
+  const profiles = useApp((s) => s.profiles)
+  const now = useNow(60_000)
+  const worst = useMemo(() => worstWindow(buildUsageAccounts(agents, profiles), now), [agents, profiles, now])
+  const worstAlert = worst ? usageAlert([worst.usage]) : null
   const themeValue = prefs.matchSystem ? t('Match system') : prefs.choice === 'mac' ? t('Same as Mac') : themeById(prefs.choice).name
   const languageValue = language === 'system' ? t('System') : (LOCALES.find((l) => l.id === language)?.name ?? '')
   return (
     <ScrollView style={{ backgroundColor: c.background }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: 32 }}>
         <Group>
           <Row label={t('Mac and connection')} value={macName ?? ''} onPress={() => router.push('/mac')} last />
+        </Group>
+        <Group>
+          <Row
+            label={t('Plan limits')}
+            value={worst ? worstText(worst) : ''}
+            right={worstAlert ? <AlertGlyph limited={worstAlert.limited} size={18} /> : undefined}
+            onPress={() => router.push('/limits')}
+            last
+          />
         </Group>
         {mode === 'remote' ? (
           <Group>

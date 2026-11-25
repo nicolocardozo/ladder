@@ -4,6 +4,7 @@ import type { useRouter } from 'expo-router'
 import { Dimensions } from 'react-native'
 import { create } from 'zustand'
 import type { RequestItem, TurnSummary } from '@/lib/turns'
+import { focusedRoute } from '@/lib/nav'
 import { IOS } from '@/lib/platform'
 import { useApp } from '@/store/app'
 import { WIDE } from '@/ui/Sheet'
@@ -20,17 +21,30 @@ interface SheetsState {
   current: SheetSpec | null
   /** Il turno mostrato: troppo grosso per i parametri di una rotta, resta qui. */
   turn: TurnSummary | null
+  /** Il progetto in cui si era quando si è aperto "Nuova sessione" (schermata del progetto o di una sua sessione). */
+  newSessionProject: string | null
   close: () => void
 }
 
-export const useSheets = create<SheetsState>((set) => ({ current: null, turn: null, close: () => set((st) => (st.current ? { current: null } : st)) }))
+export const useSheets = create<SheetsState>((set) => ({ current: null, turn: null, newSessionProject: null, close: () => set((st) => (st.current ? { current: null } : st)) }))
 
 /** I sheet sono rotte native? Solo su iOS e sotto i 600 pt. */
 export const nativeSheets = (): boolean => IOS && Dimensions.get('window').width < WIDE
 
 type Router = ReturnType<typeof useRouter>
 
+/** Il progetto della schermata in primo piano: quello aperto, o quello della sessione aperta. */
+function projectInView(): string | null {
+  const route = focusedRoute()
+  const id = typeof route?.params?.id === 'string' ? route.params.id : null
+  if (!id || !route) return null
+  if (route.name.startsWith('project/')) return useApp.getState().projects.some((p) => p.id === id) ? id : null
+  if (route.name.startsWith('session/')) return useApp.getState().sessions[id]?.projectId ?? null
+  return null
+}
+
 export function openSheet(router: Router, spec: SheetSpec): void {
+  if (spec.kind === 'new-session') useSheets.setState({ newSessionProject: projectInView() })
   if (!nativeSheets()) {
     useSheets.setState({ current: spec, turn: spec.kind === 'turn' ? spec.turn : null })
     return

@@ -8,6 +8,7 @@ import Svg, { Circle } from 'react-native-svg'
 import { t } from '@shared/i18n'
 import { reasonKind } from '@/lib/connection'
 import { duration } from '@/lib/format'
+import { openInTabs } from '@/lib/nav'
 import { useApp } from '@/store/app'
 import { useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
@@ -105,7 +106,7 @@ export function ConnectionPill() {
   const label = conn.kind === 'unreachable' && detail ? `${title} · ${detail.split(' · ')[0]}` : title
   return (
     <Pressable
-      onPress={() => router.push('/mac')}
+      onPress={() => openInTabs(router, '/mac')}
       accessibilityRole="button"
       accessibilityLabel={`${title}. ${detail ?? ''}`}
       accessibilityHint={t('Opens Mac and connection details')}

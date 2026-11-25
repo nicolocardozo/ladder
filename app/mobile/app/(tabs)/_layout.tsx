@@ -1,9 +1,9 @@
 // Barra dei tab nativa (expo-router NativeTabs): Sessions, Waiting, Settings. Su iOS 26 è il vetro di sistema e si riduce scorrendo;
 // su Android è la navigation bar Material 3. Il tema cambia solo il colore del tab attivo, il resto è di sistema.
+// La chat di una sessione non sta nei tab: è una schermata della radice (app/session/[id].tsx) e copre la barra da sé.
 // Il "+" (nuova sessione) è un quarto tab col ruolo `search`, che iOS 26 mette in uno slot di vetro staccato: non naviga, apre lo sheet.
-import { Redirect, useRouter, useSegments } from 'expo-router'
+import { Redirect, useRouter } from 'expo-router'
 import { NativeTabs } from 'expo-router/native-tabs'
-import { useEffect, useState } from 'react'
 import { Platform } from 'react-native'
 import { t } from '@shared/i18n'
 import { openSheet } from '@/lib/sheets'
@@ -24,17 +24,10 @@ export default function TabsLayout() {
   const waiting = useWaitingCount()
   // Le etichette dei tab si traducono: cambiando lingua il layout si ridisegna.
   useLanguage()
-  // Dentro una sessione c'è il composer in basso: la barra dei tab si nasconde.
-  // Si guarda la schermata in primo piano; mentre è aperto uno sheet (rotta fuori dai tab) resta com'era.
-  const segments = useSegments()
-  const [inSession, setInSession] = useState(false)
-  useEffect(() => {
-    if (segments[0] === '(tabs)') setInSession(segments.includes('session' as never))
-  }, [segments])
   if (kind === 'revoked' || kind === 'key-changed') return <Redirect href="/disconnected" />
   if (mode === 'none') return <Redirect href="/welcome" />
   return (
-    <NativeTabs tintColor={c.accent} minimizeBehavior="onScrollDown" hidden={inSession}>
+    <NativeTabs tintColor={c.accent} minimizeBehavior="onScrollDown">
       <NativeTabs.Trigger name="(sessions)">
         <NativeTabs.Trigger.Label>{t('Sessions')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: 'bubble.left', selected: 'bubble.left.fill' }} md="forum" renderingMode="template" />

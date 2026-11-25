@@ -2,7 +2,7 @@
 // Due usi: la modalità demo dell'app (nessuna rete, anche in produzione: sarà la demo per App Review, LAD-55) e l'harness
 // e2e in Node (scripts/e2e-host.ts), che lo mette dietro il vero RemoteGateway dell'host. Niente API di React Native né
 // alias: solo import di tipi, così gira con `node` direttamente. Ogni azione cambia lo stato locale ed emette gli stessi eventi del Mac.
-import type { ChatItem, PermissionLevel, QueuedMessage, RemoteCommand, RemoteEvent, RemotePage, RemoteSnapshot, SessionSummary, SubagentInfo } from '@shared/protocol'
+import type { AgentId, AgentStatus, ChatItem, PermissionLevel, QueuedMessage, RemoteAgentStatus, RemoteCommand, RemoteEvent, RemotePage, RemoteSessionCreate, RemoteSnapshot, SessionSummary, SubagentInfo, UsageWindow } from '@shared/protocol'
 import { buildFixture, type Fixture } from './fixtures.ts'
 
 type RequestItem = Extract<ChatItem, { kind: 'request' }>
@@ -63,6 +63,8 @@ export class FakeHost {
       ui: structuredClone(this.fixture.ui),
       projectGroups: structuredClone(this.fixture.projectGroups),
       agents: structuredClone(this.fixture.agents),
+      profiles: structuredClone(this.fixture.profiles),
+      defaults: structuredClone(this.fixture.defaults),
       permissionsMax: Object.fromEntries(this.fixture.projects.map((p) => [p.id, this.fixture.permissionMax[p.id] ?? null])),
       prefs: { busySend: 'queue', allowFull: true }
     }
@@ -116,6 +118,10 @@ export class FakeHost {
         return this.setPermission(command.sessionId, command.permission)
       case 'project.sessions.archived':
         return this.archived(command.projectId, command.before, command.limit)
+      case 'session.create':
+        return this.create(command)
+      case 'agents.usage':
+        return this.readUsage(command.agent, command.profileId)
       case 'device.push.set':
         return null
       case 'subagent.list':
@@ -182,6 +188,97 @@ export class FakeHost {
   private lastTurn(sessionId: string): string {
     const list = this.items.get(sessionId) ?? []
     return list.length ? list[list.length - 1].turnId : `${sessionId}-turn-0`
+  }
+
+  // ── Nuova sessione e limiti d'uso ──
+
+  /** Come il Mac: stessi controlli (errori in inglese, nessuna sessione se qualcosa non va), poi la sessione parte in chat. */
+  private async create(command: RemoteSessionCreate): Promise<SessionSummary> {
+    const project = this.fixture.projects.find((p) => p.id === command.projectId)
+    if (!project) throw new Error('Project not found.')
+    const text = command.text.trim()
+    if (!text) throw new Error('The message is empty.')
+    const status = this.fixture.agents.find((a) => a.agent === command.agent && a.available)
+    const allowed = this.fixture.defaults[project.id]?.allowed ?? []
+    if (!status || (allowed.length > 0 && !allowed.includes(command.agent))) throw new Error(`${command.agent} is not allowed in this project.`)
+    if (command.model && !status.models.some((m) => m.id === command.model)) throw new Error('Unknown model.')
+    if (!LEVELS.includes(command.permission)) throw new Error('Unknown permission level.')
+    // Sopra il tetto del progetto si riduce al tetto, come per la finestra.
+    const max = this.fixture.permissionMax[project.id]
+    const permission = max && LEVELS.indexOf(command.permission) > LEVELS.indexOf(max) ? max : command.permission
+    // Il Mac ci mette un attimo: il telefono mostra lo stato di invio.
+    await new Promise<void>((resolve) => this.after(900, resolve))
+    if (this.disposed) throw new Error('Disconnected')
+    const now = Date.now()
+    const id = `s-new-${now}`
+    const session: SessionSummary = {
+      id,
+      projectId: project.id,
+      title: text.split('\n')[0].slice(0, 48),
+      titleSource: 'generated',
+      agent: command.agent,
+      ...(command.profileId ? { profileId: command.profileId } : {}),
+      model: command.model,
+      effort: command.effort,
+      permission,
+      createdAt: now,
+      updatedAt: now,
+      run: 'starting',
+      waitingLabel: null,
+      activity: null,
+      unread: false,
+      lastReadSeq: 0,
+      archived: false,
+      queue: [],
+      context: null,
+      mode: 'chat',
+      cwd: project.path,
+      worktree: null,
+      command: null,
+      terminalId: null,
+      estimated: false,
+      waitingSince: null,
+      request: null,
+      openRequests: 0,
+      activityAt: now,
+      canSteer: true,
+      branch: null,
+      pr: null,
+      source: null
+    }
+    this.sessions.set(id, session)
+    this.items.set(id, [])
+    this.seqs.set(id, 0)
+    this.emit({ type: 'session.upsert', session: structuredClone(session) })
+    this.after(400, () => this.startTurn(id, text))
+    return structuredClone(session)
+  }
+
+  /** `agents.usage`: una lettura "vera" (qui: rimette l'ora) e il valore anche come `agent.status`; ACP senza limiti = null. */
+  private readUsage(agent: AgentId, profileId?: string): RemoteAgentStatus | null {
+    const status = this.fixture.agents.find((a) => a.agent === agent && (profileId ? a.profileId === profileId : !a.profileId))
+    if (!status) throw new Error('Agent not found.')
+    if (status.kind !== 'native') return null
+    status.usageAt = Date.now()
+    this.emit({ type: 'agent.status', status: structuredClone(status) })
+    return structuredClone(status)
+  }
+
+  /** Solo prove e screenshot: porta i limiti di Claude (account predefinito) a uno scenario. */
+  setUsage(scenario: 'normal' | 'near' | 'banner' | 'limited' | 'empty'): void {
+    const status = this.fixture.agents.find((a): a is AgentStatus => a.agent === 'claude-code' && !a.profileId)
+    if (!status) return
+    const at = (min: number) => Math.floor((Date.now() + min * 60_000) / 1000)
+    const win = (key: string, minutes: number, percent: number, inMin: number, state: UsageWindow['state'] = 'ok'): UsageWindow => ({ key, minutes, model: null, percent, resetsAt: at(inMin), state })
+    const week = (percent: number) => win('seven_day', 10_080, percent, 3 * 24 * 60 + 200)
+    status.usage =
+      scenario === 'normal' ? [win('five_hour', 300, 62, 135), week(34)]
+      : scenario === 'near' ? [win('five_hour', 300, 82, 95, 'warning'), week(41)]
+      : scenario === 'banner' ? [win('five_hour', 300, 96, 22, 'warning'), week(58)]
+      : scenario === 'limited' ? [win('five_hour', 300, 100, 48, 'limited'), week(71)]
+      : []
+    status.usageAt = Date.now() - 2 * 60_000
+    this.emit({ type: 'agent.status', status: structuredClone(status) })
   }
 
   // ── Azioni ──

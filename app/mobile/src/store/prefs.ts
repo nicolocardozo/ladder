@@ -16,6 +16,9 @@ interface PrefsState {
   collapsed: Record<string, boolean>
   /** Bozza del composer per sessione: resta anche senza connessione. */
   drafts: Record<string, string>
+  /** L'ultimo progetto in cui si è avviata una sessione dal telefono: "Nuova sessione" parte da lì quando non si è in un progetto. */
+  lastProject: string | null
+  setLastProject: (projectId: string) => void
   setTheme: (patch: Partial<ThemePrefs>) => void
   setLanguage: (language: 'system' | Locale) => void
   setNotify: (patch: Partial<Omit<NotifyPrefs, 'events' | 'quiet'>> & { events?: Partial<NotifyPrefs['events']>; quiet?: Partial<NotifyPrefs['quiet']> }) => void
@@ -31,6 +34,8 @@ export const usePrefs = create<PrefsState>()(
       notify: DEFAULT_NOTIFY_PREFS,
       collapsed: {},
       drafts: {},
+      lastProject: null,
+      setLastProject: (lastProject) => set({ lastProject }),
       setTheme: (patch) => set((s) => ({ theme: { ...s.theme, ...patch } })),
       // La lingua si applica prima di notificare: chi si ridisegna per il cambio vede già i testi nuovi.
       setLanguage: (language) => {

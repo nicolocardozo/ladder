@@ -7,6 +7,8 @@ import { plural, t } from '@shared/i18n'
 import { Composer } from '@/features/session/Composer'
 import { ChatList } from '@/features/session/ChatList'
 import { levelName } from '@/features/session/PermissionSheet'
+import { UsageBanner, useOpenLimits, useSessionUsageAlert } from '@/features/usage/SessionUsage'
+import { AlertGlyph } from '@/features/usage/UsageBits'
 import { actions } from '@/host/actions'
 import { canAct, follow } from '@/host/controller'
 import { clearSessionNotifications } from '@/host/push'
@@ -38,6 +40,7 @@ export default function SessionScreen() {
   const setTurn = useCallback((turn: TurnSummary) => openSheet(router, { kind: 'turn', sessionId: id, turn }), [router, id])
   const setReviewing = useCallback((requestId: string) => openSheet(router, { kind: 'request', sessionId: id, requestId }), [router, id])
   const openPermission = useCallback(() => openSheet(router, { kind: 'permission', sessionId: id }), [router, id])
+  const openLimits = useOpenLimits(session)
   const openSwitch = useCallback(() => openSheet(router, { kind: 'switch', sessionId: id }), [router, id])
 
   // Segue la sessione mentre la schermata è aperta (chat in diretta, ultima pagina).
@@ -101,6 +104,10 @@ export default function SessionScreen() {
   const agent = session?.agent
   const permission = session?.permission
   const state = session ? sessionState(session) : 'idle'
+  // Avviso d'uso: il triangolo nell'header (da 80%, o a limite esaurito) accanto al permesso.
+  const usage = useSessionUsageAlert(session)
+  const usageLimited = usage?.alert.limited
+  const usageLabel = usage ? `${usage.text.what}${usage.text.reset ? ` ${usage.text.reset}` : ''}` : null
   const headerOptions = useMemo(() => {
     if (!title || !agent || !permission) {
       // Sessione sparita: via titolo e pulsanti della sessione di prima, resta il titolo generico.
@@ -141,6 +148,12 @@ export default function SessionScreen() {
     ) : (
       <Chip label={levelName(permission)} icon="shield" onPress={openPermission} />
     )
+    const warn =
+      usageLabel !== null ? (
+        <Pressable onPress={openLimits} accessibilityRole="button" accessibilityLabel={`${usageLabel} ${t('Plan limits')}`} hitSlop={8} style={{ width: IOS ? 36 : 40, height: IOS ? 36 : 40, alignItems: 'center', justifyContent: 'center' }}>
+          <AlertGlyph limited={!!usageLimited} size={20} />
+        </Pressable>
+      ) : null
     return {
       title,
       headerLargeTitleEnabled: false,
@@ -149,11 +162,16 @@ export default function SessionScreen() {
       // La chat è una lista invertita: il sistema non le applica l'effetto di bordo, quindi l'header ha lo sfondo pieno (i pulsanti restano di vetro).
       headerTransparent: false,
       headerStyle: { backgroundColor: c.background },
-      unstable_headerRightItems: () => [{ type: 'custom' as const, element: chip }],
-      headerRight: () => chip
+      unstable_headerRightItems: () => [...(warn ? [{ type: 'custom' as const, element: warn }] : []), { type: 'custom' as const, element: chip }],
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          {warn}
+          {chip}
+        </View>
+      )
     }
     // `model` e `state` dipendono da session ma cambiano di rado; il resto della sessione (attività, testo) non entra qui.
-  }, [title, agent, permission, state, model, c, width, openSwitch, openPermission])
+  }, [title, agent, permission, state, model, c, width, openSwitch, openPermission, openLimits, usageLabel, usageLimited])
 
   if (!session) {
     return (
@@ -188,7 +206,10 @@ export default function SessionScreen() {
           </Text>
         </View>
       ) : (
-        <Composer sessionId={id} request={pinned} onReview={setReviewing} />
+        <>
+          <UsageBanner session={session} />
+          <Composer sessionId={id} request={pinned} onReview={setReviewing} />
+        </>
       )}
     </KeyboardAvoidingView>
   )

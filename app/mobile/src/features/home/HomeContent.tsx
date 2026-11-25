@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { plural, t } from '@shared/i18n'
 import type { SessionSummary } from '@shared/protocol'
 import { relativeAge } from '@/lib/format'
+import { openInTabs, openSession } from '@/lib/nav'
 import { buildHome, type ProjectRow, type SectionModel } from '@/lib/home-model'
 import { hasSignals, type Signals } from '@/lib/session-state'
 import { useApp } from '@/store/app'
@@ -103,14 +104,14 @@ export function HomeContent({ docked, query: nativeQuery = '' }: { docked?: bool
     return out
   }, [model, searching, q, projects, sessions])
 
-  const open = (s: SessionSummary) => router.push({ pathname: '/session/[id]', params: { id: s.id } })
+  const open = (s: SessionSummary) => openSession(router, s.id)
 
   const renderItem = ({ item }: { item: Row }) => {
     switch (item.kind) {
       case 'waiting':
         return (
           <Pressable
-            onPress={() => router.navigate('/waiting')}
+            onPress={() => openInTabs(router, '/waiting', 'navigate')}
             accessibilityRole="button"
             accessibilityLabel={plural(item.count, '1 session waiting for you', '{n} waiting for you')}
             style={({ pressed }) => ({ marginHorizontal: 16, marginBottom: 8, minHeight: MIN_TOUCH + 8, borderRadius: RADIUS.lg, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: alpha(c.waiting, pressed ? 0.22 : 0.14), borderWidth: 1, borderColor: alpha(c.waiting, 0.5) })}
@@ -165,7 +166,7 @@ export function HomeContent({ docked, query: nativeQuery = '' }: { docked?: bool
         const r = item.row
         return (
           <Pressable
-            onPress={() => router.push({ pathname: '/project/[id]', params: { id: r.project.id } })}
+            onPress={() => openInTabs(router, { pathname: '/project/[id]', params: { id: r.project.id } })}
             accessibilityRole="button"
             accessibilityLabel={`${r.project.name}`}
             style={({ pressed }) => ({ minHeight: 52, marginHorizontal: 4, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 12, backgroundColor: pressed ? c.selection : 'transparent', opacity: item.dim ? 0.5 : 1 })}
