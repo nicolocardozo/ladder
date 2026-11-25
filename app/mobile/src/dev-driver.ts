@@ -4,10 +4,11 @@ import { Platform } from 'react-native'
 import { applyLocale } from '@/i18n'
 import { readPairingLink } from '@/lib/pair-link'
 import { usePairFlow } from '@/store/pair-flow'
-import { startDemo, disconnect } from '@/host/controller'
+import { startDemo, disconnect, devUsage } from '@/host/controller'
 import { actions } from '@/host/actions'
 import { devLocalNotification, requestPermission } from '@/host/push'
-import { openSheet } from '@/lib/sheets'
+import { devNotificationTap } from '@/host/push-taps'
+import { openSheet, useSheets } from '@/lib/sheets'
 import { useApp } from '@/store/app'
 import type { RequestItem } from '@/lib/turns'
 import { useDev, type DevSheet } from '@/store/dev'
@@ -34,12 +35,24 @@ interface Cmd {
   sheet?: DevSheet
   /** Apre lo sheet "Nuova sessione" (come il tocco sul "+"). */
   newSession?: boolean
+  /** Con `newSession`: testo già scritto nel messaggio (la bozza del modulo). */
+  draft?: string
+  /** Con `newSession`: porta il focus nel messaggio (tastiera su). */
+  focus?: boolean
+  /** Con `newSession`: opzioni aperte, una scelta aperta (project|agent|account|model|effort|permission), progetto/agente, invio subito. */
+  form?: { expand?: boolean; step?: string; send?: boolean; project?: string; agent?: string }
+  /** Limiti d'uso della demo: normal | near (82%) | banner (96%) | limited | empty. */
+  usage?: Parameters<typeof devUsage>[0]
   /** Notifica locale con i `data` di un push vero (prova del tocco): kind, sessione, richiesta e ritardo in secondi. `mac` forza un Mac diverso. */
   /** Chiede il permesso delle notifiche come "Turn on notifications" (la finestra di sistema si conferma a mano o con adb / AppleScript). */
   askPush?: boolean
   /** Cambia le preferenze delle notifiche (come i toggle di Impostazioni). */
   notifyPrefs?: Parameters<ReturnType<typeof usePrefs.getState>['setNotify']>[0]
   notify?: { kind: 'request' | 'turn' | 'error' | 'agents'; sessionId: string; itemId?: string | null; delayS?: number; mac?: string }
+  /** Torna indietro di una schermata (il tasto indietro). */
+  back?: boolean
+  /** Apre una sessione come il tocco su una notifica (anche con uno sheet aperto sopra una chat). */
+  tap?: { sessionId: string; requestId?: string }
   /** Scorre la chat aperta a questa distanza dal fondo (px). */
   scroll?: number
   /** Azione come l'utente: approve | deny | send | steer | stop | perm | answer. */
@@ -48,7 +61,9 @@ interface Cmd {
 
 export function startDevDriver(): () => void {
   if (!__DEV__) return () => {}
-  const base = Platform.OS === 'android' ? 'http://10.0.2.2:8099' : 'http://127.0.0.1:8099'
+  // La porta si può cambiare (EXPO_PUBLIC_DEV_DRIVER_PORT) quando più sessioni di lavoro usano il driver insieme.
+  const port = process.env.EXPO_PUBLIC_DEV_DRIVER_PORT ?? '8099'
+  const base = Platform.OS === 'android' ? `http://10.0.2.2:${port}` : `http://127.0.0.1:${port}`
   // Alla prima lettura si prende nota dell'ultimo comando senza eseguirlo: un ricaricamento dell'app non lo ripete.
   let last: number | null = null
   let stopped = false
@@ -101,6 +116,8 @@ function act(a: NonNullable<Cmd['act']>) {
 
 function run(cmd: Cmd) {
   if (cmd.target && cmd.target !== Platform.OS) return
+  if (cmd.back) router.back()
+  if (cmd.tap) devNotificationTap(cmd.tap)
   if (cmd.act) act(cmd.act)
   if (cmd.notifyPrefs) usePrefs.getState().setNotify(cmd.notifyPrefs)
   if (cmd.askPush) void requestPermission()
@@ -125,11 +142,15 @@ function run(cmd: Cmd) {
   }
   useDev.getState().setSheet(null)
   if (cmd.push) router.push(cmd.push as never)
+  if (cmd.route || cmd.push) useSheets.getState().close()
   if (cmd.route) {
     // Un eventuale sheet nativo aperto si chiude prima, altrimenti la rotta nuova finirebbe dentro lo sheet.
     if (router.canDismiss()) router.dismissAll()
     router.replace(cmd.route as never)
   }
+  if (cmd.usage) devUsage(cmd.usage)
+  if (cmd.newSession) usePrefs.getState().setDraft('new-session', cmd.draft ?? '')
+  useDev.setState({ focusNewSession: !!cmd.focus, newSession: cmd.newSession ? (cmd.form ?? null) : null })
   if (cmd.newSession) setTimeout(() => openSheet(router, { kind: 'new-session' }), 1800)
   // Lo sheet si apre a schermata già montata (la vecchia non deve consumarlo).
   if (cmd.sheet) setTimeout(() => useDev.getState().setSheet(cmd.sheet ?? null), 1800)

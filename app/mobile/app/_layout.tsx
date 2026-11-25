@@ -26,6 +26,10 @@ import { ThemeProvider, useTheme } from '@/theme/theme'
 import { Intro } from '@/ui/Intro'
 import { ToastHost } from '@/ui/ToastHost'
 import { WIDE } from '@/ui/Sheet'
+import { useHeaderOptions } from '@/ui/native-header'
+
+// Un link o un tocco su una notifica che apre direttamente una sessione trova i tab sotto, e quindi un tasto indietro.
+export const unstable_settings = { anchor: '(tabs)' }
 
 void SplashScreen.preventAutoHideAsync()
 // Come si mostrano le notifiche con l'app aperta e canale Android: prima di qualunque notifica (anche quella che ha aperto l'app).
@@ -90,13 +94,13 @@ function Chrome() {
  * trasparente e il vetro lo disegna il sistema; prima, il sistema non mette sfondo e si usa la superficie del tema. Niente
  * raggio degli angoli: lo decide il sistema.
  */
-function sheet(surface: string, fit: boolean): NativeStackNavigationOptions {
+function sheet(surface: string, fit: boolean, detents?: number[]): NativeStackNavigationOptions {
   return {
     presentation: 'formSheet',
     headerShown: false,
     gestureEnabled: true,
     sheetGrabberVisible: true,
-    sheetAllowedDetents: fit ? 'fitToContents' : [0.5, 1],
+    sheetAllowedDetents: fit ? 'fitToContents' : (detents ?? [0.5, 1]),
     sheetInitialDetentIndex: 0,
     contentStyle: { backgroundColor: GLASS ? 'transparent' : surface }
   }
@@ -104,6 +108,7 @@ function sheet(surface: string, fit: boolean): NativeStackNavigationOptions {
 
 function Shell() {
   const { c } = useTheme()
+  const header = useHeaderOptions()
   const { width } = useWindowDimensions()
   const mode = useApp((s) => s.mode)
   const language = usePrefs((s) => s.language)
@@ -128,11 +133,16 @@ function Shell() {
       {docked ? <HomePane width={Math.min(380, Math.max(320, width * 0.36))} /> : null}
       <View style={{ flex: 1 }}>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.background }, animation: 'default' }}>
+          {/* La chat sta nella radice, sopra i tab: la barra dei tab non può restare sotto il composer, e il tasto indietro torna al tab di partenza. */}
+          <Stack.Screen name="session/[id]" options={header} />
+          {/* Plan limits si apre dalle Impostazioni e dalla chat: radice, così dalla chat non si impila un secondo (tabs) e il tasto indietro torna lì. */}
+          <Stack.Screen name="limits" options={header} />
           <Stack.Screen name="sheet/request" options={({ route }) => sheet(c.surface, (route.params as { fit?: string } | undefined)?.fit === '1')} />
           <Stack.Screen name="sheet/permission" options={sheet(c.surface, true)} />
           <Stack.Screen name="sheet/switch" options={sheet(c.surface, false)} />
           <Stack.Screen name="sheet/turn" options={sheet(c.surface, false)} />
-          <Stack.Screen name="sheet/new-session" options={sheet(c.surface, true)} />
+          {/* Altezza piena: con la tastiera su il campo del messaggio resta in vista (un foglio a metà finirebbe sotto la tastiera). */}
+          <Stack.Screen name="sheet/new-session" options={sheet(c.surface, false, [0.92])} />
         </Stack>
       </View>
       <SheetHost />

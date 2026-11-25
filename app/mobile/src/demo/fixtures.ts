@@ -1,7 +1,7 @@
 // Dati d'esempio realistici: progetti in sezioni, sessioni in tutti gli stati, chat con strumenti, richieste e domande.
 // Alimentano la modalità demo dell'app (anche in produzione: sarà quella per App Review, LAD-55) e l'harness e2e.
 // Solo import di tipi: gira anche con `node` senza alias.
-import type { AgentStatus, ChatItem, Project, ProjectGroupsState, ProjectUiState, SessionSummary, SubagentInfo, PermissionLevel } from '@shared/protocol'
+import type { AgentStatus, ChatItem, Project, ProjectGroupsState, ProjectUiState, RemoteProfile, RemoteProjectDefaults, SessionSummary, SubagentInfo, PermissionLevel, UsageWindow } from '@shared/protocol'
 import { Conv } from './conv.ts'
 
 const MIN = 60_000
@@ -15,13 +15,27 @@ export interface Fixture {
   ui: Record<string, Pick<ProjectUiState, 'groups' | 'groupOf' | 'seenAt'>>
   projectGroups: ProjectGroupsState
   agents: AgentStatus[]
+  /** Account di Claude Code e Codex (abbonamenti). */
+  profiles: RemoteProfile[]
+  /** Come parte una nuova sessione, per progetto. */
+  defaults: Record<string, RemoteProjectDefaults>
   items: Record<string, ChatItem[]>
   subagents: Record<string, SubagentInfo[]>
   /** Massimo di permesso per progetto: oggi lo snapshot remoto non lo porta (vedi report), le fixture sì per mostrare i livelli spenti. */
   permissionMax: Record<string, PermissionLevel>
 }
 
-const agents: AgentStatus[] = [
+/** Finestra dei limiti d'uso: 5 ore o settimanale, con il reset fra `inMin` minuti. */
+const usageWindow = (key: string, minutes: number, percent: number, inMin: number, now: number, state: UsageWindow['state'] = 'ok'): UsageWindow => ({
+  key,
+  minutes,
+  model: null,
+  percent,
+  resetsAt: Math.floor((now + inMin * MIN) / 1000),
+  state
+})
+
+const buildAgents = (now: number): AgentStatus[] => [
   {
     agent: 'claude-code',
     name: 'Claude Code',
@@ -30,10 +44,28 @@ const agents: AgentStatus[] = [
     version: '2.1.0',
     account: 'Claude Max',
     models: [
-      { id: 'claude-opus-4-7', label: 'Opus 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], isDefault: true },
+      { id: 'claude-opus-4-7', label: 'Opus 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], isDefault: true, defaultEffort: 'high' },
       { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', efforts: ['low', 'medium', 'high'] }
     ],
-    error: null
+    error: null,
+    usage: [usageWindow('five_hour', 300, 62, 135, now), usageWindow('seven_day', 10_080, 34, 3 * 24 * 60 + 200, now)],
+    usageAt: now - 3 * MIN
+  },
+  {
+    agent: 'claude-code',
+    profileId: 'p-work',
+    name: 'Claude Code',
+    kind: 'native',
+    available: true,
+    version: '2.1.0',
+    account: 'Claude Team',
+    models: [
+      { id: 'claude-opus-4-7', label: 'Opus 4.7', efforts: ['low', 'medium', 'high'], isDefault: true, defaultEffort: 'high' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', efforts: ['low', 'medium', 'high'] }
+    ],
+    error: null,
+    usage: [usageWindow('five_hour', 300, 18, 250, now), usageWindow('seven_day', 10_080, 9, 5 * 24 * 60, now)],
+    usageAt: now - 11 * MIN
   },
   {
     agent: 'codex',
@@ -42,10 +74,18 @@ const agents: AgentStatus[] = [
     available: true,
     version: '0.9.0',
     account: 'ChatGPT Pro',
-    models: [{ id: 'gpt-5.5-codex', label: 'GPT-5.5 Codex', efforts: ['low', 'medium', 'high'], isDefault: true }],
-    error: null
+    models: [{ id: 'gpt-5.5-codex', label: 'GPT-5.5 Codex', efforts: ['low', 'medium', 'high'], isDefault: true, defaultEffort: 'medium' }],
+    error: null,
+    usage: [usageWindow('primary', 300, 12, 190, now), usageWindow('secondary', 10_080, 8, 4 * 24 * 60, now)],
+    usageAt: now - 6 * MIN
   },
   { agent: 'acp:gemini-cli', name: 'Gemini CLI', kind: 'acp', available: true, version: '1.4.0', account: null, models: [{ id: 'gemini-3-pro', label: 'Gemini 3 Pro', isDefault: true }], error: null }
+]
+
+const profiles: RemoteProfile[] = [
+  { id: 'default:claude-code', agent: 'claude-code', name: 'Personal', isDefault: true },
+  { id: 'p-work', agent: 'claude-code', name: 'Work', isDefault: false },
+  { id: 'default:codex', agent: 'codex', name: 'Default', isDefault: true }
 ]
 
 export function buildFixture(now = Date.now()): Fixture {
@@ -60,6 +100,7 @@ export function buildFixture(now = Date.now()): Fixture {
     project('p-notes', 'notes', 'main')
   ]
 
+  const agents = buildAgents(now)
   const items: Record<string, ChatItem[]> = {}
   const sessions: SessionSummary[] = []
   const subagents: Record<string, SubagentInfo[]> = {}
@@ -336,6 +377,16 @@ export function buildFixture(now = Date.now()): Fixture {
       ungrouped: ['p-notes']
     },
     agents,
+    profiles,
+    defaults: {
+      'p-web': { allowed: [], agent: 'claude-code', lastAgent: 'claude-code', launch: { 'claude-code': { model: 'claude-sonnet-4-6', effort: 'medium' }, codex: { model: null, effort: null }, 'acp:gemini-cli': { model: null, effort: null } }, permission: 'ask' },
+      'p-api': { allowed: ['claude-code', 'codex'], agent: 'claude-code', lastAgent: 'codex', launch: { 'claude-code': { model: null, effort: null }, codex: { model: null, effort: 'high' } }, permission: 'edit' },
+      'p-ds': { allowed: [], agent: 'claude-code', lastAgent: 'claude-code', launch: { 'claude-code': { model: null, effort: null }, codex: { model: null, effort: null }, 'acp:gemini-cli': { model: null, effort: null } }, permission: 'ask' },
+      'p-ladder': { allowed: [], agent: 'codex', lastAgent: 'codex', launch: { 'claude-code': { model: 'claude-opus-4-7', effort: 'xhigh' }, codex: { model: null, effort: null }, 'acp:gemini-cli': { model: null, effort: null } }, permission: 'edit' },
+      'p-dots': { allowed: [], agent: 'claude-code', lastAgent: null, launch: { 'claude-code': { model: null, effort: null }, codex: { model: null, effort: null }, 'acp:gemini-cli': { model: null, effort: null } }, permission: 'edit' },
+      'p-archive': { allowed: [], agent: 'claude-code', lastAgent: null, launch: { 'claude-code': { model: null, effort: null }, codex: { model: null, effort: null }, 'acp:gemini-cli': { model: null, effort: null } }, permission: 'edit' },
+      'p-notes': { allowed: [], agent: 'claude-code', lastAgent: 'claude-code', launch: { 'claude-code': { model: null, effort: null }, codex: { model: null, effort: null }, 'acp:gemini-cli': { model: null, effort: null } }, permission: 'edit' }
+    },
     items,
     subagents,
     permissionMax: { 'p-api': 'edit', 'p-ds': 'ask' }

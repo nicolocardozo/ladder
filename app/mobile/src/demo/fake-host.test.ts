@@ -34,3 +34,44 @@ test('invio con sessione in corso accoda, stop interrompe', async () => {
   await wait(200)
   host.dispose()
 })
+
+test('nuova sessione dal telefono: upsert prima del risultato, poi la chat risponde', async () => {
+  const host = new FakeHost({ speed: 0.05 })
+  const events: RemoteEvent[] = []
+  host.onEvent((e) => events.push(e))
+  const created = (await host.handle({ type: 'session.create', projectId: 'p-web', agent: 'claude-code', text: 'Fix the flaky test', model: null, effort: null, permission: 'ask', mode: 'chat' })) as { id: string; permission: string; title: string }
+  assert.equal(created.title, 'Fix the flaky test')
+  assert.equal(events.some((e) => e.type === 'session.upsert' && e.session.id === created.id), true)
+  assert.ok(host.snapshot().sessions.some((s) => s.id === created.id))
+  await wait(300)
+  const page = host.pageItems(created.id)
+  assert.equal(page.items.some((i) => i.kind === 'user'), true)
+  host.dispose()
+})
+
+test('nuova sessione: errori come l’host, permesso ridotto al tetto del progetto', async () => {
+  const host = new FakeHost({ speed: 0.05 })
+  const base = { type: 'session.create' as const, agent: 'claude-code' as const, model: null, effort: null, mode: 'chat' as const }
+  await assert.rejects(host.handle({ ...base, projectId: 'nope', text: 'x', permission: 'ask' }), /Project not found/)
+  await assert.rejects(host.handle({ ...base, projectId: 'p-web', text: '  ', permission: 'ask' }), /empty/)
+  await assert.rejects(host.handle({ ...base, projectId: 'p-api', agent: 'acp:gemini-cli', text: 'x', permission: 'ask' }), /not allowed/)
+  const capped = (await host.handle({ ...base, projectId: 'p-ds', text: 'x', permission: 'full' })) as { permission: string }
+  assert.equal(capped.permission, 'ask')
+  host.dispose()
+})
+
+test('limiti d’uso: la lettura rimette l’ora ed emette agent.status; ACP non li ha', async () => {
+  const host = new FakeHost()
+  const events: RemoteEvent[] = []
+  host.onEvent((e) => events.push(e))
+  const before = host.snapshot().agents.find((a) => a.agent === 'claude-code' && !a.profileId)!.usageAt!
+  const read = (await host.handle({ type: 'agents.usage', agent: 'claude-code' })) as { usageAt: number; usage: unknown[] }
+  assert.ok(read.usageAt > before)
+  assert.equal(read.usage.length, 2)
+  assert.equal(events.some((e) => e.type === 'agent.status'), true)
+  assert.equal(await host.handle({ type: 'agents.usage', agent: 'acp:gemini-cli' }), null)
+  const snap = host.snapshot()
+  assert.ok(snap.profiles.length >= 3)
+  assert.ok(snap.defaults['p-web'])
+  host.dispose()
+})

@@ -7,6 +7,7 @@ import { t } from '@shared/i18n'
 import type { SessionSummary } from '@shared/protocol'
 import { request } from '@/host/controller'
 import { groupProjectSessions } from '@/lib/home-model'
+import { openSession } from '@/lib/nav'
 import { useToast } from '@/ui/toast'
 import { Button } from '@/ui/Button'
 import { Icon } from '@/ui/Icon'
@@ -46,7 +47,7 @@ export function ProjectSessions({ projectId, header, native = true }: { projectI
           </Text>
         ) : (
           <View style={{ paddingHorizontal: 4 }}>
-            <SessionRow session={item.session} onPress={() => router.push({ pathname: '/session/[id]', params: { id: item.session.id } })} />
+            <SessionRow session={item.session} onPress={() => openSession(router, item.session.id)} />
           </View>
         )
       }
@@ -124,7 +125,7 @@ function ArchivedSection({ projectId }: { projectId: string }) {
         <>
           {archived.map((s) => (
             <View key={s.id} style={{ paddingHorizontal: 4 }}>
-              <SessionRow session={s} onPress={() => router.push({ pathname: '/session/[id]', params: { id: s.id } })} />
+              <SessionRow session={s} onPress={() => openSession(router, s.id)} />
             </View>
           ))}
           {archived.length === 0 && done ? (

@@ -21,6 +21,9 @@ export type IconName =
   | 'edit'
   | 'send'
   | 'shield'
+  | 'alert'
+  | 'refresh'
+  | 'gauge'
 
 interface Props {
   name: IconName
@@ -115,6 +118,27 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.75 }: Props) {
       break
     case 'shield':
       body = <Path d="M12 4l7 2.5v5.2c0 4-2.7 6.7-7 8.3-4.3-1.6-7-4.3-7-8.3V6.5L12 4z" {...p} />
+      break
+    // Triangolo d'avviso a tratto: non è il triangolo pieno dello stato "ti aspetta".
+    case 'alert':
+      body = (
+        <>
+          <Path d="M12 4.2l8.4 14.6H3.6L12 4.2z" {...p} />
+          <Path d="M12 10v4" {...p} />
+          <Circle cx="12" cy="16.6" r="0.6" fill={color} stroke={color} strokeWidth={0.8} />
+        </>
+      )
+      break
+    case 'refresh':
+      body = <Path d="M19 12a7 7 0 11-2.1-5M19 4.5V8h-3.5" {...p} />
+      break
+    case 'gauge':
+      body = (
+        <>
+          <Path d="M4.5 16.5a7.5 7.5 0 1115 0" {...p} />
+          <Path d="M12 16.5l3.2-4.4" {...p} />
+        </>
+      )
       break
   }
   return (

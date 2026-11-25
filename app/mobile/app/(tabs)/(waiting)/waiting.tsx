@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { FlatList, View } from 'react-native'
 import { t } from '@shared/i18n'
 import { RequestCard } from '@/features/request/RequestCard'
+import { openSession } from '@/lib/nav'
 import { openSheet } from '@/lib/sheets'
 import { useApp } from '@/store/app'
 import { useLanguage } from '@/store/prefs'
@@ -33,7 +34,7 @@ export default function Waiting() {
           <RequestCard
             session={item}
             onReview={(sessionId, requestId) => openSheet(router, { kind: 'request', sessionId, requestId })}
-            onOpenSession={() => router.push({ pathname: '/session/[id]', params: { id: item.id } })}
+            onOpenSession={() => openSession(router, item.id)}
           />
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}

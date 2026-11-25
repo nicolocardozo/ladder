@@ -31,16 +31,16 @@ function Separator() {
   return <View style={{ height: 1, backgroundColor: c.border, marginLeft: 16, opacity: 0.6 }} />
 }
 
-export function Row({ label, value, onPress, right, last, destructive, selected, detail }: { label: string; value?: string; onPress?: () => void; right?: ReactNode; last?: boolean; destructive?: boolean; selected?: boolean; detail?: string }) {
+export function Row({ label, value, onPress, right, last, destructive, selected, detail, disabled }: { label: string; value?: string; onPress?: () => void; right?: ReactNode; last?: boolean; destructive?: boolean; selected?: boolean; detail?: string; disabled?: boolean }) {
   const { c } = useTheme()
   return (
     <>
       <Pressable
         onPress={onPress}
-        disabled={!onPress}
+        disabled={!onPress || disabled}
         accessibilityRole={onPress ? 'button' : 'text'}
-        accessibilityState={selected === undefined ? undefined : { selected }}
-        style={({ pressed }) => ({ minHeight: MIN_TOUCH + 8, paddingHorizontal: 16, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: pressed ? c.selection : 'transparent' })}
+        accessibilityState={{ ...(selected === undefined ? {} : { selected }), ...(disabled ? { disabled: true } : {}) }}
+        style={({ pressed }) => ({ minHeight: MIN_TOUCH + 8, paddingHorizontal: 16, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: pressed ? c.selection : 'transparent', opacity: disabled ? 0.45 : 1 })}
       >
         <View style={{ flex: 1 }}>
           <Text variant="body" tone={destructive ? 'error' : 'default'}>

@@ -3,7 +3,27 @@
 import { registerCatalog } from '@shared/i18n'
 
 registerCatalog('it', {
-  'Starting a session from your phone is coming soon. For now, start it on your Mac and it will show up here.': 'Avviare una sessione dal telefono arriverà presto. Per ora avviala sul Mac e comparirà qui.',
+  // Nuova sessione (LAD-89)
+  'Add a project in Ladder on your Mac first, then start a session here.': 'Aggiungi prima un progetto in Ladder sul Mac, poi avvia qui una sessione.',
+  'Default ({effort})': 'Predefinito ({effort})',
+  'Default ({model})': 'Predefinito ({model})',
+  'No agent is available for this project.': 'Nessun agente disponibile per questo progetto.',
+  'No projects match.': 'Nessun progetto corrisponde.',
+  Options: 'Opzioni',
+  'The message is too long ({max} characters at most).': 'Il messaggio è troppo lungo (al massimo {max} caratteri).',
+  'Reconnect to your Mac to send.': 'Riconnettiti al Mac per inviare.',
+  'Search projects': 'Cerca progetti',
+  'What should the agent do?': 'Cosa deve fare l’agente?',
+  // Limiti del piano (LAD-90)
+  'Reconnect to your Mac to update the limits.': 'Riconnettiti al Mac per aggiornare i limiti.',
+  'Resets at {when} · in {left}': 'Si azzera alle {when} · tra {left}',
+  'Resets at {when}.': 'Si azzera alle {when}.',
+  'Sign in to Claude Code or Codex on your Mac and their plan limits show up here.': 'Accedi a Claude Code o Codex sul Mac e qui compaiono i limiti del piano.',
+  '{agent} · limit reached': '{agent} · limite raggiunto',
+  '{agent} · {percent}% of weekly': '{agent} · {percent}% del limite settimanale',
+  '{agent} · {percent}% of {hours}h': '{agent} · {percent}% di {hours} h',
+  '{agent} · {percent}% of {minutes} min': '{agent} · {percent}% di {minutes} min',
+  '{agent} · {percent}% of {name}': '{agent} · {percent}% di {name}',
   Back: 'Indietro',
   'Your Mac is asleep': 'Il tuo Mac è in stop',
   'Ladder is closed on your Mac': 'Ladder è chiuso sul tuo Mac',

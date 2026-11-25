@@ -31,9 +31,11 @@ const identity = existsSync(IDENTITY_FILE)
 const api: RemoteHostApi = {
   async snapshot() {
     const s = fake.snapshot()
-    return { type: 'snapshot', projects: s.projects, sessions: s.sessions, drafts: {}, ui: s.ui as never, projectGroups: s.projectGroups, agents: s.agents, terminals: [] } as Extract<HostEvent, { type: 'snapshot' }>
+    return { type: 'snapshot', projects: s.projects, sessions: s.sessions, drafts: {}, ui: s.ui as never, projectGroups: s.projectGroups, agents: s.agents, profiles: s.profiles.map((p) => ({ ...p, configDir: null, addedAt: 1 })), terminals: [] } as unknown as Extract<HostEvent, { type: 'snapshot' }>
   },
   handle: (command) => fake.handle(command as never),
+  // Predefiniti della nuova sessione, tetti di permesso e preferenze: come li manda il Mac (LAD-89).
+  remoteExtras: async () => ({ permissionsMax: fake.snapshot().permissionsMax, busySend: 'queue' as const, defaults: fake.snapshot().defaults }),
   pageItems: (sessionId, before, limit) => fake.pageItems(sessionId, before, limit),
   connectionClosed: () => {}
 }
