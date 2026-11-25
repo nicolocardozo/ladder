@@ -36,10 +36,10 @@ There is no Ladder server, no Ladder account and no telemetry. Ladder talks to t
 ## Features
 
 **Projects and sessions**
-- One project at a time, with its tabs, files, terminal and new chat; sessions show their state (running, queued, waiting for approval, unread, error).
+- One project at a time, with its tabs, files, terminal and new chat; sessions show their state (running, waiting for approval, unread, error).
 - Live, unread and draft sessions stay in the sidebar; the rest is in "All sessions", with search, filters, groups and bulk archive.
 - ⌘1…⌘9 switch projects and ⌘W closes a tab; drafts, reading position and sessions are kept across restarts.
-- A configurable limit of active sessions per agent: past the limit a session waits "Queued" and starts on its own when there is room.
+- No cap on active sessions: Ladder warns you as you get close to your plan limits instead.
 - ⌘⇧N starts a session from a GitHub issue or PR, a Linear issue or a branch, with the prompt already written and the worktree on the right branch.
 
 **Chat**
