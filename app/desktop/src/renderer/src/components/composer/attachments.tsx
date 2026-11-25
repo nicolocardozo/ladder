@@ -8,11 +8,8 @@ export const IMAGE_ACCEPT = IMAGE_TYPES.join(',')
 export const MAX_IMAGES = 5
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-/** Testo inviato quando il messaggio ha solo immagini: l'host vuole sempre un testo. */
-export const imagePlaceholder = (count: number) => (count === 1 ? t('(image attached)') : t('(images attached)'))
-// Si riconosce in tutte le lingue: i messaggi già inviati restano nella lingua in cui sono stati scritti.
-const IMAGE_PLACEHOLDERS = new Set(['(image attached)', '(images attached)', '(immagine allegata)', '(immagini allegate)'])
-export const isImagePlaceholder = (text: string) => IMAGE_PLACEHOLDERS.has(text)
+// Il testo segnaposto sta in un modulo condiviso (lo usa anche il gateway del telefono).
+export { imagePlaceholder, isImagePlaceholder } from '@shared/image-placeholder'
 
 export interface PendingImage {
   id: string

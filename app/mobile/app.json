@@ -1,0 +1,120 @@
+{
+  "expo": {
+    "name": "Ladder",
+    "slug": "ladder",
+    "owner": "manybitstech",
+    "scheme": "ladder",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "dev.nicolocardozo.ladder.mobile",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": true,
+        "NSCameraUsageDescription": "Ladder uses the camera to scan the pairing code shown on your Mac and to take photos to send to your agent.",
+        "UIViewControllerBasedStatusBarAppearance": false
+      },
+      "icon": {
+        "light": "./assets/icon.png",
+        "dark": "./assets/icon-dark.png",
+        "tinted": "./assets/icon-tinted.png"
+      }
+    },
+    "android": {
+      "package": "dev.nicolocardozo.ladder.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#22123C"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.VIBRATE"
+      ],
+      "allowBackup": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      "expo-localization",
+      "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#5525CF",
+          "defaultChannel": "sessions"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac and to take photos to send to your agent.",
+          "recordAudioAndroid": false,
+          "microphonePermission": "Ladder uses the microphone to dictate messages. Speech is recognized on your phone and never leaves it."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ladder reads the photos you choose to send to your agent.",
+          "cameraPermission": "Ladder uses the camera to scan the pairing code shown on your Mac and to take photos to send to your agent.",
+          "microphonePermission": "Ladder uses the microphone to dictate messages. Speech is recognized on your phone and never leaves it."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Ladder uses the microphone to dictate messages. Speech is recognized on your phone and never leaves it.",
+          "speechRecognitionPermission": "Ladder uses on-device speech recognition to turn your voice into text. Nothing is sent to a server."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "backgroundColor": "#181424"
+          }
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "./plugins/withWidgetAssets.cjs",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "dev.nicolocardozo.ladder.mobile.widgets",
+          "groupIdentifier": "group.dev.nicolocardozo.ladder.mobile",
+          "enablePushNotifications": false,
+          "widgets": [
+            {
+              "name": "AgentActivity",
+              "displayName": "Agent activity",
+              "description": "How many sessions are working or waiting for you, and which ones wait.",
+              "android": null,
+              "ios": {
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium",
+                  "accessoryRectangular",
+                  "accessoryInline"
+                ],
+                "initialLayout": "./src/widgets/AgentActivityWidget.tsx"
+              }
+            }
+          ]
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "44500324-7107-4791-b174-be05b5af0325"
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import { BrowserColumn } from '@/components/browser/browser-column'
 import { DevServerNotice } from '@/components/browser/dev-server-notice'
-import { BrowserToggle, SplitMenu } from '@/components/top-bar-actions'
+import { BrowserToggle, PhoneIndicator, SplitMenu } from '@/components/top-bar-actions'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { shortcutLabel } from '@shared/shortcuts'
@@ -241,6 +241,7 @@ export function TopBar({ children, project, session, root }: { children?: ReactN
       )}
       {project && session && <SessionGit key={session.id} project={project} session={session} root={root} />}
       <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
+      <PhoneIndicator />
       {project && (
         <>
           <RunButtons project={project} session={session} />

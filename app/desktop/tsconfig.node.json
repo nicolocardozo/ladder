@@ -12,6 +12,7 @@
     ],
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
@@ -27,6 +28,8 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/host/**/*",
-    "src/shared/**/*"
+    "src/shared/**/*",
+    "scripts/remote-client.ts",
+    "scripts/remote-host-harness.ts"
   ]
 }

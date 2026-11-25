@@ -23,7 +23,7 @@ function initialTheme(): ThemeId {
   }
 }
 
-export type SettingsSection = 'appearance' | 'notifications' | 'subscriptions' | 'agents' | 'defaults' | 'integrations' | 'shortcuts' | 'workspace' | 'system'
+export type SettingsSection = 'appearance' | 'notifications' | 'subscriptions' | 'agents' | 'defaults' | 'integrations' | 'shortcuts' | 'workspace' | 'devices' | 'system'
 
 interface SettingsState {
   theme: ThemeId

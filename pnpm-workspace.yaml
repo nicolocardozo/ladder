@@ -1,5 +1,7 @@
 packages:
   - "app/desktop"
+  - "app/mobile"
+  - "app/relay"
   - "website"
 # Installa anche i pacchetti per Mac Intel (binario di Claude dell'Agent SDK), così da qui si costruiscono entrambi i DMG.
 supportedArchitectures:
@@ -9,6 +11,9 @@ allowBuilds:
   electron-winstaller: false
   # Il prebuild N-API incluso basta: niente node-gyp. Lo spawn-helper diventa eseguibile nel postinstall.
   node-pty: false
+  # Il relay (wrangler) usa il binario di workerd per `wrangler dev` e di esbuild per il bundle.
+  esbuild: true
+  workerd: true
 minimumReleaseAgeExclude:
   - '@tailwindcss/node@4.3.5'
   - '@tailwindcss/oxide-android-arm64@4.3.5'

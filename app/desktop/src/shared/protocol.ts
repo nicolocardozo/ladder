@@ -517,6 +517,8 @@ export type ChatItem =
       preview?: { text: string; lines: number; truncated: boolean } | null
       /** Dove hai risposto: nella chat, da "In attesa" o dalla notifica. */
       via?: ResponseVia
+      /** Con via 'phone': nome del telefono che ha risposto (LAD-51), per "dal telefono di Nicolò". */
+      viaDevice?: string
     })
   | (ItemBase & {
       kind: 'turn-end'
@@ -567,7 +569,8 @@ export interface SlashCommand {
 }
 
 export type RequestResponse = { optionId: string; message?: string } | { answers: Record<string, string> }
-export type ResponseVia = 'chat' | 'inbox' | 'notification'
+/** 'phone': risposta arrivata da un client remoto (LAD-49); la chat del Mac può mostrarla come "from phone". */
+export type ResponseVia = 'chat' | 'inbox' | 'notification' | 'phone'
 export type RequestItemData = Extract<ChatItem, { kind: 'request' }>
 
 /** Una finestra dei limiti del piano: quanto ne hai usato e quando si azzera. */
@@ -1229,7 +1232,8 @@ export type HostCommand =
    */
   | { type: 'session.queue.deliver'; sessionId: string; id: string; how: 'steer' | 'now' }
   | { type: 'session.interrupt'; sessionId: string }
-  | { type: 'session.respond'; sessionId: string; requestId: string; response: RequestResponse; via?: ResponseVia }
+  /** `viaDevice`: nome del telefono, lo imposta il gateway remoto insieme a `via: 'phone'` (quello che manda il telefono si ignora). */
+  | { type: 'session.respond'; sessionId: string; requestId: string; response: RequestResponse; via?: ResponseVia; viaDevice?: string }
   /**
    * Va inviato con rid (request): data = { permission, appliesFrom: 'now' | 'next-turn' }.
    * L'host aggiorna la riga solo se l'agente accetta; se rifiuta risponde con errore e il
@@ -1528,6 +1532,40 @@ export type HostCommand =
    */
   | { type: 'project.branchMap.watch'; projectId: string; on: boolean }
   // ── fine LAD-80 ──
+  // ── LAD-51: telefoni (solo dalla finestra: non sono nell'allowlist del canale remoto) ──
+  /** Stato del canale remoto, dispositivi compresi. Risponde RemoteStatus. */
+  | { type: 'remote.status' }
+  /**
+   * Crea il QR di abbinamento: un solo codice attivo alla volta (uno nuovo sostituisce il precedente), monouso, 5 minuti
+   * (REMOTE_PAIRING_TTL_MS), solo in memoria. Risponde RemotePairStart. Errore tradotto se "Access from your phone" è spento.
+   * Quando un telefono si abbina arriva l'evento `remote.paired` (la finestra del QR può chiudersi) e `remote.status`.
+   */
+  | { type: 'remote.pair.start' }
+  /** Annulla il QR attivo (il codice smette di valere subito). Risponde null. */
+  | { type: 'remote.pair.cancel' }
+  /**
+   * Imposta (o toglie, con null) la password chiesta all'abbinamento, oltre al QR. Da REMOTE_PASSWORD_MIN a REMOTE_PASSWORD_MAX
+   * caratteri, errore tradotto altrimenti. Si salva come hash (scrypt) e si controlla solo all'abbinamento: i dispositivi già
+   * abbinati non vengono toccati. Un QR già mostrato resta valido ma, se la password è stata impostata dopo, la chiede comunque.
+   * Risponde null.
+   */
+  | { type: 'remote.password.set'; password: string | null }
+  /**
+   * Revoca un dispositivo: chiude subito le sue connessioni (il telefono riceve RemoteAuthResult con 'device-revoked') e con lo
+   * stesso abbinamento non si ricollega più; per tornare deve abbinarsi di nuovo con un QR nuovo. Risponde null.
+   */
+  | { type: 'remote.device.revoke'; deviceId: string }
+  /** Rinomina un dispositivo (1–80 caratteri). Risponde null. */
+  | { type: 'remote.device.rename'; deviceId: string; name: string }
+  /**
+   * Rigenera la chiave del Mac: nuova identità X25519 e nuova chiave del relay (quindi nuovo id sul relay), annulla il QR,
+   * revoca TUTTI i dispositivi e chiude tutte le connessioni. I telefoni abbinati prima non possono più collegarsi.
+   * Il relay si riconnette con la chiave nuova. Risponde null.
+   */
+  | { type: 'remote.key.regenerate' }
+  /** Log delle azioni remote, dalla più recente. `before`: id esclusivo da cui partire; `limit` predefinito 50, massimo 200. Risponde RemoteLogPage. */
+  | { type: 'remote.log.list'; before?: number; limit?: number }
+  // ── fine LAD-51 ──
   // ── Branch del checkout principale ──
   /** Branch locali del progetto (con quello attuale, i file non committati e l'eventuale sessione al lavoro nel checkout principale). Risponde ProjectBranches; un progetto non git risponde un elenco vuoto. */
   | { type: 'project.branches'; projectId: string }
@@ -1656,6 +1694,14 @@ export type HostEvent =
   // ── LAD-80 ──
   /** Mappa dei branch cambiata: intera, solo se è diversa dall'ultima mandata, per i progetti con una finestra iscritta (`project.branchMap.watch`). */
   | { type: 'project.branchMap'; projectId: string; map: BranchMap }
+  // ── LAD-51 ──
+  /** Il canale remoto è cambiato (attivo o no, dispositivi, collegamenti, QR, password, "Allow Full"): stato intero. */
+  | { type: 'remote.status'; status: RemoteStatus }
+  /** Un telefono si è appena abbinato (per chiudere il dialogo del QR e mostrare "Connected"). */
+  | { type: 'remote.paired'; device: RemoteDeviceInfo }
+  /** Nuova voce nel log delle azioni remote. */
+  | { type: 'remote.log'; entry: RemoteLogEntry }
+  // ── fine LAD-51 ──
   // ── fine LAD-80 ──
   /** Un collegamento è cambiato: avanza il download o il login, o è finito (anche con errore). */
   | { type: 'connection.update'; status: ConnectionStatus }
@@ -1666,6 +1712,534 @@ export type FromHost =
   | { kind: 'event'; event: HostEvent }
   | { kind: 'result'; rid: string; ok: true; data?: unknown }
   | { kind: 'result'; rid: string; ok: false; error: string }
+
+// ── LAD-49: canale remoto (telefono) ─────────────────────────────────────────
+//
+// Un client remoto parla con l'host lo stesso protocollo della finestra (comandi con rid, risultati, eventi), ma:
+// - solo i comandi di RemoteCommand: gli altri li rifiuta il gateway remoto, prima di Host.handle;
+// - riceve solo gli eventi di RemoteEvent, e session.items / session.subagents solo per le sessioni che segue (`session.watch`);
+// - la chat arriva a pagine con `session.page`, mai per intero.
+// Trasporto: Noise_NK_25519_ChaChaPoly_SHA256 (shared/remote/noise.ts), un messaggio Noise per frame binario.
+// Il testo in chiaro di ogni messaggio Noise dopo l'handshake è un frame (vedi REMOTE_FRAME_*): un JSON lungo si spezza su più frame.
+
+/**
+ * Versione del canale remoto: va nei payload dell'handshake; una versione diversa chiude la connessione.
+ * 2 (LAD-51): dopo l'handshake la connessione NON è autenticata e il primo messaggio deve essere `pair` o `auth` (vedi LAD-51 sotto).
+ */
+export const REMOTE_PROTOCOL_VERSION = 2
+
+/** Prologo Noise: lega l'handshake a Ladder e alla versione del canale. */
+export const REMOTE_NOISE_PROLOGUE = 'ladder-remote-v1'
+
+/** Payload del primo messaggio dell'handshake (client → Mac), JSON UTF-8. */
+export interface RemoteClientHello {
+  v: number
+  /** Nome leggibile del dispositivo, solo per il log di diagnostica: arriva prima dell'autenticazione, quindi non è un'identità (quella è `pair`/`auth`). */
+  device: string
+  /** Lingua dell'app sul telefono; non cambia la lingua dell'host. */
+  locale?: Locale
+}
+
+/** Payload della risposta dell'handshake (Mac → client), JSON UTF-8. */
+export interface RemoteServerHello {
+  v: number
+  /** Nome del Mac (nome del computer, ripulito). */
+  mac: string
+  /** Versione di Ladder sul Mac. */
+  app: string
+}
+
+/** Comandi della finestra ammessi anche dal client remoto. È un'allowlist: un comando nuovo non arriva al telefono senza aggiungerlo qui. */
+export type RemoteAllowedType =
+  | 'hello'
+  | 'session.read'
+  | 'session.send'
+  | 'session.interrupt'
+  | 'session.respond'
+  | 'session.queue.set'
+  | 'session.queue.deliver'
+  | 'session.permission.set'
+  | 'session.commands'
+  | 'session.command'
+  | 'subagent.list'
+
+/**
+ * Comandi del client remoto. Rispetto alla finestra:
+ * - `hello` risponde RemoteSnapshot (non lo snapshot completo), solo come risultato: l'evento `snapshot` non parte;
+ * - `session.send` e `session.create` accettano fino a REMOTE_MAX_ATTACHMENTS immagini (LAD-92, validate dal Mac); `session.respond` vale sempre `via: 'phone'` (li forza il gateway);
+ * - `session.command` (LAD-92) esegue un comando / della sessione: `name` deve essere nell'elenco attuale di `session.commands` di quella sessione, `args` è testo di al massimo 2000 caratteri; nel log delle azioni: "Command /name" (mai gli argomenti);
+ * - `session.permission.set` resta limitato dal massimo del progetto, come per la finestra;
+ * - `session.queue.set` conta solo id e testo (gli allegati accodati restano quelli salvati sul Mac);
+ * - `session.queue.deliver` consegna anche gli allegati che erano stati accodati sul Mac: il telefono non li vede, ma partono;
+ * - il gateway limita le richieste (circa 20 al secondo, a raffica 40): oltre, la richiesta torna con un errore.
+ */
+export type RemoteCommand =
+  | Extract<HostCommand, { type: RemoteAllowedType }>
+  /**
+   * Una pagina di chat, dalla fine all'indietro. Risponde RemotePage.
+   * `before`: seq esclusivo da cui partire (assente = dalla fine); `limit` predefinito 60, massimo 200 item.
+   */
+  | { type: 'session.page'; sessionId: string; before?: number; limit?: number }
+  /**
+   * Segue (on) o smette di seguire (off) una sessione: con on arrivano gli eventi session.items (anche replace: true,
+   * per esempio dopo /compact) e session.subagents di quella sessione. Al massimo 8 sessioni seguite per connessione:
+   * oltre, la meno recente smette di essere seguita. Le iscrizioni spariscono con la connessione.
+   * Un `session.items` con replace: true (anche quello che il Mac manda quando apri la chat) arriva al telefono ridotto
+   * all'ultima pagina, come `session.page` senza parametri, sempre con replace: true: la chat intera non viaggia mai.
+   */
+  | { type: 'session.watch'; sessionId: string; on: boolean }
+  /**
+   * LAD-51: salva (o toglie, con token null) il token delle notifiche push (Expo) di questo dispositivo, per LAD-53.
+   * Risponde null. Il Mac lo conserva sulla riga del dispositivo, mai nel log; `platform` aggiorna quella del dispositivo.
+   * `token` al massimo 512 caratteri.
+   */
+  | { type: 'device.push.set'; token: string | null; platform: RemotePlatform }
+  /**
+   * LAD-53: preferenze delle notifiche push di questo dispositivo (le possiede il telefono; il Mac le conserva sulla riga del
+   * dispositivo e le applica prima di mandare). Risponde null. Il telefono le manda a ogni connessione dopo l'autenticazione:
+   * il comando è idempotente e il Mac non le rimanda indietro. Validazione: `events` con tutte e quattro le chiavi booleane,
+   * `quiet.from`/`to` "HH:MM" (24 ore), `quiet.tz` un fuso IANA valido (es. "Europe/Rome"), al massimo 64 caratteri.
+   * Predefiniti (finché il telefono non manda nulla): tutti gli eventi accesi, nessuna fascia silenziosa.
+   */
+  | { type: 'device.notify.set'; prefs: RemoteNotifyPrefs }
+  /**
+   * LAD-53: l'app è in primo piano (true) o no (false). Solo in memoria, per connessione: sparisce con la connessione.
+   * Con almeno una connessione del dispositivo in primo piano il Mac non manda il push (l'app mostra l'evento dal vivo).
+   * Il telefono lo manda a ogni cambio di AppState, subito dopo l'autenticazione e, finché è in primo piano, ogni ~20 secondi (battito):
+   * per il Mac vale l'ultimo stato del dispositivo, ma `true` conta solo se è stato riportato negli ultimi 30 secondi o la connessione
+   * ha avuto traffico di comandi negli ultimi 30 secondi: una connessione muta non toglie i push. Risponde null.
+   */
+  | { type: 'device.state'; foreground: boolean }
+  /**
+   * Sessioni archiviate di un progetto (schermata Progetto), solo lettura, dalla più recente per `updatedAt`. Risponde SessionSummary[].
+   * `before`: `updatedAt` esclusivo da cui continuare (l'ultimo ricevuto); `limit` predefinito 30, massimo 100. Meno di `limit` risultati = finite.
+   * Non sono nello snapshot. Progetto sconosciuto: errore.
+   */
+  | { type: 'project.sessions.archived'; projectId: string; before?: number; limit?: number }
+  /**
+   * LAD-89: nuova sessione di chat dal telefono. Risponde SessionSummary (la stessa della finestra); la sessione arriva anche
+   * con `session.upsert` (di solito prima del risultato), e si può seguire subito con `session.watch` (poi `session.page` per
+   * gli item già scritti: gli eventi session.items partono solo per le sessioni seguite).
+   * Validazione stretta (errore tradotto, nessuna sessione creata se qualcosa non va):
+   * - chiavi ammesse solo quelle di RemoteSessionCreate; `attachments` (LAD-92: immagini, vedi sotto; `[]` vale come nessuno), `command`,
+   *   `worktree`, `branch`, `baseBranch`, `newBranch`, `setupWait`, `source`, `title` o `mode` diverso da 'chat' = richiesta rifiutata;
+   * - `projectId` esistente; `agent` conosciuto, disponibile e ammesso dal progetto (`agents.allowed`);
+   * - `text` non vuoto (dopo trim), al massimo 200000 caratteri;
+   * - `model`: id di AgentStatus.models di quell'agente (del profilo, se `profileId` c'è) oppure null = predefinito dell'agente;
+   *   `effort`: livello accettato dal modello scelto (o da quello predefinito) oppure null = predefinito; agenti senza effort: null;
+   * - `permission`: uno dei quattro livelli. 'full' con "Allow Full access from phone" spento = RIFIUTATA (come `session.permission.set`,
+   *   niente riduzione silenziosa a edit: il telefono mostra già Full disabilitato). Sopra `permissionsMax` del progetto si RIDUCE
+   *   al tetto (come per la finestra);
+   * - `profileId` (opzionale) esistente e dell'agente scelto.
+   * - LAD-92 `attachments` (anche di `session.send`): al massimo REMOTE_MAX_ATTACHMENTS immagini, `mediaType` in REMOTE_ATTACHMENT_TYPES,
+   *   `data` base64 canonico, al massimo REMOTE_MAX_ATTACHMENT_BYTES decodificati l'una e REMOTE_MAX_ATTACHMENTS_TOTAL in tutto, numero magico
+   *   coerente col tipo; `name` ridotto a basename (120 caratteri, niente controlli; vuoto = image.jpg/png/webp). Errore tradotto se qualcosa non va.
+   *   Con almeno un'immagine `text` può essere vuoto. Contano sul limite per dispositivo (raffica 6, poi 10 al minuto). Log: "Message with N images".
+   * La sessione parte nel checkout principale del progetto (nessun worktree dal telefono) e in chat (mai terminale).
+   * Nel log delle azioni (`create`): "New session: <agente> in <progetto>", senza il testo.
+   */
+  | RemoteSessionCreate
+  /**
+   * LAD-92: ricerca di file di un progetto per le menzioni `@` del telefono. Risponde string[]: percorsi relativi alla radice del
+   * progetto (rispetta .gitignore come la finestra), al massimo min(`limit`, REMOTE_FILE_SEARCH_MAX), `limit` predefinito 20.
+   * `query` al massimo 200 caratteri; vuota = i file meno profondi. Il filtro gira sul Mac: il telefono non scarica mai l'elenco intero,
+   * per questo `project.files` (l'elenco completo) NON è ammesso dal telefono. Limite per dispositivo (raffica 10, poi 4 al secondo).
+   */
+  | { type: 'project.files.search'; projectId: string; query: string; limit?: number }
+  /**
+   * LAD-90: rilegge i limiti d'uso del piano (stessi parametri del comando della finestra). Risponde AgentStatus senza `email` né `path`
+   * (RemoteAgentStatus). Al massimo una lettura vera ogni 60 secondi per agente+profilo per connessione: prima, risponde con l'ultimo
+   * valore letto (cache dell'host) senza toccare il provider. Il valore arriva anche con `agent.status`.
+   */
+  | { type: 'agents.usage'; agent: AgentId; profileId?: string }
+
+/** LAD-89: comando `session.create` del telefono; vedi RemoteCommand. */
+export interface RemoteSessionCreate {
+  type: 'session.create'
+  projectId: string
+  agent: AgentId
+  text: string
+  model: string | null
+  effort: Effort | null
+  permission: PermissionLevel
+  profileId?: string | null
+  /** Solo 'chat' (o assente). */
+  mode?: 'chat'
+  /** LAD-92: immagini (al massimo REMOTE_MAX_ATTACHMENTS), validate come quelle di `session.send`. */
+  attachments?: Attachment[]
+}
+
+/** LAD-90: AgentStatus come lo vede il telefono: senza email dell'account né percorso della CLI. */
+export type RemoteAgentStatus = Omit<AgentStatus, 'email' | 'path'>
+
+/** LAD-90: profilo (account) senza la cartella di configurazione. `Project.profiles` dice quale usa ogni progetto. */
+export type RemoteProfile = Pick<Profile, 'id' | 'agent' | 'name' | 'isDefault'>
+
+/**
+ * LAD-89: come parte una nuova sessione in un progetto, già risolto dal Mac con le stesse regole della nuova chat
+ * (progetto, poi [agents] default del TOML, poi predefiniti globali, poi ultimo agente, poi Claude Code o il primo disponibile).
+ * - `allowed`: agenti ammessi dal progetto; vuoto = tutti quelli disponibili;
+ * - `agent`: agente proposto (null se nessuno è usabile); `lastAgent`: ultimo usato in chat nel progetto (può non essere più ammesso);
+ * - `launch`: per ogni agente disponibile e ammesso, modello ed effort scelti da Ladder (progetto, poi globale) da mandare a
+ *   `session.create`; null = nessun livello sceglie: si manda null e la sessione segue il predefinito dell'agente (sul Mac compare come Default).
+ *   Per mostrarlo il telefono usa il modello `isDefault` di AgentStatus.models (dell'account del progetto, `Project.profiles`). Valori validi per l'account
+ *   assegnato al progetto per quell'agente;
+ * - `permission`: permesso proposto, già ridotto al tetto del progetto e a 'edit' se "Allow Full access from phone" è spento.
+ */
+export interface RemoteProjectDefaults {
+  allowed: AgentId[]
+  agent: AgentId | null
+  lastAgent: AgentId | null
+  launch: Partial<Record<AgentId, { model: string | null; effort: Effort | null }>>
+  permission: PermissionLevel
+}
+
+/** Eventi che possono diventare un push: gli stessi di AttentionEvent tranne `resolved`. */
+export type PushKind = 'request' | 'turn' | 'error' | 'agents'
+
+/**
+ * LAD-53: preferenze push di un dispositivo (`device.notify.set`).
+ * - `events`: quali eventi notificare;
+ * - `quiet`: fascia silenziosa, valutata nel fuso `tz` del telefono; vale anche a cavallo della mezzanotte (from > to);
+ *   from === to = fascia vuota; null = nessuna fascia;
+ * - `quietAllowsRequests`: con true, richieste e domande passano anche nella fascia silenziosa (predefinito false:
+ *   nella fascia non arriva nulla).
+ */
+export interface RemoteNotifyPrefs {
+  events: Record<PushKind, boolean>
+  quiet: { from: string; to: string; tz: string } | null
+  quietAllowsRequests?: boolean
+}
+
+/**
+ * LAD-53: `data` del push (Expo `data`, quindi anche in `response.notification.request.content.data` al tocco). Volutamente
+ * senza titoli né testo: Expo, Apple e Google vedono solo "Ladder" e una frase generica; i dettagli il telefono li prende
+ * dal canale cifrato (`hello`, `session.page`). Al tocco: apri la sessione `sessionId` sul Mac `mac` e, se `itemId` c'è, la richiesta.
+ * `mac`: `pushMacId(RemotePairingPayload.key)` (shared/remote/pairing.ts): sha256 della chiave del Mac, 16 caratteri base64url. Il telefono lo
+ * calcola dal suo abbinamento e lo confronta; non è l'id del relay (chi vede il push non può entrare nella stanza) e vale su ogni trasporto.
+ */
+export interface RemotePushData {
+  v: 1
+  kind: PushKind
+  sessionId: string
+  /** Id della richiesta (kind 'request'), del turno o dell'errore; null se non c'è. */
+  itemId: string | null
+  mac: string
+}
+
+/** Titolo del push: sempre "Ladder". Il testo (`body`) è generico e nella lingua dell'app sul telefono (RemoteClientHello.locale). */
+export const REMOTE_PUSH_TITLE = 'Ladder'
+/** Canale Android dei push (lo crea l'app: importance alta). */
+export const REMOTE_PUSH_CHANNEL = 'sessions'
+
+export interface RemotePage {
+  sessionId: string
+  /** In ordine di seq crescente. */
+  items: ChatItem[]
+  /** Ci sono item più vecchi del primo restituito. */
+  hasMore: boolean
+}
+
+/** Istantanea per il client remoto: solo ciò che serve alla Home (sidebar) e alle sessioni. */
+export interface RemoteSnapshot {
+  type: 'snapshot'
+  projects: Project[]
+  /** Sessioni non archiviate, come nello snapshot della finestra. */
+  sessions: SessionSummary[]
+  /** Di ProjectUiState solo gruppi di sessioni e `seenAt` ("While you were away"). */
+  ui: Record<string, Pick<ProjectUiState, 'groups' | 'groupOf' | 'seenAt'>>
+  projectGroups?: ProjectGroupsState
+  /** Agenti e modelli, per le righe di sessione e il permesso. LAD-90: senza `email` né `path`; `usage`/`usageAt`/`limits`/`account` (piano) ci sono. */
+  agents: RemoteAgentStatus[]
+  /** LAD-90: account (abbonamenti) di Claude Code e Codex: nome e agente, per elencare le sottoscrizioni (`AgentStatus.profileId` le lega allo stato). Mai la cartella di configurazione. */
+  profiles: RemoteProfile[]
+  /**
+   * LAD-89: predefiniti della nuova sessione per progetto (chiave: id del progetto). Letti all'hello e aggiornati dall'evento
+   * `remote.defaults` quando cambiano i predefiniti globali, i modelli degli agenti, l'elenco dei progetti o la UI del progetto
+   * (ultimo agente, predefiniti del progetto); le modifiche ai file `.ladder/settings*.toml` si vedono al prossimo hello.
+   */
+  defaults: Record<string, RemoteProjectDefaults>
+  /**
+   * Tetto di permesso per progetto (`permissions_max` delle impostazioni del progetto, già con i file personali): null = nessun tetto.
+   * Il telefono disabilita i livelli sopra il tetto; l'host li clampa comunque. Letto all'hello: se cambia sul Mac si vede al prossimo hello.
+   */
+  permissionsMax: Record<string, PermissionLevel | null>
+  /** LAD-51: preferenze del Mac che il telefono rispecchia (lette all'hello). */
+  prefs: RemotePrefs
+}
+
+/**
+ * Preferenze del Mac visibili al telefono.
+ * - `busySend`: cosa fa il tasto di invio a sessione al lavoro ('steer' inserisce nel turno, 'queue' accoda): è AppPrefs.busySend, come `session.send` con `busy`;
+ * - `allowFull`: "Allow Full access from phone". False: il telefono mostra il livello Full disabilitato ("turned off on your Mac"); `session.permission.set` con full torna con un errore.
+ */
+export interface RemotePrefs {
+  busySend: 'steer' | 'queue'
+  allowFull: boolean
+}
+
+/** Eventi inoltrati al client remoto; tutti gli altri restano sul Mac. */
+export type RemoteEvent =
+  | RemoteSnapshot
+  /** LAD-51: le preferenze del Mac sono cambiate (per esempio "Allow Full access from phone"): sostituiscono `RemoteSnapshot.prefs`. */
+  | { type: 'remote.prefs'; prefs: RemotePrefs }
+  /** LAD-89: sostituisce `RemoteSnapshot.defaults` e `permissionsMax` (cambiano insieme: predefiniti, tetti, modelli). */
+  /** LAD-90: gli account (profili) cambiano: stessi eventi della finestra, ma senza la cartella di configurazione. */
+  | { type: 'profile.upsert'; profile: RemoteProfile }
+  | { type: 'profile.removed'; profileId: string }
+  | { type: 'remote.defaults'; defaults: Record<string, RemoteProjectDefaults>; permissionsMax: Record<string, PermissionLevel | null> }
+  | Extract<
+      HostEvent,
+      {
+        type:
+          | 'session.upsert'
+          | 'session.items'
+          | 'session.subagents'
+          | 'sessions.autoArchived'
+          | 'project.upsert'
+          | 'project.removed'
+          | 'projectGroups.changed'
+          | 'agent.status'
+      }
+    >
+
+/** Dopo l'autenticazione. Il primo messaggio di una connessione è invece un RemoteFirstMessage. */
+export type ToRemoteHost = { rid?: string; command: RemoteCommand }
+export type FromRemoteHost =
+  | { kind: 'event'; event: RemoteEvent }
+  | { kind: 'result'; rid: string; ok: true; data?: unknown }
+  | { kind: 'result'; rid: string; ok: false; error: string }
+  /** LAD-51: risposta al primo messaggio (`pair`/`auth`); con ok: false il Mac chiude subito. Può arrivare anche dopo, per avvisare di una revoca. */
+  | RemoteAuthResult
+
+/**
+ * Frame del canale remoto: testo in chiaro di un messaggio Noise dopo l'handshake. Il primo byte vale
+ * REMOTE_FRAME_MORE se il JSON continua nel frame successivo, REMOTE_FRAME_END se finisce qui; il resto è UTF-8.
+ * Un messaggio Noise porta al massimo 65535 byte (65519 di testo con il tag), quindi un JSON lungo si spezza.
+ * I frame MORE sono sempre pieni (65519 byte): uno più corto chiude la connessione.
+ * Il client chiude la connessione se un JSON ricomposto supera REMOTE_MAX_MESSAGE byte; l'host, che riceve solo comandi
+ * piccoli: prima dell'autenticazione a REMOTE_MAX_COMMAND, dopo a REMOTE_MAX_ATTACH_COMMAND (LAD-92, per i messaggi con immagini;
+ * un messaggio sopra REMOTE_MAX_COMMAND che non porta allegati su `session.send`/`session.create` chiude la connessione).
+ */
+export const REMOTE_FRAME_END = 0
+export const REMOTE_FRAME_MORE = 1
+export const REMOTE_MAX_MESSAGE = 16 * 1024 * 1024
+/** Massimo di un messaggio del client verso l'host (comandi, non snapshot). */
+export const REMOTE_MAX_COMMAND = 1024 * 1024
+/** LAD-92: massimo di un messaggio di un client AUTENTICATO (solo `session.send`/`session.create` con immagini possono superare REMOTE_MAX_COMMAND). */
+export const REMOTE_MAX_ATTACH_COMMAND = 3 * 1024 * 1024
+/** LAD-92: immagini per messaggio, byte decodificati per immagine e in totale, tipi ammessi. */
+export const REMOTE_MAX_ATTACHMENTS = 3
+export const REMOTE_MAX_ATTACHMENT_BYTES = 1024 * 1024
+export const REMOTE_MAX_ATTACHMENTS_TOTAL = 2 * 1024 * 1024
+export const REMOTE_ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
+/** LAD-92: risultati massimi di `project.files.search`. */
+export const REMOTE_FILE_SEARCH_MAX = 50
+
+// ── fine LAD-49 ──
+
+// ── LAD-50: relay ──
+// Il relay (app/relay, su Cloudflare) inoltra byte cifrati tra Mac e telefono; il formato dei suoi messaggi sta in shared/remote/relay-protocol.ts.
+
+/** Relay predefinito di Ladder, usato quando HostPrefs.remote.relayUrl è null. Segnaposto: l'indirizzo vero si conferma prima del rilascio. */
+export const REMOTE_DEFAULT_RELAY_URL = 'wss://relay.ladder.app'
+
+/**
+ * Perché il Mac non è raggiungibile, per quanto il relay ne sa (arriva al telefono con lo stato del Mac).
+ * 'rekeyed': il Mac ha rigenerato la sua chiave ("Regenerate key") e da questo id non tornerà mai più: il telefono deve abbinarsi di nuovo.
+ */
+export type RemoteOfflineReason = 'offline' | 'asleep' | 'quit' | 'rekeyed' | 'unknown'
+
+/** Stato del Mac visto dal telefono attraverso il relay. `since` = ultima volta che il relay ha visto il Mac (ms), null se mai. */
+export type RemoteMacStatus = { online: true } | { online: false; since: number | null; reason: RemoteOfflineReason }
+
+// ── fine LAD-50 ──
+
+// ── LAD-51: abbinamento dei telefoni, elenco dispositivi, revoca, password, rigenerazione della chiave, log ──
+//
+// Noise NK autentica solo il Mac. Il telefono si identifica DOPO l'handshake con una chiave Ed25519 sua (nell'archivio sicuro del
+// telefono, creata all'abbinamento): finché non l'ha fatto la connessione NON è autenticata e il gateway accetta un solo
+// messaggio, un RemoteFirstMessage (`pair` la prima volta, `auth` le volte dopo). Tutto il resto (hello, comandi) è rifiutato
+// e chiude la connessione. Si ha dieci secondi dall'apertura per autenticarsi.
+//
+// La firma `sig` copre `ladder-device-v1|<pair|auth>|<hash dell'handshake in base64url>` (channelBinding in shared/remote/pairing.ts):
+// l'hash dell'handshake Noise è uguale sui due lati (RemoteSession.handshakeHash) e diverso a ogni connessione, quindi una firma
+// non si riusa su un'altra connessione.
+//
+// Flusso del telefono:
+//  1. Scansiona il QR (`ladder://pair#…`) e lo legge con decodePairingUrl. Prima di collegarsi mostra nome del Mac (`mac`),
+//     impronta della chiave (keyFingerprint) e relay: l'utente conferma. Se `pw` chiede la password.
+//  2. Apre il canale (relay `relay`+`id`, oppure `ws` in sviluppo), fa l'handshake Noise NK con `key`.
+//  3. Manda RemotePairRequest firmata. Risposta RemoteAuthResult { ok: true, deviceId }: salva deviceId (e la chiave Mac) e
+//     da qui in poi usa `hello` e i comandi.
+//  4. Alle connessioni successive: handshake, poi RemoteAuthRequest { deviceId, sig }.
+// Un RemoteAuthResult con ok: false chiude la connessione: il telefono mostra `error` (già tradotto nella lingua del Mac) e,
+// per 'device-revoked' / 'unknown-device', dimentica l'abbinamento. Con una chiave del Mac rigenerata l'handshake stesso
+// fallisce (la chiave nota non è più quella del Mac): il telefono deve proporre di abbinarsi di nuovo.
+
+/** Versione del formato del QR (campo `v` del payload). */
+export const REMOTE_PAIRING_VERSION = 1
+/** Durata del QR: passato questo tempo il codice non vale più. */
+export const REMOTE_PAIRING_TTL_MS = 5 * 60 * 1000
+/** Tentativi falliti (firma, password) su uno stesso codice prima che il codice venga bruciato. */
+export const REMOTE_MAX_PAIR_ATTEMPTS = 5
+/** Lunghezza della password del Mac, in caratteri. */
+export const REMOTE_PASSWORD_MIN = 4
+export const REMOTE_PASSWORD_MAX = 128
+
+export type RemotePlatform = 'ios' | 'android'
+
+/**
+ * Contenuto del QR: JSON → base64url dopo `ladder://pair#` (nel frammento: non va mai a un server). Codifica e lettura:
+ * encodePairingUrl / decodePairingUrl in shared/remote/pairing.ts. Raggiungibilità: `relay` + `id`, oppure `ws`, o entrambi.
+ */
+export interface RemotePairingPayload {
+  /** REMOTE_PAIRING_VERSION. */
+  v: number
+  /** Nome del Mac (lo stesso del RemoteServerHello). */
+  mac: string
+  /** Chiave pubblica X25519 del Mac, base64url, 32 byte: è la chiave statica dell'handshake Noise NK. */
+  key: string
+  /** Indirizzo del relay (wss://…) e id del Mac su quel relay (RelayTransport({ relayUrl, macId })). */
+  relay?: string
+  id?: string
+  /** Solo in sviluppo: WebSocket locale del Mac (ws://127.0.0.1:porta) per abbinarsi dal simulatore senza relay. */
+  ws?: string
+  /** Codice monouso, 32 byte casuali base64url. Vale una volta, per 5 minuti; non va mai loggato. */
+  token: string
+  /** Scadenza del codice, ms da epoch (orologio del Mac). */
+  exp: number
+  /** Il Mac ha una password: il telefono deve chiederla e mandarla in `password`. */
+  pw: boolean
+}
+
+/** Tipo di firma del dispositivo: entra nel testo firmato, così una firma di `auth` non vale come `pair`. */
+export type RemoteAuthKind = 'pair' | 'auth'
+
+/** Primo abbinamento. `device.publicKey`: Ed25519 del telefono, base64url, 32 byte. `name` al massimo 80 caratteri (es. "Zoë's iPhone"). `sig`: base64url. */
+export interface RemotePairRequest {
+  type: 'pair'
+  token: string
+  device: { publicKey: string; name: string; platform: RemotePlatform }
+  /** Obbligatoria se il Mac ha una password (`RemotePairingPayload.pw`). Si controlla solo qui, mai in `auth`. */
+  password?: string
+  sig: string
+}
+
+/** Connessione di un dispositivo già abbinato. */
+export interface RemoteAuthRequest {
+  type: 'auth'
+  deviceId: string
+  sig: string
+}
+
+/** Unico messaggio ammesso su una connessione non autenticata. */
+export type RemoteFirstMessage = RemotePairRequest | RemoteAuthRequest
+
+/**
+ * Perché l'autenticazione è fallita (dopo ogni errore il Mac chiude la connessione):
+ * - bad-token: codice sconosciuto o non attivo (il QR è stato sostituito o annullato); token-expired: scaduto; token-used: già usato o bruciato;
+ * - password-required / wrong-password: manca o è sbagliata; too-many-attempts: troppi errori sul codice (il codice è bruciato) o troppi errori di fila dalla stessa origine;
+ * - device-revoked: revocato dal Mac (anche da "rigenera chiave"): l'abbinamento non vale più; unknown-device: il Mac non conosce questo id (per esempio dopo un ripristino);
+ * - bad-signature: firma non valida; remote-disabled: "Access from your phone" è spento sul Mac; invalid-request: forma del messaggio sbagliata.
+ */
+export type RemoteAuthErrorCode =
+  | 'bad-token'
+  | 'token-expired'
+  | 'token-used'
+  | 'password-required'
+  | 'wrong-password'
+  | 'too-many-attempts'
+  | 'device-revoked'
+  | 'unknown-device'
+  | 'bad-signature'
+  | 'remote-disabled'
+  | 'invalid-request'
+
+/**
+ * Esito dell'autenticazione. Con ok: true: `deviceId` (da salvare sul telefono), `name` (il nome registrato) e `allowFull`
+ * (false = "Allow Full access from phone" è spento: il telefono non offre il livello Full). Con ok: false: `error` è già tradotto.
+ */
+export type RemoteAuthResult =
+  | { kind: 'auth'; ok: true; deviceId: string; name: string; allowFull: boolean }
+  | { kind: 'auth'; ok: false; code: RemoteAuthErrorCode; error: string }
+
+/** Un dispositivo abbinato, come lo vede la finestra (i revocati non ci sono). */
+export interface RemoteDeviceInfo {
+  id: string
+  name: string
+  platform: RemotePlatform
+  /** Primo abbinamento, ms. */
+  createdAt: number
+  /** Ultimo collegamento riuscito o ultima chiusura, ms; null se non si è mai collegato dopo l'abbinamento. Se `connected`, è adesso. */
+  lastSeenAt: number | null
+  /** Ha almeno una connessione autenticata in questo momento. */
+  connected: boolean
+  /** LAD-53: il telefono ha registrato un token push (riceve le notifiche con l'app chiusa). L'host lo imposta sempre; opzionale solo per le fixture della UI. */
+  pushEnabled?: boolean
+}
+
+/**
+ * Stato del canale remoto per Impostazioni → Dispositivi e per l'indicatore nella barra in alto (`connectedCount > 0`).
+ * Arriva come risultato di `remote.status` e come evento `remote.status` a ogni cambiamento.
+ */
+export interface RemoteStatus {
+  /** Il canale è attivo: "Access from your phone" acceso (AppPrefs.remote.enabled) o, in sviluppo, LADDER_REMOTE_PORT / LADDER_RELAY_URL. Spento: niente QR. */
+  enabled: boolean
+  /** Relay in uso; null se il canale è spento o c'è solo il WebSocket locale di sviluppo. */
+  relayUrl: string | null
+  /** Id del Mac sul relay (cambia con "rigenera chiave"). */
+  relayId: string | null
+  macName: string
+  /** Impronta della chiave del Mac ("7F3A 91C2 · E04B 5D18"), la stessa che il telefono mostra prima di collegarsi; null se la chiave non è mai stata creata. */
+  fingerprint: string | null
+  hasPassword: boolean
+  /** "Allow Full access from phone" (AppPrefs.remote.allowFull). */
+  allowFull: boolean
+  /** Dispositivi abbinati (non revocati), dal più recente. */
+  devices: RemoteDeviceInfo[]
+  /** Quanti dispositivi sono collegati adesso (per l'indicatore). */
+  connectedCount: number
+  /** QR attivo: scadenza in ms; null se nessun QR è attivo. Alla scadenza arriva un nuovo `remote.status`. */
+  pairing: { expiresAt: number } | null
+}
+
+/** Risposta di `remote.pair.start`. */
+export interface RemotePairStart {
+  /** `ladder://pair#…`: il testo da mettere nel QR. Contiene il codice monouso: non loggarlo. */
+  url: string
+  payload: RemotePairingPayload
+  /** Impronta della chiave del Mac, da mostrare accanto al QR. */
+  fingerprint: string
+  expiresAt: number
+}
+
+/** Azioni dal telefono che finiscono nel log (visibile sul Mac). */
+export type RemoteLogAction = 'respond' | 'send' | 'queue' | 'interrupt' | 'permission' | 'create'
+
+/**
+ * Una voce del log delle azioni remote. `detail` è un riassunto breve, già tradotto nella lingua del Mac al momento
+ * dell'azione, mai il testo di un messaggio: "Approved: Run command", "Message (42 chars)", "Permission → Full", "Stopped".
+ */
+export interface RemoteLogEntry {
+  id: number
+  deviceId: string
+  /** Nome del dispositivo (anche se poi è stato revocato). */
+  deviceName: string
+  /** ms. */
+  at: number
+  action: RemoteLogAction
+  sessionId: string | null
+  detail: string
+}
+
+export interface RemoteLogPage {
+  /** Dalla più recente. */
+  entries: RemoteLogEntry[]
+  hasMore: boolean
+}
+
+// ── fine LAD-51 ──
 
 // ── Host ↔ processo main: notifiche, badge del Dock e preferenze ─────────────
 
@@ -1690,8 +2264,13 @@ export type HostToMain =
   | { type: 'shortcuts'; preset: ShortcutPreset; overrides: Keybinding[] }
   /** Apre keybindings.json (il main sa il percorso) nell'app di sistema. */
   | { type: 'open-keybindings' }
-  /** Sessioni che stanno lavorando (turno in corso, non in attesa di te), a ogni cambiamento del numero: il main tiene il Mac sveglio se AppPrefs.keepAwake. */
-  | { type: 'activity'; running: number }
+  /**
+   * Sessioni che stanno lavorando (turno in corso, non in attesa di te) e telefoni collegati al canale remoto, a ogni cambiamento di uno dei due:
+   * il main tiene il Mac sveglio se AppPrefs.keepAwake (e c'è lavoro o un telefono) e mostra lo stato nel menu della barra. `phones` assente = 0.
+   */
+  | { type: 'activity'; running: number; phones?: number }
+  /** LAD-54: risposta a `power` con state 'quit': il relay è stato avvisato (o non c'era), il main può chiudere l'host. */
+  | { type: 'power-ack'; state: 'quit' }
   /** Apre una cartella o un file nel Finder / app di sistema: il main lo fa solo dentro la cartella dati dell'app. */
   | { type: 'open-path'; path: string }
   // ── LAD-57 parte 2 ──
@@ -1726,11 +2305,32 @@ export interface HostPrefs {
   /** Browser per l'agente, globale (vedi AppPrefs.agentBrowser). Predefinito false. */
   agentBrowser?: boolean
   // ── Fine LAD-57 parte 2 ──
+  /**
+   * LAD-50: canale remoto per il telefono attraverso il relay. Assente = spento.
+   * `relayUrl`: indirizzo del relay (wss://…); null = quello predefinito (REMOTE_DEFAULT_RELAY_URL). Chi ospita il proprio relay mette il suo.
+   * LAD-51: `allowFull` = "Allow Full access from phone": se false il telefono non può passare una sessione a Full (assente = true).
+   */
+  remote?: { enabled: boolean; relayUrl: string | null; allowFull?: boolean }
+  /** Cosa fa l'invio a sessione al lavoro (AppPrefs.busySend): il telefono lo ripete nel suo tasto di invio (RemotePrefs). Assente = invariato. */
+  busySend?: 'steer' | 'queue'
+  /** LAD-89: predefiniti globali delle nuove sessioni (AppPrefs.defaults), per risolvere quelli mostrati al telefono. */
+  defaults?: SessionDefaults
+}
+
+/** LAD-53: evento da mandare ai telefoni; niente testi (il push è generico). */
+export interface PushEvent {
+  kind: PushKind
+  sessionId: string
+  itemId: string | null
 }
 
 export type MainToHost =
   | { type: 'connect' }
   | { type: 'prefs'; prefs: HostPrefs }
+  /** LAD-54: stato del Mac per il canale remoto (i telefoni vedono "dorme" / "Ladder chiuso"). Con 'quit' l'host risponde `power-ack`. */
+  | { type: 'power'; state: 'asleep' | 'awake' | 'quit' }
+  /** LAD-53: il main ha deciso che un evento va notificato ai telefoni (nessuno sta guardando la sessione sul Mac, Mac inattivo). Il filtro per dispositivo lo fa l'host. */
+  | { type: 'push'; event: PushEvent }
   // ── LAD-57 parte 2 ──
   | { type: 'browser-agent-result'; rid: string; result: BrowserAgentResult }
   /** La vista dell'agente non c'è più (l'utente ha chiuso la tab o la finestra): l'host revoca gli strumenti della sessione. */
@@ -1812,6 +2412,8 @@ export interface AppPrefs {
   openAtLogin: boolean
   /** Tiene il Mac sveglio (powerSaveBlocker 'prevent-app-suspension': lo schermo può spegnersi) finché almeno una sessione sta lavorando. Predefinito false. */
   keepAwake: boolean
+  /** LAD-54/51: canale remoto per il telefono (vedi HostPrefs.remote). Assente = spento. Con il canale acceso Ladder resta nella barra dei menu a finestre chiuse. */
+  remote?: { enabled: boolean; relayUrl: string | null; allowFull: boolean }
   /** Suono delle notifiche quando `sound` è attivo: 'default' o il nome di un suono di sistema di macOS. Predefinito 'default'. */
   soundName: RequestSound
 }

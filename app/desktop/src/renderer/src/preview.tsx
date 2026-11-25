@@ -53,6 +53,8 @@ import { COMPACT_WIDTH, MIN_COLUMN_WIDTH } from '@/lib/use-element-width'
 import { useChatFont, DEFAULT_CHAT_FONT, DEFAULT_CHAT_WIDTH } from './hooks/use-chat-font'
 import { NewChat } from './components/main-views'
 import { SettingsDialog } from './components/settings-dialog'
+import { PhoneIndicator } from './components/top-bar-actions'
+import { emitPhoneLog, emitPhonePaired, setPhoneScenario, type PhoneScenario } from './dev/remote-preview'
 import { useApp } from './store/app-store'
 import { allowedLevels } from './lib/agents'
 import { usePermissionChange, type PermissionChangeResult } from './lib/use-permission-change'
@@ -771,6 +773,7 @@ function Preview() {
           Aspetto
         </button>
         {([
+          ['devices', 'Dispositivi (telefoni)'],
           ['workspace', 'Editor e worktree'],
           ['system', 'Dati e sistema'],
           ['notifications', 'Notifiche e suono']
@@ -788,6 +791,30 @@ function Preview() {
             {label}
           </button>
         ))}
+        {([
+          ['off', 'Telefoni: spento'],
+          ['on', 'Telefoni: 2 (1 collegato)'],
+          ['empty', 'Telefoni: nessuno'],
+          ['busy', 'Telefoni: 3 collegati']
+        ] as [PhoneScenario, string][]).map(([scenario, label]) => (
+          <button
+            key={scenario}
+            type="button"
+            className={btn}
+            onClick={() => {
+              installSettingsPreview()
+              window.setTimeout(() => setPhoneScenario(scenario), 50)
+            }}
+          >
+            {label}
+          </button>
+        ))}
+        <button type="button" className={btn} onClick={emitPhonePaired} title="Evento remote.paired: il dialogo del QR mostra l'esito e si chiude">
+          Abbina un telefono
+        </button>
+        <button type="button" className={btn} onClick={emitPhoneLog} title="Evento remote.log: una nuova voce in cima all'attività">
+          Nuova voce nel log
+        </button>
         <button type="button" className={btn} onClick={() => { installSettingsPreview(); emitAutoArchived() }} title="Evento sessions.autoArchived: l'avviso della sidebar compare qui accanto (la sidebar non fa parte dell'anteprima)">
           Archiviate in automatico
         </button>
@@ -849,6 +876,9 @@ function Preview() {
             acme-monorepo · main · Claude Code · {fixture.items.length} elementi · {fixture.run}
           </span>
           {(NOTICES[mode] || mode === 'agents-waiting') && <NoticeSample />}
+          {/* Lo stesso indicatore della barra in alto dell'app: compare con almeno un telefono collegato. */}
+          <span className="ml-auto" />
+          <PhoneIndicator />
         </div>
         <div className="flex min-h-0 flex-1 flex-col" onKeyDown={permissionChange.onKeyDown}>
         <ChatView
