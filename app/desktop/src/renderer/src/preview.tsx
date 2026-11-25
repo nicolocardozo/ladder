@@ -117,7 +117,7 @@ function previewModels(kind: PreviewCase): AgentStatus['models'] {
 const PREVIEW_AGENTS: AgentStatus[] = [
   {
     agent: 'claude-code',
-    name: 'Claude Code',
+    name: 'Claude',
     kind: 'native',
     available: true,
     version: '2.1.0',
@@ -846,7 +846,7 @@ function Preview() {
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-5">
           <span className="text-[13.5px] font-semibold">Filtri tabella pagamenti</span>
           <span className="text-[12px] text-muted-foreground">
-            acme-monorepo · main · Claude Code · {fixture.items.length} elementi · {fixture.run}
+            acme-monorepo · main · Claude · {fixture.items.length} elementi · {fixture.run}
           </span>
           {(NOTICES[mode] || mode === 'agents-waiting') && <NoticeSample />}
         </div>
@@ -884,7 +884,7 @@ function Preview() {
             subagentCounts={subagents.length ? countsOf(subagents) : undefined}
             projectId={PREVIEW_PROJECT}
             agent={previewCase === 'codex' ? 'codex' : 'claude-code'}
-            agentName={previewCase === 'codex' ? 'Codex' : 'Claude Code'}
+            agentName={previewCase === 'codex' ? 'Codex' : 'Claude'}
             models={previewModels(previewCase)}
             model={model}
             onModelChange={setModel}

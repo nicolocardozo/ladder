@@ -47,7 +47,7 @@ export function supportsEffort(agent: AgentId): boolean {
   return agent === 'claude-code' || agent === 'codex'
 }
 
-export const FALLBACK_AGENT: AgentStatus = { agent: 'claude-code', name: 'Claude Code', kind: 'native', available: false, version: null, account: null, models: [], error: null }
+export const FALLBACK_AGENT: AgentStatus = { agent: 'claude-code', name: 'Claude', kind: 'native', available: false, version: null, account: null, models: [], error: null }
 
 // Livelli di effort, dal più basso al più alto. Etichette in inglese: si traducono con t() dove si mostrano.
 export const EFFORTS: { id: Effort; label: string }[] = [

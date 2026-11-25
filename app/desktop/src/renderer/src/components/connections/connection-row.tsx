@@ -40,10 +40,10 @@ function ServiceMark({ id }: { id: ConnectionId }) {
 }
 
 /** Strumento che Ladder scarica, per "Scarico …". */
-const TOOL: Record<ConnectionId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', github: 'GitHub CLI' }
+const TOOL: Record<ConnectionId, string> = { 'claude-code': 'Claude', codex: 'Codex', github: 'GitHub CLI' }
 
 function purpose(id: ConnectionId): string {
-  if (id === 'claude-code') return t('Runs Claude Code sessions with your Claude subscription.')
+  if (id === 'claude-code') return t('Runs Claude sessions with your Claude subscription.')
   if (id === 'codex') return t('Runs Codex sessions with your ChatGPT plan.')
   return t('Issues, pull requests and CI in “New session from…” and the Merge panel.')
 }

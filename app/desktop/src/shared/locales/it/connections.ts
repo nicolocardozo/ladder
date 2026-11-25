@@ -16,7 +16,7 @@ const it: Record<string, string> = {
   'Open Subscriptions': 'Apri Abbonamenti',
 
   // Righe dei collegamenti.
-  'Runs Claude Code sessions with your Claude subscription.': 'Fa lavorare le sessioni di Claude Code con il tuo abbonamento Claude.',
+  'Runs Claude sessions with your Claude subscription.': 'Fa lavorare le sessioni di Claude con il tuo abbonamento Claude.',
   'Runs Codex sessions with your ChatGPT plan.': 'Fa lavorare le sessioni di Codex con il tuo piano ChatGPT.',
   'Issues, pull requests and CI in “New session from…” and the Merge panel.': 'Issue, pull request e CI in “Nuova sessione da…” e nel pannello Merge.',
   '{tool} isn’t installed. Ladder downloads it, then opens your browser to sign in.': '{tool} non è installato. Ladder lo scarica, poi apre il browser per l’accesso.',

@@ -252,7 +252,7 @@ export class Connections {
       info = null
     }
     // Senza JSON (timeout, CLI rotta) non si sa se l'accesso c'è: errore, che non blocca il composer.
-    if (!info) return { ...base, state: 'error', error: t('Can’t read the Claude Code login status.') }
+    if (!info) return { ...base, state: 'error', error: t('Can’t read the Claude login status.') }
     if (!info.loggedIn) return { ...base, state: 'unauthenticated' }
     const plan = info.subscriptionType ? info.subscriptionType.charAt(0).toUpperCase() + info.subscriptionType.slice(1) : null
     return { ...base, state: 'connected', plan, email: info.email ?? null }
@@ -379,7 +379,7 @@ export class Connections {
   /** gh e Codex si scaricano nella cartella dati; Claude Code arriva già dentro Ladder. */
   private async install(link: Target, job: Job): Promise<void> {
     const { id } = link
-    if (id === 'claude-code') throw new Error(t('Claude Code is not included in this build of Ladder.'))
+    if (id === 'claude-code') throw new Error(t('Claude is not included in this build of Ladder.'))
     const signal = job.abort.signal
     signal.throwIfAborted()
     this.step(link, { stage: 'downloading', progress: null, bytes: null, total: null })
@@ -440,7 +440,7 @@ export class Connections {
   /** `claude auth login --claudeai`: la CLI apre il browser da sé; l'indirizzo che stampa si offre come ripiego. */
   private async loginClaude(job: Job, target: Target): Promise<void> {
     const cli = await findClaudeCli()
-    if (!cli) throw new Error(t('Claude Code is not included in this build of Ladder.'))
+    if (!cli) throw new Error(t('Claude is not included in this build of Ladder.'))
     job.abort.signal.throwIfAborted()
     const child = spawn(cli, ['auth', 'login', '--claudeai'], { env: claudeEnv(target.configDir) as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'] })
     job.child = child

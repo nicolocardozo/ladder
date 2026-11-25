@@ -475,7 +475,7 @@ function AgentsSection() {
     <>
       <DialogTitle className="text-xl font-semibold">{t('Agents')}</DialogTitle>
       <DialogDescription className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
-        {t('Claude Code and Codex have a native adapter. Other agents speak ACP, the open protocol between editors and agents: to add one, all you need is the command that starts it.')}
+        {t('Claude and Codex have a native adapter. Other agents speak ACP, the open protocol between editors and agents: to add one, all you need is the command that starts it.')}
       </DialogDescription>
       <div className="mt-6 grid items-start gap-8 @[820px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <div className="flex min-w-0 flex-col gap-5">

@@ -106,7 +106,7 @@ export class ConversationBuilder {
         requestId: `req-${this.seq + 1}`,
         requestType: 'question',
         toolName: 'AskUserQuestion',
-        title: 'Claude Code ha una domanda',
+        title: 'Claude ha una domanda',
         command: null,
         path: null,
         reason: null,
@@ -436,7 +436,7 @@ function e2eError(b: ConversationBuilder) {
     status: 'error',
     durationMs: 81_000,
     counts: { commands: 1, edits: 0, reads: 0, searches: 0 },
-    error: 'Claude Code si è chiuso in modo inatteso (codice 1). Puoi riprendere la sessione dal composer.'
+    error: 'Claude si è chiuso in modo inatteso (codice 1). Puoi riprendere la sessione dal composer.'
   })
 }
 
@@ -881,7 +881,7 @@ export function connectionAgents(set: ConnectionSet, claudeWeekly = 62): AgentSt
     usage: set[id].state === 'connected' ? previewUsage(id === 'claude-code' ? 34 : 12, id === 'claude-code' ? claudeWeekly : 25) : [],
     usageAt: Date.now()
   })
-  return [agent('claude-code', 'Claude Code'), agent('codex', 'Codex')]
+  return [agent('claude-code', 'Claude'), agent('codex', 'Codex')]
 }
 
 // ── Profili (LAD-23): due account Claude (predefinito e "Work") e uno Codex ───────────────────────────
@@ -907,7 +907,7 @@ export function previewProfileAgents(connections: Record<string, ConnectionStatu
     if (c.id === 'github') continue
     out[profileId] = {
       agent: c.id,
-      name: c.id === 'codex' ? 'Codex' : 'Claude Code',
+      name: c.id === 'codex' ? 'Codex' : 'Claude',
       kind: 'native',
       available: c.state === 'connected',
       version: c.version,
