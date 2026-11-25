@@ -21,7 +21,7 @@
       "package": "dev.nicolocardozo.ladder.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#181424"
+        "backgroundColor": "#22123C"
       },
       "permissions": [
         "android.permission.CAMERA",
