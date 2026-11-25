@@ -2,8 +2,8 @@
 import { create } from 'zustand'
 import { isElectron, onHostConnect, request, send } from '@/lib/host-client'
 import { applyProjectGroupOp, normalizeProjectGroups, type ProjectGroupOp } from '@/lib/project-groups'
-import type { AgentBrowserState, AgentId, AgentStatus, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo, RemoteStatus } from '@shared/protocol'
-import { isConcluded, CONCLUDED_AFTER_MS } from '@/lib/session-state'
+import type { AgentBrowserState, AgentId, AgentStatus, Effort, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo, RemoteStatus } from '@shared/protocol'
+import { isConcluded, needsYou, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalCleared, routeTerminalData } from '@/lib/terminal-registry'
 import { disposeBuffer } from '@/components/editor/buffers'
 import { fileTabId, parseFileTab } from '@shared/file-tabs'
@@ -13,6 +13,7 @@ import { applyShortcutConfig } from '@shared/shortcuts'
 import { plural, t } from '@shared/i18n'
 import { useSettings } from '@/hooks/use-theme'
 import { isDefaultProfileId } from '@/lib/profile-id'
+import type { Plan, PlanChoice, PlanState, PlanTemplate } from '@shared/plan'
 
 /** Stati degli agenti dallo snapshot: il predefinito di ciascuno in `agents`, gli altri profili per id. */
 function splitAgents(list: AgentStatus[]): Pick<AppState, 'agents' | 'profileAgents'> {
@@ -39,6 +40,16 @@ export type Selection =
   | { kind: 'new'; projectId: string | null }
   | { kind: 'session'; projectId: string; sessionId: string }
   | { kind: 'file'; projectId: string; root: string; path: string }
+
+/** Draft of a plan card in review: the edited plan, the revision it builds on and that plan as it was (to show what the agent changed in the meantime). */
+export interface PlanDraft {
+  base: number
+  basePlan: Plan
+  plan: Plan
+}
+
+/** Result of a plan command: the error is already translated by the host. */
+export type PlanResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
 interface AppState {
   connected: boolean
@@ -176,6 +187,27 @@ interface AppState {
   consumeConnectionFocus: (nonce: number) => void
   /** Review chieste a un altro agente, per id: in corso, finite o fallite. */
   reviews: Record<string, ReviewState>
+  // ── Executable plans ──
+  /** Plans by id: from the snapshot and `plan.updated`. The card in the coordinator chat reads from here. */
+  plans: Record<string, PlanState>
+  /** Saved plan templates. Null until `plan.templates` has answered. */
+  planTemplates: PlanTemplate[] | null
+  /** Unsent edits of the card in review, per plan: they survive the row unmounting (the chat is virtualized). */
+  planDrafts: Record<string, PlanDraft>
+  setPlanDraft: (planId: string, draft: PlanDraft | null) => void
+  /** Saves the user's edit (plan.edit). No sidebar notice: the card shows the error. */
+  planEdit: (planId: string, revision: number, plan: Plan) => Promise<PlanResult<PlanState>>
+  /** Approves and runs (plan.approve). No sidebar notice: the card shows the error. */
+  planApprove: (planId: string, revision: number, workspace: 'main' | 'worktree') => Promise<PlanResult<PlanState>>
+  planReject: (planId: string, message?: string) => Promise<PlanResult<unknown>>
+  planChoose: (planId: string, choice: PlanChoice, taskId?: string, reassign?: { agent: AgentId; model: string | null; effort: Effort | null; keepWork: boolean }) => Promise<PlanResult<PlanState>>
+  planConfirmUpdate: (planId: string, accept: boolean) => Promise<PlanResult<PlanState>>
+  planStop: (planId: string) => Promise<PlanResult<PlanState>>
+  loadPlanTemplates: () => Promise<PlanResult<PlanTemplate[]>>
+  savePlanTemplate: (planId: string, name: string) => Promise<PlanResult<PlanTemplate>>
+  deletePlanTemplate: (templateId: string) => Promise<PlanResult<unknown>>
+  /** Creates a plan in review from the session (idle chat) with a template and a goal. */
+  startPlanFromTemplate: (sessionId: string, templateId: string, goal: string) => Promise<PlanResult<PlanState>>
   /** Scorciatoie in uso (preset, personalizzazioni, avvisi del file). Null finché l'host non le ha mandate: valgono i predefiniti. Ogni nuovo stato fa rileggere le etichette. */
   shortcuts: ShortcutsState | null
   /** Applica lo stato delle scorciatoie al registro condiviso (ascoltatore globale, palette, tooltip, editor). */
@@ -761,6 +793,25 @@ function infoSidebarNotice(text: string): void {
   errorTimer = setTimeout(() => useApp.setState({ sidebarNotice: null }), 10_000)
 }
 
+/** Plan command: an error becomes a result, and with `toast` also a notice like the other sidebar commands. */
+async function planRequest<T>(command: HostCommand, toast = true): Promise<PlanResult<T>> {
+  try {
+    return { ok: true, data: await request<T>(command) }
+  } catch (error) {
+    if (toast) failSidebarNotice(error)
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** The PlanState in a command response: the store takes it right away, without waiting for `plan.updated`, but never over a newer one. */
+function takePlan<T extends PlanState>(result: PlanResult<T>): PlanResult<T> {
+  if (result.ok && result.data?.id) {
+    const plan = result.data
+    useApp.setState((state) => (state.plans[plan.id] && state.plans[plan.id].updatedAt > plan.updatedAt ? {} : { plans: { ...state.plans, [plan.id]: plan } }))
+  }
+  return result
+}
+
 /** Operazioni sui gruppi mandate all'host e non ancora risolte, in ordine, e l'ultimo stato confermato dall'host. */
 const pendingGroupOps: { id: number; op: ProjectGroupOp }[] = []
 let confirmedGroups: ProjectGroupsState | null = null
@@ -861,6 +912,9 @@ export const useApp = create<AppState>((set, get) => ({
   githubVersion: 0,
   connectionFocus: null,
   reviews: {},
+  plans: {},
+  planTemplates: null,
+  planDrafts: {},
   shortcuts: null,
   closedTabs: {},
   filesFilterFocus: null,
@@ -901,6 +955,8 @@ export const useApp = create<AppState>((set, get) => ({
             // Gli snapshot senza collegamenti (fixture, host vecchio) non cancellano quelli già noti.
             ...(event.connections ? splitConnections(event.connections) : {}),
             terminals,
+            // Without plans in the snapshot (fixtures, older host) the already known ones stay.
+            ...(event.plans ? { plans: Object.fromEntries(event.plans.map((p) => [p.id, p])) } : {}),
             ...loaded,
             ...patch
           }
@@ -990,6 +1046,15 @@ export const useApp = create<AppState>((set, get) => ({
           const { [event.profileId]: _agent, ...profileAgents } = state.profileAgents
           const { [event.profileId]: _connection, ...profileConnections } = state.profileConnections
           return { profiles: state.profiles.filter((p) => p.id !== event.profileId), profileAgents, profileConnections }
+        }
+        case 'plan.updated': {
+          // The plan is no longer in review: the draft is not needed anymore.
+          let planDrafts = state.planDrafts
+          if (event.plan.status !== 'review' && planDrafts[event.plan.id]) {
+            planDrafts = { ...planDrafts }
+            delete planDrafts[event.plan.id]
+          }
+          return { plans: { ...state.plans, [event.plan.id]: event.plan }, planDrafts }
         }
         case 'review.update':
           return { reviews: { ...state.reviews, [event.review.id]: event.review } }
@@ -1601,7 +1666,7 @@ export const useApp = create<AppState>((set, get) => ({
     const state = get()
     // In ordine di arrivo: la richiesta più vecchia per prima, in qualunque progetto.
     const waiting = sidebarOrder(state)
-      .filter((s) => s.run === 'waiting')
+      .filter(needsYou)
       .sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
     if (waiting.length === 0) return false
     const { selection } = state
@@ -1803,7 +1868,7 @@ export const useApp = create<AppState>((set, get) => ({
       const summary: AwaySummary = {
         since: seen,
         replies: list.filter((s) => s.unread && s.run !== 'error' && s.activityAt > seen).length,
-        requests: list.filter((s) => s.run === 'waiting').length,
+        requests: list.filter(needsYou).length,
         errors: list.filter((s) => s.run === 'error' && s.activityAt > seen).length,
         // Scese in "Concluse" mentre non c'eri: l'ultima attività ha superato i 3 giorni dopo la tua ultima visita.
         concluded: list.filter((s) => isConcluded(s, Boolean(state.drafts[s.id]?.trim()), now) && Math.max(s.activityAt, s.createdAt) + CONCLUDED_AFTER_MS > seen).length
@@ -1821,6 +1886,35 @@ export const useApp = create<AppState>((set, get) => ({
     }),
 
   setPrefs: (prefs) => set({ prefs }),
+  setPlanDraft: (planId, draft) =>
+    set((state) => {
+      const planDrafts = { ...state.planDrafts }
+      if (draft) planDrafts[planId] = draft
+      else delete planDrafts[planId]
+      return { planDrafts }
+    }),
+  planEdit: async (planId, revision, plan) => takePlan(await planRequest<PlanState>({ type: 'plan.edit', planId, revision, plan }, false)),
+  planApprove: async (planId, revision, workspace) => takePlan(await planRequest<PlanState>({ type: 'plan.approve', planId, revision, workspace }, false)),
+  planReject: (planId, message) => planRequest({ type: 'plan.reject', planId, ...(message?.trim() ? { message: message.trim() } : {}) }),
+  planChoose: async (planId, choice, taskId, reassign) => takePlan(await planRequest<PlanState>({ type: 'plan.choose', planId, choice, ...(taskId ? { taskId } : {}), ...(reassign ? { reassign } : {}) })),
+  planConfirmUpdate: async (planId, accept) => takePlan(await planRequest<PlanState>({ type: 'plan.confirmUpdate', planId, accept })),
+  planStop: async (planId) => takePlan(await planRequest<PlanState>({ type: 'plan.stop', planId })),
+  loadPlanTemplates: async () => {
+    const result = await planRequest<PlanTemplate[]>({ type: 'plan.templates' })
+    if (result.ok) set({ planTemplates: result.data })
+    return result
+  },
+  savePlanTemplate: async (planId, name) => {
+    const result = await planRequest<PlanTemplate>({ type: 'plan.saveTemplate', planId, name })
+    if (result.ok) set((state) => ({ planTemplates: [...(state.planTemplates ?? []).filter((x) => x.id !== result.data.id), result.data] }))
+    return result
+  },
+  deletePlanTemplate: async (templateId) => {
+    const result = await planRequest({ type: 'plan.deleteTemplate', templateId })
+    if (result.ok) set((state) => ({ planTemplates: (state.planTemplates ?? []).filter((x) => x.id !== templateId) }))
+    return result
+  },
+  startPlanFromTemplate: async (sessionId, templateId, goal) => takePlan(await planRequest<PlanState>({ type: 'plan.useTemplate', sessionId, templateId, goal }, false)),
   setOtherAgents: (otherAgents) => set({ otherAgents }),
   setOnboarding: (onboarding) => set({ onboarding }),
   hideDetectedAgents: () => set({ detectedAgentsHidden: true }),

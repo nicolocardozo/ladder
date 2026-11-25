@@ -54,6 +54,13 @@ import {
   type Fixture
 } from './dev/fixtures'
 import { AgentCatalogPreview } from './dev/agent-catalog-preview'
+import { PLAN_SCENARIOS, planFixture as executablePlanFixture, type PlanScenario } from './dev/plan-fixtures'
+import { installPlansPreview, onPlanCreated, resetPlansPreview } from './dev/plans-preview'
+import { ORIGIN_SCENARIOS, originFixture, setCliCase, type CliCase, type OriginScenario } from './dev/origin-fixtures'
+import { OriginBanner, OriginMark } from './components/session-origin'
+import { CommandPalette } from './components/command-palette'
+import { PlanTaskBanner } from './components/plan-task-banner'
+import { PlanTaskMark } from './components/chat/plan-bits'
 import { ConnectionsPreview } from './dev/connections-preview'
 import { TerminalsPreview } from './dev/terminals-preview'
 import { installHandoffPreview } from './dev/handoff-preview'
@@ -92,7 +99,7 @@ const INITIAL_LOCALE: Locale = isLocale(initialLang) ? initialLang : 'en'
 setLocale(INITIAL_LOCALE)
 document.documentElement.lang = INITIAL_LOCALE
 
-type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question' | 'command' | 'busy' | 'agents' | 'agents-tree' | 'agents-12' | 'agents-45' | 'agents-idle' | 'agents-errors' | 'notice-done' | 'notice-failed' | 'agents-waiting' | 'finished-states' | 'stalled' | 'handoff-out' | 'handoff-in' | 'handoff-summarizing' | 'advice' | 'plan' | 'implement-out' | 'implement-in' | 'ladder-handoff' | 'ladder-handoff-in' | 'ladder-delegate' | 'ladder-child' | 'handoff-resume' | 'ladder-resume' | 'limit' | 'review'
+type Mode = 'normal' | 'large' | 'stream' | 'request' | 'question' | 'command' | 'busy' | 'agents' | 'agents-tree' | 'agents-12' | 'agents-45' | 'agents-idle' | 'agents-errors' | 'notice-done' | 'notice-failed' | 'agents-waiting' | 'finished-states' | 'stalled' | 'handoff-out' | 'handoff-in' | 'handoff-summarizing' | 'advice' | 'plan' | 'implement-out' | 'implement-in' | 'ladder-handoff' | 'ladder-handoff-in' | 'ladder-delegate' | 'ladder-child' | 'handoff-resume' | 'ladder-resume' | 'limit' | 'review' | 'exec-plan'
 
 /** Modes with sessions on the other side (handoff, advice, plan): the "Open" links and the current agent are read from the store. */
 const withPeers = (mode: Mode) => mode.startsWith('handoff') || mode === 'advice' || mode === 'plan' || mode.startsWith('implement') || mode.startsWith('ladder') || mode === 'limit' || mode === 'review'
@@ -194,6 +201,9 @@ useApp.setState({
   // acme-api ha un modello che l'agente non offre più e un agente non disponibile: si vedono come non validi.
   ui: { api: { tabs: [], activeTab: null, scroll: {}, defaults: { agent: 'acp:gemini', models: { 'claude-code': 'claude-opus-4-old' }, efforts: { 'claude-code': 'max' } } } }
 })
+
+// Fake plans host: answers the plan.* commands and advances tasks. The port arrives asynchronously, before the first click.
+installPlansPreview()
 
 const INITIAL_QUEUE: QueuedMessage[] = [
   { id: 'q1', text: 'Poi aggiorna anche le storie di Storybook della paginazione.' },
@@ -481,6 +491,10 @@ function Preview() {
   const narrow = frameWidth < COMPACT_WIDTH
   const [subagents, setSubagents] = useState<SubagentInfo[]>([])
   const previewSession = useApp((s) => s.sessions[PREVIEW_SESSION])
+  // Plans: the scenario on show, and a task session when trying the banner.
+  const [planScenario, setPlanScenario] = useState<PlanScenario | null>(null)
+  const [taskSessionId, setTaskSessionId] = useState<string | null>(null)
+  const taskSession = useApp((s) => (taskSessionId ? (s.sessions[taskSessionId] ?? null) : null))
   const [anchor, setAnchor] = useState<ChatAnchor | null>(null)
   const [restoreAnchor, setRestoreAnchor] = useState<ChatAnchor | null>(null)
   const theme = useSettings((s) => s.theme)
@@ -555,6 +569,26 @@ function Preview() {
   )
   const permissionChange = usePermissionChange({ permission, permissionNext, levels: allowedLevels(null), apply: applyPermission, onError: setPermissionError })
   useStreamingSimulation(mode === 'stream', setFixture, runId)
+
+  // A template used from the palette creates a plan in the chat: the card appears at the bottom, as the host would do.
+  useEffect(() => {
+    onPlanCreated((planId) =>
+      setFixtureState((f) => {
+        const last = f.items[f.items.length - 1]
+        const item: ChatItem = { id: `plan-item-${planId}`, turnId: `turn-${planId}`, seq: (last?.seq ?? 0) + 1, at: Date.now(), kind: 'plan', planId }
+        return { ...f, items: [...f.items, item] }
+      })
+    )
+    return () => onPlanCreated(null)
+  }, [])
+  // "Open session" and "Back to the plan" change the store selection: the preview has no sidebar, so it is reported below.
+  useEffect(
+    () =>
+      useApp.subscribe((state, previous) => {
+        if (state.selection !== previous.selection && state.selection.kind === 'session') setLast(`select ${state.selection.sessionId}`)
+      }),
+    []
+  )
 
 
   // Fake host for session.handoff: the 'out' row starts as "summarizing", the summary arrives as an assistant message, then the row becomes "done" with the link to the target session.
@@ -706,6 +740,51 @@ function Preview() {
       sessions: agents.length || notice ? { ...others, [PREVIEW_SESSION]: { id: PREVIEW_SESSION, agent: 'claude-code', model: 'claude-opus-5-5', run: 'idle', unread: false, updatedAt: Date.now(), agentsNotice: notice, subagentCounts: agents.length ? countsOf(agents) : undefined } as unknown as SessionSummary } : others
     })
     setFixtureState(loaded)
+    setRestoreAnchor(null)
+    setAnchor(null)
+    setRunId((n) => n + 1)
+  }
+
+  /** Origin scenarios: sessions enter the store; the banner and mark show on the chosen session. */
+  const chooseOrigin = (scenario: OriginScenario) => {
+    const loaded = originFixture(scenario)
+    const others = Object.fromEntries(Object.entries(useApp.getState().sessions).filter(([id]) => !id.startsWith('origin-') && !id.startsWith('plan-coord-') && !id.startsWith('task-')))
+    useApp.setState({ sessions: { ...others, ...Object.fromEntries(loaded.sessions.map((s) => [s.id, s])) }, selection: { kind: 'session', projectId: PREVIEW_PROJECT, sessionId: loaded.originSessionId ?? 'origin-parent' } })
+    setMode('exec-plan')
+    setPlanScenario(null)
+    setTaskSessionId(loaded.originSessionId)
+    setSubagents([])
+    setFixtureState(loaded)
+    setRestoreAnchor(null)
+    setAnchor(null)
+    setRunId((n) => n + 1)
+  }
+  const openCliSettings = (id: CliCase) => {
+    setCliCase(id)
+    installPlansPreview()
+    window.setTimeout(() => useSettings.getState().openSection('system'), 50)
+  }
+
+  /** Plan scenarios: plans and sessions enter the store as the snapshot would, and the coordinator chat opens. */
+  const choosePlan = (scenario: PlanScenario, asTask = false) => {
+    const loaded = executablePlanFixture(scenario)
+    resetPlansPreview(loaded.plans)
+    const others = Object.fromEntries(Object.entries(useApp.getState().sessions).filter(([id]) => !id.startsWith('plan-coord-') && !id.startsWith('task-')))
+    useApp.setState({
+      plans: Object.fromEntries(loaded.plans.map((p) => [p.id, p])),
+      planDrafts: {},
+      planTemplates: null,
+      sessions: { ...others, ...Object.fromEntries(loaded.sessions.map((s) => [s.id, s])) },
+      selection: { kind: 'session', projectId: PREVIEW_PROJECT, sessionId: loaded.coordinatorId },
+      // With "asTask" the chat is a task chat: the banner appears above it.
+      items: {}
+    })
+    setMode('exec-plan')
+    setPlanScenario(scenario)
+    setTaskSessionId(asTask ? `task-${loaded.planId}-wrapper` : null)
+    setSubagents([])
+    useSubagentLists.getState().set(PREVIEW_SESSION, [])
+    setFixtureState(asTask ? normalFixture() : loaded)
     setRestoreAnchor(null)
     setAnchor(null)
     setRunId((n) => n + 1)
@@ -874,6 +953,33 @@ function Preview() {
             {m.label}
           </button>
         ))}
+        {view === 'chat' && (
+          <>
+            <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+            {PLAN_SCENARIOS.map((p) => (
+              <button key={p.id} type="button" onClick={() => choosePlan(p.id)} aria-pressed={mode === 'exec-plan' && planScenario === p.id && !taskSessionId} className={cn(btn, mode === 'exec-plan' && planScenario === p.id && !taskSessionId && 'border-ring/60 bg-accent text-foreground')}>
+                {p.label}
+              </button>
+            ))}
+            <button type="button" onClick={() => choosePlan('running', true)} aria-pressed={Boolean(taskSessionId)} className={cn(btn, taskSessionId && 'border-ring/60 bg-accent text-foreground')}>
+              Plan: task session
+            </button>
+            <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+            {ORIGIN_SCENARIOS.map((o) => (
+              <button key={o.id} type="button" onClick={() => chooseOrigin(o.id)} className={btn}>
+                {o.label}
+              </button>
+            ))}
+            {([['installed', 'Command line: installed'], ['missing', 'Command line: not installed'], ['no-path', 'Command line: PATH missing']] as const).map(([id, label]) => (
+              <button key={id} type="button" onClick={() => openCliSettings(id)} className={btn}>
+                {label}
+              </button>
+            ))}
+            <button type="button" onClick={() => useApp.getState().setPaletteOpen(true)} className={btn} title="⌘K: with an idle chat ('Plan: done', 'Plan: stopped') it offers 'Use plan template…'">
+              Palette ⌘K
+            </button>
+          </>
+        )}
         <span className="flex-1" />
         <button
           type="button"
@@ -1099,7 +1205,7 @@ function Preview() {
       <div className="flex shrink-0 gap-4">
       <div style={{ width: frameWidth }} className="flex h-[700px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_18px_44px_rgb(3_8_20/0.25)]">
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-5">
-          <span className="text-[13.5px] font-semibold">Filtri tabella pagamenti</span>
+          <span className="text-[13.5px] font-semibold">{mode === 'exec-plan' ? (taskSession?.title ?? 'Session cookie fix') : 'Payments table filters'}</span>
           <span className="text-[12px] text-muted-foreground">
             acme-monorepo · main · Claude · {fixture.items.length} items · {fixture.run}
           </span>
@@ -1112,7 +1218,10 @@ function Preview() {
           {/* Lo stesso indicatore della barra in alto dell'app: compare con almeno un telefono collegato. */}
           <span className="ml-auto" />
           <PhoneIndicator />
+          {taskSession?.plan && <PlanTaskMark className="ml-auto text-[12px] text-muted-foreground" />}
+          {taskSession?.origin && <OriginMark session={taskSession} className="ml-auto text-[12px] text-muted-foreground" />}
         </div>
+        {taskSession && <div className="pt-2"><OriginBanner session={taskSession} compact={narrow} /><PlanTaskBanner session={taskSession} compact={narrow} /></div>}
         <div className="flex min-h-0 flex-1 flex-col" onKeyDown={permissionChange.onKeyDown}>
         <ChatView
           key={`${mode}-${runId}-${mountId}-${locale}`}
@@ -1218,6 +1327,7 @@ function Preview() {
       <HandoffDialog />
       <AdviceDialog />
       <PlanDialog />
+      <CommandPalette />
       <SubagentDialog sessionId={PREVIEW_SESSION} />
       <p className="font-mono text-[11px] text-muted-foreground">
         ancora: {anchor ? `${anchor.itemId} +${anchor.offset}px` : '—'} · ultimo evento: {last || '—'}

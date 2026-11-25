@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
+import { socketPathFor } from '../cli/socket-path.ts'
 import {
   app,
   BrowserWindow,
@@ -363,6 +364,11 @@ function startHost(): void {
   if (app.isPackaged) delete env.LADDER_REMOTE_PORT
   // Idem per il relay di prova: nelle build pacchettizzate conta solo la preferenza (HostPrefs.remote).
   if (app.isPackaged) delete env.LADDER_RELAY_URL
+  // Plan acceptance test hook: a failure cannot be simulated in the distributed app.
+  if (app.isPackaged) delete env.LADDER_PLAN_FAIL
+  // Where the CLI finds the socket and the `ladder` command script inside the app (in development, the script that goes through the dev build).
+  env.LADDER_SOCKET_PATH = socketPathFor(app.getPath('userData'))
+  env.LADDER_CLI_BIN = app.isPackaged ? join(process.resourcesPath, 'bin', 'ladder') : join(app.getAppPath(), 'src', 'cli', 'bin', 'ladder-dev')
   host = utilityProcess.fork(join(__dirname, 'host.js'), [], { serviceName: 'Ladder Host', stdio: 'pipe', env })
   host.on('message', (message: HostToMain) => {
     if (message?.type === 'attention') attention.handle(message.event)

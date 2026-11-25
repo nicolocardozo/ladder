@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { Command as CommandPrimitive } from 'cmdk'
-import { BellOff, Bookmark, ChevronLeft, ChevronRight, CircleAlert, Columns2, FileDiff, FileSearch, Folder, FolderPlus, FolderSearch, FolderTree, Globe, Keyboard, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, PanelRight, PanelRightClose, RotateCw, Search, Sparkles, SquarePen, SquareTerminal, Undo2 } from 'lucide-react'
+import { BellOff, Bookmark, ListChecks, ChevronLeft, ChevronRight, CircleAlert, Columns2, FileDiff, FileSearch, Folder, FolderPlus, FolderSearch, FolderTree, Globe, Keyboard, GitMerge, GitPullRequestCreate, History, Inbox, MessageSquareText, Palette, PanelLeft, PanelRight, PanelRightClose, RotateCw, Search, Sparkles, SquarePen, SquareTerminal, Undo2 } from 'lucide-react'
 import type { SearchHit } from '@shared/protocol'
 import { localeTag, plural, t } from '@shared/i18n'
 import { openInbox } from '@/components/app-sidebar'
@@ -16,12 +16,13 @@ import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList, CommandS
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { themeById } from '@shared/themes.generated'
 import { useSettings } from '@/hooks/use-theme'
-import { relativeAge, sessionState } from '@/lib/session-state'
+import { needsYou, relativeAge, sessionState } from '@/lib/session-state'
 import { newShell } from '@/components/terminal/terminal-panel'
 import { focusNextTerminal } from '@/lib/terminal-registry'
 import { isListedSession, useApp } from '@/store/app-store'
 import { openSavePreset, presetSummary } from '@/lib/session-presets'
 import { Kbd } from '@/components/ui/kbd'
+import { PlanTemplatePane } from '@/components/plan-templates'
 import { shortcutLabel, type CommandId } from '@shared/shortcuts'
 
 function inspectorActions(run: (perform: () => void) => void): Action[] {
@@ -116,6 +117,17 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     const state = sel.kind === 'session' ? s.agentBrowser[sel.sessionId] : undefined
     return state && state.enabled && !state.closed && state.stopped ? state.sessionId : null
   })
+  // The open session if it is a chat: "Use plan template…" creates the plan there (plan.useTemplate needs an idle chat).
+  const planChatId = useApp((s) => {
+    const sel = s.selection
+    const session = sel.kind === 'session' ? s.sessions[sel.sessionId] : undefined
+    return session?.mode === 'chat' ? session.id : null
+  })
+  const planChatIdle = useApp((s) => (planChatId ? s.sessions[planChatId]?.run === 'idle' : false))
+  // A chat with a plan in review, running or paused already has one: no new template needed.
+  const planBusy = useApp((s) => (planChatId ? Object.values(s.plans).some((p) => p.sessionId === planChatId && (p.status === 'review' || p.status === 'running' || p.status === 'paused')) : false))
+  const planChat = planChatId && !planBusy ? { id: planChatId, idle: planChatIdle } : null
+  const [pane, setPane] = useState<'search' | 'templates'>('search')
   const agents = useApp((s) => s.agents)
   const dndOn = Boolean(prefs?.dndUntil && prefs.dndUntil > Date.now())
   const [query, setQuery] = useState('')
@@ -128,10 +140,10 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const live = useMemo(() => {
     const list = Object.values(sessions).filter((s) => isListedSession({ projects }, s))
     // Prima chi aspetta l'utente, poi per attività recente.
-    return list.sort((a, b) => Number(b.run === 'waiting') - Number(a.run === 'waiting') || b.updatedAt - a.updatedAt)
+    return list.sort((a, b) => Number(needsYou(b)) - Number(needsYou(a)) || b.updatedAt - a.updatedAt)
   }, [sessions, projects])
 
-  const waitingCount = live.filter((s) => s.run === 'waiting').length
+  const waitingCount = live.filter(needsYou).length
 
   const sessionResults = useMemo(() => {
     if (!searching) return live.slice(0, 8)
@@ -217,6 +229,19 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             icon: Bookmark,
             keywords: 'save session profile preset agent model effort permissions salva sessione profilo agente modello permessi',
             perform: () => run(() => openSavePreset(activeChatId))
+          }
+        ]
+      : []),
+    ...(planChat
+      ? [
+          {
+            id: 'plan-template',
+            label: t('Use plan template…'),
+            icon: ListChecks,
+            keywords: 'use plan template tasks executable goal agents workflow modello piano usa compiti obiettivo agenti',
+            hint: planChat.idle ? undefined : t('the chat is busy'),
+            disabled: !planChat.idle,
+            perform: () => setPane('templates')
           }
         ]
       : []),
@@ -418,6 +443,8 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     }
   ]
   const actionResults = searching ? actions.filter((a) => matches(tokens, normalize(`${a.label} ${a.keywords}`))) : actions
+
+  if (pane === 'templates' && planChat) return <PlanTemplatePane sessionId={planChat.id} onBack={() => setPane('search')} onClose={onClose} />
 
   return (
     <Command shouldFilter={false} loop label={t('Search Ladder')} className="rounded-none! bg-popover p-0">

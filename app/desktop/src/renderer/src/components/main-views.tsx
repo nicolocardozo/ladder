@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import type { AgentId, AgentStatus, Attachment, ChatItem, Effort, IssueItem, PermissionLevel, Project, ProjectSettings, RequestResponse, SessionSummary, TerminalInfo } from '@shared/protocol'
 import { allowedLevels, FALLBACK_AGENT, supportsEffort } from '@/lib/agents'
-import { agentsRunning } from '@/lib/session-state'
+import { agentsRunning, needsYou } from '@/lib/session-state'
 import { SOURCE_ICON } from '@/components/new-from'
 import { SignInNotice, useSignInNeeded } from '@/components/connections/sign-in-notice'
 import { CONNECTION_NAME, connectionOfAgent, needsSignIn } from '@/lib/connections'
@@ -77,6 +77,8 @@ import { capPermission, isValidEffort, isValidModel, launchModel, resolveSession
 import { defaultsToken, useAgentDefaultsMap } from '@/lib/effective-defaults'
 import { applyPreset, presetIssuesNote, type PresetIssue, presetSummary, setProjectDefaultPreset } from '@/lib/session-presets'
 import { usePermissionChange, type PermissionChangeResult } from '@/lib/use-permission-change'
+import { PlanTaskBanner } from '@/components/plan-task-banner'
+import { OriginBanner } from '@/components/session-origin'
 
 const EMPTY_ITEMS: ChatItem[] = []
 
@@ -1144,13 +1146,15 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
   if (!session || !project) return <div ref={measure} className="flex-1" />
   const running = session.run === 'running' || session.run === 'starting' || session.run === 'waiting'
   const runningAgents = runningForegroundSubagents(session)
-  const headerNotes = [session.worktree ? 'worktree' : null, session.run !== 'waiting' && isTerminal ? session.activity : null, session.estimated ? t('estimated status') : null].filter(Boolean).join(' · ')
+  const headerNotes = [session.worktree ? 'worktree' : null, !needsYou(session) && isTerminal ? session.activity : null, session.estimated ? t('estimated status') : null].filter(Boolean).join(' · ')
 
   return (
     <div ref={measure} className="flex min-h-0 min-w-0 flex-1 flex-col">
       {column && !column.single && <ColumnHeader session={session} active={column.active} hidden={column.hidden} onClose={column.onClose} />}
+      {session.origin && !isTerminal && <OriginBanner session={session} compact={compact} />}
+      {session.plan?.role === 'task' && !isTerminal && <PlanTaskBanner session={session} compact={compact} />}
       {/* Solo note che non stanno altrove: agente e modello di una chat sono già nel composer, il titolo nella tab. */}
-      {(isTerminal || headerNotes || session.handoffFrom || session.parent || (session.run === 'waiting' && !(column && !column.single))) && (
+      {(isTerminal || headerNotes || session.handoffFrom || session.parent || (needsYou(session) && !(column && !column.single))) && (
         <div
           className={cn('w-full pb-1 text-xs text-muted-foreground', isTerminal ? 'flex min-w-0 items-center gap-1.5 px-5' : 'chat-col chat-gutter')}
           data-compact={!isTerminal && compact ? '' : undefined}
@@ -1183,7 +1187,7 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
               <AdviceParentNote session={session} />
             </>
           )}
-          {session.run === 'waiting' && !(column && !column.single) && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
+          {needsYou(session) && !(column && !column.single) && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
             </div>
             </div>
           </div>

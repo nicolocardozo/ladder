@@ -9,6 +9,15 @@ files:
   - package.json
   # Del binario di Claude dell'Agent SDK entra solo quello dell'architettura che si sta costruendo.
   - "!**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-!(${arch})/**"
+# The `ladder` CLI lives outside the asar: the (executable) script launches the bundle with the app binary and ELECTRON_RUN_AS_NODE=1.
+extraResources:
+  - from: out/main/cli.js
+    to: cli/ladder.js
+  # Chunks shared with main (rollup splits them out): the bundle looks for them in ./chunks.
+  - from: out/main/chunks
+    to: cli/chunks
+  - from: src/cli/bin/ladder
+    to: bin/ladder
 asar: true
 # node-pty è l'unico modulo nativo: resta fuori dall'asar (lo spawn-helper deve essere un file eseguibile vero).
 asarUnpack:

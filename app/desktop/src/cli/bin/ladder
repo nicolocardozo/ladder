@@ -1,0 +1,12 @@
+#!/bin/sh
+# The app's `ladder` command: runs the CLI bundle with Ladder's own binary in Node mode, so Node is not needed
+# on the Mac. It can be called through a symlink (~/.local/bin/ladder): it resolves down to the real script.
+self="$0"
+while [ -L "$self" ]; do
+  dir=$(cd "$(dirname "$self")" && pwd)
+  self=$(readlink "$self")
+  case "$self" in /*) ;; *) self="$dir/$self" ;; esac
+done
+resources=$(cd "$(dirname "$self")/.." && pwd)
+export ELECTRON_RUN_AS_NODE=1
+exec "$resources/../MacOS/Ladder" "$resources/cli/ladder.js" "$@"

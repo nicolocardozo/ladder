@@ -226,7 +226,7 @@ export function describeTool(name: string, input: Block, cwd: string): Pick<Tool
     default:
       if (name.startsWith('mcp__')) {
         const [, server, tool] = name.split('__')
-        return { tool: 'other', title: t('Uses {tool}', { tool: `${server} · ${tool}` }), detail: server === LADDER_MCP_NAME ? ladderDetail(input) : null }
+        return { tool: 'other', title: t('Uses {tool}', { tool: `${server} · ${tool}` }), detail: server === LADDER_MCP_NAME ? ladderDetail(input, tool) : null }
       }
       return { tool: 'other', title: t('Uses {tool}', { tool: name }), detail: null }
   }

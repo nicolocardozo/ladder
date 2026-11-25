@@ -218,6 +218,8 @@ export async function acpProbe(spec: AcpAgentSpec, cwd: string, timeoutMs = PROB
 function ladderToolName(title: string, raw: Record<string, unknown>): string | null {
   const named = /(list_agents|handoff|delegate|report_result)/.exec(title)
   if (named) return named[1]
+  // Plan and session tools are not rendered as delegations, whatever shape their input has.
+  if (/(propose_plan|revise_plan|ladder_(list_sessions|start_session|send|wait))/.test(title)) return null
   if ('prompt' in raw && 'agent' in raw) return 'delegate'
   if ('summary' in raw && 'agent' in raw) return 'handoff'
   if ('summary' in raw && 'status' in raw) return 'report_result'
@@ -504,7 +506,7 @@ export class AcpSession implements AgentSession {
         const kind = u.kind ?? 'other'
         // Ladder server tools (title contains "ladder"): the input as JSON in detail.
         const ladderName = kind === 'other' && /ladder/i.test(u.title ?? '') ? ladderToolName(u.title ?? '', raw) : null
-        const ladder = ladderName ? ladderDetail(raw) : null
+        const ladder = ladderName ? ladderDetail(raw, ladderName) : null
         const tool = { title: u.title || command || kind, kind, detail: ladder ?? command ?? location, output: '', status: u.status ?? 'pending', ...(ladderName ? { name: `${LADDER_MCP_NAME}.${ladderName}` } : {}) }
         this.tools.set(u.toolCallId, tool)
         this.captureContent(u.toolCallId, u.content, (u as { _meta?: Record<string, unknown> })._meta)

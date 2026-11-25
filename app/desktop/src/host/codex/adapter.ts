@@ -528,7 +528,7 @@ export class CodexSession implements AgentSession {
         const name = `${item.server}.${item.tool}`
         const title = t('Uses {tool}', { tool: name })
         // Ladder server tools: the input as JSON in detail (the UI derives the title from it).
-        const detail = item.server === LADDER_MCP_NAME ? ladderDetail(item.arguments) : null
+        const detail = item.server === LADDER_MCP_NAME ? ladderDetail(item.arguments, String(item.tool)) : null
         this.items.set(id, { kind: 'mcp', title, detail, output: '', diff: null, paths: [] })
         this.events.tool({ id, tool: 'other', name, title, detail, status: 'running', output: null })
         return

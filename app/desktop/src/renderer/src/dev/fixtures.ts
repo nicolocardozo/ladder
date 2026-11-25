@@ -192,6 +192,11 @@ export class ConversationBuilder {
     return item
   }
 
+  /** Executable plan card, placed where the agent called propose_plan. */
+  plan(planId: string) {
+    return this.push('plan', { planId }, 800)
+  }
+
   /** Contesto compattato, a mano o in automatico. */
   compacted(trigger: Kind<'compacted'>['trigger'], preTokens: number | null = null, postTokens: number | null = null) {
     return this.push('compacted', { trigger, preTokens, postTokens }, 4_000)

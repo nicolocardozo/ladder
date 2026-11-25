@@ -1,0 +1,14 @@
+#!/bin/sh
+# Development `ladder` command: runs the CLI from source with Node 24 (type stripping). Needs `node` in the PATH.
+self="$0"
+while [ -L "$self" ]; do
+  dir=$(cd "$(dirname "$self")" && pwd)
+  self=$(readlink "$self")
+  case "$self" in /*) ;; *) self="$dir/$self" ;; esac
+done
+here=$(cd "$(dirname "$self")" && pwd)
+if ! command -v node >/dev/null 2>&1; then
+  echo "ladder (dev): Node 24 is needed in PATH to run the CLI from the sources." >&2
+  exit 1
+fi
+exec node --no-warnings "$here/../main.ts" "$@"

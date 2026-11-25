@@ -51,7 +51,7 @@ export interface SessionOptions {
   autonomyHint?: boolean
   /** LAD-57 parte 2: server MCP del browser dell'agente (URL e token della sessione); assente = interruttore spento, nessuna registrazione. */
   browserTools?: { url: string; token: string } | null
-  /** Ladder MCP server (list_agents, handoff, delegate, report_result), session URL and token; absent = not registered. */
+  /** The session's `ladder` MCP server (handoff, delegation, plans, sessions, report_result), URL and token; absent = not registered. */
   ladderTools?: { url: string; token: string } | null
   /** Read-only child session (advice): besides the 'plan' level, Claude has no write tools. */
   readOnly?: boolean
@@ -59,14 +59,19 @@ export interface SessionOptions {
   delegateHint?: string | null
 }
 
-/** Name of the Ladder MCP server in the adapters (in Claude: `mcp__ladder__handoff`, `mcp__ladder__delegate`…). */
+/** Name of Ladder's MCP server (in Claude: `mcp__ladder__handoff`, `mcp__ladder__propose_plan`). The plan tool is not called `update_plan` because Codex already has one, its to-do list. */
 export const LADDER_MCP_NAME = 'ladder'
+
+/** Tools of the Ladder server whose chat row is a readable title (handoff and delegation); the others are plain tool rows. */
+const LADDER_AGENT_TOOLS: ReadonlySet<string> = new Set(['list_agents', 'handoff', 'delegate', 'report_result'])
 
 /**
   * `detail` of the 'tool' row for a Ladder server tool: the input as JSON, shortened (the UI derives the title from it).
   * Long input texts are cut field by field so the JSON stays valid.
  */
-export function ladderDetail(input: unknown): string | null {
+export function ladderDetail(input: unknown, tool?: string): string | null {
+  // Plan and session tools show as ordinary tool rows: their input (a whole plan) has no readable title to derive.
+  if (tool !== undefined && !LADDER_AGENT_TOOLS.has(tool)) return null
   if (!input || typeof input !== 'object') return null
   // prompt and summary are the texts the chat shows: wide limit; the other fields are short by nature.
   const cut = (v: unknown, max: number): unknown => (typeof v === 'string' && v.length > max ? `${v.slice(0, max - 1)}…` : Array.isArray(v) ? v.slice(0, 20).map((x) => cut(x, 400)) : v)

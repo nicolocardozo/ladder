@@ -2,16 +2,22 @@
 // Il processo main gli passa una MessagePort per ogni finestra; l'host risponde ai comandi e trasmette gli eventi.
 import { dirname } from 'node:path'
 import type { MessagePortMain } from 'electron'
+import { t } from '@shared/i18n'
 import type { FromHost, HostEvent, HostPrefs, HostToMain, MainToHost, ToHost } from '@shared/protocol'
 import '@shared/locales/it'
+import { socketPathFor } from '../cli/socket-path.ts'
+import { shellPath } from './agents/common'
+import { CliInstall } from './cli-install'
+import { CliSocket } from './cli-socket'
 import { openDb } from './db'
 import { isRemoteWindowCommand, RemoteChannel } from './remote/channel'
-import { Host } from './sessions'
+import { CLI_ORIGIN, Host } from './sessions'
 
 const ports = new Set<MessagePortMain>()
 let hostRef: Host | null = null
 // LAD-49/50: canale remoto per il telefono: relay (HostPrefs.remote, LADDER_RELAY_URL) e WebSocket locale di prova (LADDER_REMOTE_PORT).
 let remote: RemoteChannel | null = null
+let cliSocket: CliSocket | null = null
 
 /** Porta chiusa o non più raggiungibile: via dall'elenco e via le sue iscrizioni (git.watch, fs.watch), che l'host non ricorda per finestra. */
 function dropPort(port: MessagePortMain): void {
@@ -30,6 +36,8 @@ function post(port: MessagePortMain, message: FromHost): void {
 function broadcast(event: HostEvent): void {
   for (const port of ports) post(port, { kind: 'event', event })
   remote?.gateway?.broadcast(event)
+  // CLI clients subscribed to a session receive its lines.
+  cliSocket?.publish(event)
 }
 
 /** Un evento a una sola finestra (la mappa dei branch va solo a chi è iscritto al progetto). */
@@ -73,6 +81,14 @@ async function main(): Promise<void> {
     onLog: (entry) => broadcast({ type: 'remote.log', entry })
   })
   await remote.configure(initialPrefs?.remote)
+  // Local socket for the `ladder` CLI and command installation. If the socket fails to start, the rest of the app still works.
+  const socketPath = process.env.LADDER_SOCKET_PATH || socketPathFor(dirname(dbPath))
+  cliSocket = new CliSocket(socketPath, { handle: (command, signal) => host.handle(command, CLI_ORIGIN, signal) })
+  host.setCli(new CliInstall({ bin: process.env.LADDER_CLI_BIN || null, socket: () => cliSocket?.socket ?? null, shellPath, t }))
+  await cliSocket.start().catch((error: Error) => {
+    console.error(`[host] CLI socket: ${error.message}`)
+    cliSocket = null
+  })
 
   process.parentPort.on('message', (event) => {
     const message = event.data as MainToHost | undefined
@@ -131,9 +147,10 @@ async function main(): Promise<void> {
   })
 
   const stop = () => {
-    // Si prova a dire al relay che il Mac esce (i telefoni vedono "chiuso", non "offline"), ma al massimo per mezzo secondo e senza
-    // bloccare l'uscita. Electron può comunque terminare l'host prima: l'ordine con la chiusura dell'app lo gestisce il main (LAD-54).
+    // The relay is told that the Mac is quitting (phones see "closed", not "offline"), for at most half a second and without
+    // blocking the exit. Electron may still kill the host first: main orders it with the app close (LAD-54).
     const closing = remote ? Promise.race([remote.setMacState('quit').then(() => remote?.close()), new Promise<void>((resolve) => setTimeout(resolve, 500))]) : Promise.resolve()
+    cliSocket?.close()
     void closing.catch(() => undefined).finally(() => {
       host.shutdown()
       process.exit(0)

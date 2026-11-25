@@ -16,9 +16,10 @@ import { useChatActions, useNow, useToggle } from './chat-context'
 import { formatDuration, turnSummary } from './format'
 import { Markdown } from './markdown'
 import { FinalPlanAction, OpenPlanButton } from './plan-bits'
+import { PlanCard } from './plan-card'
 import { RequestCard, ResolvedRequest } from './request-card'
 import { MonoTitle, ToolRow } from './tool-row'
-import type { AgentStartItem, AssistantItem, CommandItem, CompactedItem, NoticeItem, Turn, TurnEndItem, UserItem } from './turns'
+import type { AgentStartItem, AssistantItem, CommandItem, CompactedItem, NoticeItem, PlanItem, Turn, TurnEndItem, UserItem } from './turns'
 
 /** Nei turni in corso un gruppo lungo di strumenti mostra solo gli ultimi. */
 const LIVE_GROUP_LIMIT = 8
@@ -448,9 +449,12 @@ export const TurnRow = memo(function TurnRow({ turn, live, run, activity, divide
   if (summarize) {
     // I messaggi inseriti nel turno restano visibili anche con il turno riassunto: dopo il riepilogo, in ordine.
     const inserted = turn.steps.filter((s): s is UserItem => s.kind === 'user')
-    const summarized = inserted.length ? { ...turn, steps: turn.steps.filter((s) => s.kind !== 'user') } : turn
+    // Plan cards never collapse into the summary: they stay visible after it.
+    const plans = turn.steps.filter((s): s is PlanItem => s.kind === 'plan')
+    const summarized = inserted.length || plans.length ? { ...turn, steps: turn.steps.filter((s) => s.kind !== 'user' && s.kind !== 'plan') } : turn
     parts.push({ key: 'summary', ids: summarized.steps.map((s) => s.id), node: <SummaryRow turn={summarized} end={end} /> })
     for (const message of inserted) parts.push({ key: message.id, ids: [message.id], node: <UserMessage item={message} /> })
+    for (const plan of plans) parts.push({ key: plan.id, ids: [plan.id], node: <PlanCard item={plan} /> })
   } else {
     for (const seg of segment(turn.steps)) {
       if (seg.kind === 'group') {
@@ -477,6 +481,8 @@ export const TurnRow = memo(function TurnRow({ turn, live, run, activity, divide
         parts.push({ key: seg.item.id, ids: [seg.item.id], node: <UserMessage item={seg.item} /> })
       } else if (seg.item.kind === 'compacted') {
         parts.push({ key: seg.item.id, ids: [seg.item.id], node: <CompactedLine item={seg.item} /> })
+      } else if (seg.item.kind === 'plan') {
+        parts.push({ key: seg.item.id, ids: [seg.item.id], node: <PlanCard item={seg.item} /> })
       }
     }
   }

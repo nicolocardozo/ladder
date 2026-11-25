@@ -27,6 +27,7 @@ import { planOfTool } from '@/lib/plan'
 import { findAgentForTool, useSubagentLists } from '@/lib/subagents'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/app-store'
+import { ChildSessionLink } from '@/components/session-origin'
 import { AgentToolRow } from './agent-row'
 import { Spinner } from './bits'
 import { useChatActions, useToggle } from './chat-context'
@@ -236,6 +237,7 @@ function PlainToolRow({ item: raw, icon, meta, extra, wrap, tooltip }: { item: T
       {extra}
       </div>
       {open && expandable ? <ToolOutput item={item} /> : null}
+      <ChildSessionLink name={item.name} output={item.output} />
     </div>
   )
 }

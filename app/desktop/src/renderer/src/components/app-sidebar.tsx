@@ -9,6 +9,8 @@ import { plural, t } from '@shared/i18n'
 import { IconButton } from '@/components/icon-button'
 import { GroupMenuContent, ProjectGroupMenuContent, ProjectMenuContent, RemoveProjectDialog, SessionMenuContent } from '@/components/session-menu'
 import { agentIcon, AgentMark, MaskIcon, otherAgentIcon, useAgentLine } from '@/components/agent-mark'
+import { PlanTaskMark } from '@/components/chat/plan-bits'
+import { OriginMark } from '@/components/session-origin'
 import { usageAlert, usageAlertText } from '@/components/composer/usage-button'
 import { isDefaultProfileId, isProfileAgent, normalizeProfileId, profilesOf, projectProfileId, useSessionProfileName } from '@/lib/profiles'
 import { AllSessionsButton } from '@/components/all-sessions'
@@ -29,7 +31,7 @@ import { isOtherLinked } from '@/lib/other-agents'
 import { NO_SECTION, startProjectDrag, startSectionDrag, useProjectDrag } from '@/lib/project-drag'
 import { layoutProjects, type ProjectLayout } from '@/lib/project-groups'
 import { NO_GROUP, pickClick, startSessionDrag, useSessionDrag, usePick } from '@/lib/session-drag'
-import { isUnreadState, noteTone, prNote, projectAttention, sessionNote, sessionState, sidebarSessions } from '@/lib/session-state'
+import { isUnreadState, needsYou, noteTone, prNote, projectAttention, sessionNote, sessionState, sidebarSessions } from '@/lib/session-state'
 import { SidebarResizer } from '@/components/sidebar-resizer'
 import { cn } from '@/lib/utils'
 import { installUpdate, useUpdate } from '@/lib/updates'
@@ -123,7 +125,7 @@ export function AppSidebar() {
   let waitingTotal = 0
   let unreadTotal = 0
   for (const list of byProject.values()) {
-    waitingTotal += list.reduce((n, s) => n + (s.run === 'waiting' ? Math.max(1, s.openRequests) : 0), 0)
+    waitingTotal += list.reduce((n, s) => n + (needsYou(s) ? Math.max(1, s.openRequests) : 0), 0)
     unreadTotal += list.filter((s) => isUnreadState(sessionState(s)) || (s.run === 'error' && s.unread)).length
   }
 
@@ -772,8 +774,10 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
               </MarqueeText>
               {/* Lascia il posto al pulsante "…" quando la riga è sotto il puntatore o ha il focus. */}
               <span
+                title={note.text}
                 className={cn(
-                  'text-xs leading-[18px] whitespace-nowrap text-faint tabular-nums',
+                  // Long host labels (paused plan, plan review) are truncated so the title never loses its space.
+                  'max-w-36 truncate text-xs leading-[18px] whitespace-nowrap text-faint tabular-nums',
                   'group-hover/row:invisible group-has-[:focus-visible]/row:invisible group-has-[[data-popup-open]]/row:invisible',
                   tone === 'attention' && 'font-semibold text-attention',
                   tone === 'destructive' && 'font-semibold text-destructive',
@@ -999,6 +1003,18 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
           <span className="max-w-24 shrink-0 truncate" title={t('Account: {name}', { name: profile })}>{profile}</span>
         </>
       )}
+      {session.origin && (
+        <>
+          <span aria-hidden className="text-faint">·</span>
+          <OriginMark session={session} />
+        </>
+      )}
+      {session.plan?.role === 'task' && (
+        <>
+          <span aria-hidden className="text-faint">·</span>
+          <PlanTaskMark />
+        </>
+      )}
       {doing && (
         <>
           <span aria-hidden className="text-faint">·</span>
@@ -1147,7 +1163,7 @@ function AwayRow({ projectId, summary }: { projectId: string; summary: AwaySumma
     const state = useApp.getState()
     const list = Object.values(state.sessions).filter((s) => s.projectId === projectId && !s.archived && !s.parent)
     const target =
-      list.filter((s) => s.run === 'waiting').sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))[0] ??
+      list.filter(needsYou).sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))[0] ??
       list.filter((s) => s.unread).sort((a, b) => b.activityAt - a.activityAt)[0]
     if (target) state.openSessionAt(target.id, target.request?.id ?? null)
     dismiss(projectId)
