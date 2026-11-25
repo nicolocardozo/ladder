@@ -23,6 +23,11 @@ export function SiteFooter() {
           © <Year /> Ladder
         </p>
         <p>Made for people who work with agents all day.</p>
+        {/* Agent names on the site are only used to say what Ladder works with */}
+        <p className="max-w-md pt-2 text-[11.5px] leading-relaxed">
+          Ladder is an independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google or the
+          makers of the other agents it works with. Product names and logos belong to their respective owners.
+        </p>
       </div>
       <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2">
         {LINKS.map((l) => (
