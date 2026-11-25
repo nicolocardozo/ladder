@@ -9,7 +9,7 @@ import { getRegistryAgents } from "./registry"
 export const metadata: Metadata = {
   title: "Supported agents",
   description:
-    "The coding agents Ladder runs on macOS: Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot, OpenCode, Goose, Cline, Qwen Code and every agent in the ACP registry, plus any CLI in a terminal session.",
+    "The coding agents Ladder runs on macOS: Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot, Grok Build, OpenCode, Goose, Cline, Qwen Code and every agent in the ACP registry, plus any CLI in a terminal session.",
   alternates: { canonical: "/agents" },
   openGraph: { url: "/agents" },
 }
@@ -20,35 +20,38 @@ const BUILT_IN = [
     id: "claude",
     name: "Claude Code",
     how: "Runs the official claude binary through Anthropic's Claude Agent SDK.",
-    login: "Your own Claude login, done with Anthropic's sign-in flow.",
+    login: "Your own Claude login, done with Anthropic's sign-in flow in your browser. Add more than one account, such as Work and Personal.",
     extras: "Approvals and questions, sub-agent map, plan limits, model and effort per message, four permission levels.",
   },
   {
     id: "codex",
     name: "Codex",
     how: "Talks to codex app-server, using the Codex you already have: the CLI, the Codex app or the editor extension.",
-    login: "Your ChatGPT login, handled by Codex itself.",
+    login: "Your ChatGPT login, handled by Codex itself. More than one account is supported here too.",
     extras: "Approve, allow for the session or deny with a reason, sub-agents, plan limits, threads that resume after a restart.",
   },
 ] as const
 
-// Agenti ACP curati nell'app: in cima al catalogo, con installazione verificata
-const CURATED = [
-  { id: "gemini", name: "Gemini CLI" },
-  { id: "cursor", name: "Cursor" },
-  { id: "github-copilot-cli", name: "GitHub Copilot" },
-  { id: "opencode", name: "OpenCode" },
-  { id: "amp", name: "Amp" },
-  { id: "goose", name: "goose" },
-  { id: "cline", name: "Cline" },
-  { id: "qwen", name: "Qwen Code" },
-  { id: "kiro", name: "Kiro CLI" },
-  { id: "junie", name: "Junie" },
-  { id: "factory-droid", name: "Factory Droid" },
-] as const
+// ACP agents curated in the app (host/acp/catalog.ts), in the same order, with verified installs.
+// `login` is the sign-in command the app knows (host/acp/others.ts); null where none is verified:
+// the app shows the methods the agent declares, or opens the agent's CLI in a terminal.
+const CURATED: { id: string; name: string; login: string | null }[] = [
+  { id: "gemini", name: "Gemini CLI", login: "gemini" },
+  { id: "cursor", name: "Cursor", login: "cursor-agent login" },
+  { id: "github-copilot-cli", name: "GitHub Copilot", login: "copilot login" },
+  { id: "opencode", name: "OpenCode", login: null },
+  { id: "amp", name: "Amp", login: null },
+  { id: "goose", name: "goose", login: null },
+  { id: "cline", name: "Cline", login: null },
+  { id: "qwen", name: "Qwen Code", login: null },
+  { id: "kiro", name: "Kiro CLI", login: null },
+  { id: "junie", name: "Junie", login: null },
+  { id: "factory-droid", name: "Factory Droid", login: null },
+  { id: "grok-build", name: "Grok Build", login: "grok login" },
+]
 
 // id del registro già raccontati sopra, da non ripetere nell'elenco completo
-const SHOWN = new Set(["claude-acp", "codex-acp", "gemini", "cursor", "github-copilot-cli", "opencode", "amp-acp", "goose", "cline", "qwen-code", "kiro", "junie", "factory-droid"])
+const SHOWN = new Set(["claude-acp", "codex-acp", "gemini", "cursor", "github-copilot-cli", "opencode", "amp-acp", "goose", "cline", "qwen-code", "kiro", "junie", "factory-droid", "grok-build"])
 
 type Cell = boolean | string
 const COLUMNS = ["Claude Code", "Codex", "ACP agents", "Terminal"] as const
@@ -120,7 +123,9 @@ export default function Page() {
             <>
               The Agent Client Protocol is an open standard for connecting coding agents to editors. Add any of these from
               Settings → Agents. Ladder downloads them, checks the checksum and, where the vendor signs its binaries, the
-              Apple Developer ID. Model, modes and permission options come from the agent itself.
+              Apple Developer ID. Model, modes and permission options come from the agent itself, and so does the sign-in: Ladder
+              shows the methods the agent offers, or opens its own command in a terminal. Where Ladder knows that command,
+              it is shown under the name.
             </>
           }
         >
@@ -130,7 +135,12 @@ export default function Page() {
                 <span className={glyph}>
                   <AgentIcon agent={a.id} name={a.name} className="size-5" />
                 </span>
-                <span className="text-[15px] font-medium text-ink">{a.name}</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[15px] font-medium text-ink">{a.name}</span>
+                  <span className="block break-words font-mono text-[11px] text-muted-ink">
+                    {a.login ? <span className="text-ink">{a.login}</span> : "Agent's own sign-in"}
+                  </span>
+                </span>
               </li>
             ))}
           </ul>

@@ -7,7 +7,7 @@ import { DownloadLink } from "@/components/download-link"
 export const metadata: Metadata = {
   title: "Docs",
   description:
-    "How to use Ladder on macOS: projects and sessions, the Waiting view, reviewing changes, worktrees and .ladder/settings.toml, terminal sessions, plan limits and every keyboard shortcut.",
+    "How to use Ladder on macOS: projects and sessions, the Waiting view, reviewing changes, branches and merge, the built-in browser, worktrees and .ladder/settings.toml, agents and accounts, plan limits, themes and settings, and every keyboard shortcut.",
   alternates: { canonical: "/docs" },
   openGraph: { url: "/docs" },
 }
@@ -17,24 +17,28 @@ const TOC = [
   { id: "sessions", label: "Sessions and Waiting" },
   { id: "review", label: "Reviewing changes" },
   { id: "merge", label: "Branches and merge" },
+  { id: "browser", label: "Built-in browser" },
   { id: "worktrees", label: "Worktrees and settings" },
   { id: "terminal", label: "Terminal sessions" },
-  { id: "limits", label: "Accounts and plan limits" },
+  { id: "agents", label: "Agents, accounts and profiles" },
+  { id: "limits", label: "Plan limits" },
+  { id: "settings", label: "Look, language and settings" },
   { id: "shortcuts", label: "Keyboard shortcuts" },
   { id: "help", label: "Troubleshooting" },
 ] as const
 
-// Predefiniti del preset "Ladder" (app/desktop/src/shared/shortcuts.ts)
+// Defaults from the registry (app/desktop/src/shared/shortcuts.ts). ⌘⇧P works in every preset, "ladder" included
 const SHORTCUTS: { group: string; items: [string[], string][] }[] = [
   {
     group: "Navigation",
     items: [
-      [["⌘", "K"], "Command palette: sessions, projects, actions and conversation text"],
+      [["⌘", "K"], "Search Ladder: sessions, projects, actions and conversation text"],
+      [["⌘", "⇧", "P"], "Search Ladder from anywhere, also with the terminal focused"],
       [["⌘", "P"], "Open a file by name, also as path:line"],
       [["⌘", "B"], "Show or hide the sidebar"],
       [["⌘", "["], "Back"],
       [["⌘", "]"], "Forward"],
-      [["⌘", "1…9"], "Switch project"],
+      [["⌘", "1…9"], "Go to project 1 to 9"],
     ],
   },
   {
@@ -43,10 +47,11 @@ const SHORTCUTS: { group: string; items: [string[], string][] }[] = [
       [["⌘", "N"], "New chat"],
       [["⌘", "⇧", "N"], "New session from an issue, a pull request or a branch"],
       [["⌘", "\\"], "Open a session side by side"],
-      [["⌘", "⇧", "A"], "Next session waiting for you"],
-      [["⌘", "."], "Interrupt the agent"],
+      [["⌘", "⇧", "A"], "Go to the next session waiting for you"],
+      [["⌘", "."], "Stop the running session"],
       [["⌘", "W"], "Close tab"],
-      [["⌘", "⌥", "←/→"], "Move focus between columns"],
+      [["⌘", "⌥", "←/→"], "Focus the column on the left or right"],
+      [["⌘", "⌥", "⇧", "←/→"], "Move tab left or right"],
     ],
   },
   {
@@ -55,17 +60,29 @@ const SHORTCUTS: { group: string; items: [string[], string][] }[] = [
       [["⌘", "⌥", "1"], "Changes"],
       [["⌘", "⌥", "2"], "Files"],
       [["⌘", "⌥", "3"], "History"],
-      [["⌘", "⌥", "4"], "Merge"],
-      [["⌃", "`"], "Terminal"],
+      [["⌘", "⌥", "4"], "Branches and merge"],
+      [["⌘", "⌥", "B"], "Show or hide the right panel"],
+      [["⌃", "`"], "Show or hide the terminal"],
+      [["⌘", "K"], "Clear the terminal, when it has focus"],
     ],
   },
   {
-    group: "Editor and message box",
+    group: "Editor, message box and app",
     items: [
       [["⌘", "S"], "Save file"],
-      [["⇧", "Tab"], "Cycle permission level"],
-      [["Esc"], "Stop the current turn"],
-      [["⌘", ","], "Settings"],
+      [["⇧", "Tab"], "Change permission level"],
+      [["Esc"], "Stop the reply from the message box"],
+      [["⌘", ","], "Open Settings"],
+      [["⌘", "⇧", "W"], "Close window"],
+    ],
+  },
+  {
+    group: "Added by the VS Code and Cursor presets",
+    items: [
+      [["⌃", "Tab"], "Next tab"],
+      [["⌃", "⇧", "Tab"], "Previous tab"],
+      [["⌘", "⇧", "T"], "Reopen closed tab"],
+      [["⌘", "⇧", "F"], "Search in project"],
     ],
   },
 ]
@@ -108,8 +125,8 @@ export default function Page() {
                   as you like.
                 </li>
                 <li>
-                  Connect your agents in <strong>Settings → Agents</strong>. Claude Code and Codex sign in with their own
-                  flow; agents that speak ACP install from the catalog. See <Link href="/agents">supported agents</Link>.
+                  Connect your agents in <strong>Settings → Subscriptions</strong> and <strong>Settings → Agents</strong>.
+                  Claude Code and Codex sign in with their own flow; agents that speak ACP install from the catalog. See <Link href="/agents">supported agents</Link>.
                 </li>
                 <li>
                   Start a chat with <Kbd>⌘</Kbd> <Kbd>N</Kbd>, pick the agent, model, effort and permission level, and
@@ -147,15 +164,36 @@ export default function Page() {
                 <li>Replies notify you only for turns longer than a minute, grouped by project.</li>
                 <li>The Dock badge counts requests and errors you haven&apos;t seen.</li>
                 <li>
-                  <strong>Do not disturb for 1 hour</strong> pauses every banner. Turn it on from the Ladder menu,{" "}
+                  <strong>Do Not Disturb for 1 hour</strong> pauses every banner. Turn it on from the Ladder menu,{" "}
                   <Kbd>⌘</Kbd> <Kbd>K</Kbd> or Settings.
                 </li>
               </ul>
               <h3>Sub-agents</h3>
               <p>
-                When an agent starts sub-agents, a chip above the message box shows how many are running. It opens a tree
-                with the state, duration, model, tokens and tools of each one, and Ladder tells you when they finish.
+                When an agent starts sub-agents, a chip above the message box shows how many are running. It opens a list
+                with the state, duration, model, tokens and tools of each one, or a graph from left to right that shows who
+                started whom. A row in the chat opens the detail of each sub-agent, and Ladder tells you when they finish.
               </p>
+              <h3>Organizing sessions</h3>
+              <ul>
+                <li>
+                  Group sessions inside a project and sort projects into sections from the sidebar menu, or drag them
+                  around. <Kbd>⌘</Kbd> <Kbd>1…9</Kbd> switches project.
+                </li>
+                <li>
+                  <Kbd>⌘</Kbd> <Kbd>\</Kbd> opens a second session in a column next to the first. Tabs can be moved and a
+                  closed tab reopened.
+                </li>
+                <li>
+                  <strong>All sessions</strong> lists the ones that are not in the sidebar, with search by title or branch,
+                  filters by agent and branch, and bulk archive. Live, unread and draft sessions stay in the sidebar.
+                </li>
+                <li>
+                  The session menu has <strong>Regenerate title</strong> and <strong>Restart agent</strong> for an agent that got stuck. A
+                  setting in <strong>Data and system</strong> archives idle sessions after a while; their conversations are
+                  kept.
+                </li>
+              </ul>
             </Prose>
           </Section>
 
@@ -200,9 +238,42 @@ export default function Page() {
                 branch stays.
               </p>
               <p>
+                The session header shows the state of the branch (commits ahead and behind, uncommitted changes). In a
+                session on the main checkout, click it to switch branch: Ladder offers to bring your changes along or set
+                them aside with a stash, and it won&apos;t switch while an agent is working in that folder. There the same
+                chip also creates a new branch from the current commit; in a worktree session it opens the merge panel.
+              </p>
+              <p>
+                The panel also draws a <strong>branch map</strong>: your main checkout and every worktree with its
+                branches, which ones are in progress, ready to merge or already merged, and the history as a graph.
+              </p>
+              <p>
+                A model from your own provider writes the commit message and the pull request title and description when
+                you ask, and names the branch when a session is created. You can edit the result, and a single project can
+                turn it off.
+              </p>
+              <p>
                 <Kbd>⌘</Kbd> <Kbd>⇧</Kbd> <Kbd>N</Kbd> starts a session from a GitHub issue or pull request, a Linear issue
                 or a branch, with the prompt already written and the worktree on the right branch. GitHub works through the{" "}
                 <Code>gh</Code> CLI and its login.
+              </p>
+            </Prose>
+          </Section>
+
+          <Section id="browser" title="Built-in browser">
+            <Prose className="mt-5">
+              <p>
+                Open a page in a column next to your chat from <Kbd>⌘</Kbd> <Kbd>K</Kbd>: a local development server, the
+                docs you are reading or a preview. It has an address bar, back, forward, reload and developer tools, and you
+                can send a screenshot or a selection of the page to the chat. Cookies stay in the project.
+              </p>
+              <h3>A browser for the agent</h3>
+              <p>
+                In <strong>Settings → New sessions</strong> you can let the agent use a browser of its own. It is a separate
+                browser, without your cookies or logins, and it only reaches <Code>localhost</Code> unless you allow another
+                site. The agent can open and read pages and, with your approval according to the session&apos;s permission
+                level, click and type. Stop it from its tab or with Stop in the chat, and resume it from the same tab or
+                from <Kbd>⌘</Kbd> <Kbd>K</Kbd>. A project can override the setting.
               </p>
             </Prose>
           </Section>
@@ -243,12 +314,21 @@ permissions_max = "edit"`}</CodeBlock>
                   and so on, with a separate block for every worktree), so dev servers never collide.
                 </li>
                 <li>
+                  Ignored files such as <Code>.env</Code> can be listed in a <Code>.worktreeinclude</Code> file at the root
+                  (same syntax as <Code>.gitignore</Code>); they are copied into each new worktree.{" "}
+                  <Code>node_modules</Code> never is.
+                </li>
+                <li>
                   <Code>[agents]</Code>: which agents the project allows, which one is proposed and the highest permission
                   level.
                 </li>
                 <li>
                   <Code>[prompts]</Code>: replace the prompts behind Create PR, Fix CI and the other buttons with your own
                   text or a file path.
+                </li>
+                <li>
+                  Where worktrees live, the branch prefix, whether the first message waits for the setup script and your own
+                  background services are in <strong>Settings → Workspace</strong>.
                 </li>
               </ul>
             </Prose>
@@ -258,7 +338,8 @@ permissions_max = "edit"`}</CodeBlock>
             <Prose className="mt-5">
               <p>
                 The terminal (<Kbd>⌃</Kbd> <Kbd>`</Kbd>) has tabs per project, stays alive when you switch projects and
-                restarts in the same folder after a relaunch. Type <Code>@terminal</Code> in the message box to attach a
+                restarts in the same folder after a relaunch. <Kbd>⌘</Kbd> <Kbd>K</Kbd> clears it while it has focus (use{" "}
+                <Kbd>⌘</Kbd> <Kbd>⇧</Kbd> <Kbd>P</Kbd> to open the command palette from there). Type <Code>@terminal</Code> in the message box to attach a
                 terminal&apos;s output to your message.
               </p>
               <p>
@@ -268,24 +349,91 @@ permissions_max = "edit"`}</CodeBlock>
             </Prose>
           </Section>
 
-          <Section id="limits" title="Accounts and plan limits">
+          <Section id="agents" title="Agents, accounts and profiles">
             <Prose className="mt-5">
               <p>
-                <strong>Settings → Agents</strong> shows which account each agent is signed in with and its plan. A button in
-                the message box shows the usage windows of the current agent (the five-hour window, the weekly one and per
-                model) and when each one resets. Ladder warns you as you get close to a limit.
+                <strong>Settings → Subscriptions</strong> signs you in to Claude, Codex and GitHub from inside Ladder: it
+                opens your browser and you come back connected. Claude Code and Codex can have more than one account, for
+                example Work and Personal, each with its own plan and usage. Ladder never reads or stores the agents&apos;
+                credentials.
               </p>
               <p>
-                Session profiles save a default agent, model, effort and permission level, so a new chat starts the way you
-                usually work.
+                <strong>Settings → Agents</strong> has the catalog of ACP agents: the ones already on your Mac, a curated
+                list and the public ACP registry. When Ladder downloads an agent, it first shows the version, the host, the
+                size and the full SHA-256, verifies the checksum and, where the vendor signs its binaries, the Apple
+                Developer ID, and it never updates the agent on its own. See <Link href="/agents">supported agents</Link>.
+                Any other agent works with the command that starts it.
               </p>
+              <p>
+                In <strong>Settings → Subscriptions</strong>, <strong>Other agents</strong> lists the agents that sign in
+                from their own command line: Ladder shows whether each one is signed in and opens its sign-in in a terminal.
+              </p>
+              <h3>Defaults and session profiles</h3>
+              <p>
+                <strong>Settings → New sessions</strong> sets what a new chat starts with (agent, model, effort and
+                permission level), with values of its own for each project. A session profile saves a combination of agent,
+                account, model, effort and permissions: pick it in the new chat or from <Kbd>⌘</Kbd> <Kbd>K</Kbd>, or save
+                the current session as a profile from its menu.
+              </p>
+            </Prose>
+          </Section>
+
+          <Section id="limits" title="Plan limits">
+            <Prose className="mt-5">
+              <p>
+                A button in the message box shows the usage windows of the current agent and account (the five-hour window,
+                the weekly one and per model) and when each one resets. Ladder warns you as you get close to a limit, and it
+                can keep the Mac awake while an agent works.
+              </p>
+            </Prose>
+          </Section>
+
+          <Section id="settings" title="Look, language and settings">
+            <Prose className="mt-5">
+              <ul>
+                <li>
+                  <strong>Themes:</strong> fifteen light and dark themes around the Circuit identity. Change one from
+                  Settings → Appearance or from <Kbd>⌘</Kbd> <Kbd>K</Kbd>.
+                </li>
+                <li>
+                  <strong>Language:</strong> English by default, with an Italian translation.
+                </li>
+                <li>
+                  <strong>Reading:</strong> chat font, text size and width, code font, editor size and the density of the
+                  sidebar.
+                </li>
+                <li>
+                  <strong>Message box:</strong> choose whether Enter or a modifier and Enter sends, and what a message sent
+                  while the agent works does: go into the turn or wait in the queue.
+                </li>
+                <li>
+                  <strong>Notifications:</strong> a sound for approvals and questions, a test notification and Do not
+                  disturb.
+                </li>
+                <li>
+                  <strong>Shortcuts:</strong> every shortcut can be changed, searched by name or key, with the VS Code and
+                  Cursor presets as a starting point.
+                </li>
+                <li>
+                  <strong>Integrations:</strong> a Linear API key, stored encrypted in the macOS Keychain, to start sessions
+                  from Linear issues.
+                </li>
+                <li>
+                  <strong>Data and system:</strong> the data folder, backups and export of the database, opening Ladder at
+                  login and keeping the Mac awake while an agent works.
+                </li>
+                <li>
+                  <strong>Updates:</strong> Ladder checks every few hours and tells you when an update is ready. It installs
+                  when you quit, or when you restart from the notice.
+                </li>
+              </ul>
             </Prose>
           </Section>
 
           <Section
             id="shortcuts"
             title="Keyboard shortcuts"
-            intro="These are the defaults. Every shortcut can be changed in Settings → Shortcuts, where VS Code and Cursor presets add the bindings you already know."
+            intro="These are the defaults. Every shortcut can be changed in Settings → Shortcuts, where the VS Code and Cursor presets add the bindings you already know."
           >
             <div className="mt-8 grid gap-8 md:grid-cols-2">
               {SHORTCUTS.map((g) => (
@@ -312,7 +460,8 @@ permissions_max = "edit"`}</CodeBlock>
             <Prose className="mt-5">
               <h3>An agent says it is signed out</h3>
               <p>
-                Open <strong>Settings → Agents</strong> and sign in again. The login is the agent&apos;s own, so it can
+                Open <strong>Settings → Subscriptions</strong> (ACP agents are under <strong>Other agents</strong>) and
+                sign in again. The login is the agent&apos;s own, so it can
                 expire like it would in the terminal.
               </p>
               <h3>Codex doesn&apos;t show up</h3>

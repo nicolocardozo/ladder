@@ -10,6 +10,20 @@ export type Entry = {
 
 export const ENTRIES: Entry[] = [
   {
+    date: "2026-11-25",
+    title: "Grok Build, a calmer agent map and Ladder in the open",
+    summary: "Everything since 0.1.3: one more agent, a simpler map of sub-agents and a few shortcuts that behave better.",
+    items: [
+      "Grok Build joins the curated agents, with its own sign-in.",
+      "The sub-agent map opens as a list, with a graph from left to right when you want to see who started whom. The group of finished agents opens by itself when all of them are done.",
+      "Cmd+K clears the terminal when it has focus, and Cmd+Shift+P opens the command palette from anywhere.",
+      "A notification for a waiting request now arrives unless that very session is on screen, even if another one in the same project is open.",
+      "Claude and Codex keep answering in the language you write in, also when a turn starts from a background task.",
+      "The bottom of the sidebar shows your linked subscriptions, and an expired sign-in turns red.",
+      "Ladder is open source under the Apache License 2.0.",
+    ],
+  },
+  {
     date: "2026-11-24",
     title: "Intel Macs, updates on their own and a branch map",
     summary: "Ladder 0.1.1 to 0.1.3: builds for every Mac that keep themselves up to date.",
