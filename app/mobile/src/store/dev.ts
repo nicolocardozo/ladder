@@ -8,15 +8,25 @@ export interface DevComposerCmd {
   images?: string[]
   /** Invia il messaggio come con il tasto Invia. */
   send?: boolean
+  /** Porta il focus nel campo (tastiera su). */
+  focus?: boolean
+  /** Avvia la dettatura come il tocco sul microfono. */
+  dictate?: boolean
 }
 
 /** Solo sviluppo: stato forzato della dettatura, per vederne l'interfaccia dove il microfono non c'è (simulatore). */
-export type DevDictation = 'listening' | 'denied' | 'not-installed' | 'unsupported' | null
+export type DevDictation = 'listening' | 'downloading' | 'denied' | 'not-installed' | 'unsupported' | null
 
 export type DevSheet = 'request' | 'permission' | 'turn' | 'switch' | 'full' | null
 
 interface DevState {
   sheet: DevSheet
+  /** Solo sviluppo: lo sheet della richiesta si apre con il campo di testo aperto (motivo del rifiuto o "Altro…"). */
+  reasonField: boolean
+  /** Solo sviluppo: il campo di ricerca della Home prende il focus. */
+  focusSearch: boolean
+  /** Solo sviluppo: lo sheet nativo aperto si registra qui per lasciarsi scorrere dal driver. */
+  scrollSheet: ((y: number) => void) | null
   /** Solo sviluppo: il campo del messaggio di "Nuova sessione" prende il focus (tastiera su) senza un tocco. */
   focusNewSession: boolean
   /** Solo sviluppo: stato iniziale del modulo "Nuova sessione" (opzioni aperte, scelta aperta, invio subito). */
@@ -33,4 +43,4 @@ interface DevState {
   setScrollChat: (fn: ((offset: number) => void) | null) => void
 }
 
-export const useDev = create<DevState>((set) => ({ composer: null, setComposer: (composer) => set({ composer }), dictation: null, welcome: 'chips', focusNewSession: false, newSession: null, sheet: null, setSheet: (sheet) => set({ sheet }), scrollChat: null, setScrollChat: (scrollChat) => set({ scrollChat }) }))
+export const useDev = create<DevState>((set) => ({ composer: null, setComposer: (composer) => set({ composer }), dictation: null, welcome: 'chips', focusNewSession: false, reasonField: false, focusSearch: false, scrollSheet: null, newSession: null, sheet: null, setSheet: (sheet) => set({ sheet }), scrollChat: null, setScrollChat: (scrollChat) => set({ scrollChat }) }))

@@ -14,7 +14,7 @@ export default function ProjectScreen() {
   const subtitle = [project?.branch, plural(count, '1 session', '{n} sessions')].filter(Boolean).join(' · ')
   return (
     <>
-      <Stack.Screen options={{ title: project?.name ?? '', headerLargeTitleEnabled: true }} />
+      <Stack.Screen options={{ title: project?.name ?? '', headerLargeTitleEnabled: false }} />
       <ProjectSessions
         projectId={id}
         header={

@@ -2,11 +2,11 @@ import { NewSessionContent } from '@/features/sheets/NewSessionContent'
 import { useSheetClose } from '@/lib/use-sheet-close'
 import { NativeSheet } from '@/ui/NativeSheet'
 
-// Il modulo ha scelte che cambiano l'altezza (opzioni, elenchi): niente `fit`: altezza piena e il contenuto scorre (con la tastiera su si sposta sopra di essa).
+// Lo sheet è alto quanto il contenuto (NativeSheet `fit`); con la tastiera su, campo e Invia restano sopra di essa e, se non ci stanno, il contenuto scorre.
 export default function NewSessionRoute() {
   const close = useSheetClose()
   return (
-    <NativeSheet>
+    <NativeSheet fit>
       <NewSessionContent onClose={close} />
     </NativeSheet>
   )

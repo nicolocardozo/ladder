@@ -16,41 +16,52 @@ import { useApp } from '@/store/app'
 import { Text } from '@/ui/Text'
 import { SessionRow } from './SessionRow'
 
-type Item = { kind: 'header'; name: string; key: string } | { kind: 'session'; session: SessionSummary }
+export type ProjectItem = { kind: 'header'; name: string; key: string } | { kind: 'session'; session: SessionSummary }
 
-/** `native`: sotto un header e sopra la barra dei tab nativi (default); `false` nel pannello fisso a sinistra, che non li ha. */
-export function ProjectSessions({ projectId, header, native = true }: { projectId: string; header?: ReactElement; native?: boolean }) {
-  const router = useRouter()
-  const insets = useSafeAreaInsets()
+/** Le righe di un progetto: sessioni divise per i gruppi del Mac. */
+export function useProjectItems(projectId: string): ProjectItem[] {
   const sessionsMap = useApp((s) => s.sessions)
   const ui = useApp((s) => s.ui[projectId])
-  const items = useMemo<Item[]>(() => {
+  return useMemo<ProjectItem[]>(() => {
     const list = Object.values(sessionsMap).filter((s) => s.projectId === projectId && !s.archived)
     const groups = groupProjectSessions(list, ui)
-    const out: Item[] = []
+    const out: ProjectItem[] = []
     for (const g of groups) {
       if (g.name) out.push({ kind: 'header', name: g.name, key: `g-${g.id}` })
       for (const s of g.sessions) out.push({ kind: 'session', session: s })
     }
     return out
   }, [sessionsMap, ui, projectId])
+}
+
+export const projectItemKey = (i: ProjectItem): string => (i.kind === 'header' ? i.key : i.session.id)
+
+export function ProjectItemRow({ item, showProject }: { item: ProjectItem; showProject?: boolean }) {
+  const router = useRouter()
+  if (item.kind === 'header')
+    return (
+      <Text variant="label" tone="muted" style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 6 }} accessibilityRole="header">
+        {item.name}
+      </Text>
+    )
+  return (
+    <View style={{ paddingHorizontal: 4 }}>
+      <SessionRow session={item.session} showProject={showProject} onPress={() => openSession(router, item.session.id)} />
+    </View>
+  )
+}
+
+/** `native`: sotto un header e sopra la barra dei tab nativi (default); `false` nel pannello fisso a sinistra, che non li ha. */
+export function ProjectSessions({ projectId, header, native = true, topPad = 0 }: { projectId: string; header?: ReactElement; native?: boolean; topPad?: number }) {
+  const insets = useSafeAreaInsets()
+  const items = useProjectItems(projectId)
   return (
     <FlatList
       data={items}
       ListHeaderComponent={header}
       ListFooterComponent={<ArchivedSection projectId={projectId} />}
-      keyExtractor={(i) => (i.kind === 'header' ? i.key : i.session.id)}
-      renderItem={({ item }) =>
-        item.kind === 'header' ? (
-          <Text variant="label" tone="muted" style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 6 }} accessibilityRole="header">
-            {item.name}
-          </Text>
-        ) : (
-          <View style={{ paddingHorizontal: 4 }}>
-            <SessionRow session={item.session} onPress={() => openSession(router, item.session.id)} />
-          </View>
-        )
-      }
+      keyExtractor={projectItemKey}
+      renderItem={({ item }) => <ProjectItemRow item={item} />}
       ListEmptyComponent={
         <View style={{ paddingHorizontal: 32, paddingTop: 48, alignItems: 'center', gap: 6 }}>
           <Text variant="title">{t('No sessions yet')}</Text>
@@ -59,7 +70,8 @@ export function ProjectSessions({ projectId, header, native = true }: { projectI
           </Text>
         </View>
       }
-      contentContainerStyle={{ paddingBottom: native ? 24 : insets.bottom + 24 }}
+      contentContainerStyle={{ paddingTop: topPad, paddingBottom: native ? 24 : insets.bottom + 24 }}
+      scrollIndicatorInsets={{ top: topPad }}
       contentInsetAdjustmentBehavior={native ? 'automatic' : 'never'}
       showsVerticalScrollIndicator={false}
     />
@@ -69,7 +81,7 @@ export function ProjectSessions({ projectId, header, native = true }: { projectI
 const ARCHIVED_PAGE = 30
 
 /** Sessioni archiviate sul Mac: sola lettura, a pagine (`project.sessions.archived`), chiuse finché non le apri. */
-function ArchivedSection({ projectId }: { projectId: string }) {
+export function ArchivedSection({ projectId }: { projectId: string }) {
   const { c } = useTheme()
   const router = useRouter()
   const sessionsMap = useApp((s) => s.sessions)

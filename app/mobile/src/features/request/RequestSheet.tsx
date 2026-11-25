@@ -1,13 +1,14 @@
 // Sheet della richiesta: permesso con comando o percorso per intero, motivo, anteprima della modifica, Deny e Approve
 // (niente "Always allow" nella v1, niente swipe per approvare). Domande: opzioni singole o multiple e "Other…".
 import { useEffect, useMemo, useState } from 'react'
-import { Pressable, TextInput as Input, View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import { t } from '@shared/i18n'
 import type { Question } from '@shared/protocol'
 import { actions } from '@/host/actions'
 import { canAct } from '@/host/controller'
 import type { RequestItem } from '@/lib/turns'
 import { useApp } from '@/store/app'
+import { useDev } from '@/store/dev'
 import { useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
 import { AgentMark, useModelLabel } from '@/ui/AgentMark'
@@ -16,6 +17,7 @@ import { Icon } from '@/ui/Icon'
 import { useOnce } from '@/lib/use-once'
 import { SheetTitle } from '@/ui/NativeSheet'
 import { Text } from '@/ui/Text'
+import { TextInput as Input } from '@/ui/TextInput'
 import { CodeBlock, EditPreview, subjectOf } from './parts'
 
 const OTHER = '__other__'
@@ -88,7 +90,8 @@ function Body({ sessionId, request, onDone }: { sessionId: string; request: Requ
 }
 
 function PermissionForm({ sessionId, request, online, busy, setBusy, onDone, subject, c }: FormProps & { subject: ReturnType<typeof subjectOf>; c: ReturnType<typeof useTheme>['c'] }) {
-  const [reasonOpen, setReasonOpen] = useState(false)
+  // Solo sviluppo: il driver apre subito il campo del motivo (prova della tastiera).
+  const [reasonOpen, setReasonOpen] = useState(__DEV__ && useDev.getState().reasonField)
   const [reason, setReason] = useState('')
   const finish = async (fn: () => Promise<boolean>) => {
     setBusy(true)
@@ -134,7 +137,8 @@ function PermissionForm({ sessionId, request, online, busy, setBusy, onDone, sub
           placeholder={t('Tell the agent what to do instead')}
           placeholderTextColor={c.textMuted}
           multiline
-          style={{ minHeight: 56, borderRadius: RADIUS.lg, backgroundColor: c.background, color: c.text, padding: 12, fontFamily: 'MonaSans-Regular', fontSize: 15, textAlignVertical: 'top' }}
+          autoFocus
+          style={{ minHeight: 48, borderRadius: RADIUS.lg, backgroundColor: c.background, color: c.text, paddingHorizontal: 12, paddingVertical: 8, fontFamily: 'MonaSans-Regular', fontSize: 15, textAlignVertical: 'top' }}
           accessibilityLabel={t('Reason for denying')}
         />
       ) : null}
@@ -159,7 +163,12 @@ interface FormProps {
 function QuestionForm({ sessionId, request, online, busy, setBusy, onDone }: FormProps) {
   const { c } = useTheme()
   const questions = useMemo(() => request.questions ?? [], [request.questions])
-  const [picked, setPicked] = useState<Record<number, string[]>>({})
+  // Solo sviluppo: il driver sceglie subito "Altro…" nella prima domanda.
+  const [picked, setPicked] = useState<Record<number, string[]>>(() => {
+    const start: Record<number, string[]> = {}
+    if (__DEV__ && useDev.getState().reasonField) start[0] = [OTHER]
+    return start
+  })
   const [other, setOther] = useState<Record<number, string>>({})
   const answerFor = (i: number): string | null => {
     const values = (picked[i] ?? []).map((v) => (v === OTHER ? (other[i] ?? '').trim() : v)).filter(Boolean)

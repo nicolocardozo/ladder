@@ -2,7 +2,7 @@
 // percorso del QR (conferma → password → nome → connessione). Raggiungibile solo nelle build di sviluppo.
 import { Redirect, useRouter } from 'expo-router'
 import { useState } from 'react'
-import { ScrollView, View } from 'react-native'
+import { ScrollView } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '@shared/i18n'
 import { readPairingLink } from '@/lib/pair-link'
@@ -10,6 +10,7 @@ import { usePairFlow } from '@/store/pair-flow'
 import { useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
 import { Button } from '@/ui/Button'
+import { KeyboardLift } from '@/ui/KeyboardLift'
 import { ScreenHeader } from '@/ui/ScreenHeader'
 import { Text } from '@/ui/Text'
 import { TextInput } from '@/ui/TextInput'
@@ -31,7 +32,7 @@ export default function ConnectManual() {
     router.push('/pair/confirm')
   }
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
+    <KeyboardLift style={{ backgroundColor: c.background }}>
       <ScreenHeader title={t('Connect manually')} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled">
         <Text variant="body" tone="muted">
@@ -58,6 +59,6 @@ export default function ConnectManual() {
         ) : null}
         <Button label={t('Continue')} variant="primary" disabled={link.trim().length === 0} onPress={go} />
       </ScrollView>
-    </View>
+    </KeyboardLift>
   )
 }

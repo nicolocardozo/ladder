@@ -15,6 +15,7 @@ export type SheetSpec =
   | { kind: 'switch'; sessionId: string }
   | { kind: 'turn'; sessionId: string; turn: TurnSummary }
   | { kind: 'new-session' }
+  | { kind: 'mac' }
 
 interface SheetsState {
   /** Lo sheet aperto con le implementazioni nostre (Android, schermi larghi). */
@@ -70,6 +71,9 @@ export function openSheet(router: Router, spec: SheetSpec): void {
       break
     case 'new-session':
       router.push('/sheet/new-session')
+      break
+    case 'mac':
+      router.push('/sheet/mac')
       break
   }
 }

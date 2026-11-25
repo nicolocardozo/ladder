@@ -12,7 +12,7 @@ export default function SettingsLayout() {
   useLanguage()
   return (
     <Stack screenOptions={header}>
-      <Stack.Screen name="settings" options={{ title: t('Settings'), headerLargeTitleEnabled: true }} />
+      <Stack.Screen name="settings" options={{ headerShown: false }} />
       <Stack.Screen name="mac" options={{ title: t('Your Mac') }} />
       <Stack.Screen name="notifications" options={{ title: t('Notifications') }} />
       <Stack.Screen name="theme" options={{ title: t('Theme') }} />

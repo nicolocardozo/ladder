@@ -8,11 +8,9 @@ import Svg, { Circle } from 'react-native-svg'
 import { t } from '@shared/i18n'
 import { reasonKind } from '@/lib/connection'
 import { duration } from '@/lib/format'
-import { openInTabs } from '@/lib/nav'
+import { openSheet } from '@/lib/sheets'
 import { useApp } from '@/store/app'
 import { useTheme } from '@/theme/theme'
-import { RADIUS } from '@/theme/type'
-import { Icon } from './Icon'
 import { StateGlyph } from './StateGlyph'
 import { Text } from './Text'
 
@@ -102,28 +100,21 @@ export function ConnectionPill() {
   const conn = useApp((s) => s.conn)
   const mark =
     tone === 'ok' ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.success }} /> : tone === 'busy' ? <Ring color={c.textMuted} /> : <StateGlyph state="error" size={14} />
-  // Solo "unreachable" aggiunge da quanto; gli altri titoli sono già lunghi, il resto sta nella schermata del Mac.
+  // Piccolo, sulla riga del titolo: solo il nome del Mac (o il problema); il resto sta nel foglio che si apre toccandolo.
   const label = conn.kind === 'unreachable' && detail ? `${title} · ${detail.split(' · ')[0]}` : title
   return (
     <Pressable
-      onPress={() => openInTabs(router, '/mac')}
+      onPress={() => openSheet(router, { kind: 'mac' })}
       accessibilityRole="button"
       accessibilityLabel={`${title}. ${detail ?? ''}`}
       accessibilityHint={t('Opens Mac and connection details')}
-      style={({ pressed }) => ({ minHeight: 44, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, borderRadius: RADIUS.xl + 8, backgroundColor: pressed ? c.selection : c.surface })}
+      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+      style={({ pressed }) => ({ height: 28, maxWidth: 140, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, borderRadius: 14, backgroundColor: pressed ? c.selection : c.surface })}
     >
       {mark}
       <Text variant="label" numberOfLines={1} style={{ flexShrink: 1 }}>
         {conn.kind === 'connected' || mode === 'demo' ? title : label}
       </Text>
-      {mode === 'demo' ? (
-        <View style={{ paddingHorizontal: 7, height: 20, borderRadius: 6, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' }}>
-          <Text variant="caption" style={{ color: c.onAccent, fontFamily: 'MonaSans-SemiBold', fontSize: 11, lineHeight: 14 }} maxFontSizeMultiplier={1.2}>
-            {t('Demo')}
-          </Text>
-        </View>
-      ) : null}
-      <Icon name="chevron-down" size={14} color={c.textMuted} />
     </Pressable>
   )
 }

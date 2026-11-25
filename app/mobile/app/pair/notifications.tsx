@@ -33,7 +33,7 @@ export default function Notifications() {
       icon="bell"
       back={false}
       title={t('Know when your agents need you')}
-      body={t('Ladder can notify you when a session is waiting for you or has finished, while you are away from your Mac. Notifications only say that something needs you: your messages and code stay in the encrypted channel with your Mac.')}
+      body={t('Ladder can notify you when a session needs you or has finished, while you are away from your Mac. Notifications only say that something needs you: your messages and code stay in the encrypted channel with your Mac.')}
       actions={
         <>
           <Button label={t('Turn on notifications')} variant="primary" onPress={() => void turnOn()} disabled={busy} />

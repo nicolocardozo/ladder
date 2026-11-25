@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
 import { Icon, type IconName } from '@/ui/Icon'
+import { KeyboardLift } from '@/ui/KeyboardLift'
 import { ScreenHeader } from '@/ui/ScreenHeader'
 import { Text } from '@/ui/Text'
 
@@ -12,7 +13,7 @@ export function PairStep({ icon, title, body, children, actions, back = true, st
   const { c } = useTheme()
   const insets = useSafeAreaInsets()
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
+    <KeyboardLift style={{ backgroundColor: c.background }}>
       {back ? <ScreenHeader title={step} /> : <View style={{ height: insets.top }} />}
       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 24 }} keyboardShouldPersistTaps="handled">
         <View style={{ width: 56, height: 56, borderRadius: RADIUS.xl, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }}>
@@ -27,6 +28,6 @@ export function PairStep({ icon, title, body, children, actions, back = true, st
         {children}
       </ScrollView>
       <View style={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16), gap: 8 }}>{actions}</View>
-    </View>
+    </KeyboardLift>
   )
 }

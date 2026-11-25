@@ -14,7 +14,7 @@ import { Row } from '@/ui/List'
 import { Sheet } from '@/ui/Sheet'
 import { Text } from '@/ui/Text'
 import type { Draft, AttachSource } from './useAttachments'
-import { languageName, useMeter, type DictationProblem, type DictationState } from './useDictation'
+import { languageName, useMeter, type DictationDownload, type DictationProblem, type DictationState } from './useDictation'
 
 const THUMB = 64
 
@@ -121,7 +121,7 @@ export function Waveform({ color, bars = 14 }: { color: string; bars?: number })
 export function MicButton({ state, onStart, onStop, disabled }: { state: DictationState; onStart: () => void; onStop: () => void; disabled?: boolean }) {
   const { c } = useTheme()
   const listening = state === 'listening'
-  const busy = state === 'starting'
+  const busy = state === 'starting' || state === 'downloading'
   return (
     <Pressable
       onPress={listening ? onStop : onStart}
@@ -136,36 +136,60 @@ export function MicButton({ state, onStart, onStop, disabled }: { state: Dictati
   )
 }
 
-/** Perché la dettatura non parte e cosa fare. Mai un ripiego sul riconoscimento in rete. */
-export function DictationNotice({ problem, onDismiss, onSettings, onDownload }: { problem: DictationProblem; onDismiss: () => void; onSettings: () => void; onDownload: (locale: string) => void }) {
+/** Peso del download in MB per il messaggio ("142 MB"). */
+const megabytes = (bytes: number): string => `${Math.max(1, Math.round(bytes / 1_000_000))} MB`
+
+/**
+ * L'avviso della dettatura: il download del modello della lingua (con avanzamento) o perché non parte e cosa fare. Si chiude con la x in
+ * alto a destra. Mai un ripiego sul riconoscimento in rete.
+ */
+export function DictationNotice({ problem, download, onDismiss, onSettings, onRetry }: { problem: DictationProblem | null; download: DictationDownload | null; onDismiss: () => void; onSettings: () => void; onRetry: () => void }) {
   const { c } = useTheme()
   const android = Platform.OS === 'android'
   let text: string
+  let sub: string | null = null
   let action: { label: string; run: () => void } | null = null
-  switch (problem.kind) {
-    case 'denied':
-      text = t('Dictation needs access to the microphone and speech recognition. Turn them on in Settings.')
-      action = { label: t('Open Settings'), run: onSettings }
-      break
-    case 'not-installed': {
-      const lang = languageName(problem.locale)
-      text = android ? t('Dictation needs the on-device model for {language}. Download it once and it works offline.', { language: lang }) : t('Dictation needs the on-device model for {language}. Turn on Dictation and add {language} in Settings > General > Keyboard.', { language: lang })
-      action = android ? { label: t('Download model'), run: () => onDownload(problem.locale) } : { label: t('Open Settings'), run: onSettings }
-      break
+  if (download) {
+    const lang = languageName(download.locale)
+    text = download.bytes ? t('Downloading {language} dictation ({size})', { language: lang, size: megabytes(download.bytes) }) : t('Downloading {language} dictation…', { language: lang })
+    sub = t('Once, on this phone. Your voice never leaves it.')
+  } else if (problem) {
+    switch (problem.kind) {
+      case 'denied':
+        text = t('Dictation needs access to the microphone and speech recognition. Turn them on in Settings.')
+        action = { label: t('Open Settings'), run: onSettings }
+        break
+      case 'not-installed': {
+        const lang = languageName(problem.locale)
+        text = android ? t('Could not download the {language} dictation. Check your connection and try again.', { language: lang }) : t('Dictation needs the on-device model for {language}. Turn on Dictation and add {language} in Settings > General > Keyboard.', { language: lang })
+        action = android ? { label: t('Try again'), run: onRetry } : { label: t('Open Settings'), run: onSettings }
+        break
+      }
+      case 'unsupported':
+        text = t('Dictation needs the on-device model for {language}, and this phone doesn’t have one. Ladder never sends your voice to a server.', { language: languageName(problem.locale) })
+        break
+      default:
+        text = t('Dictation stopped unexpectedly.')
     }
-    case 'unsupported':
-      text = t('Dictation needs the on-device model for {language}, and this phone doesn’t have one. Ladder never sends your voice to a server.', { language: languageName(problem.locale) })
-      break
-    default:
-      text = problem.message
-  }
+  } else return null
+  const fraction = download?.fraction ?? null
   return (
-    <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ marginHorizontal: 12, marginTop: 8, padding: 12, gap: 8, borderRadius: RADIUS.lg, backgroundColor: alpha(c.waiting, 0.12), borderWidth: 1, borderColor: alpha(c.waiting, 0.5) }}>
+    <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ marginHorizontal: 12, marginTop: 8, paddingLeft: 12, paddingRight: 40, paddingVertical: 12, gap: 8, borderRadius: RADIUS.lg, backgroundColor: download ? c.surface : alpha(c.waiting, 0.12), borderWidth: 1, borderColor: download ? c.border : alpha(c.waiting, 0.5) }}>
       <Text variant="body">{text}</Text>
-      <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
-        <Button label={t('Dismiss')} variant="quiet" onPress={onDismiss} style={{ paddingHorizontal: 12 }} />
-        {action ? <Button label={action.label} variant="secondary" onPress={action.run} style={{ paddingHorizontal: 12 }} /> : null}
-      </View>
+      {sub ? (
+        <Text variant="caption" tone="muted">
+          {sub}
+        </Text>
+      ) : null}
+      {download ? (
+        <View accessibilityRole="progressbar" accessibilityValue={fraction === null ? undefined : { min: 0, max: 100, now: Math.round(fraction * 100) }} style={{ height: 4, borderRadius: 2, backgroundColor: c.border, overflow: 'hidden' }}>
+          {fraction === null ? <ActivityIndicator size="small" color={c.accent} style={{ position: 'absolute', right: 0, top: -8 }} /> : <View style={{ width: `${Math.max(4, Math.round(fraction * 100))}%`, height: 4, borderRadius: 2, backgroundColor: c.accent }} />}
+        </View>
+      ) : null}
+      {action ? <Button label={action.label} variant="secondary" onPress={action.run} style={{ alignSelf: 'flex-start', paddingHorizontal: 12 }} /> : null}
+      <Pressable onPress={onDismiss} hitSlop={6} accessibilityRole="button" accessibilityLabel={t('Close')} style={({ pressed }) => ({ position: 'absolute', top: 2, right: 2, width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? c.selection : 'transparent' })}>
+        <Icon name="x" size={16} color={c.textMuted} />
+      </Pressable>
     </View>
   )
 }

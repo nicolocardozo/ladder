@@ -3,7 +3,7 @@
 // Con una richiesta aperta il composer diventa la risposta: l'invio vale Deny con quel testo.
 import * as Haptics from 'expo-haptics'
 import * as Clipboard from 'expo-clipboard'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ComponentRef } from 'react'
 import { ActivityIndicator, Keyboard, Pressable, ScrollView, View } from 'react-native'
 import { KeyboardEvents } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -151,6 +151,9 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
     void send(holdHow)
   }
 
+  const dictRef = useRef(dict)
+  dictRef.current = dict
+  const inputRef = useRef<ComponentRef<typeof TextInput>>(null)
   const sendRef = useRef(send)
   sendRef.current = send
   // Solo sviluppo: il driver scrive nel campo e allega file locali (prove senza toccare lo schermo).
@@ -163,6 +166,8 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
       }
       for (const uri of cmd.images ?? []) void att.addUri(uri)
       if (cmd.send) void sendRef.current('queue')
+      if (cmd.focus) inputRef.current?.focus()
+      if (cmd.dictate) void dictRef.current.start()
     })
     return () => useDev.getState().setComposer(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -219,7 +224,7 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
           onFile={(path) => pickSuggestion(path, 'file')}
         />
       ) : null}
-      {dict.problem ? <DictationNotice problem={dict.problem} onDismiss={dict.dismiss} onSettings={dict.openSettings} onDownload={(l) => void dict.downloadModel(l)} /> : null}
+      {dict.problem || dict.download ? <DictationNotice problem={dict.problem} download={dict.download} onDismiss={dict.dismiss} onSettings={dict.openSettings} onRetry={() => void dict.start()} /> : null}
       {att.error || tooBig ? (
         <Text variant="caption" tone="error" accessibilityRole="alert" style={{ paddingHorizontal: 20, paddingTop: 8 }}>
           {tooBig ? t('The message and its images are too big to send together. Remove an image or shorten the text.') : att.error}
@@ -229,6 +234,7 @@ export function Composer({ sessionId, request, onReview }: { sessionId: string; 
         {!answering ? <AttachButton onPick={(source) => void att.pick(source)} hasClipboardImage={() => Clipboard.hasImageAsync()} disabled={disabled || sending} full={att.count >= 3} /> : null}
         <View style={{ flex: 1, minHeight: MIN_TOUCH, maxHeight: 150, flexDirection: 'row', alignItems: 'flex-end', borderRadius: 22, backgroundColor: c.surface, borderWidth: 1, borderColor: listening ? c.accent : answering ? alpha(c.waiting, 0.6) : c.border }}>
           <TextInput
+            ref={inputRef}
             value={text}
             onChangeText={typed}
             onSelectionChange={(e) => {

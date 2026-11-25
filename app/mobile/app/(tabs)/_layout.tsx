@@ -33,7 +33,7 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Icon sf={{ default: 'bubble.left', selected: 'bubble.left.fill' }} md="forum" renderingMode="template" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="(waiting)">
-        <NativeTabs.Trigger.Label>{t('Waiting')}</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>{t('Requests')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: 'hourglass', selected: 'hourglass' }} md="hourglass_empty" renderingMode="template" />
         <NativeTabs.Trigger.Badge hidden={waiting === 0}>{String(waiting)}</NativeTabs.Trigger.Badge>
       </NativeTabs.Trigger>
@@ -44,13 +44,15 @@ export default function TabsLayout() {
       <NativeTabs.Trigger
         name="new"
         role="search"
-        disableAutomaticSearchActivation
-        // Disattivato: il sistema non lo seleziona, ma il tocco arriva comunque come tabPress (isPrevented) e apre lo sheet.
+        // Niente `disableAutomaticSearchActivation`: su iOS 27 UIKit stacca il tab di ricerca dalla barra (cerchio di vetro a destra)
+        // solo se l'attivazione automatica è accesa; spenta, il "+" resta dentro la barra con la sua etichetta.
+        // Disattivato: il sistema non lo seleziona (preventNativeSelection), ma il tocco arriva comunque come tabPress e apre lo sheet.
         disabled
         hidden={Platform.OS !== 'ios'}
         listeners={{ tabPress: () => openSheet(router, { kind: 'new-session' }) }}
       >
-        <NativeTabs.Trigger.Label>{t('New session')}</NativeTabs.Trigger.Label>
+        {/* Senza etichetta: il "+" è solo un cerchio di vetro. L'accessibilità la legge dal badge/titolo nascosto. */}
+        <NativeTabs.Trigger.Label hidden>{t('New session')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="plus" renderingMode="template" />
       </NativeTabs.Trigger>
     </NativeTabs>

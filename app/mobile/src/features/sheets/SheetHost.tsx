@@ -4,7 +4,10 @@
 import { usePathname } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { nativeSheets, useSheets, type SheetSpec } from '@/lib/sheets'
+import { t } from '@shared/i18n'
+import { SheetTitle } from '@/ui/NativeSheet'
 import { Sheet } from '@/ui/Sheet'
+import { MacContent } from '../mac/MacContent'
 import { RequestContent } from '../request/RequestSheet'
 import { PermissionContent } from '../session/PermissionSheet'
 import { SwitchContent } from '../session/SwitchSheet'
@@ -31,6 +34,12 @@ export function SheetHost() {
       {spec.kind === 'permission' ? <PermissionContent sessionId={spec.sessionId} onClose={close} /> : null}
       {spec.kind === 'switch' ? <SwitchContent sessionId={spec.sessionId} onClose={close} /> : null}
       {spec.kind === 'turn' ? <TurnContent turn={spec.turn} /> : null}
+      {spec.kind === 'mac' ? (
+        <>
+          <SheetTitle>{t('Your Mac')}</SheetTitle>
+          <MacContent sheet />
+        </>
+      ) : null}
       {spec.kind === 'new-session' ? <NewSessionContent onClose={close} /> : null}
     </Sheet>
   )

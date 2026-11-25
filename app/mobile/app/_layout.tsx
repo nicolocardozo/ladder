@@ -142,10 +142,11 @@ function Shell() {
           <Stack.Screen name="limits" options={header} />
           <Stack.Screen name="sheet/request" options={({ route }) => sheet(c.surface, (route.params as { fit?: string } | undefined)?.fit === '1')} />
           <Stack.Screen name="sheet/permission" options={sheet(c.surface, true)} />
+          <Stack.Screen name="sheet/mac" options={sheet(c.surface, true)} />
           <Stack.Screen name="sheet/switch" options={sheet(c.surface, false)} />
           <Stack.Screen name="sheet/turn" options={sheet(c.surface, false)} />
-          {/* Altezza piena: con la tastiera su il campo del messaggio resta in vista (un foglio a metà finirebbe sotto la tastiera). */}
-          <Stack.Screen name="sheet/new-session" options={sheet(c.surface, false, [0.92])} />
+          {/* Alto quanto il contenuto: con la tastiera su resta sopra di essa (NativeSheet limita l'altezza e, se serve, scorre). */}
+          <Stack.Screen name="sheet/new-session" options={sheet(c.surface, true)} />
         </Stack>
       </View>
       <SheetHost />

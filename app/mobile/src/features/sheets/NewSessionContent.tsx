@@ -5,7 +5,7 @@
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
-import { Pressable, View } from 'react-native'
+import { ActivityIndicator, Pressable, ScrollView, View, useWindowDimensions } from 'react-native'
 import { t } from '@shared/i18n'
 import type { AgentId, Effort, PermissionLevel } from '@shared/protocol'
 import { actions } from '@/host/actions'
@@ -241,6 +241,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
 
   const modelValue = values.model ? (values.modelOptions.find((m) => m.id === values.model)?.label ?? values.model) : defaultModelText(values.effectiveModelLabel)
   const effortValue = values.effort ? effortName(values.effort) : values.defaultEffort ? t('Default ({effort})', { effort: effortName(values.defaultEffort) }) : t('Default')
+  const shortSummary = [values.agent ? agentName(values.agent) : null, values.effectiveModelLabel].filter(Boolean).join(' · ')
   const summary = [values.agent ? agentName(values.agent) : null, values.profileOptions.length > 1 ? values.profile?.name : null, values.effectiveModelLabel, values.effort ? effortName(values.effort) : null, levelName(values.permission)].filter(Boolean).join(' · ')
 
   return (
@@ -249,8 +250,9 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
       <Group>
         <Row label={t('Project')} value={project?.name ?? ''} onPress={() => setView('project')} last />
       </Group>
+      {/* Come il composer della chat: il campo cresce con il testo (da tre righe), sotto ci sono allega, microfono, riepilogo delle opzioni e Invia. */}
       <View style={{ marginHorizontal: 16, marginTop: 12 }}>
-        <View style={{ borderRadius: RADIUS.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: listening ? c.accent : c.border }}>
+        <View style={{ borderRadius: 22, backgroundColor: c.surface, borderWidth: 1, borderColor: listening ? c.accent : c.border, overflow: 'hidden' }}>
           {att.count > 0 ? (
             <View style={{ marginHorizontal: -4 }}>
               <AttachmentStrip items={att.items} onRemove={att.remove} disabled={sending} />
@@ -270,13 +272,37 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
             multiline
             editable={!sending}
             accessibilityLabel={t('First message')}
-            textAlignVertical="top"
-            style={{ minHeight: 96, maxHeight: 220, color: c.text, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4, fontSize: 17, lineHeight: 24 }}
+            style={{ minHeight: 78, maxHeight: 168, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, fontSize: 16, lineHeight: 22 }}
           />
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingBottom: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingLeft: 6, paddingRight: 8, paddingBottom: 8 }}>
             <AttachButton onPick={(source) => void att.pick(source)} hasClipboardImage={() => Clipboard.hasImageAsync()} disabled={sending} full={att.count >= 3} />
-            <View style={{ flex: 1, alignItems: 'center' }}>{listening ? <Waveform color={c.accent} /> : null}</View>
             <MicButton state={dict.state} onStart={() => void dict.start()} onStop={dict.stop} disabled={sending} />
+            {listening ? <Waveform color={c.accent} /> : null}
+            <Pressable
+              onPress={() => setOpen((o) => !o)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: open }}
+              accessibilityLabel={`${t('Options')}. ${summary}`}
+              style={({ pressed }) => ({ flex: 1, minHeight: 44, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: RADIUS.md, backgroundColor: pressed ? c.selection : 'transparent' })}
+            >
+              <Icon name="sliders" size={16} color={c.textMuted} />
+              <Text variant="caption" tone="muted" numberOfLines={1} style={{ flexShrink: 1 }}>
+                {open ? t('Options') : shortSummary}
+              </Text>
+              <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}>
+                <Icon name="chevron-down" size={14} color={c.textMuted} />
+              </View>
+            </Pressable>
+            <Pressable
+              onPress={() => void send()}
+              disabled={!canSend}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canSend, busy: sending }}
+              accessibilityLabel={t('Send')}
+              style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.accent, opacity: !canSend && !sending ? 0.35 : pressed ? 0.85 : 1 })}
+            >
+              {sending ? <ActivityIndicator color={c.onAccent} /> : <Icon name="arrow-up" size={20} color={c.onAccent} strokeWidth={2.2} />}
+            </Pressable>
           </View>
         </View>
       </View>
@@ -285,29 +311,14 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
           <SuggestList kind="file" commands={[]} files={suggest.files} loading={suggest.loading} failed={suggest.failed} query={suggest.trigger.query} onCommand={() => {}} onFile={pickSuggestion} />
         </View>
       ) : null}
-      {dict.problem ? <DictationNotice problem={dict.problem} onDismiss={dict.dismiss} onSettings={dict.openSettings} onDownload={(l) => void dict.downloadModel(l)} /> : null}
+      {dict.problem || dict.download ? <DictationNotice problem={dict.problem} download={dict.download} onDismiss={dict.dismiss} onSettings={dict.openSettings} onRetry={() => void dict.start()} /> : null}
       {att.error ? (
         <Text variant="caption" tone="error" accessibilityRole="alert" style={{ paddingHorizontal: 20, paddingTop: 8 }}>
           {att.error}
         </Text>
       ) : null}
-      <Pressable
-        onPress={() => setOpen((o) => !o)}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${t('Options')}. ${summary}`}
-        style={({ pressed }) => ({ marginHorizontal: 16, marginTop: 8, minHeight: 44, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: RADIUS.md, backgroundColor: pressed ? c.selection : 'transparent' })}
-      >
-        <Icon name="sliders" size={16} color={c.textMuted} />
-        <Text variant="caption" tone="muted" numberOfLines={1} style={{ flex: 1 }}>
-          {open ? t('Options') : summary}
-        </Text>
-        <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}>
-          <Icon name="chevron-down" size={16} color={c.textMuted} />
-        </View>
-      </Pressable>
       {open ? (
-        <View style={{ marginTop: -12 }}>
+        <View style={{ marginTop: 4 }}>
           <Group>
             <Row label={t('Agent')} value={values.agent ? agentName(values.agent) : '—'} onPress={values.agentOptions.length > 1 ? () => setView('agent') : undefined} last={false} />
             {values.profileOptions.length > 1 ? <Row label={t('Account')} value={values.profile?.name ?? ''} onPress={() => setView('account')} /> : null}
@@ -317,7 +328,7 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
           </Group>
         </View>
       ) : null}
-      <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 10 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 10, gap: 10 }}>
         {error ? (
           <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', padding: 12, borderRadius: RADIUS.md, backgroundColor: alpha(c.error, 0.12), borderWidth: 1, borderColor: alpha(c.error, 0.5) }}>
             <View style={{ marginTop: 2 }}>
@@ -328,7 +339,6 @@ export function NewSessionContent({ onClose: onCloseRaw }: { onClose: () => void
             </Text>
           </View>
         ) : null}
-        <Button label={sending ? t('Sending…') : t('Send')} icon={sending ? undefined : 'send'} variant="primary" loading={sending} disabled={!canSend} onPress={() => void send()} />
         {reason ? (
           <Text variant="caption" tone="muted" style={{ textAlign: 'center' }}>
             {reason}
@@ -360,6 +370,8 @@ const TITLES: Record<Exclude<Step, 'form'>, () => string> = {
 
 /** Una scelta dentro lo sheet: indietro e titolo, poi l'elenco. */
 function Picker({ view, onBack, children }: { view: Exclude<Step, 'form'>; onBack: () => void; children: ReactNode }) {
+  // Lo sheet è alto quanto il contenuto: un elenco lungo scorre dentro, senza superare i due terzi dello schermo.
+  const { height } = useWindowDimensions()
   return (
     <>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingBottom: 4 }}>
@@ -368,7 +380,9 @@ function Picker({ view, onBack, children }: { view: Exclude<Step, 'form'>; onBac
           {TITLES[view]()}
         </Text>
       </View>
-      {children}
+      <ScrollView style={{ maxHeight: height * 0.62 }} keyboardShouldPersistTaps="handled">
+        {children}
+      </ScrollView>
     </>
   )
 }

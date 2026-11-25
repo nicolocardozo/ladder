@@ -1,6 +1,6 @@
 // Home: "adesso" (cosa succede) e "sfoglia" (la mappa del Mac). Non è una copia della sidebar del desktop.
 import { useRouter } from 'expo-router'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
 import { FlatList, Pressable, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { plural, t } from '@shared/i18n'
@@ -10,6 +10,7 @@ import { openInTabs, openSession } from '@/lib/nav'
 import { buildHome, type ProjectRow, type SectionModel } from '@/lib/home-model'
 import { hasSignals, type Signals } from '@/lib/session-state'
 import { useApp } from '@/store/app'
+import { useDev } from '@/store/dev'
 import { usePrefs } from '@/store/prefs'
 import { alpha, useTheme } from '@/theme/theme'
 import { RADIUS } from '@/theme/type'
@@ -17,18 +18,20 @@ import { openSheet } from '@/lib/sheets'
 import { IconButton, MIN_TOUCH } from '@/ui/Button'
 import { ConnectionPill } from '@/ui/ConnectionPill'
 import { Icon } from '@/ui/Icon'
-import { SignalGlyph, StateGlyph } from '@/ui/StateGlyph'
+import { SignalGlyph } from '@/ui/StateGlyph'
+import { useTabHeaderPad } from '@/ui/TabHeader'
 import { Text } from '@/ui/Text'
 import { TextInput } from '@/ui/TextInput'
-import { ProjectSessions } from '../sessions/ProjectSessions'
+import { ArchivedSection, ProjectItemRow, projectItemKey, useProjectItems, type ProjectItem } from '../sessions/ProjectSessions'
 import { SessionRow } from '../sessions/SessionRow'
 
 type Row =
-  | { kind: 'waiting'; count: number }
   | { kind: 'header'; title: string; key: string }
   | { kind: 'session'; session: SessionSummary; key: string }
   | { kind: 'section'; section: SectionModel }
   | { kind: 'project'; row: ProjectRow; dim: boolean; key: string }
+  | { kind: 'ptitle'; name: string }
+  | { kind: 'pitem'; item: ProjectItem; key: string }
   | { kind: 'empty' }
 
 export function SignalsInline({ signals, size = 12 }: { signals: Signals; size?: number }) {
@@ -56,10 +59,10 @@ export function SignalsInline({ signals, size = 12 }: { signals: Signals; size?:
 }
 
 /**
- * `query`: testo della barra di ricerca nativa dell'header (iOS e Android). Nel pannello fisso a sinistra (`docked`, da 600 pt)
- * non c'è un header nativo: lì la ricerca è un campo qui dentro.
+ * La ricerca è il primo elemento dell'elenco. Nel pannello fisso a sinistra (`docked`, da 600 pt) non c'è l'intestazione dei tab:
+ * lì sopra il campo stanno anche il pill del Mac e il "+".
  */
-export function HomeContent({ docked, query: nativeQuery = '' }: { docked?: boolean; query?: string }) {
+export function HomeContent({ docked }: { docked?: boolean }) {
   const { c } = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -68,13 +71,18 @@ export function HomeContent({ docked, query: nativeQuery = '' }: { docked?: bool
   const groups = useApp((s) => s.projectGroups)
   const collapsed = usePrefs((s) => s.collapsed)
   const setCollapsed = usePrefs((s) => s.setCollapsed)
-  const [dockedQuery, setDockedQuery] = useState('')
-  const query = docked ? dockedQuery : nativeQuery
+  const [query, setDockedQuery] = useState('')
+  const dockedQuery = query
+  const headerPad = useTabHeaderPad()
   const sessions = useMemo(() => Object.values(sessionsMap), [sessionsMap])
   const model = useMemo(() => buildHome({ projects, sessions, projectGroups: groups, collapsed }), [projects, sessions, groups, collapsed])
 
   const q = query.trim().toLowerCase()
   const searching = q.length > 0
+
+  // Con un solo progetto la Home mostra le sue sessioni al posto delle sezioni: stessa lista, così la ricerca non rimonta il campo.
+  const single = model.singleProject?.project.id ?? ''
+  const projectItems = useProjectItems(single)
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = []
@@ -86,12 +94,15 @@ export function HomeContent({ docked, query: nativeQuery = '' }: { docked?: bool
       if (!hits.length) out.push({ kind: 'empty' })
       return out
     }
-    if (model.waitingCount > 0) out.push({ kind: 'waiting', count: model.waitingCount })
     if (model.now.length > 0) {
       out.push({ kind: 'header', title: t('Now'), key: 'h-now' })
       for (const s of model.now) out.push({ kind: 'session', session: s, key: `n-${s.id}` })
     }
-    if (model.singleProject) return out
+    if (model.singleProject) {
+      out.push({ kind: 'ptitle', name: model.singleProject.project.name })
+      for (const item of projectItems) out.push({ kind: 'pitem', item, key: `i-${projectItemKey(item)}` })
+      return out
+    }
     if (model.sections.length === 0 && model.now.length === 0) out.push({ kind: 'empty' })
     let first = true
     for (const section of model.sections) {
@@ -103,27 +114,20 @@ export function HomeContent({ docked, query: nativeQuery = '' }: { docked?: bool
       }
     }
     return out
-  }, [model, searching, q, projects, sessions])
+  }, [model, searching, q, projects, sessions, projectItems])
 
   const open = (s: SessionSummary) => openSession(router, s.id)
 
   const renderItem = ({ item }: { item: Row }) => {
     switch (item.kind) {
-      case 'waiting':
+      case 'ptitle':
         return (
-          <Pressable
-            onPress={() => openInTabs(router, '/waiting', 'navigate')}
-            accessibilityRole="button"
-            accessibilityLabel={plural(item.count, '1 session waiting for you', '{n} waiting for you')}
-            style={({ pressed }) => ({ marginHorizontal: 16, marginBottom: 8, minHeight: MIN_TOUCH + 8, borderRadius: RADIUS.lg, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: alpha(c.waiting, pressed ? 0.22 : 0.14), borderWidth: 1, borderColor: alpha(c.waiting, 0.5) })}
-          >
-            <StateGlyph state="waiting" size={18} />
-            <Text variant="title" tone="waiting" style={{ flex: 1 }}>
-              {t('{n} waiting for you', { n: item.count })}
-            </Text>
-            <Icon name="chevron-right" size={18} color={c.waiting} />
-          </Pressable>
+          <Text variant="headline" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>
+            {item.name}
+          </Text>
         )
+      case 'pitem':
+        return <ProjectItemRow item={item.item} />
       case 'header':
         return (
           <Text variant="label" tone="muted" style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 6 }} accessibilityRole="header">
@@ -197,64 +201,61 @@ export function HomeContent({ docked, query: nativeQuery = '' }: { docked?: bool
     }
   }
 
-  // In cima all'elenco: il collegamento col Mac (e, nel pannello fisso, la ricerca, che altrove sta nell'header nativo).
-  const top = searching ? null : (
-    <View style={{ paddingHorizontal: 16, paddingTop: docked ? 4 : 20, paddingBottom: 12, alignItems: 'flex-start', gap: 8 }}>
-      {docked ? (
-        // Nel pannello fisso non c'è header né barra dei tab con il "+": la nuova sessione sta accanto alla ricerca.
-        <View style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View style={{ flex: 1 }}>
-            <DockedSearch value={dockedQuery} onChange={setDockedQuery} />
-          </View>
-          <IconButton icon="plus" label={t('New session')} onPress={() => openSheet(router, { kind: 'new-session' })} />
+  // In cima all'elenco: la ricerca (nel pannello fisso, con il pill del Mac e il "+", che altrove stanno nell'intestazione).
+  const top = (
+    <View style={{ paddingHorizontal: 16, paddingTop: docked ? 4 : 0, paddingBottom: 10, alignItems: 'flex-start', gap: 8 }}>
+      <View style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <DockedSearch value={dockedQuery} onChange={setDockedQuery} />
         </View>
-      ) : null}
-      <ConnectionPill />
+        {docked ? <IconButton icon="plus" label={t('New session')} onPress={() => openSheet(router, { kind: 'new-session' })} /> : null}
+      </View>
+      {docked && !searching ? <ConnectionPill /> : null}
     </View>
   )
 
+  const list = (
+    <FlatList
+      data={rows}
+      ListHeaderComponent={top}
+      ListFooterComponent={model.singleProject && !searching ? <ArchivedSection projectId={model.singleProject.project.id} /> : undefined}
+      keyExtractor={(r, i) => (r.kind === 'session' || r.kind === 'project' || r.kind === 'header' || r.kind === 'pitem' ? r.key : r.kind === 'section' ? `s-${r.section.id}` : `${r.kind}-${i}`)}
+      renderItem={renderItem}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      style={docked ? undefined : { backgroundColor: c.background }}
+      contentContainerStyle={{ paddingTop: docked ? 0 : headerPad, paddingBottom: docked ? insets.bottom + 24 : 24 }}
+      scrollIndicatorInsets={{ top: docked ? 0 : headerPad }}
+      // La barra dei tab nativa sposta il contenuto da sola (e su iOS 26 ci scorre sotto, sul vetro).
+      contentInsetAdjustmentBehavior={docked ? 'never' : 'automatic'}
+      showsVerticalScrollIndicator={false}
+    />
+  )
+  // Nel telefono la lista è l'unico figlio diretto della schermata: è lo scroll view principale che UIKit osserva per ridurre la barra
+  // dei tab scorrendo (avvolta in un contenitore la barra non si riduce). Il pannello fisso invece ha il suo contenitore.
+  if (!docked) return list
   return (
-    <View style={{ flex: 1, backgroundColor: c.background, paddingTop: docked ? insets.top : 0 }}>
-      {model.singleProject && !searching ? (
-        <ProjectSessions
-          projectId={model.singleProject.project.id}
-          native={!docked}
-          header={
-            <View>
-              {top}
-              {model.waitingCount > 0 ? renderItem({ item: { kind: 'waiting', count: model.waitingCount } }) : null}
-              <Text variant="headline" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>
-                {model.singleProject.project.name}
-              </Text>
-            </View>
-          }
-        />
-      ) : (
-        <FlatList
-          data={rows}
-          ListHeaderComponent={top ?? undefined}
-          keyExtractor={(r, i) => (r.kind === 'session' || r.kind === 'project' || r.kind === 'header' ? r.key : r.kind === 'section' ? `s-${r.section.id}` : `${r.kind}-${i}`)}
-          renderItem={renderItem}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          contentContainerStyle={{ paddingBottom: docked ? insets.bottom + 24 : 24 }}
-          // L'header e la barra dei tab nativi spostano il contenuto da soli (e su iOS 26 ci scorre sotto, sul vetro).
-          contentInsetAdjustmentBehavior={docked ? 'never' : 'automatic'}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-      {docked ? <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 1, backgroundColor: c.border }} /> : null}
+    <View style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}>
+      {list}
+      <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 1, backgroundColor: c.border }} />
     </View>
   )
 }
 
-/** Ricerca del pannello fisso (le schermate normali usano la barra di ricerca nativa dell'header). */
+/** Campo di ricerca: primo elemento della lista (e, nel pannello fisso, accanto al "+"). */
 function DockedSearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const { c } = useTheme()
+  const input = useRef<ComponentRef<typeof TextInput>>(null)
+  // Solo sviluppo: il driver porta il focus nel campo (tastiera su) senza un tocco.
+  const devFocus = useDev((d) => d.focusSearch)
+  useEffect(() => {
+    if (__DEV__ && devFocus) setTimeout(() => input.current?.focus(), 400)
+  }, [devFocus])
   return (
     <View style={{ alignSelf: 'stretch', height: 40, borderRadius: RADIUS.lg, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 8 }}>
       <Icon name="search" size={18} color={c.textMuted} />
       <TextInput
+        ref={input}
         value={value}
         onChangeText={onChange}
         placeholder={t('Search sessions')}
@@ -263,7 +264,7 @@ function DockedSearch({ value, onChange }: { value: string; onChange: (v: string
         autoCorrect={false}
         returnKeyType="search"
         accessibilityLabel={t('Search sessions')}
-        style={{ flex: 1, color: c.text, fontFamily: 'MonaSans-Regular', fontSize: 15, padding: 0 }}
+        style={{ flex: 1, alignSelf: 'stretch', color: c.text, fontFamily: 'MonaSans-Regular', fontSize: 15, padding: 0 }}
       />
       {value ? (
         <Pressable onPress={() => onChange('')} hitSlop={12} accessibilityLabel={t('Clear search')}>

@@ -37,8 +37,8 @@ import { usePrefs } from '@/store/prefs'
 /** Questa build ha l'estensione (expo-widgets compilato nel target nativo): su Android, web e Expo Go no. */
 export const liveActivitySupported = (): boolean => Platform.OS === 'ios' && !!requireOptionalNativeModule('ExpoWidgets')
 
-const activityText = (): ActivityText => ({ running: t('Working'), waiting: t('Waiting for you'), done: t('Finished'), error: t('Error'), stale: t('Out of date') })
-const widgetText = (): WidgetText => ({ working: t('working'), waiting: t('waiting'), quiet: t('All quiet'), updated: t('Updated'), open: t('Open Ladder'), offline: t('Offline') })
+const activityText = (): ActivityText => ({ running: t('Working'), waiting: t('Open request'), done: t('Finished'), error: t('Error'), stale: t('Out of date') })
+const widgetText = (): WidgetText => ({ working: t('working'), waiting: t('to review'), quiet: t('All quiet'), updated: t('Updated'), open: t('Open Ladder'), offline: t('Offline') })
 /** "Updated 12 min ago" / "Aggiornato 12 min fa", scritto qui: la timeline del widget porta già l'etichetta di ogni voce. */
 const updatedAgo = (minutes: number): string => (minutes < 60 ? t('Updated {n} min ago', { n: minutes }) : t('Updated {n} h ago', { n: Math.floor(minutes / 60) }))
 

@@ -1,7 +1,6 @@
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo } from 'react'
 import { Pressable, View, useWindowDimensions } from 'react-native'
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { plural, t } from '@shared/i18n'
 import { Composer } from '@/features/session/Composer'
@@ -27,6 +26,7 @@ import { AgentMark, useModelLabel } from '@/ui/AgentMark'
 import { Chip } from '@/ui/Button'
 import { Icon } from '@/ui/Icon'
 import { StateGlyph } from '@/ui/StateGlyph'
+import { KeyboardLift } from '@/ui/KeyboardLift'
 import { Text } from '@/ui/Text'
 
 export default function SessionScreen() {
@@ -195,7 +195,7 @@ export default function SessionScreen() {
 
   const agentsRunning = session.subagentCounts?.running ?? 0
   return (
-    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.background }}>
+    <KeyboardLift style={{ backgroundColor: c.background }}>
       <Stack.Screen options={headerOptions} />
       {agentsRunning > 0 ? (
         <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
@@ -217,6 +217,6 @@ export default function SessionScreen() {
           <Composer sessionId={id} request={pinned} onReview={setReviewing} />
         </>
       )}
-    </KeyboardAvoidingView>
+    </KeyboardLift>
   )
 }

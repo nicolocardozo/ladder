@@ -35,6 +35,16 @@ interface Cmd {
   password?: string
   auto?: boolean
   sheet?: DevSheet
+  /** Con `sheet: request`: apre il campo di testo (motivo del rifiuto o "Altro…") con la tastiera. */
+  reasonField?: boolean
+  /** Fa scorrere lo sheet nativo aperto a questa distanza dall'alto (pt). */
+  scrollSheet?: number
+  /** Porta il focus nella ricerca della Home (tastiera su). */
+  focusSearch?: boolean
+  /** Lascia nello store solo questo progetto (prova della Home con un progetto solo). */
+  onlyProject?: string
+  /** Apre lo sheet del Mac (come il tocco sul pill della Home). */
+  mac?: boolean
   /** Apre lo sheet "Nuova sessione" (come il tocco sul "+"). */
   newSession?: boolean
   /** Con `newSession`: testo già scritto nel messaggio (la bozza del modulo). */
@@ -54,9 +64,9 @@ interface Cmd {
   /** Segue una sessione sulla schermata di blocco come il pulsante dell'header (LAD-93). */
   liveActivity?: { sessionId: string; on?: boolean }
   /** Composer aperto: testo da scrivere e immagini (file locali) da allegare; `dictation` forza lo stato della dettatura. */
-  composer?: { text?: string; images?: string[]; send?: boolean }
+  composer?: { text?: string; images?: string[]; send?: boolean; focus?: boolean; dictate?: boolean }
   welcome?: 'chips' | 'caption'
-  dictation?: 'listening' | 'denied' | 'not-installed' | 'unsupported' | 'off'
+  dictation?: 'listening' | 'downloading' | 'denied' | 'not-installed' | 'unsupported' | 'off'
   /** Torna indietro di una schermata (il tasto indietro). */
   back?: boolean
   /** Apre una sessione come il tocco su una notifica (anche con uno sheet aperto sopra una chat). */
@@ -141,10 +151,15 @@ function run(cmd: Cmd) {
   if (cmd.notifyPrefs) usePrefs.getState().setNotify(cmd.notifyPrefs)
   if (cmd.askPush) void requestPermission()
   if (cmd.notify) void devLocalNotification(cmd.notify)
+  if (cmd.scrollSheet !== undefined) useDev.getState().scrollSheet?.(cmd.scrollSheet)
   if (cmd.scroll !== undefined) useDev.getState().scrollChat?.(cmd.scroll)
   const prefs = usePrefs.getState()
   if (cmd.reset) void disconnect()
   if (cmd.demo) startDemo()
+  if (cmd.onlyProject) {
+    const keep = cmd.onlyProject
+    setTimeout(() => useApp.setState((st) => ({ projects: st.projects.filter((p) => p.id === keep), sessions: Object.fromEntries(Object.entries(st.sessions).filter(([, x]) => x.projectId === keep)) })), 1500)
+  }
   if (cmd.link) {
     // Equivale ad aprire il link: lo legge e va alla conferma (la vera apertura da deep link si prova con simctl/adb).
     const r = readPairingLink(cmd.link, Date.now(), { allowDirect: true })
@@ -159,6 +174,7 @@ function run(cmd: Cmd) {
     prefs.setLanguage(cmd.lang)
     applyLocale(cmd.lang)
   }
+  useDev.setState({ reasonField: !!cmd.reasonField, focusSearch: !!cmd.focusSearch })
   useDev.getState().setSheet(null)
   if (cmd.push) router.push(cmd.push as never)
   if (cmd.route || cmd.push) useSheets.getState().close()
@@ -170,6 +186,7 @@ function run(cmd: Cmd) {
   if (cmd.usage) devUsage(cmd.usage)
   if (cmd.newSession) usePrefs.getState().setDraft('new-session', cmd.draft ?? '')
   useDev.setState({ focusNewSession: !!cmd.focus, newSession: cmd.newSession ? (cmd.form ?? null) : null })
+  if (cmd.mac) setTimeout(() => openSheet(router, { kind: 'mac' }), 1800)
   if (cmd.newSession) setTimeout(() => openSheet(router, { kind: 'new-session' }), 1800)
   // Lo sheet si apre a schermata già montata (la vecchia non deve consumarlo).
   if (cmd.sheet) setTimeout(() => useDev.getState().setSheet(cmd.sheet ?? null), 1800)

@@ -36,7 +36,7 @@ export default function NotificationSettings() {
   const statusFooter = !granted
     ? permission === 'denied' && !canAsk
       ? t('Notifications are turned off for Ladder. Turn them on in your phone settings.')
-      : t('Ladder can tell you when a session is waiting for you or has finished while you are away from your Mac.')
+      : t('Ladder can tell you when a session needs you or has finished while you are away from your Mac.')
     : tokenFailed
       ? t('Notifications aren’t set up for this build.')
       : t('Notifications only say that something needs you. Your messages and code stay in the encrypted channel with your Mac.')
@@ -48,7 +48,7 @@ export default function NotificationSettings() {
           {!granted && mode === 'remote' ? <Row label={permission === 'denied' && !canAsk ? t('Open phone settings') : t('Turn on notifications')} onPress={() => (permission === 'denied' && !canAsk ? openSystemSettings() : void requestPermission())} last /> : null}
         </Group>
         <Group title={t('Notify me when')} footer={t('Only when you are away from your Mac. While the app is open you see everything live.')}>
-          <ToggleRow label={t('Waiting for you')} detail={t('Approvals and questions')} value={events.request} onChange={(v) => setNotify({ events: { request: v } })} />
+          <ToggleRow label={t('Requests')} detail={t('Approvals and questions')} value={events.request} onChange={(v) => setNotify({ events: { request: v } })} />
           <ToggleRow label={t('Finished')} detail={t('A session completed its work')} value={events.turn} onChange={(v) => setNotify({ events: { turn: v } })} />
           <ToggleRow label={t('Errors')} value={events.error} onChange={(v) => setNotify({ events: { error: v } })} />
           <ToggleRow label={t('Background agents')} detail={t('All the agents of a session finished')} value={events.agents} onChange={(v) => setNotify({ events: { agents: v } })} last />

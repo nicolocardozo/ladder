@@ -8,13 +8,15 @@ import { openSheet } from '@/lib/sheets'
 import { useApp } from '@/store/app'
 import { useLanguage } from '@/store/prefs'
 import { useTheme } from '@/theme/theme'
+import { TabHeader, useTabHeaderPad } from '@/ui/TabHeader'
 import { Text } from '@/ui/Text'
 
-/** "Waiting for you": le richieste aperte di tutte le sessioni, dalla più vecchia. */
+/** Richieste: le richieste aperte di tutte le sessioni, dalla più vecchia. */
 export default function Waiting() {
   const { c } = useTheme()
   const router = useRouter()
   useLanguage()
+  const headerPad = useTabHeaderPad()
   const sessionsMap = useApp((s) => s.sessions)
   const waiting = useMemo(
     () =>
@@ -25,7 +27,7 @@ export default function Waiting() {
   )
   return (
     <>
-      <Stack.Screen options={{ title: t('Waiting for you'), headerLargeTitleEnabled: true }} />
+      <Stack.Screen options={{ headerShown: false }} />
       <FlatList
         style={{ backgroundColor: c.background }}
         data={waiting}
@@ -39,16 +41,18 @@ export default function Waiting() {
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ padding: 16, paddingBottom: 24, flexGrow: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: headerPad + 4, paddingBottom: 24, flexGrow: 1 }}
+        scrollIndicatorInsets={{ top: headerPad }}
         ListEmptyComponent={
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 80 }}>
-            <Text variant="title">{t('All clear')}</Text>
-            <Text variant="body" tone="muted">
-              {t('Nobody is waiting for you.')}
+            <Text variant="title">{t('No open requests')}</Text>
+            <Text variant="body" tone="muted" style={{ textAlign: 'center' }}>
+              {t('Your agents ask here when they need you.')}
             </Text>
           </View>
         }
       />
+      <TabHeader title={t('Requests')} />
     </>
   )
 }

@@ -33,7 +33,7 @@ export default function Welcome() {
           {t('Ladder in your pocket')}
         </Text>
         <Text variant="bodyL" tone="muted" style={{ marginTop: 12, textAlign: 'center' }}>
-          {t('See who is waiting for you, approve a request, read the reply as it arrives. Your agents keep running on your Mac.')}
+          {t('See which sessions need you, approve a request, read the reply as it arrives. Your agents keep running on your Mac.')}
         </Text>
         {/* Tre capsule in una riga che va a capo, centrate (variante A); in sviluppo il driver può mostrare al loro posto una riga sola (B). */}
         {caption ? (

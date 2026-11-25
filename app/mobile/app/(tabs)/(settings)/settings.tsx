@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router'
 import { useMemo } from 'react'
 import { ScrollView } from 'react-native'
+import { Stack } from 'expo-router'
 import Constants from 'expo-constants'
 import { t, LOCALES } from '@shared/i18n'
 import { disconnect } from '@/host/controller'
@@ -15,9 +16,11 @@ import { useNow } from '@/lib/use-now'
 import { buildUsageAccounts, usageAlert, worstText, worstWindow } from '@/lib/usage'
 import { AlertGlyph } from '@/features/usage/UsageBits'
 import { Group, Row } from '@/ui/List'
+import { TabHeader, useTabHeaderPad } from '@/ui/TabHeader'
 
 export default function Settings() {
   const { c, info } = useTheme()
+  const headerPad = useTabHeaderPad()
   const router = useRouter()
   const prefs = usePrefs((s) => s.theme)
   const language = usePrefs((s) => s.language)
@@ -34,7 +37,9 @@ export default function Settings() {
   const themeValue = prefs.matchSystem ? t('Match system') : prefs.choice === 'mac' ? t('Same as Mac') : themeById(prefs.choice).name
   const languageValue = language === 'system' ? t('System') : (LOCALES.find((l) => l.id === language)?.name ?? '')
   return (
-    <ScrollView style={{ backgroundColor: c.background }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: 32 }}>
+    <>
+    <Stack.Screen options={{ headerShown: false }} />
+    <ScrollView style={{ backgroundColor: c.background }} contentInsetAdjustmentBehavior="automatic" scrollIndicatorInsets={{ top: headerPad }} contentContainerStyle={{ paddingTop: headerPad, paddingBottom: 32 }}>
         <Group>
           <Row label={t('Mac and connection')} value={macName ?? ''} onPress={() => router.push('/mac')} last />
         </Group>
@@ -65,5 +70,7 @@ export default function Settings() {
           </Group>
         ) : null}
     </ScrollView>
+    <TabHeader title={t('Settings')} />
+    </>
   )
 }
