@@ -11,7 +11,7 @@ const it: Record<string, string> = {
   'This account belongs to another agent.': 'Questo account appartiene a un altro agente.',
   'A session is using this account. Wait for it to finish, then try again.': 'Una sessione sta usando questo account. Aspetta che finisca e riprova.',
   // Sessioni: agenti, errori dei comandi e avvisi nella chat.
-  'Claude Code was not found. Reinstall Ladder or sign in with the Claude Code CLI.': 'Claude Code non trovato. Reinstalla Ladder oppure accedi con la CLI di Claude Code.',
+  'Claude was not found. Reinstall Ladder or sign in with the Claude Code CLI.': 'Claude non trovato. Reinstalla Ladder oppure accedi con la CLI di Claude Code.',
   'Codex not found. Install the CLI (npm i -g @openai/codex, or the Codex app) and reopen Ladder.':
     'Codex non trovato. Installa la CLI (npm i -g @openai/codex, oppure l’app Codex) e riapri Ladder.',
   'Codex is not responding: {message}': 'Codex non risponde: {message}',
@@ -190,10 +190,10 @@ const it: Record<string, string> = {
   Expired: 'Scaduta',
 
   // Notifiche (host e main).
-  'Claude Code asks you a question: {title}': 'Claude Code ti fa una domanda: {title}',
-  'Claude Code asks to run: {command}': 'Claude Code chiede di eseguire: {command}',
-  'Claude Code asks to edit {path}': 'Claude Code chiede di modificare {path}',
-  'Claude Code asks to use {tool}': 'Claude Code chiede di usare {tool}',
+  'Claude asks you a question: {title}': 'Claude ti fa una domanda: {title}',
+  'Claude asks to run: {command}': 'Claude chiede di eseguire: {command}',
+  'Claude asks to edit {path}': 'Claude chiede di modificare {path}',
+  'Claude asks to use {tool}': 'Claude chiede di usare {tool}',
   '{project}: reply ready': '{project}: risposta pronta',
   '{project}: {n} replies ready': '{project}: {n} risposte pronte',
   'Latest: {title}': 'Ultima: {title}',
@@ -359,8 +359,8 @@ const it: Record<string, string> = {
   'Could not check the GitHub login. Check your connection.': "Impossibile verificare l'accesso a GitHub. Controlla la connessione.",
   'Login cancelled.': 'Accesso annullato.',
   'Login timed out.': 'Accesso scaduto.',
-  'Can’t read the Claude Code login status.': 'Non riesco a leggere lo stato dell’accesso a Claude Code.',
-  'Claude Code is not included in this build of Ladder.': 'Claude Code non è incluso in questa versione di Ladder.',
+  'Can’t read the Claude login status.': 'Non riesco a leggere lo stato dell’accesso a Claude.',
+  'Claude is not included in this build of Ladder.': 'Claude non è incluso in questa versione di Ladder.',
   'Codex not found.': 'Codex non trovato.',
 
   // Scorciatoie (keybindings.json).

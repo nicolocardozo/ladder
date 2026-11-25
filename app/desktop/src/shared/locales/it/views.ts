@@ -206,8 +206,8 @@ const it: Record<string, string> = {
   'It arrives even with “Do Not Disturb” on. The first time, macOS asks for permission.': 'Arriva anche con “Non disturbare”. La prima volta macOS ti chiede il permesso.',
 
   // settings-dialog.tsx: agenti
-  'Claude Code and Codex have a native adapter. Other agents speak ACP, the open protocol between editors and agents: to add one, all you need is the command that starts it.':
-    'Claude Code e Codex hanno un adapter nativo. Gli altri agenti parlano ACP, il protocollo aperto tra editor e agenti: per aggiungerne uno basta il comando che lo avvia.',
+  'Claude and Codex have a native adapter. Other agents speak ACP, the open protocol between editors and agents: to add one, all you need is the command that starts it.':
+    'Claude e Codex hanno un adapter nativo. Gli altri agenti parlano ACP, il protocollo aperto tra editor e agenti: per aggiungerne uno basta il comando che lo avvia.',
   'not available': 'non disponibile',
   native: 'nativo',
   '{n} model': '{n} modello',

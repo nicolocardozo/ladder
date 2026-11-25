@@ -89,7 +89,7 @@ export function modelLabel(status: AgentStatus | null | undefined, model: string
 /** Agente e modello di una sessione, per righe, tab e intestazioni: "Claude Code · Opus 5.5". */
 export function useAgentLine(agent: AgentId, model: string | null): { name: string; model: string | null } {
   const status = useApp((s) => s.agents.find((a) => a.agent === agent) ?? null)
-  return { name: status?.name ?? (agent === 'claude-code' ? 'Claude Code' : agent === 'codex' ? 'Codex' : agent.replace(/^acp:/, '')), model: modelLabel(status, model) }
+  return { name: status?.name ?? (agent === 'claude-code' ? 'Claude' : agent === 'codex' ? 'Codex' : agent.replace(/^acp:/, '')), model: modelLabel(status, model) }
 }
 
 /** Primo grafema di un testo (un'emoji o una lettera con accento restano intere). */

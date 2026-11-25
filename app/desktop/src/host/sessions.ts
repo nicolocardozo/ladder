@@ -558,7 +558,7 @@ export class Host {
     const claude = this.cachedAgent('claude-code')
     this.agents.set('claude-code', {
       agent: 'claude-code',
-      name: 'Claude Code',
+      name: 'Claude',
       kind: 'native',
       account: claude.account ?? null,
       email: claude.email ?? null,
@@ -568,7 +568,7 @@ export class Host {
       available: Boolean(claudeCli),
       version: claudeVer,
       path: claudeCli,
-      error: claudeCli ? null : t('Claude Code was not found. Reinstall Ladder or sign in with the Claude Code CLI.')
+      error: claudeCli ? null : t('Claude was not found. Reinstall Ladder or sign in with the Claude Code CLI.')
     })
     const codex = this.cachedAgent('codex')
     this.agents.set('codex', {
@@ -835,7 +835,7 @@ export class Host {
     if (id === 'claude-code') {
       const cli = await findClaudeCli()
       this.claudeCli = cli
-      patch = { available: Boolean(cli), path: cli, version: cli ? await claudeVersion(cli) : null, error: cli ? null : t('Claude Code was not found. Reinstall Ladder or sign in with the Claude Code CLI.') }
+      patch = { available: Boolean(cli), path: cli, version: cli ? await claudeVersion(cli) : null, error: cli ? null : t('Claude was not found. Reinstall Ladder or sign in with the Claude Code CLI.') }
     } else {
       const cli = await findCodexCli()
       this.codexCli = cli
@@ -6049,10 +6049,10 @@ function ghProblem(state: Exclude<Awaited<ReturnType<typeof ghState>>, 'ok'>): s
 
 /** Testo della notifica di una richiesta. */
 function requestBody(request: UserRequest): string {
-  if (request.requestType === 'question') return t('Claude Code asks you a question: {title}', { title: request.title })
-  if (request.command) return t('Claude Code asks to run: {command}', { command: request.command })
-  if (request.path) return t('Claude Code asks to edit {path}', { path: request.path })
-  return t('Claude Code asks to use {tool}', { tool: request.toolName })
+  if (request.requestType === 'question') return t('Claude asks you a question: {title}', { title: request.title })
+  if (request.command) return t('Claude asks to run: {command}', { command: request.command })
+  if (request.path) return t('Claude asks to edit {path}', { path: request.path })
+  return t('Claude asks to use {tool}', { tool: request.toolName })
 }
 
 /** Strumenti di modifica dei file: il livello Edit li approva da solo (apply_patch è quello di Codex). */
