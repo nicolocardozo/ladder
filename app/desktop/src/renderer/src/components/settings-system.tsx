@@ -6,6 +6,7 @@ import type { DataInfo } from '@shared/protocol'
 import { DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Outcome, SettingRow, SettingsBlock, settingsButton, Toggle } from '@/components/settings-parts'
+import { CliBlock } from '@/components/settings-cli'
 import { usePrefs } from '@/hooks/use-prefs'
 import { request } from '@/lib/host-client'
 import { formatBytes, system } from '@/lib/system-bridge'
@@ -26,6 +27,7 @@ export function SystemSection() {
         <div className="min-w-0">
           <ArchiveBlock />
           <SystemBlock />
+          <CliBlock />
           <UpdatesBlock />
         </div>
         <div className="min-w-0">

@@ -1,6 +1,7 @@
 import type { FileKind } from './file-type'
 import type { Locale } from './i18n'
 import type { Keybinding, ShortcutPreset } from './shortcuts'
+import type { Plan, PlanChoice, PlanState } from './plan'
 // Tipi condivisi tra host delle sessioni, processo main e renderer.
 // L'host è la fonte di verità: il renderer riceve progetti, sessioni ed elementi della chat già pronti.
 
@@ -367,6 +368,21 @@ export interface SessionSummary {
    * qui: arriva con l'evento session.subagents (e con la richiesta subagent.list).
    */
   subagentCounts?: { total: number; running: number; runningForeground: number; error: number }
+  /**
+   * Executable plans. coordinator: the session where the plan was written (it has the card); task: the session where
+   * a plan task runs. Absent or null = the session has nothing to do with a plan. A coordinator with several plans points to the latest.
+   */
+  plan?: { planId: string; role: 'coordinator' | 'task'; taskId: string | null } | null
+  /**
+   * The coordinator has a plan to approve or paused (waiting for you). `run` stays the real one (the session is not busy: you can
+   * write, stop, use commands); `waitingLabel` ("Plan review", "Plan paused") and `waitingSince` say since when it waits.
+   */
+  planWaiting?: boolean
+  /**
+   * Who started the session outside the UI. cli: from the `ladder` CLI; agent: from another session with the
+   * `ladder_start_session` MCP tool (sessionId and agent of the starter). Absent or null = from the UI (or from a plan).
+   */
+  origin?: { kind: 'cli' } | { kind: 'agent'; sessionId: string; agent: AgentId } | null
 }
 
 /** Un sotto-agente avviato dalla sessione (Task di Claude Code, spawnAgent di Codex). */
@@ -548,6 +564,11 @@ export type ChatItem =
   | (ItemBase & { kind: 'agents-finished'; finished: number; failed: number; state: 'waiting' | 'resumed' | 'continued' | 'dismissed' })
   /** Contesto compattato (da /compact o automatico). Il testo lo compone la UI. */
   | (ItemBase & { kind: 'compacted'; trigger: 'manual' | 'auto'; preTokens: number | null; postTokens: number | null })
+  /**
+   * Executable plan card, at the point of the coordinator's chat where the agent called propose_plan (or where
+   * a template was used). The content does not travel here: the UI reads PlanState from the store (plan.updated event).
+   */
+  | (ItemBase & { kind: 'plan'; planId: string })
 
 /**
  * Comando / dichiarato dall'agente della sessione. I comandi di Ladder
@@ -1593,6 +1614,64 @@ export type HostCommand =
   // ── fine LAD-59 commit ──
   // ── fine LAD-59 ──
 
+  // ── Executable plans ──
+  /** State of a plan. Answers PlanState; errors if it does not exist. */
+  | { type: 'plan.get'; planId: string }
+  /**
+   * Edit from the card, only with status 'review': the whole plan is replaced, validated with validatePlan and the project rules.
+   * `revision` is the one the UI saw: if the agent changed the plan in the meantime, a translated error ("The plan changed in the meantime…")
+   * and nothing changes. Answers PlanState (revision + 1). Validation errors arrive translated, one per line.
+   */
+  | { type: 'plan.edit'; planId: string; revision: number; plan: Plan }
+  /**
+   * Approves and runs. `workspace`: where the tasks write, 'worktree' (a new plan worktree, the default with git) or 'main'
+   * (main checkout). Revalidates with the current rules; `revision` as above. Answers PlanState with status 'running'.
+   */
+  | { type: 'plan.approve'; planId: string; revision: number; workspace: 'main' | 'worktree' }
+  /** Rejects in review: status 'stopped'. With a non-empty `message`, sends it to the coordinator as a user message (for example "redo it without the review"). */
+  | { type: 'plan.reject'; planId: string; message?: string }
+  /**
+   * Choice from the pause card (PlanPause.choices). continue: resumes after a stop point. retry: redoes the stopped
+   * task (same session, new attempt, with a message summarizing what happened). reassign: like retry but with
+   * `reassign` (agent, model, effort; validated against the rules) in a new session that also receives the partial work;
+   * `keepWork` false restarts from the task-start checkpoint (the partial work stays saved as a patch). skip: skips the task
+   * (it counts as 'skipped' for the following ones). stop: stops the plan. `taskId` absent = the one in PlanPause.
+   */
+  | { type: 'plan.choose'; planId: string; choice: PlanChoice; taskId?: string; reassign?: { agent: AgentId; model: string | null; effort: Effort | null; keepWork: boolean } }
+  /** Confirms or rejects the agent's pending change (PlanState.pendingUpdate). The answer goes back to the agent on its next turn. */
+  | { type: 'plan.confirmUpdate'; planId: string; accept: boolean }
+  /** Stops the plan at any time: interrupts the turns of running tasks (does not archive their sessions). */
+  | { type: 'plan.stop'; planId: string }
+  /** Saved plan templates (global). Answers PlanTemplate[]. */
+  | { type: 'plan.templates' }
+  /** Saves the plan as a named template. Answers PlanTemplate. */
+  | { type: 'plan.saveTemplate'; planId: string; name: string }
+  | { type: 'plan.deleteTemplate'; templateId: string }
+  /**
+   * Uses a template in the session (chat, idle): creates a plan in 'review' with the given goal and adds the card to the chat.
+   * Agents that are not allowed or exceed the project maximum: translated error. Answers PlanState.
+   */
+  | { type: 'plan.useTemplate'; sessionId: string; templateId: string; goal: string }
+  // ── CLI and MCP tools for sessions ──
+  /**
+   * Waits for the session to finish its work: turn closed and queue empty, or stopped on a reply from you (approval,
+   * question, plan to review), or `timeoutMs` (default 10 minutes, maximum 60). If the session is already idle it answers
+   * right away with the outcome of the last turn. Answers SessionWaitResult.
+   */
+  | { type: 'session.wait'; sessionId: string; timeoutMs?: number }
+  /**
+   * Read-only for the CLI socket (`ladder attach`): the chat lines, only to the caller. Unlike
+   * session.open it sends nothing to the windows and changes no state. Answers TranscriptMark[]: for each line only the
+   * mark of how much it holds (`markOf` in cli/follow-mark.ts), not the content, which would be huge for a long session.
+   */
+  | { type: 'session.transcript'; sessionId: string }
+  /** State of the `ladder` command in the terminal. Answers CliStatus. */
+  | { type: 'cli.status' }
+  /** Installs the `ladder` command (a symlink to the script inside the app). Answers CliStatus; translated error if it cannot be written. */
+  | { type: 'cli.install' }
+  /** Removes the link installed by Ladder (never a file that is not our link). Answers CliStatus. */
+  | { type: 'cli.uninstall' }
+
 export type HostEvent =
   | {
       type: 'snapshot'
@@ -1610,6 +1689,8 @@ export type HostEvent =
       terminals: TerminalInfo[]
       /** Scorciatoie all'avvio; assente nelle fixture (= predefinite). */
       shortcuts?: ShortcutsState
+      /** Plans of non-archived sessions (including 'superseded' ones: their card is still in the chat); absent = none. */
+      plans?: PlanState[]
     }
   | { type: 'project.upsert'; project: Project }
   | { type: 'project.removed'; projectId: string }
@@ -1620,6 +1701,8 @@ export type HostEvent =
   /** Le scorciatoie sono cambiate (file modificato a mano, salvataggio, ripristino): stato completo. */
   | { type: 'shortcuts.changed'; state: ShortcutsState }
   | { type: 'session.upsert'; session: SessionSummary }
+  /** A plan was created or changed (state, tasks, pause). Replaces the previous state with the same id. */
+  | { type: 'plan.updated'; plan: PlanState }
   | { type: 'session.items'; sessionId: string; items: ChatItem[]; replace: boolean }
   /** Elenco completo dei sotto-agenti della sessione, con debounce; sostituisce il precedente. */
   | { type: 'session.subagents'; sessionId: string; subagents: SubagentInfo[] }
@@ -2282,3 +2365,38 @@ export interface GeneratedPr {
   truncated: GeneratedTextCut | null
 }
 // ── fine LAD-59 ──
+
+// ── CLI ──
+
+/**
+ * Outcome of session.wait. completed / error / interrupted: as in the last turn. needs-user: stopped on a reply from you
+ * (`waitingLabel` says which). timeout: still working when time ran out. idle: no turn run yet.
+ */
+export interface SessionWaitResult {
+  sessionId: string
+  status: 'completed' | 'error' | 'interrupted' | 'needs-user' | 'timeout' | 'idle'
+  /** Last assistant text in the most recent turn; null if there is none. */
+  text: string | null
+  error: string | null
+  waitingLabel: string | null
+  /** Seq of the last chat item at the time of the answer. */
+  seq: number
+}
+
+/** A chat line as `ladder attach` sees it at the start: id and how much it holds (see session.transcript). */
+export interface TranscriptMark {
+  id: string
+  mark: number
+}
+
+export interface CliStatus {
+  /** The `ladder` link installed by Ladder exists and points to this app's script. */
+  installed: boolean
+  /** Where the link is (or would go), for example ~/.local/bin/ladder. */
+  path: string
+  /** The link's folder is in the login shell's PATH; if not, the UI explains how to add it. */
+  inPath: boolean
+  /** Local socket on which the host listens for the CLI; null if it is not listening. */
+  socket: string | null
+}
+

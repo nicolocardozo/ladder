@@ -43,6 +43,8 @@ import type {
   RequestResponse,
   RunState,
   SessionSummary,
+  SessionWaitResult,
+  TranscriptMark,
   SubagentInfo,
   SlashCommand,
   TerminalInfo,
@@ -54,6 +56,13 @@ import { plural, setLocale, t, translations } from '@shared/i18n'
 import { ClaudeSession, type AdapterEvents, type ToolUpdate, type TurnResult, type UserRequest } from './claude/adapter'
 import { acpAuthenticate, AcpSession } from './acp/adapter'
 import { BrowserAgent } from './browser-agent'
+import { Plans } from './plans'
+import { AgentSessions, type StartSpec } from './agent-sessions'
+import { decideWait } from './session-wait'
+import { markOf } from '../cli/follow-mark.ts'
+import type { CliInstall } from './cli-install'
+import type { TaskSessionSpec } from './plan-runner'
+import type { PlanState, PlanTask } from '@shared/plan'
 import { agentCatalog, resolveAgentSpec, UNKNOWN_LOGIN } from './acp/catalog'
 import { OtherAgents } from './acp/others'
 import { agentDir, AgentInstaller, recoverInstalls } from './acp/install'
@@ -199,6 +208,12 @@ export class Host {
   private readonly terminals: TerminalManager
   /** LAD-79: "Altri agenti" nelle Subscription (stato di accesso, login e logout con la loro CLI). */
   private readonly otherAgents: OtherAgents
+  /** Executable plans (the `ladder` MCP server, the runner, templates). */
+  private readonly plans: Plans
+  /** MCP tools for starting and waiting on other sessions. */
+  private readonly agentSessions: AgentSessions
+  /** Installation of the `ladder` command (created by the host at startup). */
+  private cliInstall: CliInstall | null = null
   private readonly watcher: RootWatcher
   /** LAD-70: id delle root servite dal protocollo ladder-file del main. */
   private readonly fileRoots: FileRoots
@@ -224,6 +239,10 @@ export class Host {
   private termStatus = new Map<string, TerminalStatus>()
   /** Sessioni che aspettano lo script di setup del worktree prima di partire. */
   private preparing = new Set<string>()
+  /** Sessions with a turn start in progress (startTurn): they count as busy. */
+  private starting = new Map<string, number>()
+  /** Newly created sessions whose first message has not been sent yet: session.wait does not see them as idle. */
+  private firstMessage = new Map<string, number>()
   /** Progetti con un cambio di branch in corso nel checkout principale: le loro sessioni lì mettono i messaggi in coda finché non finisce. */
   private switchingBranch = new Set<string>()
   private stopped = false
@@ -354,6 +373,72 @@ export class Host {
       dirty: (cwd) => this.gitStatus.peek(cwd)?.dirty ?? null
     })
     this.ports = new Ports(db)
+    this.plans = new Plans({
+      db,
+      broadcast: (event) => this.broadcast(event),
+      attention: (event) => this.attention(event),
+      project: (projectId) => this.projects.get(projectId),
+      session: (sessionId) => {
+        const row = this.rows.get(sessionId)
+        return row ? { projectId: row.project_id, agent: row.agent as AgentId, archived: row.archived === 1 || this.archiving.has(sessionId), title: row.title, chat: row.mode !== 'terminal' } : null
+      },
+      rules: (projectId) => this.projectRules(projectId),
+      createTaskSession: (spec) => this.createTaskSession(spec),
+      send: (sessionId, text) => this.send(sessionId, text),
+      interrupt: (sessionId) => this.interrupt(sessionId),
+      lastAssistantText: (sessionId) => this.lastAssistantText(sessionId, this.lastTurnIds.get(sessionId) ?? ''),
+      addCard: (sessionId, planId) => {
+        this.upsertItem(sessionId, { kind: 'plan', id: `plan:${planId}`, turnId: this.runtimes.get(sessionId)?.turnId ?? 'system', at: Date.now(), planId })
+        this.flush()
+      },
+      notice: (sessionId, text) => this.noticeInfo(sessionId, text),
+      emitSummary: (sessionId) => this.emitSummary(sessionId),
+      workspace: (state, kind) => this.planWorkspace(state, kind),
+      sideWorktree: (state, task, from) => this.planSideWorktree(state, task, from),
+      agentTool: (sessionId, tool, args, signal) => this.agentSessions.call(sessionId, tool, args, signal),
+      archiveSession: (sessionId) => this.archive(sessionId),
+      removeWorktree: (projectId, path, branch) => this.dropPlanWorktree(this.mustProject(projectId), path, branch),
+      changed: (root) => this.notifyFsChanged(root)
+    })
+    this.agentSessions = new AgentSessions({
+      now: () => Date.now(),
+      t,
+      info: (sessionId) => {
+        const row = this.rows.get(sessionId)
+        if (!row) return null
+        return { sessionId, projectId: row.project_id, agent: row.agent as AgentId, permission: row.permission as PermissionLevel, origin: row.origin ? (JSON.parse(row.origin) as NonNullable<SessionSummary['origin']>) : null, usable: row.mode !== 'terminal' && !this.isGone(sessionId) }
+      },
+      rules: (projectId) => this.projectRules(projectId),
+      isGit: (projectId) => this.projects.get(projectId)?.isGit === true,
+      list: (projectId) =>
+        [...this.rows.values()]
+          .filter((r) => r.project_id === projectId && !r.archived && r.mode !== 'terminal')
+          .map((r) => ({ id: r.id, title: r.title, agent: r.agent as AgentId, model: this.modelOf(r), state: r.run_state, cwd: this.cwdOf(r), branch: this.branchOf(r), origin: r.origin ? (JSON.parse(r.origin) as NonNullable<SessionSummary['origin']>) : null })),
+      start: (spec) => this.startAgentSession(spec),
+      send: (sessionId, text) => this.send(sessionId, text),
+      wait: (sessionId, timeoutMs, signal) => this.waitSession(sessionId, timeoutMs, signal),
+      // Ask level: the same approval card as the other tools.
+      confirm: async (sessionId, title, reason, signal) => {
+        const response = await this.openRequest(
+          sessionId,
+          {
+            requestType: 'permission',
+            toolName: 'ladder_start_session',
+            title,
+            command: null,
+            path: null,
+            reason,
+            options: [
+              { id: 'allow', label: t('Approve'), kind: 'allow' },
+              { id: 'deny', label: t('Deny'), kind: 'deny' }
+            ],
+            questions: null
+          },
+          signal
+        )
+        return 'optionId' in response && response.optionId === 'allow'
+      }
+    })
     this.projectGroups = new ProjectGroups(
       db,
       () => [...this.projects.keys()],
@@ -397,6 +482,8 @@ export class Host {
     }
     await recoverInstalls((id) => registered.get(id) ?? null).catch(() => undefined)
     await this.initAgents()
+    // Plan tasks that were running when Ladder closed are marked interrupted (after the agents: the rules are needed).
+    await this.plans.recover().catch((error: Error) => console.error(`[host] piani: ${error.message}`))
     // Sessioni che erano "In coda" prima di questa versione: il primo messaggio in coda parte, una volta sola.
     for (const id of resumeQueued) this.startFirstQueued(id)
     this.updateBadge()
@@ -853,7 +940,7 @@ export class Host {
       // Il messaggio torna in testa alla coda e il runtime si chiude, come nella ripartenza dopo exit.
       const current = JSON.parse(this.rows.get(sessionId)?.queue ?? '[]') as QueuedMessage[]
       current.unshift(next)
-      this.browserAgent.revoke(sessionId)
+      this.revokeTools(sessionId)
       this.runtimes.get(sessionId)?.adapter.close()
       this.runtimes.delete(sessionId)
       this.updateRow(sessionId, { queue: JSON.stringify(current), run_state: 'idle' })
@@ -907,14 +994,15 @@ export class Host {
       agents: [...this.agents.values(), ...this.profileAgents.values()],
       profiles: this.profiles.all(),
       terminals: this.terminals.list(),
-      connections: this.connections.cached()
+      connections: this.connections.cached(),
+      plans: this.plans.snapshot()
     }
   }
 
   // ── Comandi dalla UI ─────────────────────────────────────────────────────
 
   /** `origin`: la connessione (porta) da cui arriva il comando; serve alle iscrizioni, che spariscono con lei (`connectionClosed`). */
-  async handle(command: HostCommand, origin: object = LOCAL_ORIGIN): Promise<unknown> {
+  async handle(command: HostCommand, origin: object = LOCAL_ORIGIN, signal?: AbortSignal): Promise<unknown> {
     switch (command.type) {
       case 'hello':
         return this.snapshot()
@@ -939,10 +1027,13 @@ export class Host {
         this.projectGroups.sync()
         return null
       case 'session.create':
-        return this.createSession(command)
+        // Sessions created from the CLI get origin cli.
+        return this.createSession(command, origin === CLI_ORIGIN ? { kind: 'cli' } : null)
       case 'session.resume':
         return this.resumeTerminalSession(command.sessionId)
       case 'session.send':
+        // Writing to a stopped task puts it back in progress.
+        this.plans.userWrote(command.sessionId)
         await this.send(command.sessionId, command.text, command.attachments ?? [], command.busy)
         return null
       case 'session.continue':
@@ -1057,6 +1148,33 @@ export class Host {
       case 'browser.agent.state':
         return this.browserAgent.snapshot(command.sessionId)
       // ── Fine LAD-57 parte 2 ──
+
+      // ── CLI ──
+      case 'session.wait':
+        return this.waitSession(command.sessionId, command.timeoutMs, signal)
+      case 'session.transcript':
+        this.mustRow(command.sessionId)
+        return this.loadItems(command.sessionId).map((item): TranscriptMark => ({ id: item.id, mark: markOf(item) }))
+      case 'cli.status':
+        return this.mustCli().status()
+      case 'cli.install':
+        return this.mustCli().install()
+      case 'cli.uninstall':
+        return this.mustCli().uninstall()
+
+      // ── Executable plans ──
+      case 'plan.get':
+      case 'plan.edit':
+      case 'plan.approve':
+      case 'plan.reject':
+      case 'plan.choose':
+      case 'plan.confirmUpdate':
+      case 'plan.stop':
+      case 'plan.templates':
+      case 'plan.saveTemplate':
+      case 'plan.deleteTemplate':
+      case 'plan.useTemplate':
+        return this.plans.handle(command)
 
       case 'projectGroups.create':
         return this.projectGroups.create(command.name, command.projectIds)
@@ -1372,6 +1490,215 @@ export class Host {
     return project
   }
 
+  // ── CLI and MCP tools for sessions ──────────────────────────────────────────
+
+  /** Project rules for whoever starts sessions (plans, MCP tools): allowed and available agents, maximum permission. */
+  private async projectRules(projectId: string): Promise<{ allowed: AgentId[]; available: AgentId[]; permissionsMax: PermissionLevel | null }> {
+    const settings = await loadProjectSettings(this.mustProject(projectId).path)
+    return { allowed: settings.agents.allowed as AgentId[], available: [...this.agents.values()].filter((a) => a.available).map((a) => a.agent), permissionsMax: settings.agents.permissionsMax }
+  }
+
+  setCli(install: CliInstall): void {
+    this.cliInstall = install
+  }
+
+  private mustCli(): CliInstall {
+    if (!this.cliInstall) throw new Error(t('The command line tool is not available.'))
+    return this.cliInstall
+  }
+
+  /**
+   * `ladder_start_session`: a child session. It runs in the starter's folder (with its worktree, if any), or in a
+   * new worktree with `worktree`. The first message is sent right away.
+   */
+  private async startAgentSession(spec: StartSpec): Promise<{ sessionId: string; cwd: string | null; branch: string | null }> {
+    const caller = this.mustRow(spec.callerId)
+    if (spec.worktree) {
+      const created = await this.createSession({ type: 'session.create', projectId: spec.projectId, agent: spec.agent, text: spec.prompt, model: spec.model, effort: spec.effort, permission: spec.permission, worktree: true, ...(spec.title ? { title: spec.title } : {}) }, spec.origin)
+      return { sessionId: created.id, cwd: created.cwd, branch: created.branch }
+    }
+    const id = this.createTaskSession(
+      { projectId: spec.projectId, planId: '', taskId: '', title: spec.title ?? titleFrom(spec.prompt), agent: spec.agent, model: spec.model, effort: spec.effort, permission: spec.permission, cwd: this.cwdOf(caller), worktree: caller.worktree ? (JSON.parse(caller.worktree) as WorktreeInfo) : null },
+      spec.origin
+    )
+    // Right after creation (same tick): until the message is sent, the session does not look idle to whoever waits on it.
+    this.holdFirst(id)
+    try {
+      await this.send(id, spec.prompt)
+    } finally {
+      this.releaseFirst(id)
+    }
+    const row = this.mustRow(id)
+    return { sessionId: id, cwd: this.cwdOf(row), branch: this.branchOf(row) }
+  }
+
+  /** From here until the first message is sent, the session does not look idle to whoever waits on it. */
+  private holdFirst(sessionId: string): void {
+    this.firstMessage.set(sessionId, (this.firstMessage.get(sessionId) ?? 0) + 1)
+  }
+
+  private releaseFirst(sessionId: string): void {
+    const left = (this.firstMessage.get(sessionId) ?? 1) - 1
+    if (left > 0) this.firstMessage.set(sessionId, left)
+    else this.firstMessage.delete(sessionId)
+    this.wakeWaiters(sessionId)
+  }
+
+  /** What `session.wait` answers right now; null if the session is still working. */
+  private waitState(sessionId: string): SessionWaitResult | null {
+    const row = this.mustRow(sessionId)
+    return decideWait({
+      sessionId,
+      runState: row.run_state,
+      waitingLabel: row.run_state === 'waiting' ? this.summary(sessionId).waitingLabel : null,
+      planLabel: row.run_state === 'idle' ? (this.plans.waitingFor(sessionId)?.label ?? null) : null,
+      busy: this.isBusyNow(sessionId) || (this.firstMessage.get(sessionId) ?? 0) > 0,
+      background: (this.subagents.list(sessionId) ?? []).some((a) => a.status === 'running') || this.agentsWait.has(sessionId) || this.agentsIdle.has(sessionId),
+      continueLabel: this.agentsRows.has(sessionId) ? t('Continue') : null,
+      queued: (JSON.parse(row.queue) as QueuedMessage[]).length,
+      items: () => this.loadItems(sessionId),
+      seq: row.last_seq
+    })
+  }
+
+  /** Pending `session.wait` calls, per session: they wake up on every session update (emitSummary). */
+  private waiters = new Map<string, Set<() => void>>()
+
+  private wakeWaiters(sessionId: string): void {
+    for (const wake of [...(this.waiters.get(sessionId) ?? [])]) wake()
+  }
+
+  /**
+   * `session.wait`: waits for the work to finish, for your reply, or for the timeout (default 10 minutes, maximum 60). It wakes up
+   * on session updates (with a safety check every 2 seconds) and stops right away if `signal` fires
+   * (the client closed the connection or cancelled the call).
+   */
+  private async waitSession(sessionId: string, timeoutMs: number | undefined, signal?: AbortSignal): Promise<SessionWaitResult> {
+    this.mustRow(sessionId)
+    const limit = Math.min(Math.max(timeoutMs ?? 10 * 60_000, 1000), 60 * 60_000)
+    const deadline = Date.now() + limit
+    for (;;) {
+      if (this.isGone(sessionId)) throw new Error(t('The session is archived.'))
+      const state = this.waitState(sessionId)
+      if (state) return state
+      if (Date.now() >= deadline || signal?.aborted) return { sessionId, status: 'timeout', text: null, error: null, waitingLabel: null, seq: this.mustRow(sessionId).last_seq }
+      await new Promise<void>((resolve) => {
+        const set = this.waiters.get(sessionId) ?? new Set<() => void>()
+        this.waiters.set(sessionId, set)
+        const done = () => {
+          clearTimeout(timer)
+          set.delete(done)
+          if (set.size === 0) this.waiters.delete(sessionId)
+          signal?.removeEventListener('abort', done)
+          resolve()
+        }
+        const timer = setTimeout(done, Math.min(2000, Math.max(1, deadline - Date.now())))
+        set.add(done)
+        signal?.addEventListener('abort', done, { once: true })
+      })
+    }
+  }
+
+  // ── Executable plans ────────────────────────────────────────────────────────
+
+  /** Session for a plan task, in the plan's folder (or its separate worktree). It sends nothing: the plan does. */
+  private createTaskSession(spec: TaskSessionSpec, origin: SessionSummary['origin'] = null): string {
+    const project = this.mustProject(spec.projectId)
+    const now = Date.now()
+    const profileId = this.profiles.resolve(spec.agent, project.id, undefined)
+    const row: SessionRow = {
+      id: randomUUID(),
+      project_id: project.id,
+      title: spec.title,
+      agent: spec.agent,
+      model: spec.model,
+      effort: spec.effort,
+      permission: spec.permission,
+      created_at: now,
+      updated_at: now,
+      archived: 0,
+      external_id: null,
+      run_state: 'idle',
+      last_seq: 0,
+      last_activity_seq: 0,
+      last_read_seq: 0,
+      queue: '[]',
+      context: null,
+      mode: 'chat',
+      command: null,
+      cwd: spec.cwd,
+      worktree: spec.worktree ? JSON.stringify(spec.worktree) : null,
+      estimated: 0,
+      agent_ref: null,
+      activity_at: now,
+      source: null,
+      // The title is the task's title: no regeneration.
+      title_source: 'user',
+      profile_id: profileId,
+      permission_next: null,
+      merged_via: null,
+      merged_at: null,
+      origin: origin ? JSON.stringify(origin) : null
+    }
+    this.db
+      .prepare(
+        `insert into sessions (id, project_id, title, agent, model, effort, permission, created_at, updated_at, mode, command, cwd, worktree, activity_at, source, title_source, profile_id, origin)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(row.id, row.project_id, row.title, row.agent, row.model, row.effort, row.permission, now, now, 'chat', null, row.cwd, row.worktree, now, null, 'user', row.profile_id, row.origin)
+    this.rows.set(row.id, row)
+    this.emitSummary(row.id)
+    return row.id
+  }
+
+  /** The plan's folder: the main checkout, or a new worktree on the plan's branch. */
+  private async planWorkspace(state: PlanState, kind: 'main' | 'worktree'): Promise<NonNullable<PlanState['workspace']>> {
+    const project = this.mustProject(state.projectId)
+    if (kind === 'worktree') {
+      if (!project.isGit) throw new Error(t('A worktree requires a git repository.'))
+      const info = await this.planWorktree(project, state.plan.goal, state.sessionId, null)
+      return { kind: 'worktree', path: info.path, branch: info.branch, base: info.base }
+    }
+    return { kind: 'main', path: project.path, branch: project.branch, base: project.isGit ? await resolveCommit(project.path, 'HEAD') : null }
+  }
+
+  /** Separate worktree for a task that writes in parallel: it starts from the plan folder's checkpoint. */
+  private async planSideWorktree(state: PlanState, task: PlanTask, from: string): Promise<{ path: string; branch: string }> {
+    const info = await this.planWorktree(this.mustProject(state.projectId), task.title, state.sessionId, from)
+    return { path: info.path, branch: info.branch }
+  }
+
+  /** A plan's worktree: copied files and setup script as for a session; `resetTo` moves it to a checkpoint. */
+  private async planWorktree(project: Project, title: string, coordinatorId: string, resetTo: string | null): Promise<WorktreeInfo> {
+    const settings = await loadProjectSettings(project.path)
+    const created = await createWorktree(project, title, settings.worktree.copy, null, { dir: this.prefs.worktreesDir, branchPrefix: this.prefs.branchPrefix })
+    await this.ports.reserve(created.info.path)
+    void ensureExcluded(project.path, PERSONAL_PATTERNS).catch(() => undefined)
+    if (resetTo) {
+      // A worktree that cannot be moved to the checkpoint is useless: remove it right away, with its branch and port block.
+      await git(created.info.path, ['reset', '--hard', resetTo]).catch(async (error) => {
+        await this.dropPlanWorktree(project, created.info.path, created.info.branch)
+        throw error
+      })
+    }
+    if (settings.worktree.setup) this.noticeSetupFailed(coordinatorId, await this.runSetup(coordinatorId, project, created.info.path, settings.worktree.setup), true)
+    return created.info
+  }
+
+  /** Removes a plan worktree (even if dirty) and its branch, and frees its ports. Does not throw. */
+  private async dropPlanWorktree(project: Project, path: string, branch: string): Promise<void> {
+    await this.stopServices(path).catch(() => undefined)
+    await git(project.path, ['worktree', 'remove', '--force', path]).catch(() => undefined)
+    if (branch) await git(project.path, ['branch', '-D', branch]).catch(() => undefined)
+    this.ports.release(path)
+  }
+
+  /** When a session's process closes, the MCP server tokens (agent browser, Ladder) stop being valid. */
+  private revokeTools(sessionId: string): void {
+    this.browserAgent.revoke(sessionId)
+    this.plans.revoke(sessionId)
+  }
+
   /** Cartella di lavoro della sessione: il worktree se c'è, altrimenti il progetto. */
   private cwdOf(row: SessionRow): string {
     return row.cwd ?? this.projects.get(row.project_id)?.path ?? ''
@@ -1602,7 +1929,7 @@ export class Host {
     this.db.prepare('delete from kv where key = ?').run(`agent:${profile.agent}:${profileId}`)
     for (const row of users) {
       // Prima la revoca: scioglie le conferme del browser dell'agente ancora aperte, finché il runtime le trova.
-      this.browserAgent.revoke(row.id)
+      this.revokeTools(row.id)
       this.runtimes.get(row.id)?.adapter.close()
       this.runtimes.delete(row.id)
       // La conversazione sta nella cartella del profilo: col predefinito il resume non la troverebbe, riparte una nuova.
@@ -1651,7 +1978,7 @@ export class Host {
     return project
   }
 
-  private async createSession(command: Extract<HostCommand, { type: 'session.create' }>): Promise<SessionSummary> {
+  private async createSession(command: Extract<HostCommand, { type: 'session.create' }>, origin: SessionSummary['origin'] = null): Promise<SessionSummary> {
     const project = this.mustProject(command.projectId)
     const mode = command.mode ?? 'chat'
     const now = Date.now()
@@ -1736,15 +2063,25 @@ export class Host {
       profile_id: profileId,
       permission_next: null,
       merged_via: null,
-      merged_at: null
+      merged_at: null,
+      origin: origin ? JSON.stringify(origin) : null
     }
     this.db
       .prepare(
-        `insert into sessions (id, project_id, title, agent, model, effort, permission, created_at, updated_at, mode, command, cwd, worktree, activity_at, source, title_source, profile_id)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `insert into sessions (id, project_id, title, agent, model, effort, permission, created_at, updated_at, mode, command, cwd, worktree, activity_at, source, title_source, profile_id, origin)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(row.id, row.project_id, row.title, row.agent, row.model, row.effort, row.permission, now, now, mode, shellCommand, row.cwd, row.worktree, now, row.source, row.title_source, row.profile_id)
+      .run(row.id, row.project_id, row.title, row.agent, row.model, row.effort, row.permission, now, now, mode, shellCommand, row.cwd, row.worktree, now, row.source, row.title_source, row.profile_id, row.origin)
     this.rows.set(row.id, row)
+    // Until the first message is sent, whoever waits on this session does not see it idle.
+    this.holdFirst(row.id)
+    const beginHeld = async () => {
+      try {
+        await begin()
+      } finally {
+        this.releaseFirst(row.id)
+      }
+    }
     for (const text of notices) this.upsertItem(row.id, { kind: 'notice', id: randomUUID(), turnId: 'system', at: now, tone: 'info', text })
 
     const begin = async () => {
@@ -1761,7 +2098,7 @@ export class Host {
         this.noticeSetupFailed(row.id, code, false)
         return this.startServices(row.id, project, worktree.path, settings.worktree, code)
       })
-      await begin()
+      await beginHeld()
     } else if (worktree && settings.worktree.setup) {
       // Il primo messaggio aspetta in coda che il setup finisca; nel frattempo la sessione è "in corso".
       this.preparing.add(row.id)
@@ -1773,35 +2110,40 @@ export class Host {
       this.termStatus.set(row.id, { label: null, activity: t('Preparing the worktree…'), turn: null, waitingSince: null })
       this.emitSummary(row.id)
       void this.runSetup(row.id, project, worktree.path, settings.worktree.setup).then(async (code) => {
-        this.preparing.delete(row.id)
-        this.termStatus.delete(row.id)
-        // Archiviata durante il setup: niente note, servizi né messaggio in coda. Se l'archiviazione non è finita
-        // (o è fallita) lo stato «in corso» del setup non deve restare.
-        if (this.isGone(row.id)) {
-          if (this.rows.get(row.id)?.run_state === 'running') this.updateRow(row.id, { run_state: 'idle' })
-          return
-        }
-        this.updateRow(row.id, { run_state: 'idle' })
-        this.noticeSetupFailed(row.id, code, true)
-        await this.startServices(row.id, project, worktree.path, settings.worktree, code)
-        // Archiviata mentre i servizi partivano: archive() aspetta la stessa promessa e riprende prima di noi.
-        if (this.isGone(row.id)) return
-        if (mode === 'chat') {
-          const queue = JSON.parse(this.mustRow(row.id).queue) as QueuedMessage[]
-          const next = queue.shift()
-          this.updateRow(row.id, { queue: JSON.stringify(queue) })
-          this.emitSummary(row.id)
-          if (next) await this.startTurn(row.id, next.text, next.attachments ?? []).catch((e: Error) => this.noticeError(row.id, e.message))
-        } else {
-          this.emitSummary(row.id)
-          await begin()
+        // The first message is sent (or given up) before the waiter sees the session idle: the hold is released at the end.
+        try {
+          this.preparing.delete(row.id)
+          this.termStatus.delete(row.id)
+          // Archived during setup: no notes, services or queued message. If archiving has not finished
+          // (or failed), the setup's "in progress" state must not linger.
+          if (this.isGone(row.id)) {
+            if (this.rows.get(row.id)?.run_state === 'running') this.updateRow(row.id, { run_state: 'idle' })
+            return
+          }
+          this.updateRow(row.id, { run_state: 'idle' })
+          this.noticeSetupFailed(row.id, code, true)
+          await this.startServices(row.id, project, worktree.path, settings.worktree, code)
+          // Archived while the services were starting: archive() awaits the same promise and resumes before us.
+          if (this.isGone(row.id)) return
+          if (mode === 'chat') {
+            const queue = JSON.parse(this.mustRow(row.id).queue) as QueuedMessage[]
+            const next = queue.shift()
+            this.updateRow(row.id, { queue: JSON.stringify(queue) })
+            this.emitSummary(row.id)
+            if (next) await this.startTurn(row.id, next.text, next.attachments ?? []).catch((e: Error) => this.noticeError(row.id, e.message))
+          } else {
+            this.emitSummary(row.id)
+            await begin()
+          }
+        } finally {
+          this.releaseFirst(row.id)
         }
       })
     } else {
       this.emitSummary(row.id)
       // Senza setup i servizi partono subito.
       if (worktree) void this.startServices(row.id, project, worktree.path, settings.worktree, 0)
-      await begin()
+      await beginHeld()
     }
     return this.summary(row.id)
   }
@@ -2013,7 +2355,7 @@ export class Host {
 
   /** Chiude il processo dell'agente senza toccare la sessione: come l'archiviazione, prima la revoca del browser dell'agente. */
   private closeRuntime(sessionId: string): void {
-    this.browserAgent.revoke(sessionId)
+    this.revokeTools(sessionId)
     this.runtimes.get(sessionId)?.adapter.close()
     this.runtimes.delete(sessionId)
     this.agentsIdle.delete(sessionId)
@@ -2047,7 +2389,8 @@ export class Host {
     let project: Project | undefined
     let script: string | null = null
     try {
-      if (row.worktree && options.cleanup !== false) {
+      // The shared worktree (a plan with several tasks) is still needed by the other sessions: no teardown script.
+      if (row.worktree && options.cleanup !== false && !this.worktreeShared(row)) {
         project = this.projects.get(row.project_id)
         script = project ? (await loadProjectSettings(project.path)).worktree.archive : null
       }
@@ -2066,8 +2409,10 @@ export class Host {
 
   private async archiveSession(sessionId: string, row: SessionRow): Promise<void> {
     this.restartAfterTurn.delete(sessionId)
+    // A plan task's turn will never finish (events from the closed adapter are ignored): the plan learns of it immediately.
+    await this.plans.sessionGone(sessionId).catch(() => undefined)
     // Prima la revoca: scioglie le conferme del browser dell'agente ancora aperte (expireRequest ha bisogno del runtime).
-    this.browserAgent.revoke(sessionId)
+    this.revokeTools(sessionId)
     this.runtimes.get(sessionId)?.adapter.close()
     this.runtimes.delete(sessionId)
     this.unsubscribeGit(sessionId)
@@ -2087,7 +2432,7 @@ export class Host {
     // Prima si aspetta l'eventuale avvio dei servizi (che da ora non spawna più), poi i servizi del worktree (LAD-66) si fermano
     // davvero e liberano le porte, poi si chiudono tutti i terminali (i servizi con attesa).
     await this.servicesStarting.get(sessionId)
-    await this.stopServices(this.cwdOf(row))
+    if (!this.worktreeShared(row)) await this.stopServices(this.cwdOf(row))
     await Promise.all(this.terminals.bySession(sessionId).map((terminal) => this.terminals.close(terminal.id)))
     this.termStatus.delete(sessionId)
     this.updateRow(sessionId, { archived: 1, run_state: 'idle' })
@@ -2307,7 +2652,7 @@ export class Host {
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
     // Il turno host resta aperto finché onTurnEnd non ha finito: un invio in quel tempo va in coda e lo prende lo svuotamento finale.
-    return !!runtime?.adapter.isRunning || !!runtime?.turnId || (runtime?.closing ?? 0) > 0 || !!runtime?.exited || row.run_state === 'waiting' || this.preparing.has(sessionId)
+    return !!runtime?.adapter.isRunning || !!runtime?.turnId || (runtime?.closing ?? 0) > 0 || !!runtime?.exited || row.run_state === 'waiting' || this.preparing.has(sessionId) || (this.starting.get(sessionId) ?? 0) > 0
   }
 
   /** L'agente accetta messaggi dentro il turno in corso (Claude e Codex; gli agenti ACP no). */
@@ -2438,7 +2783,7 @@ export class Host {
     const owner: { adapter?: AgentSession } = {}
     const adapter = this.createAdapter(
       row.agent,
-      { cwd: this.cwdOf(row), model: row.model, effort: row.effort as Effort | null, permission: row.permission as PermissionLevel, resume: row.external_id, autonomyHint: this.prefs.autonomyHint !== false, browserTools: this.browserAgent.register(sessionId, row.project_id) },
+      { cwd: this.cwdOf(row), model: row.model, effort: row.effort as Effort | null, permission: row.permission as PermissionLevel, resume: row.external_id, autonomyHint: this.prefs.autonomyHint !== false, browserTools: this.browserAgent.register(sessionId, row.project_id), ladderTools: row.mode === 'terminal' ? null : this.plans.register(sessionId) },
       this.guardEvents(sessionId, owner, this.adapterEvents(sessionId)),
       row.profile_id
     )
@@ -2514,7 +2859,19 @@ export class Host {
     return turnId
   }
 
+  /** Turn start in progress (from the message to the host turn opening): meanwhile the session is not idle, and a second send is queued. */
   private async startTurn(sessionId: string, text: string, attachments: Attachment[] = [], command: { name: string; args: string } | null = null): Promise<void> {
+    this.starting.set(sessionId, (this.starting.get(sessionId) ?? 0) + 1)
+    try {
+      await this.startTurnNow(sessionId, text, attachments, command)
+    } finally {
+      const left = (this.starting.get(sessionId) ?? 1) - 1
+      if (left > 0) this.starting.set(sessionId, left)
+      else this.starting.delete(sessionId)
+    }
+  }
+
+  private async startTurnNow(sessionId: string, text: string, attachments: Attachment[] = [], command: { name: string; args: string } | null = null): Promise<void> {
     const row = this.mustRow(sessionId)
     // Browser per l'agente: il server deve già ascoltare quando nasce il runtime (solo se l'interruttore è acceso).
     if (this.isGone(sessionId)) return
@@ -2529,6 +2886,8 @@ export class Host {
     }
     const browserReady = this.runtimes.has(sessionId) ? null : this.browserAgent.prepare(row.project_id)
     if (browserReady) await browserReady
+    // The Ladder MCP server must already be listening as well.
+    if (!this.runtimes.has(sessionId)) await this.plans.prepare()
     // L'archiviazione può essere arrivata mentre si aspettava il browser.
     if (this.isGone(sessionId)) return
     const runtime = this.ensureRuntime(sessionId)
@@ -2953,7 +3312,7 @@ export class Host {
           this.finishCommand(sessionId, runtime, runtime.interrupting ? 'interrupted' : 'error', runtime.interrupting ? null : error ?? t('{agent} exited', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? '') }))
           this.runtimes.delete(sessionId)
           this.restartAfterTurn.delete(sessionId)
-          this.browserAgent.revoke(sessionId)
+          this.revokeTools(sessionId)
           if (error) {
             const notice = this.upsertItem(sessionId, { kind: 'notice', id: randomUUID(), turnId: runtime.turnId ?? 'system', at: Date.now(), tone: 'error', text: t('{agent} exited: {error}', { agent: this.agentName(this.rows.get(sessionId)?.agent ?? ''), error }) })
             this.updateRow(sessionId, { run_state: 'error', activity_at: Date.now(), last_activity_seq: notice.seq })
@@ -2971,7 +3330,7 @@ export class Host {
             void this.startTurn(sessionId, next.text, next.attachments ?? []).catch((e: Error) => {
               const current = JSON.parse(this.rows.get(sessionId)?.queue ?? '[]') as QueuedMessage[]
               current.unshift(next)
-              this.browserAgent.revoke(sessionId)
+              this.revokeTools(sessionId)
               this.runtimes.get(sessionId)?.adapter.close()
               this.runtimes.delete(sessionId)
               this.updateRow(sessionId, { queue: JSON.stringify(current), run_state: 'idle' })
@@ -3243,12 +3602,17 @@ export class Host {
     // L'avviso dei sotto-agenti rimandato a fine turno si unisce alla notifica del turno, senza doppioni.
     if (result.status === 'error') this.agentsPending.delete(sessionId)
     const merged = result.status !== 'error' && !superseded && this.flushAgentsDone(sessionId, end.id)
-    if (result.status === 'error') this.errorAttention(sessionId, end.id, result.error ?? t('The turn stopped because of an error.'))
-    else if (result.status === 'completed' && project && !merged) {
+    // A plan task does not notify on its own: the plan does (pause, end).
+    const planTask = this.plans.controls(sessionId)
+    if (result.status === 'error') {
+      if (!planTask) this.errorAttention(sessionId, end.id, result.error ?? t('The turn stopped because of an error.'))
+    } else if (result.status === 'completed' && project && !merged && !planTask) {
       this.attention({ kind: 'turn', sessionId, projectId: project.id, projectName: project.name, itemId: end.id, durationMs: result.durationMs, title: row.title })
     }
     // Titolo da un modello piccolo, dopo il primo turno concluso: in background, senza aspettarlo.
     if (result.status === 'completed' && !superseded) void this.autoTitle(sessionId)
+    // A plan task reports its outcome to the runner (any correction is queued and sent below).
+    if (this.plans.isTask(sessionId)) await this.plans.onTurnEnd(sessionId, { status: result.status, error: result.error }).catch(() => undefined)
 
     // Messaggi inseriti non ancora uniti a un turno girano da soli (turno implicito, già o a momenti aperto):
     // la coda riparte alla fine di quel turno.
@@ -3479,6 +3843,8 @@ export class Host {
     const row = this.mustRow(sessionId)
     const runtime = this.runtimes.get(sessionId)
     const term = this.termStatus.get(sessionId)
+    // A coordinator with a plan to approve or paused is waiting for you, like for a request.
+    const planWait = row.run_state === 'idle' && row.archived === 0 ? this.plans.waitingFor(sessionId) : null
     const run = row.run_state as RunState
     const open = run === 'waiting' ? this.openRequestItems(sessionId) : []
     let waitingLabel: string | null = null
@@ -3486,6 +3852,9 @@ export class Host {
       waitingLabel = open[0]?.requestType === 'question' ? t('Question') : t('Approval')
     } else if (run === 'waiting') {
       waitingLabel = term?.label ?? t('Needs you')
+    } else if (planWait) {
+      // The run stays 'idle' (the session is not busy: you can write, stop, use commands): only the label says it is waiting for you.
+      waitingLabel = planWait.label
     }
     const effortEffective = row.effort ? null : this.effectiveEffort(row)
     return {
@@ -3520,7 +3889,8 @@ export class Host {
       command: row.command,
       terminalId: this.terminals.bySession(row.id, 'agent')[0]?.id ?? null,
       estimated: row.estimated === 1,
-      waitingSince: run === 'waiting' ? (open[0]?.at ?? term?.waitingSince ?? row.updated_at) : null,
+      waitingSince: run === 'waiting' ? (open[0]?.at ?? term?.waitingSince ?? row.updated_at) : (planWait?.since ?? null),
+      ...(planWait ? { planWaiting: true } : {}),
       request: open[0] ?? null,
       openRequests: run === 'waiting' ? Math.max(1, open.length) : 0,
       activityAt: row.activity_at || row.updated_at,
@@ -3529,7 +3899,9 @@ export class Host {
       pr: this.prOf(row),
       source: row.source ? (JSON.parse(row.source) as SessionSource) : null,
       subagentCounts: this.subagents.counts(row.id, !!this.runtimes.get(row.id)?.turnId),
-      agentsNotice: this.agentsNotices.get(row.id) ?? null
+      agentsNotice: this.agentsNotices.get(row.id) ?? null,
+      plan: this.plans.refFor(row.id),
+      ...(row.origin ? { origin: JSON.parse(row.origin) as SessionSummary['origin'] } : {})
     }
   }
 
@@ -3600,6 +3972,10 @@ export class Host {
   private emitSummary(sessionId: string): void {
     if (!this.rows.has(sessionId)) return
     this.broadcast({ type: 'session.upsert', session: this.summary(sessionId) })
+    // Whoever waits on this session (session.wait) checks again.
+    this.wakeWaiters(sessionId)
+    // The session of a task waiting for an answer is mirrored in the plan.
+    this.plans.sessionWaiting(sessionId, this.rows.get(sessionId)?.run_state === 'waiting')
     this.updateBadge()
     // LAD-80: stato, titolo e archiviazione sono nella mappa dei branch.
     if (this.branchMapSubs.size > 0) this.branchMaps.touch(this.rows.get(sessionId)!.project_id)
@@ -3758,6 +4134,7 @@ export class Host {
       if (row.run_state === 'waiting') count += Math.max(1, this.runtimes.get(row.id)?.pending.size ?? 0)
       else if ((row.run_state === 'error' && row.last_activity_seq > row.last_read_seq) || this.agentsNotices.has(row.id)) count++
     }
+    count += this.plans.waitingCount((id) => this.rows.get(id)?.run_state === 'idle' && this.rows.get(id)?.archived === 0)
     this.updateActivity()
     if (count === this.badge) return
     this.badge = count
@@ -3971,7 +4348,8 @@ export class Host {
   /** Un'altra sessione non archiviata usa la stessa cartella di lavoro. */
   private worktreeShared(row: SessionRow): boolean {
     const cwd = this.cwdOf(row)
-    return [...this.rows.values()].some((r) => r.id !== row.id && !r.archived && this.cwdOf(r) === cwd)
+    // The folder of a running plan (or its separate worktree) counts too, until a session uses it.
+    return [...this.rows.values()].some((r) => r.id !== row.id && !r.archived && this.cwdOf(r) === cwd) || this.plans.usesFolder(cwd)
   }
 
   /** Archivia la sessione di una PR unita (`pr`) o di un branch già nella base (null) e toglie il worktree se è pulito e nessun'altra sessione lo usa. */
@@ -4089,6 +4467,7 @@ export class Host {
     this.flush()
     for (const runtime of this.runtimes.values()) runtime.adapter.close()
     void this.browserAgent.shutdown()
+    void this.plans.shutdown()
     this.connections.shutdown()
     this.shortcuts.close()
     this.terminals.shutdown()
@@ -4168,6 +4547,8 @@ const NEVER_AUTO = new Set(['ExitPlanMode'])
 
 /** Origine dei comandi che non arrivano da una porta (nessuna finestra): un'unica connessione fittizia. */
 const LOCAL_ORIGIN = {}
+/** Origin of the commands coming from the CLI socket (host/index.ts). */
+export const CLI_ORIGIN = {}
 
 /** Il percorso (anche di un file non ancora creato) sta dentro la cartella, risolti i symlink? */
 async function insideDir(dir: string, path: string): Promise<boolean> {

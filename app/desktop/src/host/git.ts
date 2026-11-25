@@ -131,6 +131,17 @@ export async function ignoredAmong(repo: string, paths: string[]): Promise<strin
   }
 }
 
+/** Untracked, non-ignored files that a checkpoint leaves out (too large, or neither file nor symlink, such as nested repos). */
+export async function untrackedLeftOut(repo: string): Promise<string[]> {
+  const others = (await git(repo, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean)
+  const left: string[] = []
+  for (const file of others) {
+    const s = await lstat(join(repo, file)).catch(() => null)
+    if (s && !((s.isFile() && s.size <= MAX_UNTRACKED_BYTES) || s.isSymbolicLink())) left.push(file)
+  }
+  return left
+}
+
 /**
  * Fotografa working tree e file non tracciati in un commit su `ref`, senza toccare indice e branch dell'utente.
  * Parte da una copia dell'indice dell'utente (4–5 volte più veloce di read-tree). Funziona anche senza commit iniziale.

@@ -13,7 +13,7 @@ import { SessionGlyph } from '@/components/status'
 import { AgentMark, useAgentLine } from '@/components/agent-mark'
 import { useSessionProfileName } from '@/lib/profiles'
 import { request } from '@/lib/host-client'
-import { isUnreadState, sessionState } from '@/lib/session-state'
+import { isUnreadState, needsYou, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { isLiveSession, useApp } from '@/store/app-store'
 import { Kbd } from '@/components/ui/kbd'
@@ -31,7 +31,7 @@ export function useInboxGroups(): InboxGroups {
   return useMemo(() => {
     const live = Object.values(sessions).filter((s) => isLiveSession({ projects }, s))
     return {
-      waiting: live.filter((s) => s.run === 'waiting').sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0)),
+      waiting: live.filter(needsYou).sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0)),
       errors: live.filter((s) => s.run === 'error' && s.unread).sort((a, b) => b.activityAt - a.activityAt),
       unread: live.filter((s) => isUnreadState(sessionState(s))).sort((a, b) => b.activityAt - a.activityAt)
     }
@@ -178,6 +178,8 @@ function WaitingEntry({ session, projectName, first }: { session: SessionSummary
     [session.id, session.request?.id, first]
   )
   const terminal = session.mode === 'terminal'
+  // A plan waiting for your review: the button jumps to its card in the chat.
+  const planCardId = useApp((s) => (session.planWaiting ? ([...(s.items[session.id] ?? [])].reverse().find((i) => i.kind === 'plan')?.id ?? null) : null))
   return (
     <div className="flex flex-col gap-1.5 rounded-lg px-0.5 pt-1.5 pb-2">
       <EntryHeader session={session} projectName={projectName} at={session.waitingSince ?? session.updatedAt} />
@@ -200,10 +202,10 @@ function WaitingEntry({ session, projectName, first }: { session: SessionSummary
           <button
             type="button"
             data-primary
-            onClick={() => useApp.getState().openSessionAt(session.id, null)}
+            onClick={() => useApp.getState().openSessionAt(session.id, planCardId)}
             className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-foreground bg-foreground px-[11px] text-sm font-[560] text-background outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            {terminal ? t('Go to terminal') : t('Open')}
+            {terminal ? t('Go to terminal') : session.planWaiting ? t('Open the plan') : t('Open')}
           </button>
         </div>
       )}

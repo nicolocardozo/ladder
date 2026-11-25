@@ -19,6 +19,7 @@ import type { ToolKind } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { browserToolOf, browserToolView } from '@/lib/browser-agent'
 import { cn } from '@/lib/utils'
+import { ChildSessionLink } from '@/components/session-origin'
 import { AgentToolRow } from './agent-row'
 import { Spinner } from './bits'
 import { useToggle } from './chat-context'
@@ -173,6 +174,7 @@ function PlainToolRow({ item: raw }: { item: ToolItem }) {
         />
       </Row>
       {open && expandable ? <ToolOutput item={item} /> : null}
+      <ChildSessionLink name={item.name} output={item.output} />
     </div>
   )
 }

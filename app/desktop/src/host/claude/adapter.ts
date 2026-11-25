@@ -14,7 +14,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import { localeTag, t } from '@shared/i18n'
 import type { AgentStatus, Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, SlashCommand, ToolKind, UsageWindow } from '@shared/protocol'
-import { agentInstructions, BROWSER_MCP_NAME } from '../agents/common'
+import { agentInstructions, BROWSER_MCP_NAME, LADDER_MCP_NAME } from '../agents/common'
 import type { SubagentUpdate } from '../subagents'
 import { claudeAccountLabel, claudeEnv, claudeModels, claudeUsage, readClaudeDefaults } from './environment'
 
@@ -122,6 +122,8 @@ export interface StartOptions {
   autonomyHint?: boolean
   /** LAD-57 parte 2: server MCP del browser dell'agente (URL e token della sessione); assente = nessuna registrazione. */
   browserTools?: { url: string; token: string } | null
+  /** Ladder's MCP server (executable plans); absent = no registration. */
+  ladderTools?: { url: string; token: string } | null
 }
 
 
@@ -331,7 +333,7 @@ export class ClaudeSession {
       options: {
         cwd,
         // Il token del browser dell'agente viaggia nell'ambiente del processo, non negli argomenti (`ps` li mostra a tutti).
-        env: { ...claudeEnv(configDir ?? null), ...(this.options.browserTools ? { LADDER_BROWSER_TOKEN: this.options.browserTools.token } : {}) },
+        env: { ...claudeEnv(configDir ?? null), ...(this.options.browserTools ? { LADDER_BROWSER_TOKEN: this.options.browserTools.token } : {}), ...(this.options.ladderTools ? { LADDER_MCP_TOKEN: this.options.ladderTools.token } : {}) },
         abortController: this.abort,
         ...(cli ? { pathToClaudeCodeExecutable: cli } : {}),
         ...(model ? { model } : {}),
@@ -354,10 +356,14 @@ export class ClaudeSession {
         settings: { disableClaudeAiConnectors: true },
         // LAD-57 parte 2: browser dell'agente. Le conferme (click, digitazione, indirizzi fuori da localhost) le chiede il server
         // stesso con le card di approvazione e secondo il livello della sessione: qui gli strumenti non chiedono una seconda volta.
-        ...(this.options.browserTools
+        // `ladder` server (propose_plan, revise_plan, report_result), always registered: its policy lives in the server, no confirmation here.
+        ...(this.options.browserTools || this.options.ladderTools
           ? {
-              mcpServers: { [BROWSER_MCP_NAME]: { type: 'http' as const, url: this.options.browserTools.url, headers: { Authorization: 'Bearer ${LADDER_BROWSER_TOKEN}' } } },
-              allowedTools: [`mcp__${BROWSER_MCP_NAME}`]
+              mcpServers: {
+                ...(this.options.browserTools ? { [BROWSER_MCP_NAME]: { type: 'http' as const, url: this.options.browserTools.url, headers: { Authorization: 'Bearer ${LADDER_BROWSER_TOKEN}' } } } : {}),
+                ...(this.options.ladderTools ? { [LADDER_MCP_NAME]: { type: 'http' as const, url: this.options.ladderTools.url, headers: { Authorization: 'Bearer ${LADDER_MCP_TOKEN}' } } } : {})
+              },
+              allowedTools: [...(this.options.browserTools ? [`mcp__${BROWSER_MCP_NAME}`] : []), ...(this.options.ladderTools ? [`mcp__${LADDER_MCP_NAME}`] : [])]
             }
           : {}),
         canUseTool

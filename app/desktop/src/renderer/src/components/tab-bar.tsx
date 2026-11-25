@@ -14,7 +14,7 @@ import { agentStatusText, hasAgentTab } from '@/lib/browser-agent'
 import { canDropOnEdge, overSplitEdge } from '@/components/split-view'
 import { startSortDrag } from '@/lib/pointer-drag'
 import { isMac } from '@/lib/send-key'
-import { sessionState } from '@/lib/session-state'
+import { needsYou, sessionState } from '@/lib/session-state'
 import { cn } from '@/lib/utils'
 import { browserColumnActive, isBrowserColumnOpen, liveColumns, useApp } from '@/store/app-store'
 
@@ -54,7 +54,7 @@ export function TabBar({ projectId, activeSessionId, activeFile }: { projectId: 
   }
   // Una richiesta in un'altra sessione dello stesso progetto: niente notifica, un avviso qui con "Vai".
   const waitingHere = Object.values(sessions)
-    .filter((s) => s.projectId === projectId && !s.archived && s.run === 'waiting' && s.id !== activeSessionId)
+    .filter((s) => s.projectId === projectId && !s.archived && needsYou(s) && s.id !== activeSessionId)
     .sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
 
   // Browser degli agenti di questo progetto: le loro pagine stanno nella colonna browser; qui resta solo l'avviso.

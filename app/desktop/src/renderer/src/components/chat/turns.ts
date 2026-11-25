@@ -12,6 +12,7 @@ export type CommandItem = Extract<ChatItem, { kind: 'command' }>
 export type AgentStartItem = Extract<ChatItem, { kind: 'agent-start' }>
 export type AgentsFinishedItem = Extract<ChatItem, { kind: 'agents-finished' }>
 export type CompactedItem = Extract<ChatItem, { kind: 'compacted' }>
+export type PlanItem = Extract<ChatItem, { kind: 'plan' }>
 
 export interface Turn {
   id: string
@@ -230,6 +231,8 @@ export function estimateTurnHeight(turn: Turn, m: ChatColumn = DEFAULT_COLUMN): 
     h += turn.open.length * 190 + 32
   }
   // Righe di fine agenti: "waiting" con pulsante e spiegazione (due righe), "continued" una riga; 'resumed' di solito è nascosta dalla riga di avvio e 'dismissed' non si vede.
+  // Plan card: tall while in review or running (the measured height replaces the estimate), one row once closed.
+  h += turn.items.filter((i) => i.kind === 'plan').length * 260
   for (const f of turn.finished) {
     if (f.state === 'waiting') h += 62
     else if (f.state === 'continued') h += 26

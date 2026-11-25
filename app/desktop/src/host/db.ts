@@ -82,6 +82,23 @@ create table if not exists project_profiles (
   profile_id text not null,
   primary key (project_id, agent)
 );
+create table if not exists plans (
+  id text primary key,
+  session_id text not null,
+  project_id text not null,
+  status text not null,
+  json text not null,
+  meta text not null,
+  created_at integer not null,
+  updated_at integer not null
+);
+create index if not exists plans_by_session on plans (session_id);
+create table if not exists plan_templates (
+  id text primary key,
+  name text not null,
+  json text not null,
+  created_at integer not null
+);
 create table if not exists terminals (
   id text primary key,
   project_id text not null,
@@ -114,7 +131,9 @@ const COLUMNS: [table: string, column: string, definition: string][] = [
   ['sessions', 'permission_next', 'text'],
   // Sessione archiviata dopo l'unione ('git' | 'pr') e quando: la mappa dei branch (LAD-80) la ricorda anche dopo un riavvio. Null = non nota.
   ['sessions', 'merged_via', 'text'],
-  ['sessions', 'merged_at', 'integer']
+  ['sessions', 'merged_at', 'integer'],
+  // Who started the session outside the UI (JSON of SessionSummary.origin); null = started from the UI.
+  ['sessions', 'origin', 'text']
 ]
 
 function migrate(db: DatabaseSync): void {
@@ -191,6 +210,8 @@ export interface SessionRow {
   /** 'git' | 'pr' se la sessione è stata archiviata come unita (LAD-80); null altrimenti. */
   merged_via: string | null
   merged_at: number | null
+  /** JSON of SessionSummary.origin; null if the session was started from the UI. */
+  origin: string | null
 }
 
 export interface CheckpointRow {

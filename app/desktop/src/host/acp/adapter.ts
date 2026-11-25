@@ -7,7 +7,7 @@ import { Readable, Writable } from 'node:stream'
 import * as acp from '@agentclientprotocol/sdk'
 import { t } from '@shared/i18n'
 import type { AcpAgentSpec, AgentLogin, Attachment, Effort, PermissionLevel, RequestOption } from '@shared/protocol'
-import { agentEnv, BROWSER_MCP_NAME, clip, displayCommand, firstLine, whichInShell, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
+import { agentEnv, BROWSER_MCP_NAME, LADDER_MCP_NAME, clip, displayCommand, firstLine, whichInShell, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
 
 /** Chiavi API tolte sempre: vale il login dell'agente. */
 export const STRIP_ENV = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY']
@@ -300,7 +300,12 @@ export class AcpSession implements AgentSession {
     // LAD-57 parte 2: browser dell'agente, solo se l'agente dichiara MCP su http (initialize → mcpCapabilities); altrimenti non si registra e si avvisa.
     const browser = this.options.browserTools
     const mcpHttp = (init.agentCapabilities as { mcpCapabilities?: { http?: boolean } } | undefined)?.mcpCapabilities?.http === true
-    const mcpServers: acp.McpServer[] = browser && mcpHttp ? [{ type: 'http', name: BROWSER_MCP_NAME, url: browser.url, headers: [{ name: 'Authorization', value: `Bearer ${browser.token}` }] }] : []
+    // `ladder` server (plans); if the agent does not speak MCP over http it is not registered, with no warning (it would fire for every session).
+    const ladder = this.options.ladderTools
+    const mcpServers: acp.McpServer[] = [
+      ...(browser && mcpHttp ? [{ type: 'http' as const, name: BROWSER_MCP_NAME, url: browser.url, headers: [{ name: 'Authorization', value: `Bearer ${browser.token}` }] }] : []),
+      ...(ladder && mcpHttp ? [{ type: 'http' as const, name: LADDER_MCP_NAME, url: ladder.url, headers: [{ name: 'Authorization', value: `Bearer ${ladder.token}` }] }] : [])
+    ]
     if (browser && !mcpHttp) this.events.notice('info', t('{agent} cannot use the browser tools: it does not support MCP servers over HTTP.', { agent: spec.name }))
     let configOptions: ConfigOption[] | null | undefined
     try {

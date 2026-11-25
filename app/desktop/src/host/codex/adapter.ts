@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs'
 import { relative } from 'node:path'
 import { t } from '@shared/i18n'
 import type { Attachment, Effort, PermissionLevel, Question, RequestOption, RequestResponse, SlashCommand } from '@shared/protocol'
-import { agentInstructions, BROWSER_MCP_NAME, clip, displayCommand, firstLine, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
+import { agentInstructions, BROWSER_MCP_NAME, LADDER_MCP_NAME, clip, displayCommand, firstLine, type AdapterEvents, type AgentSession, type SessionOptions, type UserRequest } from '../agents/common'
 import { accountEmail, accountLabel, codexEnv, describeLimits, codexModels, describeUsage, parseModels, type CodexModel } from './environment'
 import { CodexRpc, type ServerReply, type ServerRequest } from './rpc'
 
@@ -176,6 +176,16 @@ export class CodexSession implements AgentSession {
               [`mcp_servers.${BROWSER_MCP_NAME}.default_tools_approval_mode`]: 'approve',
               // Predefinito 60 s: una conferma dell'utente (fino a 10 minuti nel server) farebbe scadere la chiamata.
               [`mcp_servers.${BROWSER_MCP_NAME}.tool_timeout_sec`]: 660
+            }
+          : {}),
+        // `ladder` server (propose_plan, revise_plan, report_result): non-blocking, no Codex confirmation.
+        ...(this.options.ladderTools
+          ? {
+              [`mcp_servers.${LADDER_MCP_NAME}.url`]: this.options.ladderTools.url,
+              [`mcp_servers.${LADDER_MCP_NAME}.http_headers`]: { Authorization: `Bearer ${this.options.ladderTools.token}` },
+              [`mcp_servers.${LADDER_MCP_NAME}.default_tools_approval_mode`]: 'approve',
+              // ladder_wait waits up to 10 minutes (default timeout is 60 s): the timeout must cover it.
+              [`mcp_servers.${LADDER_MCP_NAME}.tool_timeout_sec`]: 660
             }
           : {})
       }

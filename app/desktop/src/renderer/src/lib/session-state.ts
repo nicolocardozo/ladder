@@ -18,8 +18,11 @@ export function agentsRunning(session: SessionSummary): number {
 /** Stati che dicono "c'è qualcosa da leggere": risposta non letta o avviso dei sotto-agenti. */
 export const isUnreadState = (state: SessionState) => state === 'unread' || state === 'agents' || state === 'agents-failed'
 
+/** The session is waiting for you: an agent request (run 'waiting') or a plan in review or paused (`planWaiting`, with `run` left as it really is). */
+export const needsYou = (session: Pick<SessionSummary, 'run' | 'planWaiting'>): boolean => session.run === 'waiting' || session.planWaiting === true
+
 export function sessionState(session: SessionSummary): SessionState {
-  if (session.run === 'waiting') return 'waiting'
+  if (needsYou(session)) return 'waiting'
   if (session.run === 'error') return 'error'
   if (session.run === 'running' || session.run === 'starting') return 'running'
   // Finché dei sotto-agenti lavorano la sessione aspetta loro: vale più dell'avviso di quelli già finiti.
@@ -70,7 +73,7 @@ export interface ProjectAttention {
 
 export function projectAttention(sessions: SessionSummary[]): ProjectAttention {
   const states = sessions.map(sessionState)
-  const waiting = sessions.filter((s) => s.run === 'waiting').sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
+  const waiting = sessions.filter(needsYou).sort((a, b) => (a.waitingSince ?? 0) - (b.waitingSince ?? 0))
   const errors = sessions.filter((s) => s.run === 'error')
   const unread = sessions.filter((s) => isUnreadState(sessionState(s))).sort((a, b) => b.activityAt - a.activityAt)
   return {
@@ -93,7 +96,7 @@ export interface Note<Code extends string> {
 
 /** Testo breve per la riga della sessione: richiesta, coda, errore, PR, bozza o età. */
 export function sessionNote(session: SessionSummary, hasDraft: boolean, now = Date.now()): Note<SessionNoteCode> {
-  if (session.run === 'waiting') return { code: 'waiting', text: session.waitingLabel ?? t('Needs you') }
+  if (needsYou(session)) return { code: 'waiting', text: session.waitingLabel ?? t('Needs you') }
   if (session.run === 'error') return { code: 'error', text: t('Error') }
   const waiting = agentsRunning(session)
   if (waiting > 0) return { code: 'agents-running', text: plural(waiting, 'Waiting for 1 agent', 'Waiting for {n} agents') }

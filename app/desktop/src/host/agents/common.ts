@@ -50,10 +50,15 @@ export interface SessionOptions {
   autonomyHint?: boolean
   /** LAD-57 parte 2: server MCP del browser dell'agente (URL e token della sessione); assente = interruttore spento, nessuna registrazione. */
   browserTools?: { url: string; token: string } | null
+  /** The session's `ladder` MCP server (propose_plan, revise_plan, report_result); absent = not registered. */
+  ladderTools?: { url: string; token: string } | null
 }
 
 /** LAD-57 parte 2: nome con cui il server MCP del browser dell'agente si registra negli adapter (in Claude: `mcp__ladder-browser__browser_*`). */
 export const BROWSER_MCP_NAME = 'ladder-browser'
+
+/** Name of Ladder's MCP server (in Claude: `mcp__ladder__propose_plan`). The tool is not called `update_plan` because Codex already has one, its to-do list. */
+export const LADDER_MCP_NAME = 'ladder'
 
 /** Istruzione di autonomia (HostPrefs.autonomyHint) per Edit e Full access, nel prompt di sistema di Claude e nelle developerInstructions di Codex: compiti lunghi senza fermarsi per prudenza. */
 export const AUTONOMY_HINT =
