@@ -1,7 +1,9 @@
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import { CatalogViz } from "./catalog"
+import { HandoffViz } from "./handoff"
 import { LimitsViz } from "./limits"
+import { PlansViz } from "./plans"
 import { SubagentsViz } from "./subagents"
 import { WaitingViz } from "./waiting"
 import { WorktreesViz } from "./worktrees"
@@ -48,6 +50,12 @@ export function Features() {
         </Card>
         <Card viz={<SubagentsViz />} title="Sub-agents you can follow">
           When an agent splits the work, Ladder draws the map: who started whom, what each one is doing, and the report that comes back.
+        </Card>
+        <Card viz={<HandoffViz />} title="Agents that work together">
+          Type /handoff codex and Codex picks up from a summary of what Claude did. Ask another agent for a second opinion on the diff with /advisor, or let an agent delegate a review while it keeps the lead.
+        </Card>
+        <Card viz={<PlansViz />} title="Plans that run themselves">
+          Type /plan and a goal. The agent proposes the tasks, you edit and approve them, and Ladder runs each one in its own session, side by side in worktrees where it can, pausing where you asked.
         </Card>
         <Card viz={<WorktreesViz />} title="A worktree for every session">
           Each agent works on its own branch in its own folder. Review the diff, merge it, or throw it away without touching your checkout.

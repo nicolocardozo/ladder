@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
-// Pannello Circuit scuro dentro l'area visiva delle schede
+// Dark Circuit panel inside the cards' visual area
 export function Panel({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <div

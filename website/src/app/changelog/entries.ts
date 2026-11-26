@@ -12,7 +12,7 @@ export const ENTRIES: Entry[] = [
   {
     date: "2026-11-26",
     title: "Agents that work together, executable plans and a ladder command",
-    summary: "Ladder 0.1.4: hand work from one agent to another, run plans task by task, drive Ladder from the terminal, and one more agent.",
+    summary: "Ladder 0.1.4 and 0.1.5: hand work from one agent to another, run plans task by task, drive Ladder from the terminal, and one more agent.",
     items: [
       "Hand a session over to another agent with /handoff: the current agent writes a summary and the work continues in a linked session. Hand it back to resume the first one.",
       "Ask another agent for advice with /advisor, or two to four with /committee. They read the work read-only and answer in a card you can send to your agent.",
@@ -21,6 +21,7 @@ export const ENTRIES: Entry[] = [
       "When an agent reaches its plan limit, a card proposes another agent to continue with. A per-project setting can switch automatically.",
       "Optional cross-review: after a turn with changes, another agent reads the diff and a serious verdict goes back to the first agent.",
       "Executable plans: an agent proposes a plan, you edit and approve it, and each task runs in its own session in dependency order. Writing tasks run in parallel in separate worktrees and are merged back. Stop points, review loops, retry, reassign, skip, recovery after a restart and saved templates.",
+      "Type /plan and a goal to ask the agent for an executable plan.",
       "The ladder command (projects, ls, new, send, wait, attach, stop) drives sessions from the terminal, and agents can start and follow sessions the same way, within their own permissions. Install it from Settings → Data and system. Sessions started from the terminal or by another agent show where they came from.",
       "The Claude agent is now called Claude in the app. It still runs the Claude Code CLI.",
       "Grok Build joins the curated agents, with its own sign-in.",

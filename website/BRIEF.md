@@ -30,8 +30,8 @@ Single source for whoever works on the site. Agents read this file instead of ha
 - As in v2: large sentence, text in the middle of the page; words light up on scroll, the last sentence in iris.
 - **Below the sentence**: [Ghost Fibers from React Bits](https://reactbits.dev/backgrounds/ghost-fibers), on a white background, in a color that does not clash with the violet part of the text (slate gray or a cool neutral). Check whether it is a Pro component and what the license is.
 
-### 3. Features: the 5 cards from v2
-- 2×2 grid plus a wide card below, as in v2: Waiting, subagents, worktrees, plan limits, agent catalog with sha256. Each card has an animated Circuit mini-screen.
+### 3. Features: seven cards
+- Two-column grid plus a wide card below: Waiting, subagents, agents working together (handoff, advice, delegation), executable plans, worktrees, plan limits, agent catalog with sha256. Each card has an animated Circuit mini-screen. The first five come from v2; the two on agents working together and plans were added with those features.
 - The three-level drum from v3 (GenAI style) is still to be decided: it does not replace these cards.
 
 ### 4. Supported agents

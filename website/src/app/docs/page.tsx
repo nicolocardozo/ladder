@@ -24,6 +24,7 @@ const TOC = [
   { id: "handoff", label: "Handoff, advice and delegation" },
   { id: "plans", label: "Executable plans" },
   { id: "cli", label: "The ladder command" },
+  { id: "together", label: "Getting agents to work together" },
   { id: "limits", label: "Plan limits" },
   { id: "settings", label: "Look, language and settings" },
   { id: "shortcuts", label: "Keyboard shortcuts" },
@@ -470,8 +471,10 @@ note       = "Reviews and second opinions"`}</CodeBlock>
           <Section id="plans" title="Executable plans">
             <Prose className="mt-5">
               <p>
-                For work that is bigger than one session, ask an agent for a plan. It proposes it with{" "}
-                <Code>propose_plan</Code> and the plan appears in the chat as a card, <strong>Plan to review</strong>.{" "}
+                For work that is bigger than one session, type <Code>/plan</Code> and the goal in the message box, or ask
+                the agent for an executable plan in your own words. It proposes it with <Code>propose_plan</Code> and the
+                plan appears in the chat as a card, <strong>Plan to review</strong>. This is different from the agent&apos;s
+                own plan mode: Ladder runs the plan, task by task, each in its own session.{" "}
                 <strong>Nothing runs until you approve it.</strong> You can also start from a saved template with{" "}
                 <strong>Use plan template…</strong> in <Kbd>⌘</Kbd> <Kbd>K</Kbd>.
               </p>
@@ -586,6 +589,52 @@ ladder attach <id>`}</CodeBlock>
                 applies. The command only starts chat sessions, with no attachments, and anything you run as your user, such
                 as an agent with a shell, can use it like you do.
               </p>
+            </Prose>
+          </Section>
+
+          <Section id="together" title="Getting agents to work together">
+            <Prose className="mt-5">
+              <p>
+                Each agent has its strengths, and none of them sees its own mistakes as well as another one does. A few
+                habits that make the most of having several agents in the same window:
+              </p>
+              <ul>
+                <li>
+                  <strong>A second opinion before you merge.</strong> When a session has finished a change, type{" "}
+                  <Code>/advisor codex is this safe to merge?</Code>. Codex reads the diff without touching it, and{" "}
+                  <strong>Send to…</strong> passes what it found to the agent that wrote the code.
+                </li>
+                <li>
+                  <strong>A committee for decisions that are hard to undo.</strong> Before choosing a library, a schema or an
+                  architecture, <Code>/committee</Code> asks two to four agents on their own, so you compare independent
+                  answers instead of one agent agreeing with itself.
+                </li>
+                <li>
+                  <strong>A handoff when an agent is stuck or out of quota.</strong> <Code>/handoff codex</Code> moves the
+                  work with a summary of the goal, the decisions and what is left, in the same folder. When the first agent
+                  is back, hand it back and the original session resumes.
+                </li>
+                <li>
+                  <strong>A plan for work bigger than one session.</strong> Type <Code>/plan</Code> and the goal, for
+                  example <Code>/plan add CSV export to billing</Code>. Ask for a review task run by a different agent than
+                  the one that implements, put <strong>Pause after</strong> on risky tasks such as migrations, and save
+                  plans you repeat (a release, a dependency upgrade) as templates.
+                </li>
+                <li>
+                  <strong>Delegation inside a turn.</strong> Tell the agent what to hand out, for example &ldquo;write the
+                  feature and delegate the tests to Codex&rdquo;. List the delegates you like in{" "}
+                  <Code>[[agents.delegates]]</Code>, with a note on what each is good at, and the agent will pick from them.
+                </li>
+                <li>
+                  <strong>Cross-review on projects that matter.</strong> With <Code>cross_review</Code> set, every completed
+                  turn that changes files in a session you talk to gets a read-only review from another agent, and serious
+                  issues go back to the session by themselves.
+                </li>
+                <li>
+                  <strong>Agents from your scripts.</strong> <Code>ladder new . &quot;Update the changelog&quot; --wait</Code>{" "}
+                  starts a session and prints the answer, and its exit code says whether it completed or needs you.
+                </li>
+              </ul>
             </Prose>
           </Section>
 

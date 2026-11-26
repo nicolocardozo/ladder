@@ -56,7 +56,7 @@ There is no Ladder account and no telemetry. Ladder talks to the network only fo
 - When an agent reaches its plan limit, a card proposes another agent to continue with; a per-project setting can switch automatically. Optionally, another agent cross-reviews each turn with changes.
 
 **Executable plans and the `ladder` command**
-- An agent proposes a plan (`propose_plan`) that shows as an editable card. After you approve it, each task runs in its own session in dependency order, with one writer at a time in the plan folder and parallel writing tasks in separate worktrees merged back.
+- Type `/plan <goal>` (or ask in your own words) and the agent proposes a plan (`propose_plan`) that shows as an editable card. Unlike an agent's own plan mode, Ladder runs it. After you approve it, each task runs in its own session in dependency order, with one writer at a time in the plan folder and parallel writing tasks in separate worktrees merged back.
 - Stop points, review loop-backs, retry, reassign, skip and stop; plans recover after a restart and can be saved as templates.
 - Agents can start, message and wait for other sessions (`ladder_list_sessions`, `ladder_start_session`, `ladder_send`, `ladder_wait`), never above their own permissions.
 - The `ladder` command (`projects`, `ls`, `new`, `send`, `wait`, `attach`, `stop`) drives sessions from a terminal, over a local socket only your user can use. Install it from Settings → Data and system → Command line. Sessions started from the terminal or by another agent show where they came from.

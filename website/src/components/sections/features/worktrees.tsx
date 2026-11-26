@@ -12,7 +12,7 @@ const BR = [
 ]
 const MONO = { fontFamily: "var(--font-mono)" }
 
-// Grafo git: i branch si disegnano uno dopo l'altro, poi compare "Merged"
+// Git graph: the branches draw one after another, then "Merged" appears
 export function WorktreesViz() {
   const ref = useRef<HTMLDivElement>(null)
   const active = useActive(ref)
