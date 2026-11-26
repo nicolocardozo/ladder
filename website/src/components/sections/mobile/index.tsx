@@ -1,5 +1,5 @@
 import { Bell, Gauge, KeyRound, Smartphone } from "lucide-react"
-import { NeedsYou, RunningRing } from "@/components/ladder-ui/status"
+import { PhoneDemo } from "./phone"
 
 const POINTS = [
   {
@@ -24,44 +24,16 @@ const POINTS = [
   },
 ] as const
 
-// Phone drawn in HTML/CSS with a pending request, generic sample data
+// The phone app in a CSS iPhone, on the same dotted frame as the feature cards
 function PhoneViz() {
   return (
-    <div aria-hidden className="relative h-[460px] overflow-hidden rounded-[18px] border border-hairline bg-frame sm:h-[520px]">
+    <div className="relative flex items-center justify-center overflow-hidden rounded-[18px] border border-hairline bg-frame py-10 sm:py-12">
       <div
+        aria-hidden
         className="absolute inset-0 opacity-80"
         style={{ backgroundImage: "radial-gradient(circle, var(--color-dot) 1px, transparent 1.5px)", backgroundSize: "18px 18px" }}
       />
-      <div className="absolute top-8 bottom-[-1px] left-1/2 flex w-[min(260px,72%)] -translate-x-1/2 flex-col rounded-t-[34px] bg-c-bg p-2 text-[12.5px] leading-[1.4] text-c-text shadow-[0_0_0_1px_rgb(24_20_36/0.9),0_24px_50px_-16px_rgb(60_30_160/0.45)]">
-        <div className="flex flex-1 flex-col overflow-hidden rounded-t-[27px] border border-c-line bg-c-sidebar">
-          <div className="mx-auto mt-2 h-[18px] w-[72px] rounded-full bg-c-bg" />
-          <div className="flex h-10 items-center px-4 font-medium">
-            Waiting
-            <span className="ml-auto text-[11.5px] font-normal text-c-muted">1 request</span>
-          </div>
-          <div className="flex flex-col gap-2 px-2.5">
-            <div className="rounded-[10px] border border-c-waiting/45 bg-c-surface p-3">
-              <div className="flex items-center gap-2">
-                <NeedsYou />
-                <span className="font-mono text-[11px] text-c-muted">api-server</span>
-              </div>
-              <p className="mt-1.5">Codex wants to run pnpm test</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <span className="rounded-lg bg-c-accent py-1.5 text-center font-medium text-c-bg">Approve</span>
-                <span className="rounded-lg border border-c-border py-1.5 text-center text-c-muted">Deny</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 rounded-[10px] bg-c-surface px-3 py-2.5">
-              <RunningRing />
-              <span className="min-w-0 flex-1 truncate">
-                <span className="font-mono text-[11px] text-c-muted">web-app</span>
-                <br />
-                Claude is working
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PhoneDemo />
     </div>
   )
 }
