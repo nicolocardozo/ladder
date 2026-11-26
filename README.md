@@ -1,208 +1,72 @@
-# Ladder
+<p align="center">
+  <img src="brand/app-icon/png/circuit/ladder-256.png" width="88" height="88" alt="Ladder app icon" />
+</p>
 
-A macOS workspace for working on several repositories at once with coding agents: Claude, Codex and any agent that speaks the Agent Client Protocol (ACP), in chat or in a terminal.
+<h1 align="center">Ladder</h1>
 
-The agent chat sits in the middle, with files, diffs and a terminal at hand, and one view of who is waiting for you in which project. At any moment you can see what is happening in every project (who is working, with which agent and model, who needs you) and step in with one or two actions.
+<p align="center">Every agent, every repo, one calm window.</p>
 
-Website: [itsladder.dev](https://itsladder.dev)
+<p align="center">
+  <a href="https://itsladder.dev/download"><strong>Download for Mac</strong></a> ·
+  <a href="https://itsladder.dev/docs">Docs</a> ·
+  <a href="https://itsladder.dev/changelog">Changelog</a> ·
+  <a href="https://itsladder.dev">Website</a>
+</p>
 
-> Ladder is an independent project. It is not affiliated with or endorsed by Anthropic, OpenAI, Google or the makers of the other agents it works with. Product names belong to their respective owners.
+Ladder is a macOS app for people who work on several repositories at once with coding agents. It puts every project and every agent session in one window: you see who is working, who is done and who is waiting for you, and you step in with a click instead of hunting through terminals and chat windows.
 
-## History
+It works with Claude, Codex and any agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), in a chat or in a terminal.
 
-Ladder has been in development since November 7, 2026. The first public release, v0.1.0, shipped on November 23, 2026. The commit history in this repository goes back to the first day.
+## Why it exists
 
-## Status
+I started Ladder for myself. Working on several projects at the same time, each with an agent running, I spent more time switching between windows than doing the work. Ladder is the workspace I wanted: one place that tells me where I'm needed and lets me answer from there.
 
-Early and moving fast. Ladder is built and used every day by its author; expect rough edges and breaking changes between versions.
+It has been in development since November 7, 2026, and the first public release, v0.1.0, shipped on November 23, 2026. The commit history in this repository goes back to the first day.
+
+## What it does
+
+- **All your projects side by side.** Each session shows its state (running, waiting, unread, error), and one "Waiting" view collects the approvals and questions from every project.
+- **Agents that don't collide.** A session can work in its own git worktree, so two agents on the same repository never touch the same files. A merge panel shows the branch, the PR, CI and review comments.
+- **Agents that work together.** Hand a session off to another agent with a summary of what was done, ask one or more agents for a second opinion, or let an agent delegate part of the work.
+- **Plans that run themselves.** Type `/plan` and a goal: the agent proposes a plan, you edit and approve it, and Ladder runs it task by task, each with the right agent, in dependency order.
+- **Your subscriptions, your limits.** Agents use their own sign-in and your existing plans. Ladder shows how much of each plan limit is left and suggests another agent when one runs out.
+- **Files, diffs and a terminal at hand.** Review changes per turn, comment on lines, open files and run commands without leaving the session.
+- **No account, no telemetry.** Ladder talks to the network only for what you use, and stores no secrets apart from an optional Linear API key, encrypted in the Keychain.
+
+The [full feature list](docs/FEATURES.md) covers everything in detail.
 
 ## Install
 
-Download the latest build for Apple Silicon or Intel from [Releases](https://github.com/nicolocardozo/ladder-releases/releases). Builds are signed and notarized, and update themselves.
+[Download Ladder](https://itsladder.dev/download) for Apple Silicon or Intel Macs. Builds are signed, notarized and update themselves.
 
-Ladder works with the agents' own sign-in and your own subscriptions:
+You need at least one agent signed in on your Mac, for example the [Claude Code](https://claude.com/product/claude-code) CLI or [Codex](https://developers.openai.com/codex/cli). Ladder finds the ones you already have; if Codex, the `gh` CLI or an ACP agent is missing, it can download it after you confirm the version, size and checksum.
 
-- **Claude** (it runs the Claude Code CLI) through the official Claude Agent SDK, which runs the unmodified `claude` binary. You sign in with Anthropic's own flow; Ladder never reads, stores or forwards agent credentials.
-- **Codex** through `codex app-server`. Ladder looks for the Codex already on your Mac first (the CLI on your `PATH`, the Codex app, or the one bundled with the Cursor and VS Code extensions).
-- **ACP agents** from the official registry (via `npx`, `uvx` or a binary to download) or from a command you write.
-- **Terminal sessions** for `claude`, `codex` or any other command, in a real PTY.
+A phone app to follow sessions and approve requests away from your desk is in the works.
 
-If Codex, the `gh` CLI or an ACP agent's binary is missing, Ladder can download it for you, only after a confirmation that shows the version, host, size and full SHA-256 checksum, which is verified before anything runs.
+## Status
 
-GitHub goes through the `gh` CLI and its own sign-in. Linear uses a personal API key, stored encrypted in the macOS Keychain; it is the only secret Ladder stores.
+Early and moving fast. I use Ladder every day; expect rough edges and changes between versions. Feedback and bug reports are very welcome.
 
-There is no Ladder account and no telemetry. Ladder talks to the network only for what you use: the agents' own services, GitHub (including app updates from GitHub Releases), the ACP registry, Linear, downloads you confirm and, once access from your phone arrives and you turn it on, the relay and Expo's push service (see below).
+## Documentation
 
-## Features
+- [Getting started and usage](https://itsladder.dev/docs)
+- [Full feature list](docs/FEATURES.md)
+- [Project configuration](docs/CONFIGURATION.md) (`.ladder/settings.toml`: worktree setup, run buttons, agents, prompts)
+- [Building from source and architecture](docs/DEVELOPMENT.md)
+- [Privacy](https://itsladder.dev/privacy)
 
-**Projects and sessions**
-- One project at a time, with its tabs, files, terminal and new chat; sessions show their state (running, waiting for approval, unread, error).
-- Live, unread and draft sessions stay in the sidebar; the rest is in "All sessions", with search, filters, groups and bulk archive.
-- ⌘1…⌘9 switch projects and ⌘W closes a tab; drafts, reading position and sessions are kept across restarts.
-- No cap on active sessions: Ladder warns you as you get close to your plan limits instead.
-- ⌘⇧N starts a session from a GitHub issue or PR, a Linear issue or a branch, with the prompt already written and the worktree on the right branch.
+## A look at Ladder
 
-**Chat**
-- Streaming, an activity summary, code blocks, clickable file references, files changed per turn (git checkpoints).
-- Approvals and questions as cards with shortcuts, an editable message queue, stop, model, effort and four permission levels shared by every agent (Plan, Ask, Edit, Full access; ⇧Tab).
-- `@` to mention project files, `@terminal` to attach terminal output, pasted or dropped images, `/` commands for each agent.
-- Model and effort can change mid-session; a composer button shows the agent's usage windows and when they reset.
-- Subagents started by the main agent (Claude's Agent/Task, Codex's `spawnAgent`) appear in an agent map with state, duration, model, tokens and tools.
-
-**Agents working together**
-- Hand a session off to another agent (`/handoff`, or "Hand off to…" in the session menu): the current agent writes a summary and the work continues in a linked session in the same folder; hand it back to resume the first one.
-- `/advisor` and `/committee` ask one, or two to four, other agents for read-only advice on the work and the diff, shown as a card you can send to your agent. A plan can be opened as a document, commented line by line and implemented with any agent.
-- Chat sessions get a Ladder MCP server with `list_agents`, `handoff` and `delegate` (plus the plan and session tools); `report_result` is there only when someone waits for the result (plan tasks, delegated tasks, sessions reached by a handoff). A delegation runs as a child session in the agent map; stop it, or after a restart resume or dismiss it. Preferred delegates per project in `[[agents.delegates]]`.
-- When an agent reaches its plan limit, a card proposes another agent to continue with; a per-project setting can switch automatically. Optionally, another agent cross-reviews each turn with changes.
-
-**Executable plans and the `ladder` command**
-- Type `/plan <goal>` (or ask in your own words) and the agent proposes a plan (`propose_plan`) that shows as an editable card. Unlike an agent's own plan mode, Ladder runs it. After you approve it, each task runs in its own session in dependency order, with one writer at a time in the plan folder and parallel writing tasks in separate worktrees merged back.
-- Stop points, review loop-backs, retry, reassign, skip and stop; plans recover after a restart and can be saved as templates.
-- Agents can start, message and wait for other sessions (`ladder_list_sessions`, `ladder_start_session`, `ladder_send`, `ladder_wait`), never above their own permissions.
-- The `ladder` command (`projects`, `ls`, `new`, `send`, `wait`, `attach`, `stop`) drives sessions from a terminal, over a local socket only your user can use. Install it from Settings → Data and system → Command line. Sessions started from the terminal or by another agent show where they came from.
-
-**Waiting for you**
-- "Waiting" collects requests from every project with their actions, then errors and replies to read. You approve or answer without leaving the session in front of you; edits over 40 lines are approved from the session, after reading them.
-- ⌘⇧A jumps to the oldest request; ⌘[ takes you back with the cursor where it was.
-- macOS notifications, a Dock badge, and a "while you were away" line when you come back to a project after more than 30 minutes.
-
-**Files, diffs and terminal**
-- Inspector: changes per turn, per session or uncommitted, unified or side by side, with line comments sent to the agent and restore with undo; a file tree with git state; a timeline of checkpoints, restores and commits.
-- ⌘P opens a file by name, also as `path:line`; files open in a light editor tab (CodeMirror 6, ⌘S) or in Cursor or VS Code.
-- An integrated terminal (xterm.js and node-pty, ⌃\`) whose shells survive project switches and restarts.
-
-**Worktrees and merge**
-- A worktree per session, with setup commands, files to copy and an archive command.
-- Merge panel: branch state, PR, CI and review comments; conflicts with the base are computed without touching the folder. "Create PR", "Fix CI", "Resolve conflicts" and "Send comments" send the agent a prompt you can edit first.
-- "Ask for a review from…": another agent reviews the changes read-only, and its comments land in the diff.
-
-**Look and feel**
-- Fifteen light and dark themes around the Circuit identity, Mona Sans and Monaspace Neon, keyboard shortcuts everywhere (customizable, with VS Code and Cursor presets).
-- English by default, with an Italian translation (Settings → Appearance → Language).
-- WCAG AA contrast checked by a script for every theme, no text under 12 px, states that don't rely on color alone, reduced motion respected.
-
-**From your phone (coming soon)**
-- A phone app for iPhone and Android, paired with your Mac by a QR code: approve requests, answer questions, start sessions and check plan limits; on iPhone, a Live Activity and a widget.
-- Off until you turn it on. Messages travel end-to-end encrypted through a small relay ([`app/relay`](app/relay)) that forwards them without being able to read them; you can run your own.
-
-## Project configuration
-
-A project can carry `.ladder/settings.toml` (shared) and `.ladder/settings.local.toml` (personal, kept out of git through `.git/info/exclude`):
-
-```toml
-[worktree]
-setup   = "pnpm install --frozen-lockfile"
-copy    = [".env.local"]
-archive = "docker compose down"
-
-[[run]]
-name    = "dev"
-command = "pnpm dev --port $LADDER_PORT"
-default = true
-
-[agents]
-allowed = ["claude-code", "codex"]
-default = "claude-code"
-permissions_max = "edit"
-auto_switch = "codex"    # continue with this agent when the plan limit is reached (off if absent)
-cross_review = "codex"   # this agent reviews the diff after turns with changes (off if absent)
-
-[[agents.delegates]]
-name = "reviewer"
-agent = "codex"
-model = "gpt-6-luna"
-effort = "high"
-permission = "plan"
-note = "Reviews and second opinions"
-
-[prompts]
-create_pr = ".ladder/prompts/pr.md"
-fix       = ".ladder/prompts/fix.md"
-```
-
-- `[[run]]` actions become buttons in the toolbar and run in the session's terminal.
-- `[[agents.delegates]]` lists the agents you prefer to delegate to: `name` and `agent` are required; `model`, `effort`, `permission` (`plan` by default, never above `permissions_max`) and `note` (up to 300 characters) are optional. `auto_switch` and `cross_review` are off unless set; with a project selected, Settings → New sessions writes them to `.ladder/settings.local.toml`.
-- Each folder gets a block of ports in `LADDER_PORT`: 4100 for the first project, then 4200 and so on, with a separate block for each worktree.
-- Worktrees are created in `~/Developer/.ladder/worktrees/<project>/<slug>` (or `~/.ladder/worktrees` if `~/Developer` doesn't exist) on a `ladder/<slug>` branch; folder and branch prefix can be changed in Settings.
-- Prompt names are `create_pr`, `fix`, `conflicts`, `comments`, `issue`, `pull_request` and `review`, as a path or as the text itself. Variables: `{{branch}}`, `{{base}}`, `{{pr}}`, `{{checks}}`, `{{conflicts}}`, `{{comments}}`, `{{ref}}`, `{{title}}`, `{{url}}` and `{{body}}`; `create_pr` also gets `{{base_arg}}`, `{{title_file}}` and `{{body_file}}` (the title and description are passed as files, never pasted into a command).
-
-## Building from source
-
-You need macOS, Node 24 and pnpm (the version is pinned in `package.json`; `corepack enable` picks it up).
-
-```bash
-pnpm install
-```
-
-```bash
-pnpm dev
-```
-
-`pnpm dev` opens the Electron app. To try only the interface in a browser, at `http://localhost:5199/preview.html` with sample data:
-
-```bash
-pnpm --filter @ladder/desktop dev:web
-```
-
-If Electron doesn't start because its binary is missing, the app's `postinstall` script downloads it; otherwise:
-
-```bash
-node app/desktop/node_modules/electron/install.js
-```
-
-A local build to install:
-
-```bash
-pnpm --filter @ladder/desktop dist
-```
-
-It creates `app/desktop/dist/mac-arm64/Ladder.app`, signed only for this Mac: drag it to Applications.
-
-The website (`pnpm --filter @ladder/website dev` or `build`) downloads two background components from the [React Bits](https://reactbits.dev) registry before it starts. They are used under React Bits' own license and are not part of this repository.
-
-node-pty is the only native module: it uses the bundled N-API prebuild (no node-gyp), `postinstall` makes `spawn-helper` executable, and the build keeps it outside the asar.
-
-### Repository layout
-
-| Folder | Contents |
-|---|---|
-| `app/desktop` | The Electron app: React 19, TypeScript, Tailwind 4, shadcn/ui on Base UI |
-| `app/mobile` | The phone app (Expo), a remote control for Ladder on the Mac; not in the stores yet |
-| `app/relay` | The relay between Mac and phone: a Cloudflare Worker that forwards end-to-end encrypted bytes; see its README |
-| `app/spikes` | Phase 0 technical prototypes, standalone npm packages outside the workspace |
-| `website` | The website (Next.js) |
-| `brand` | Themes, logo, app icons and boards, shared by the app and the website |
-
-`app/PRODUCT.md` and `app/DESIGN.md` describe the product rules and the visual system; they apply to every interface change.
-
-### Architecture
-
-- `src/main`: windows, menus, dialogs; starts the host and hands it a MessagePort per window. Notifications and the Dock badge (`attention.ts`), `ladder://` links, Linear (`linear.ts`).
-- `src/host`: the session host in a `utilityProcess`, with SQLite (`node:sqlite`), git checkpoints and diffs (`git.ts`, `workspace.ts`), files (`files.ts`), terminals with node-pty and headless xterm (`terminals.ts`), worktrees and ports (`worktrees.ts`), project configuration (`project-settings.ts`), GitHub through gh (`github.ts`), search (`search.ts`) and button prompts (`prompts.ts`). Agents share an interface in `agents/common.ts`: Claude Code in `claude/`, Codex on the App Server in `codex/`, ACP agents in `acp/`, reviews in `review.ts`.
-- `src/shared/protocol.ts`: types and messages between the host and the interface.
-- `src/renderer`: React; state comes from the host (`store/app-store.ts`), the chat is in `components/chat`, the inspector in `components/inspector`, terminals in `components/terminal` and `lib/terminal-registry.ts`.
-
-User-facing text is English inside `t()` and `plural()` (`src/shared/i18n.ts`); Italian translations live in `src/shared/locales/it/`, keyed by the English sentence.
-
-### Themes
-
-- `brand/themes.json` is the source of the theme tokens; `brand/themes.css` is the reference for the variables.
-- `pnpm --filter @ladder/desktop sync-brand` regenerates the files the app uses from the JSON and the SVGs in `brand/logo/svg/`: `themes.generated.css`, `src/shared/themes.generated.ts` and the logo paths.
-- `node app/desktop/scripts/check-contrast.mjs` checks every theme's contrast: 4.5:1 for text, 3:1 for focus, control borders and indicators.
-
-### Debugging
-
-- The page exposes `window.__ladder` (`request`, `send`, `store`, `settings`).
-- `LADDER_USER_DATA=<folder>` uses a separate data folder; `LADDER_WORKTREES=<folder>` moves the worktrees.
-- `LADDER_LOCALE=en|it` sets the initial language of a new profile (after that, the saved one wins).
-- `LADDER_EDITOR_TRACE=<file>` and `LADDER_NOTIFY_TRACE=<file>` record editor launches and notifications instead of performing them, for automated tests.
-- `LADDER_GH=<executable>` replaces gh, `LADDER_LINEAR_API=<url>` the Linear API and `LADDER_PR_POLL_MS` the PR polling interval (90 s).
-- `LADDER_CODEX=<binary>` picks the Codex to use; `LADDER_ACP_REGISTRY=<url>` replaces the ACP registry (development builds only).
+<p align="center">
+  <img src="docs/images/ladder.png" width="100%" alt="Ladder with three sample projects: Claude asks to approve a change to src/paginate.js, while sessions in other projects wait for a reply or have finished" />
+</p>
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: see [SECURITY.md](SECURITY.md).
+Issues and pull requests are welcome. Ladder is maintained by one person, so please open an issue before a large change. See [CONTRIBUTING.md](CONTRIBUTING.md); for security issues, [SECURITY.md](SECURITY.md).
 
 ## License
 
 Ladder is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE).
+
+> Ladder is an independent project. It is not affiliated with or endorsed by Anthropic, OpenAI, Google or the makers of the other agents it works with. Product names belong to their respective owners.

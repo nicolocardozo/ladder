@@ -11,7 +11,7 @@ Bug reports and ideas are welcome as GitHub issues. For a bug, include your macO
 Open an issue before a large change, so we can agree on the approach first. Small fixes can go straight to a pull request.
 
 1. Branch from `development`; pull requests target `development` too (`main` is what the website deploys from).
-2. Set up and run the app as described in [Building from source](README.md#building-from-source).
+2. Set up and run the app as described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 3. Before opening the pull request:
    ```bash
    pnpm --filter @ladder/desktop typecheck
