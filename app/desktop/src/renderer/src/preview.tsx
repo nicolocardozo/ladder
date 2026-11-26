@@ -1268,6 +1268,7 @@ function Preview() {
             commands={previewCommands}
             onCommand={onCommand}
             onNewSession={(args) => setLast(`onNewSession ${JSON.stringify(args)}`)}
+            onPlan={(goal) => setLast(`onPlan ${JSON.stringify(goal)}`)}
             onHandoff={
               mode.startsWith('handoff')
                 ? (args) => {

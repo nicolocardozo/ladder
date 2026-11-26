@@ -5,7 +5,7 @@ import type { SlashCommand } from '@shared/protocol'
 export type CommandSource = SlashCommand['source'] | 'ladder'
 
 /** Commands Ladder resolves itself: they open pickers or change session, they don't go to the agent. */
-export type LadderCommandName = 'model' | 'effort' | 'new' | 'restart' | 'handoff' | 'advisor' | 'committee'
+export type LadderCommandName = 'model' | 'effort' | 'new' | 'restart' | 'handoff' | 'advisor' | 'committee' | 'plan'
 
 export interface CommandEntry {
   name: string
@@ -23,7 +23,8 @@ const LADDER_COMMANDS: (CommandEntry & { name: LadderCommandName })[] = [
   { name: 'restart', description: 'Restart the agent to load new MCP servers and settings', hint: null, source: 'ladder' },
   { name: 'handoff', description: 'Hand off the work to another agent, or run /handoff <agent> [note]', hint: '<agent> [note]', source: 'ladder' },
   { name: 'advisor', description: 'Ask another agent for advice, or run /advisor <agent> [question]', hint: '<agent> [question]', source: 'ladder' },
-  { name: 'committee', description: 'Ask two to four different agents for advice', hint: '[question]', source: 'ladder' }
+  { name: 'committee', description: 'Ask two to four different agents for advice', hint: '[question]', source: 'ladder' },
+  { name: 'plan', description: 'Ask the agent for an executable plan that Ladder runs task by task', hint: '<goal>', source: 'ladder' }
 ]
 
 /** Description to show: Ladder's go through the catalog, the agent's arrive already in its language. */
@@ -44,6 +45,8 @@ export function commandDescription(entry: CommandEntry): string {
       return t('Ask another agent for advice, or run /advisor <agent> [question]')
     case 'committee':
       return t('Ask two to four different agents for advice')
+    case 'plan':
+      return t('Ask the agent for an executable plan that Ladder runs task by task')
     default:
       return entry.description
   }
@@ -51,10 +54,11 @@ export function commandDescription(entry: CommandEntry): string {
 
 export const isLadderCommand = (entry: Pick<CommandEntry, 'source'>) => entry.source === 'ladder'
 
-/** Full list: Ladder's first, then the agent's. An agent command with the same name as one of Ladder's is hidden. */
+/** Full list: Ladder's first, then the agent's. An agent command with the same name as one of Ladder's offered here is hidden. */
 export function mergeCommands(agent: SlashCommand[] | undefined, available: Record<LadderCommandName, boolean>): CommandEntry[] {
   const own = LADDER_COMMANDS.filter((c) => available[c.name])
-  const taken = new Set(LADDER_COMMANDS.map((c) => c.name.toLowerCase()))
+  // Only the commands offered here hide the agent's: where Ladder's /plan is not available, the agent's own /plan stays.
+  const taken = new Set(own.map((c) => c.name.toLowerCase()))
   const rest = (agent ?? [])
     .filter((c) => !taken.has(c.name.toLowerCase()))
     .map<CommandEntry>((c) => ({ name: c.name, description: c.description, hint: c.hint, source: c.source, aliases: c.aliases }))

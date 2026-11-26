@@ -61,6 +61,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { request, send } from '@/lib/host-client'
 import { runHandoffCommand } from '@/lib/handoff'
+import { runPlanCommand } from '@/lib/plan-command'
 import { runAdviceCommand } from '@/lib/advice'
 import { AdviceParentNote } from '@/components/advice-bits'
 import { HandoffFromNote } from '@/components/handoff-bits'
@@ -1275,6 +1276,7 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
               permissionLocked={Boolean(session.parent)}
               onHandoff={session.parent ? undefined : (args) => runHandoffCommand(session, args, allAgents, sessionSettings?.agents?.allowed ?? [], setError)}
               onAdvice={session.parent ? undefined : (mode, args) => runAdviceCommand(session, mode, args, allAgents, sessionSettings?.agents?.allowed ?? [], setError)}
+              onPlan={session.parent || session.mode !== 'chat' || session.archived || session.plan?.role === 'task' ? undefined : (goal) => runPlanCommand(session, goal, setError)}
               queue={session.queue}
               onQueueChange={(queue) => send({ type: 'session.queue.set', sessionId, queue })}
               canSteer={session.canSteer && session.run === 'running' && !items.some((i) => (i.kind === 'command' && i.status === 'running') || (i.kind === 'handoff' && i.direction === 'out' && i.state === 'summarizing'))}

@@ -70,6 +70,13 @@ Checkpoint at the handoff: {{checkpoint}}
 {{request}}
 
 Before continuing, read the real state of those files and of the repository (do not trust the summary blindly). Then continue the work from where {{from_agent}} stopped, and tell me briefly what you found and what you will do next.{{report}}`,
+  plan_request: `Propose an executable plan in Ladder for the goal below, with the propose_plan tool of the ladder server. This is Ladder's plan, not your own plan mode or todo list.
+
+First read the parts of the project involved. Then split the work into tasks, each with the agent, model and permission level that should run it, what it runs after, and a "done when" criterion. Add a review task where a second look helps, and a pause after a task when I should check before going on.
+
+Do not start the work yourself: after propose_plan, end your turn. If you don't have the propose_plan tool, tell me so instead of writing the plan as text.
+
+Goal: {{goal}}`,
   advisor: `You are giving a second opinion on work that another agent is doing in this folder. You are read-only: do not modify any file and do not run commands that change anything. You can read files and run read-only commands such as git status, git diff and git log.
 
 Session: {{title}} (branch {{branch}})
@@ -172,6 +179,13 @@ Checkpoint al momento del passaggio: {{checkpoint}}
 {{request}}
 
 Prima di continuare leggi lo stato reale di quei file e del repository (non fidarti ciecamente del riassunto). Poi prosegui il lavoro da dove si è fermato {{from_agent}} e dimmi in breve cosa hai trovato e cosa farai.{{report}}`,
+  plan_request: `Proponi un piano eseguibile in Ladder per l'obiettivo qui sotto, con lo strumento propose_plan del server ladder. È il piano di Ladder, non la tua modalità plan né la tua lista di cose da fare.
+
+Prima leggi le parti del progetto coinvolte. Poi dividi il lavoro in task, ognuno con l'agente, il modello e il livello di permesso che deve eseguirlo, dopo quali task parte e un criterio "fatto quando". Aggiungi un task di revisione dove serve un secondo sguardo, e una pausa dopo un task quando devo controllare prima di andare avanti.
+
+Non iniziare tu il lavoro: dopo propose_plan, termina il turno. Se non hai lo strumento propose_plan, dimmelo invece di scrivere il piano come testo.
+
+Obiettivo: {{goal}}`,
   advisor: `Stai dando un secondo parere su un lavoro che un altro agente sta facendo in questa cartella. Sei in sola lettura: non modificare file e non eseguire comandi che cambiano qualcosa. Puoi leggere i file ed eseguire comandi di sola lettura come git status, git diff e git log.
 
 Sessione: {{title}} (branch {{branch}})
@@ -227,7 +241,7 @@ Crea la PR con questo comando, esattamente come scritto: \`gh pr create --base {
  * Variables with text written by the user: inserted untouched. `title` and `body` remain for `create_pr` templates
  * written before the files existed (the host no longer passes them to the default prompts).
  */
-const VERBATIM_VARS = new Set(['title', 'body', 'summary', 'note', 'question', 'conversation', 'opinions', 'plan', 'comments', 'task', 'files', 'result', 'request'])
+const VERBATIM_VARS = new Set(['title', 'body', 'summary', 'note', 'question', 'conversation', 'opinions', 'plan', 'comments', 'task', 'files', 'result', 'request', 'goal'])
 
 export const PROMPT_NAMES = Object.keys(DEFAULT_PROMPTS_EN)
 

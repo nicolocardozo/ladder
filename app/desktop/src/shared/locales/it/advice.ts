@@ -3,6 +3,8 @@ const it: Record<string, string> = {
   // Advice commands, menus and dialogs
   'Ask another agent for advice, or run /advisor <agent> [question]': 'Chiedi un parere a un altro agente, oppure scrivi /advisor <agente> [domanda]',
   'Ask two to four different agents for advice': 'Chiedi un parere a due, tre o quattro agenti diversi',
+  'Ask the agent for an executable plan that Ladder runs task by task': 'Chiedi all’agente un piano eseguibile che Ladder esegue un task alla volta',
+  'Write the goal after the command: /plan <goal>': 'Scrivi l’obiettivo dopo il comando: /plan <obiettivo>',
   'Ask for advice…': 'Chiedi un parere…',
   'Ask for advice': 'Chiedi un parere',
   'Ask a committee': 'Chiedi a un comitato',

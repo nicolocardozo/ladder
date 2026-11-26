@@ -92,6 +92,8 @@ interface ComposerProps {
   onNewSession?: (args: string) => void
   /** /handoff [agent] [note]: opens "Hand off to…" or, with a recognized agent, starts the handoff. */
   onHandoff?: (args: string) => void
+  /** /plan <goal>: asks the agent for an executable plan (propose_plan). */
+  onPlan?: (goal: string) => Promise<void> | void
   /** /advisor <agent> [question] and /committee [question]: ask for advice even while the session works. Without it, the commands do not appear. */
   onAdvice?: (mode: 'advisor' | 'committee', args: string) => void
   /** Livello massimo ammesso dal progetto ([agents] permissions_max). */
@@ -155,7 +157,7 @@ export function Composer(props: ComposerProps) {
   useShortcutsRevision()
   const { draftKey, projectId, agentName, models, model, onModelChange, effort, onEffortChange, effortEffective, permission, permissionNext, onPermissionChange } = props
   const { running, onSubmit, onStop, queue = [], onQueueChange, canSteer = false, onDeliver, queueReason, queueWorking = running, context, disabledReason, autoFocus, className } = props
-  const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession, onHandoff, onAdvice } = props
+  const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession, onHandoff, onAdvice, onPlan } = props
   const levels = allowedLevels(maxPermission)
   const initial = useApp.getState().drafts[draftKey] ?? ''
   const setDraft = useApp((s) => s.setDraft)
@@ -212,8 +214,8 @@ export function Composer(props: ComposerProps) {
   const trigger = mention ?? slash
   const mode = mention ? 'mention' : 'command'
   const commandList = useMemo(
-    () => mergeCommands(onCommand ? agentCommands : undefined, { model: true, effort: showEffort, new: Boolean(onNewSession), restart: Boolean(props.sessionId) && (agent === 'claude-code' || agent === 'codex'), handoff: Boolean(onHandoff), advisor: Boolean(onAdvice), committee: Boolean(onAdvice) }),
-    [agentCommands, onCommand, onNewSession, onHandoff, onAdvice, showEffort, props.sessionId, agent]
+    () => mergeCommands(onCommand ? agentCommands : undefined, { model: true, effort: showEffort, new: Boolean(onNewSession), restart: Boolean(props.sessionId) && (agent === 'claude-code' || agent === 'codex'), handoff: Boolean(onHandoff), advisor: Boolean(onAdvice), committee: Boolean(onAdvice), plan: Boolean(onPlan) }),
+    [agentCommands, onCommand, onNewSession, onHandoff, onAdvice, onPlan, showEffort, props.sessionId, agent]
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const menuFromCommand = useRef(false)
@@ -431,6 +433,20 @@ export function Composer(props: ComposerProps) {
       onAdvice?.(entry.name, args)
       return
     }
+    if (entry.name === 'plan') {
+      if (!args.trim()) {
+        setNotice(t('Write the goal after the command: /plan <goal>'))
+        return
+      }
+      setNotice(null)
+      const typed = latestText.current
+      clearDraft()
+      // If sending fails the goal comes back, unless something else has been typed in the meantime.
+      void Promise.resolve(onPlan?.(args.trim())).catch(() => {
+        if (mounted.current && !latestText.current) updateText(typed)
+      })
+      return
+    }
     if (entry.name === 'restart') {
       setNotice(null)
       clearDraft()
@@ -459,11 +475,12 @@ export function Composer(props: ComposerProps) {
     clearDraft()
   }
 
-  /** Click or Enter on a row: agent commands with a hint and no arguments already typed are completed, the others run. */
+  /** Click or Enter on a row: agent commands with a hint and no arguments already typed are completed (and /plan), the others run. */
   const chooseOption = (option: PickerOption) => {
     if (option.kind !== 'command') return insertMention(option)
     const args = slash ? argsAfterToken(text, slash) : ''
-    if (option.entry.hint && !args && !isLadderCommand(option.entry) && !option.disabled) completeCommand(option.entry)
+    // /plan needs its goal like an agent command needs its arguments: complete it instead of running it empty.
+    if (option.entry.hint && !args && (!isLadderCommand(option.entry) || option.entry.name === 'plan') && !option.disabled) completeCommand(option.entry)
     else runCommand(option.entry, args)
   }
 

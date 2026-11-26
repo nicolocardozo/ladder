@@ -12,7 +12,7 @@ import { ConnectionList } from './connection-list'
 export function Onboarding({ statuses, actions = liveConnectionActions, agentActions = liveAgentCatalogActions, onDone }: {
   statuses?: Partial<Record<ConnectionId, ConnectionStatus>>
   actions?: ConnectionActions
-  /** Rilevamento delle altre CLI installate (anteprima web: host finto). */
+  /** Detection of the other installed CLIs (web preview: fake host). */
   agentActions?: AgentCatalogActions
   onDone: () => void
 }) {
