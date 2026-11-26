@@ -3,7 +3,7 @@ export const SITE = {
   name: "Ladder",
   tagline: "Every agent, every repo, one calm window.",
   description:
-    "Ladder is a calm desktop app for macOS that runs Claude Code, Codex, Gemini CLI and other coding agents across all your repos, with approvals, worktrees and plan limits in one window.",
+    "A free, open source macOS app that runs Claude Code, Codex and other coding agents across your repos, with approvals, worktrees and plan limits in one window.",
   url: "https://itsladder.dev",
   // Public repository: header, mobile menu and footer link to it (null hides the links)
   githubUrl: "https://github.com/nicolocardozo/ladder" as string | null,

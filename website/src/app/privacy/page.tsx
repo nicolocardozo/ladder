@@ -6,7 +6,7 @@ import { SITE } from "@/lib/site"
 export const metadata: Metadata = {
   title: "Privacy",
   description:
-    "Ladder runs on your Mac: no account, no telemetry, and an optional end-to-end encrypted relay for the phone app. What the apps and this website do with your data, in plain words.",
+    "Ladder runs on your Mac with no account and no telemetry. What the apps and this website do with your data, in plain words.",
   alternates: { canonical: "/privacy" },
   openGraph: { url: "/privacy" },
 }

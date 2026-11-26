@@ -9,7 +9,7 @@ import { getRegistryAgents } from "./registry"
 export const metadata: Metadata = {
   title: "Supported agents",
   description:
-    "The coding agents Ladder runs on macOS: Claude, Codex, Gemini CLI, Cursor, GitHub Copilot, Grok Build, OpenCode, Goose, Cline, Qwen Code and every agent in the ACP registry, plus any CLI in a terminal session.",
+    "Coding agents Ladder runs on macOS: Claude, Codex, Gemini CLI, Cursor, GitHub Copilot, OpenCode, Goose, Cline and every ACP agent, plus any CLI in a terminal.",
   alternates: { canonical: "/agents" },
   openGraph: { url: "/agents" },
 }

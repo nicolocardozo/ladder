@@ -7,7 +7,7 @@ import { DownloadLink } from "@/components/download-link"
 export const metadata: Metadata = {
   title: "Docs",
   description:
-    "How to use Ladder on macOS: projects and sessions, the Waiting view, reviewing changes, branches and merge, the built-in browser, worktrees and .ladder/settings.toml, agents and accounts, handing work between agents, advice and delegation, executable plans, the ladder command line, plan limits, themes and settings, and every keyboard shortcut.",
+    "How to use Ladder: projects and sessions, reviewing changes, worktrees, handing work between agents, executable plans, plan limits, settings and shortcuts.",
   alternates: { canonical: "/docs" },
   openGraph: { url: "/docs" },
 }
