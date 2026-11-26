@@ -5,22 +5,22 @@ const POINTS = [
   {
     icon: Bell,
     title: "Approve and answer",
-    text: "Handle requests and questions from your phone. Notifications only say that a session is waiting, never project names or messages.",
+    text: "Approve requests and answer questions from your phone. Notifications never show project names or messages.",
   },
   {
     icon: Gauge,
     title: "Start and check",
-    text: "Start a session and see your plan limits.",
+    text: "Start a session in any project, follow it as it works and see how much of your plan limits is left.",
   },
   {
     icon: Smartphone,
     title: "On your Home Screen",
-    text: "On iPhone, a Live Activity and a widget show who is working and who is waiting.",
+    text: "On iPhone, a Live Activity and a widget show who is working and who is waiting, without opening the app.",
   },
   {
     icon: KeyRound,
     title: "Private by design",
-    text: "Pair with a code your Mac shows, no account. End-to-end encrypted through a relay that forwards messages without being able to read them. Off until you turn it on.",
+    text: "Pair with a code from your Mac, no account. End-to-end encrypted, and off until you turn it on.",
   },
 ] as const
 

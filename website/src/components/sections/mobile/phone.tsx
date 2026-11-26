@@ -23,15 +23,15 @@ export function PhoneDemo() {
   }, [active])
 
   return (
-    <div ref={ref} className="relative w-[232px] sm:w-[248px]">
+    <div ref={ref} className="relative w-[272px] sm:w-[300px] lg:w-[320px]">
       {/* Side buttons: action and volume on the left, power on the right */}
       <span className="absolute top-[17%] -left-[3px] h-[5%] w-[4px] rounded-l-sm bg-[#3a3744]" />
       <span className="absolute top-[25%] -left-[3px] h-[9%] w-[4px] rounded-l-sm bg-[#3a3744]" />
       <span className="absolute top-[36%] -left-[3px] h-[9%] w-[4px] rounded-l-sm bg-[#3a3744]" />
       <span className="absolute top-[28%] -right-[3px] h-[13%] w-[4px] rounded-r-sm bg-[#3a3744]" />
-      <div className="rounded-[46px] bg-[linear-gradient(145deg,#5b5766,#24212c_35%,#18161e_65%,#4a4654)] p-[3px] shadow-[0_40px_80px_-30px_rgb(60_30_160/0.55),0_12px_30px_-12px_rgb(20_16_30/0.5)]">
-        <div className="rounded-[43px] bg-[#09080c] p-[7px]">
-          <div className="relative aspect-[1290/2796] overflow-hidden rounded-[36px] bg-[#171321]">
+      <div className="rounded-[50px] sm:rounded-[54px] lg:rounded-[58px] bg-[linear-gradient(145deg,#5b5766,#24212c_35%,#18161e_65%,#4a4654)] p-[3px] shadow-[0_40px_80px_-30px_rgb(60_30_160/0.55),0_12px_30px_-12px_rgb(20_16_30/0.5)]">
+        <div className="rounded-[47px] bg-[#09080c] p-[8px] sm:rounded-[51px] lg:rounded-[55px]">
+          <div className="relative aspect-[1290/2796] overflow-hidden rounded-[39px] bg-[#171321] sm:rounded-[43px] lg:rounded-[47px]">
             <video
               ref={video}
               className="absolute inset-0 size-full object-cover"
