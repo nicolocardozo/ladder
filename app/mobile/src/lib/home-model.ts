@@ -121,7 +121,7 @@ export interface SessionGroupModel {
 /** Sessions of a project split by the Mac's groups, plus the ungrouped ones on top and the archived ones (separate). */
 export function groupProjectSessions(
   sessions: SessionSummary[],
-  ui: { groups?: { id: string; name: string }[]; groupOf?: Record<string, string> } | undefined
+  ui: { groups?: { id: string; name: string; order?: string[] }[]; groupOf?: Record<string, string> } | undefined
 ): SessionGroupModel[] {
   const ordered = [...sessions].sort((a, b) => Math.max(b.activityAt, b.createdAt) - Math.max(a.activityAt, a.createdAt))
   const groups = ui?.groups ?? []
@@ -131,7 +131,10 @@ export function groupProjectSessions(
   const out: SessionGroupModel[] = []
   if (loose.length) out.push({ id: null, name: null, sessions: loose })
   for (const g of groups) {
-    const members = ordered.filter((s) => groupOf[s.id] === g.id)
+    // Same order as the Mac: sessions not placed by hand first, then the order arranged in the sidebar.
+    const at = new Map((g.order ?? []).map((id, i) => [id, i]))
+    const inGroup = ordered.filter((s) => groupOf[s.id] === g.id)
+    const members = [...inGroup.filter((s) => !at.has(s.id)), ...inGroup.filter((s) => at.has(s.id)).sort((a, b) => at.get(a.id)! - at.get(b.id)!)]
     if (members.length) out.push({ id: g.id, name: g.name, sessions: members })
   }
   return out

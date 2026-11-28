@@ -1,6 +1,6 @@
 // Fake host and system to try the Workspace and Data and system sections and the request sound in the web preview:
 // it answers project.settings, project.worktree.set, project.worktreeFiles and data.*, and replaces the folder and save dialogs.
-import type { DataInfo, EditorAvailability, HostCommand, ProjectSettings, WorktreeFiles, WorktreeService } from '@shared/protocol'
+import type { DataInfo, EditorAvailability, HostCommand, ProjectSettings, WorktreeEntry, WorktreeFiles, WorktreeService } from '@shared/protocol'
 import { overrideSystemBridge } from '@/lib/system-bridge'
 import { installOthersPreview } from './others-preview'
 import { installRemotePreview } from './remote-preview'
@@ -82,6 +82,15 @@ export function installSettingsPreview(): void {
     backups: [{ path: '/Users/dev/Library/Application Support/Ladder/backups/ladder-20261119-091500.db', bytes: 47_900_000, at: now - 2 * DAY }]
   }
 
+  // Worktrees on disk (Settings → Workspace): one in use, one dirty, one merged, one with commits only on its branch.
+  const wt = (name: string, patch: Partial<WorktreeEntry>): WorktreeEntry => ({ path: `/Users/dev/.ladder/worktrees/acme-monorepo/${name}`, projectId: 'p-acme', projectName: 'acme-monorepo', branch: `ladder/${name}`, openSessions: [], archivedSessions: 1, busy: false, dirty: 0, unpushed: 0, merged: false, orphanCommits: 0, bytes: 1_400_000_000, ...patch })
+  let worktrees: WorktreeEntry[] = [
+    wt('upgrade-sdk-0f1a', { openSessions: [{ id: 's1', title: 'Upgrade the SDK' }], archivedSessions: 0, bytes: 1_493_000_000 }),
+    wt('fix-login-91c2', { dirty: 3, bytes: 980_000_000 }),
+    wt('delegate-api-fixes-8003', { merged: true, bytes: 2_067_000_000 }),
+    wt('try-new-router-2b7e', { unpushed: 2, bytes: 1_210_000_000 })
+  ]
+
   registerPreviewHandler((command: HostCommand) => {
     switch (command.type) {
       case 'project.settings':
@@ -124,6 +133,20 @@ export function installSettingsPreview(): void {
       case 'project.worktreeFiles': {
         const extra = settingsOf(command.projectId).worktree.copy
         return { ok: true, data: { ...WORKTREE_FILES, files: [...WORKTREE_FILES.files, ...extra.filter((f) => !WORKTREE_FILES.files.includes(f))] } }
+      }
+      case 'worktrees.list':
+        return { ok: true, data: worktrees }
+      case 'worktrees.remove': {
+        // A worktree with commits only on its branch is removed too (the branch stays); one in use or dirty is refused.
+        const removed: string[] = []
+        const failed: { path: string; error: string }[] = []
+        for (const path of command.paths) {
+          const w = worktrees.find((x) => x.path === path)
+          if (!w || w.openSessions.length || w.dirty) failed.push({ path, error: w?.dirty ? 'It has uncommitted files: commit or discard them first.' : 'A session or a plan still uses it: archive the session first.' })
+          else removed.push(path)
+        }
+        worktrees = worktrees.filter((w) => !removed.includes(w.path))
+        return { ok: true, data: { removed, failed } }
       }
       case 'data.info':
         return { ok: true, data }

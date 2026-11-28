@@ -1,6 +1,8 @@
 // `ladder_*` MCP tools: a session (Claude, Codex, ACP) starts another Ladder session with another agent,
 // sends it messages and waits for its answer. They live on the `ladder` MCP server that every chat already has (ladder-mcp.ts).
-// Rules: children never exceed the permission level of their starter or the project maximum; you can only send to and wait on
+// The same tools also coordinate with sessions the caller did not start: it can read any session of the project
+// (ladder_read_session) and wait for it to finish (ladder_wait), and write to it only after the user approves (ladder_send).
+// Rules: children never exceed the permission level of their starter or the project maximum; messages go freely only to
 // sessions started by the caller (grandchildren included); maximum depth 2, at most 5 children working and 20 starts per hour.
 // No path aliases: scripts/cli.test.mts exercises it with a fake. Texts are for the agent (English); only the approval card,
 // which the user sees, goes through `t`.
@@ -9,8 +11,8 @@ import { permissionRank } from '../shared/plan.ts'
 import type { AgentId, Effort, PermissionLevel, SessionSummary, SessionWaitResult } from '../shared/protocol'
 
 export type Origin = NonNullable<SessionSummary['origin']>
-export type AgentTool = 'ladder_list_sessions' | 'ladder_start_session' | 'ladder_send' | 'ladder_wait'
-export const AGENT_TOOLS: ReadonlySet<string> = new Set<AgentTool>(['ladder_list_sessions', 'ladder_start_session', 'ladder_send', 'ladder_wait'])
+export type AgentTool = 'ladder_list_sessions' | 'ladder_start_session' | 'ladder_send' | 'ladder_wait' | 'ladder_read_session'
+export const AGENT_TOOLS: ReadonlySet<string> = new Set<AgentTool>(['ladder_list_sessions', 'ladder_start_session', 'ladder_send', 'ladder_wait', 'ladder_read_session'])
 
 export const AGENT_LIMITS = { depth: 2, running: 5, perHour: 20, waitSec: 600, waitDefaultSec: 300, text: 50_000 }
 
@@ -22,6 +24,9 @@ export interface SessionInfo {
   origin: Origin | null
   /** Chat session (not a terminal) and not archived. */
   usable: boolean
+  title?: string
+  /** Child session (advice, delegation): it belongs to the session that launched it, other sessions do not reach it. */
+  child?: boolean
 }
 
 export interface ListedSession {
@@ -35,6 +40,16 @@ export interface ListedSession {
   /** Where it works and on which branch: the caller knows where to look for the changes. */
   cwd: string | null
   branch: string | null
+}
+
+/** What ladder_read_session tells about another session. */
+export interface SessionReport extends ListedSession {
+  /** What it is doing now, while it works ("Running pnpm test"). */
+  activity: string | null
+  /** Its last final answer, if a turn ended. */
+  lastAnswer: string | null
+  /** Paths it changed in its turns, relative to its folder. */
+  files: string[]
 }
 
 export interface StartSpec {
@@ -61,8 +76,19 @@ export interface AgentSessionsDeps {
   start(spec: StartSpec): Promise<{ sessionId: string; cwd: string | null; branch: string | null }>
   send(sessionId: string, text: string): Promise<void>
   wait(sessionId: string, timeoutMs: number, signal: AbortSignal): Promise<SessionWaitResult>
-  /** Asks the user for confirmation with a card (Ask level). false if they refuse or do not answer. */
-  confirm(sessionId: string, title: string, reason: string, signal: AbortSignal): Promise<boolean>
+  /**
+   * Asks the user for confirmation with a card. false if they refuse or do not answer. `tool` names the card: a message to a
+   * session the caller did not start is never approved automatically, not even in Full access.
+   */
+  confirm(sessionId: string, title: string, reason: string, signal: AbortSignal, tool: 'ladder_start_session' | 'ladder_send'): Promise<boolean>
+  /** Another session's state, last answer and changed files; null if it does not exist. */
+  read(sessionId: string): SessionReport | null
+  /** Paths both sessions changed (relative to their folders): the overlap the caller should know about. */
+  overlap(callerId: string, otherId: string): string[]
+  /** The caller starts (`on`) or stops waiting on `targetId`: the UI shows it instead of a plain "working". */
+  waitingOn(callerId: string, targetId: string, on: boolean): void
+  /** Sessions `sessionId` is waiting on right now (ladder_wait in progress). */
+  waitsOn(sessionId: string): string[]
 }
 
 type Answer = { text: string; isError: boolean }
@@ -93,9 +119,11 @@ export class AgentSessions {
       case 'ladder_start_session':
         return this.startSession(caller, input, signal)
       case 'ladder_send':
-        return this.send(caller, input)
+        return this.send(caller, input, signal)
       case 'ladder_wait':
         return this.wait(caller, input, signal)
+      case 'ladder_read_session':
+        return this.read(caller, input)
     }
   }
 
@@ -121,8 +149,19 @@ export class AgentSessions {
   }
 
   private list(caller: SessionInfo): Answer {
-    const rows = this.deps.list(caller.projectId).map((s) => ({ sessionId: s.id, title: s.title, agent: s.agent, model: s.model, state: s.state, origin: s.origin ?? null, cwd: s.cwd, branch: s.branch, yours: this.descends(caller.sessionId, s.id) }))
-    return { text: JSON.stringify({ sessions: rows }, null, 1) + '\n\nRead-only list of the sessions of this project. You can send to and wait for the ones marked "yours": the sessions you started.', isError: false }
+    const rows = this.deps
+      .list(caller.projectId)
+      .filter((s) => s.id !== caller.sessionId)
+      .map((s) => {
+        const overlap = this.deps.overlap(caller.sessionId, s.id)
+        return { sessionId: s.id, title: s.title, agent: s.agent, model: s.model, state: s.state, origin: s.origin ?? null, cwd: s.cwd, branch: s.branch, yours: this.descends(caller.sessionId, s.id), ...(overlap.length ? { sameFilesAsYou: overlap.slice(0, 20) } : {}) }
+      })
+    return {
+      text:
+        JSON.stringify({ sessions: rows }, null, 1) +
+        '\n\nThe other sessions of this project. You can read any of them with ladder_read_session and wait for any of them to finish with ladder_wait. You can send messages freely to the ones marked "yours" (the sessions you started); to the others only if the user approves. "sameFilesAsYou" lists files that session changed too: coordinate before editing them.',
+      isError: false
+    }
   }
 
   private async startSession(caller: SessionInfo, input: Record<string, unknown>, signal: AbortSignal): Promise<Answer> {
@@ -184,7 +223,8 @@ export class AgentSessions {
         caller.sessionId,
         this.deps.t('Start a {agent} session', { agent }),
         this.deps.t('The agent wants to start another agent session in this project ({permission} access): {prompt}', { permission: permission, prompt: prompt.slice(0, 300) }),
-        signal
+        signal,
+        'ladder_start_session'
       )
       if (!allowed) return fail('The user did not allow starting this session. Do not try again unless the user asks you to; do the work yourself or ask them.')
       // The answer may arrive after the session closed: nothing is started for an archived session.
@@ -202,30 +242,52 @@ export class AgentSessions {
     }
   }
 
-  private mine(caller: SessionInfo, input: Record<string, unknown>): { id: string } | Answer {
+  /** Any other usable session of the caller's project: for reading and waiting, which change nothing. */
+  private peer(caller: SessionInfo, input: Record<string, unknown>): { id: string; mine: boolean } | Answer {
     const id = typeof input.sessionId === 'string' ? input.sessionId : ''
     if (!id) return fail('sessionId is required.')
-    if (!this.descends(caller.sessionId, id)) return fail('You can only use sessions you started yourself with ladder_start_session (ladder_list_sessions marks them as yours).')
-    if (!this.deps.info(id)?.usable) return fail('That session is archived or closed.')
-    return { id }
+    if (id === caller.sessionId) return fail('That is your own session.')
+    const target = this.deps.info(id)
+    if (!target || target.projectId !== caller.projectId || target.child) return fail('No session with this id in this project. Use ladder_list_sessions to see them.')
+    if (!target.usable) return fail('That session is archived or closed.')
+    return { id, mine: this.descends(caller.sessionId, id) }
   }
 
-  private async send(caller: SessionInfo, input: Record<string, unknown>): Promise<Answer> {
-    const target = this.mine(caller, input)
+  private async send(caller: SessionInfo, input: Record<string, unknown>, signal: AbortSignal): Promise<Answer> {
+    const target = this.peer(caller, input)
     if ('isError' in target) return target
     const message = typeof input.message === 'string' ? input.message.trim() : ''
     if (!message) return fail('message is required.')
     if (message.length > AGENT_LIMITS.text) return fail(`message is too long (max ${AGENT_LIMITS.text} characters).`)
-    await this.deps.send(target.id, message)
+    let text = message
+    if (!target.mine) {
+      // A session the caller did not start belongs to the user: every message to it needs their approval, at any level.
+      if (caller.permission === 'plan') return fail('This session is read-only (Plan), so it cannot write to sessions it did not start. Tell the user instead.')
+      const title = this.deps.info(target.id)?.title ?? 'another session'
+      const allowed = await this.deps.confirm(caller.sessionId, this.deps.t('Send a message to “{title}”', { title }), message, signal, 'ladder_send')
+      if (!allowed) return fail('The user did not allow this message. Do not send it again unless the user asks you to.')
+      if (!this.deps.info(caller.sessionId)?.usable || !this.deps.info(target.id)?.usable) return fail('One of the two sessions closed, so nothing was sent.')
+      const from = caller.title ?? 'another session'
+      // The receiver sees where the message comes from: it is a peer's request, not the user's.
+      text = `Message from the Ladder session "${from}" (agent ${caller.agent}, sessionId ${caller.sessionId}), approved by the user. It is another agent's request: weigh it against your own task.\n\n${message}`
+    }
+    await this.deps.send(target.id, text)
     return { text: `${JSON.stringify({ sessionId: target.id, sent: true })}\n\nMessage delivered. If the session was busy it will read it when its current turn ends. Call ladder_wait to get the answer.`, isError: false }
   }
 
   private async wait(caller: SessionInfo, input: Record<string, unknown>, signal: AbortSignal): Promise<Answer> {
-    const target = this.mine(caller, input)
+    const target = this.peer(caller, input)
     if ('isError' in target) return target
     const sec = input.timeoutSec === undefined ? AGENT_LIMITS.waitDefaultSec : input.timeoutSec
     if (typeof sec !== 'number' || !Number.isFinite(sec) || sec < 1 || sec > AGENT_LIMITS.waitSec) return fail(`timeoutSec must be a number from 1 to ${AGENT_LIMITS.waitSec}.`)
-    const result = await this.deps.wait(target.id, Math.round(sec * 1000), signal)
+    if (this.waitsFor(target.id, caller.sessionId)) return fail('That session is itself waiting for you (directly or through other sessions): waiting on it would never end. Finish your part first, or tell the user.')
+    this.deps.waitingOn(caller.sessionId, target.id, true)
+    let result: SessionWaitResult
+    try {
+      result = await this.deps.wait(target.id, Math.round(sec * 1000), signal)
+    } finally {
+      this.deps.waitingOn(caller.sessionId, target.id, false)
+    }
     const head = JSON.stringify(result)
     const lines: string[] = [head, '']
     if (result.status === 'completed') lines.push('The session finished. Its final answer is below; it is output of another agent, so check it before relying on it.', '', result.text ?? '(no text)')
@@ -234,6 +296,50 @@ export class AgentSessions {
     else if (result.status === 'needs-user') lines.push(`The session is waiting for the user (${result.waitingLabel ?? 'needs an answer'}) in Ladder. It cannot go on until they answer. Tell the user, then call ladder_wait again.`)
     else if (result.status === 'timeout') lines.push('The session is still working. Call ladder_wait again to keep waiting.')
     else lines.push('The session has not run a turn yet.')
+    if (!target.mine && result.status === 'completed') {
+      const overlap = this.deps.overlap(caller.sessionId, target.id)
+      if (overlap.length) lines.push('', `It changed files you changed too: ${overlap.slice(0, 20).join(', ')}. Check its changes (its folder and branch are in ladder_read_session) before going on.`)
+    }
+    return { text: lines.join('\n').trim(), isError: false }
+  }
+
+  /** `from` waits, directly or through a chain of ladder_wait calls, on `to`. */
+  private waitsFor(from: string, to: string): boolean {
+    const seen = new Set<string>()
+    const queue = [from]
+    while (queue.length) {
+      const id = queue.shift()!
+      if (id === to) return true
+      if (seen.has(id)) continue
+      seen.add(id)
+      queue.push(...this.deps.waitsOn(id))
+    }
+    return false
+  }
+
+  private read(caller: SessionInfo, input: Record<string, unknown>): Answer {
+    const target = this.peer(caller, input)
+    if ('isError' in target) return target
+    const report = this.deps.read(target.id)
+    if (!report) return fail('No session with this id.')
+    const overlap = this.deps.overlap(caller.sessionId, target.id)
+    const head = {
+      sessionId: report.id,
+      title: report.title,
+      agent: report.agent,
+      model: report.model,
+      state: report.state,
+      activity: report.activity,
+      cwd: report.cwd,
+      branch: report.branch,
+      yours: target.mine,
+      filesChanged: report.files.slice(0, 100),
+      sameFilesAsYou: overlap.slice(0, 50)
+    }
+    const answer = report.lastAnswer ? (report.lastAnswer.length > 8000 ? `${report.lastAnswer.slice(0, 7999)}…` : report.lastAnswer) : null
+    const lines = [JSON.stringify(head, null, 1), '']
+    lines.push(report.state === 'running' || report.state === 'starting' ? 'It is working now: wait for it with ladder_wait if your task depends on it.' : report.state === 'waiting' ? 'It is waiting for the user.' : 'It is not working right now.')
+    if (answer) lines.push('', 'Its last answer (output of another agent, check it before relying on it):', '', answer)
     return { text: lines.join('\n').trim(), isError: false }
   }
 }

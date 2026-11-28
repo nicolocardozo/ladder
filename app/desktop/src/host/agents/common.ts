@@ -35,6 +35,8 @@ export interface AgentSession {
   liveAgentIds?(): Set<string> | null
   /** Background tasks of any kind still alive (commands, monitors, sub-agents; Claude). Closing the process would kill them. */
   readonly hasBackgroundWork?: boolean
+  /** The background work is only shell commands or monitors, no sub-agents (Claude). */
+  readonly onlyBackgroundCommands?: boolean
   close(): void
 }
 
@@ -62,8 +64,8 @@ export interface SessionOptions {
 /** Name of Ladder's MCP server (in Claude: `mcp__ladder__handoff`, `mcp__ladder__propose_plan`). The plan tool is not called `update_plan` because Codex already has one, its to-do list. */
 export const LADDER_MCP_NAME = 'ladder'
 
-/** Tools of the Ladder server whose chat row is a readable title (handoff and delegation); the others are plain tool rows. */
-const LADDER_AGENT_TOOLS: ReadonlySet<string> = new Set(['list_agents', 'handoff', 'delegate', 'report_result'])
+/** Tools of the Ladder server whose chat row is a readable title (handoff, delegation, terminal commands); the others are plain tool rows. */
+const LADDER_AGENT_TOOLS: ReadonlySet<string> = new Set(['list_agents', 'handoff', 'delegate', 'report_result', 'run_in_terminal', 'read_terminal', 'stop_terminal'])
 
 /**
   * `detail` of the 'tool' row for a Ladder server tool: the input as JSON, shortened (the UI derives the title from it).
@@ -76,7 +78,7 @@ export function ladderDetail(input: unknown, tool?: string): string | null {
   // prompt and summary are the texts the chat shows: wide limit; the other fields are short by nature.
   const cut = (v: unknown, max: number): unknown => (typeof v === 'string' && v.length > max ? `${v.slice(0, max - 1)}…` : Array.isArray(v) ? v.slice(0, 20).map((x) => cut(x, 400)) : v)
   const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(input as Record<string, unknown>)) out[k] = cut(v, k === 'prompt' || k === 'summary' ? 4000 : 400)
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) out[k] = cut(v, k === 'prompt' || k === 'summary' || k === 'command' ? 4000 : 400)
   return JSON.stringify(out)
 }
 

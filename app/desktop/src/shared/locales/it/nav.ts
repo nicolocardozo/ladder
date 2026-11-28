@@ -24,6 +24,7 @@ const it: Record<string, string> = {
   'New group': 'Nuovo gruppo',
   'Move to group': 'Sposta nel gruppo',
   'Remove from group': 'Togli dal gruppo',
+  'The open session is in this group': 'La sessione aperta è in questo gruppo',
   'Remove group': 'Togli il gruppo',
   'Group name': 'Nome del gruppo',
   'New section': 'Nuova sezione',

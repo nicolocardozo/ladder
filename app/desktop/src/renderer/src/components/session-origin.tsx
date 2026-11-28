@@ -25,9 +25,9 @@ export function OriginMark({ session, className }: { session: SessionSummary; cl
   if (!origin || !text) return null
   const Icon = origin.kind === 'cli' ? SquareTerminal : Bot
   return (
-    <span className={cn('inline-flex shrink-0 items-center gap-1', className)} title={text}>
+    <span className={cn('inline-flex min-w-0 items-center gap-1', className)} title={text}>
       <Icon aria-hidden className="size-3 shrink-0" strokeWidth={1.9} />
-      <span>{origin.kind === 'cli' ? t('From terminal') : t('By agent')}</span>
+      <span className="min-w-0 truncate">{origin.kind === 'cli' ? t('From terminal') : t('By agent')}</span>
       <span className="sr-only">{text}</span>
     </span>
   )

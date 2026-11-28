@@ -279,6 +279,8 @@ export class ClaudeSession {
   private liveTasks: Set<string> | null = null
   /** Live background tasks of every kind (background commands, monitors, sub-agents) since the last background_tasks_changed. */
   private liveBackground = 0
+  /** Live background tasks that are shell commands or monitors rather than agents or workflows. */
+  private liveCommands = 0
   private bgTimer: ReturnType<typeof setTimeout> | null = null
   /** Sub-agents followed by task_* events: the end is told by task_notification, not by tool_result. */
   private trackedTasks = new Set<string>()
@@ -749,14 +751,17 @@ export class ClaudeSession {
     if (!Array.isArray(tasks)) return
     const live = new Set<string>()
     let background = 0
+    let commands = 0
     for (const entry of tasks as Block[]) {
       const id = str(entry?.task_id)
       if (!id || entry.ambient === true) continue
       background++
+      if (/bash|shell|monitor/.test(str(entry?.task_type) ?? '')) commands++
       if (entry?.task_type === 'local_agent' || entry?.task_type === 'remote_agent') live.add(id)
     }
     this.liveTasks = live
     this.liveBackground = background
+    this.liveCommands = commands
     if (this.bgTimer || ![...this.bgTasks].some((task) => !live.has(task))) return
     // Only the tasks missing right now: if they are still absent when the grace period expires, they are finished.
     const missing = [...this.bgTasks].filter((task) => !live.has(task))
@@ -775,6 +780,10 @@ export class ClaudeSession {
 
   get hasBackgroundWork(): boolean {
     return this.liveBackground > 0
+  }
+
+  get onlyBackgroundCommands(): boolean {
+    return this.liveBackground > 0 && this.liveCommands === this.liveBackground
   }
 
   /** Sub-agent entries in the last background_tasks_changed (null: never received): the host's safety net doesn't touch them. */

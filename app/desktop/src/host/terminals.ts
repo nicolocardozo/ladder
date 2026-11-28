@@ -72,6 +72,8 @@ export interface SpawnOptions {
   unsetEnv?: string[]
   port: number | null
   agent?: AgentSpec
+  /** Started by a chat agent (run_in_terminal). */
+  origin?: 'agent'
   cols?: number
   rows?: number
 }
@@ -356,7 +358,7 @@ export class TerminalManager {
 
   private meta(options: SpawnOptions) {
     // Save what is needed to restart: no environment variables.
-    return { port: options.port, options: { file: options.file, args: options.args, agent: options.agent } }
+    return { port: options.port, options: { file: options.file, args: options.args, agent: options.agent, origin: options.origin } }
   }
 
   private must(id: string): Live {
@@ -381,7 +383,8 @@ export class TerminalManager {
         state: 'running',
         exitCode: null,
         createdAt,
-        port: options.port
+        port: options.port,
+        ...(options.origin ? { origin: options.origin } : {})
       },
       options,
       proc: null,

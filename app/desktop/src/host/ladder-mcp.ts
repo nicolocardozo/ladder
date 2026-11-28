@@ -1,6 +1,7 @@
 // Ladder MCP server "ladder": one server for every chat session, with the tools of handoff and delegation between agents
 // (list_agents, handoff, delegate), executable plans (propose_plan, revise_plan), sessions started from a session
-// (ladder_list_sessions, ladder_start_session, ladder_send, ladder_wait) and report_result, which is shared by all of them.
+// (ladder_list_sessions, ladder_start_session, ladder_send, ladder_wait), commands in terminals the user can see
+// (run_in_terminal, read_terminal, stop_terminal) and report_result, which is shared by all of them.
 // Same scheme as the agent browser server (browser-mcp.ts): HTTP on 127.0.0.1 with an ephemeral port and a secret token per
 // session, which ties every call to its session. No dependencies: just node:http.
 //
@@ -15,11 +16,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { t } from '../shared/i18n.ts'
 import { PLAN_INPUT_SCHEMA, RESULT_INPUT_SCHEMA } from '../shared/plan.ts'
 
-export type LadderToolName = 'list_agents' | 'handoff' | 'delegate' | 'report_result' | 'propose_plan' | 'revise_plan' | 'ladder_list_sessions' | 'ladder_start_session' | 'ladder_send' | 'ladder_wait'
+export type LadderToolName = 'list_agents' | 'handoff' | 'delegate' | 'report_result' | 'propose_plan' | 'revise_plan' | 'ladder_list_sessions' | 'ladder_start_session' | 'ladder_send' | 'ladder_wait' | 'ladder_read_session' | TerminalToolName
+/** Terminal tools: handled by AgentTerminals (agent-terminals.ts), which validates them and applies the permission level. */
+export type TerminalToolName = 'run_in_terminal' | 'read_terminal' | 'stop_terminal'
 /** Tools of executable plans: the arguments go to the plan runner, which validates them. */
 export type PlanToolName = 'propose_plan' | 'revise_plan'
 /** Tools that start and wait on other sessions: handled by AgentSessions (agent-sessions.ts), which validates them. */
-export type SessionToolName = 'ladder_list_sessions' | 'ladder_start_session' | 'ladder_send' | 'ladder_wait'
+export type SessionToolName = 'ladder_list_sessions' | 'ladder_start_session' | 'ladder_send' | 'ladder_wait' | 'ladder_read_session'
 
 /** Result of a tool: text for the model, `isError` for a refusal or a readable failure. */
 export interface ToolOutcome {
@@ -68,6 +71,8 @@ export interface LadderBackend {
   plan(sessionId: string, tool: PlanToolName, args: unknown): Promise<ToolOutcome>
   /** `signal` fires if the client closes the connection (a `ladder_wait` can last minutes). */
   sessions(sessionId: string, tool: SessionToolName, args: unknown, signal: AbortSignal): Promise<ToolOutcome>
+  /** `signal` fires if the client closes the call (run_in_terminal and read_terminal can wait for the process). */
+  terminal(sessionId: string, tool: TerminalToolName, args: unknown, signal: AbortSignal): Promise<ToolOutcome>
 }
 
 export interface LadderToolsHandle {
@@ -123,7 +128,7 @@ const REPORT_SCHEMA = {
   }
 } as const
 
-const SESSION_ID = { type: 'string', description: 'Id of a session you started with ladder_start_session.' }
+const ANY_SESSION_ID = { type: 'string', description: 'Id of a session of this project, from ladder_list_sessions.' }
 
 const handoffProps: Record<string, Prop> = {
   agent: { type: 'string', minLength: 1, maxLength: LIMITS.agent, description: 'Id of the agent to hand over to, exactly as listed by list_agents (for example "codex" or "claude-code").' },
@@ -188,7 +193,8 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'ladder_list_sessions',
-    description: 'List the sessions of this Ladder project (id, title, agent, model, state, who started it). Read-only. Use it to see what is already running before starting another session.',
+    description:
+      'List the other sessions of this Ladder project (id, title, agent, model, state, folder, branch, who started it, and the files they changed that you changed too). Read-only. Use it before starting another session, and whenever your task might overlap with or depend on work another session is doing.',
     inputSchema: { type: 'object', additionalProperties: false, properties: {} },
     readOnly: true
   },
@@ -214,15 +220,61 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'ladder_send',
-    description: 'Send a follow-up message to a session you started with ladder_start_session. If it is busy, the message waits for the end of its current turn. Then call ladder_wait to get the answer.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['sessionId', 'message'], properties: { sessionId: SESSION_ID, message: { type: 'string', description: 'What to tell the session.' } } },
+    description:
+      'Send a message to another session of this project. To a session you started with ladder_start_session it goes straight away. To any other session (one the user started) the user must approve it first with a card: use it to coordinate, for example to say you are changing a file it also changes, or to ask what it changed, never to give it orders. If it is busy, the message waits for the end of its current turn. Then call ladder_wait to get the answer.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['sessionId', 'message'], properties: { sessionId: ANY_SESSION_ID, message: { type: 'string', description: 'What to tell the session.' } } },
     readOnly: false
   },
   {
     name: 'ladder_wait',
     description:
-      'Wait for a session you started to finish its work and return its final answer. It blocks up to timeoutSec (default 300, max 600). The result says the status: completed (with the answer), error, interrupted, needs-user (the session waits for the user in Ladder: tell the user), or timeout (still working: call ladder_wait again). Use the answer in your own work.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['sessionId'], properties: { sessionId: SESSION_ID, timeoutSec: { type: 'integer', minimum: 1, maximum: 600, description: 'How long to wait in this call (default 300).' } } },
+      'Wait for a session of this project to finish its work and return its final answer: one you started, or any other session your task depends on (for example one that is changing code you need). Ladder shows the user that you are waiting for it. It blocks up to timeoutSec (default 300, max 600). The result says the status: completed (with the answer), error, interrupted, needs-user (the session waits for the user in Ladder: tell the user), or timeout (still working: call ladder_wait again). Use the answer in your own work.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['sessionId'], properties: { sessionId: ANY_SESSION_ID, timeoutSec: { type: 'integer', minimum: 1, maximum: 600, description: 'How long to wait in this call (default 300).' } } },
+    readOnly: false
+  },
+  {
+    name: 'ladder_read_session',
+    description:
+      'Read another session of this project without disturbing it: its state, what it is doing, its folder and branch, the files it changed (and which of them you changed too) and its last answer. Read-only. Use it when another session seems to work on something close to your task, before deciding whether to wait for it, coordinate with it or go on.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['sessionId'], properties: { sessionId: ANY_SESSION_ID } },
+    readOnly: true
+  },
+  {
+    name: 'run_in_terminal',
+    description:
+      'Run a shell command in a new terminal of this Ladder session that the user can see, in your working folder (your git worktree when you have one), and get its exit code and the last lines of its output. Use it instead of telling the user to copy a command and run it themselves: builds, test suites, dev servers, watchers, deploy or release scripts, anything long-running or that the user should be able to watch or answer prompts in. For quick commands whose output you only need yourself, keep using your own shell tool. Do not prefix the command with cd to your folder: it already runs there. The call waits up to wait_sec seconds (default 30) for the command to end; if it is still running you get its terminalId and the output so far, and it keeps running: follow it with read_terminal, stop it with stop_terminal. If it waits for input or a login, tell the user to answer in that terminal. The user may have to approve the command first; if they refuse you get an error.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['command'],
+      properties: {
+        command: { type: 'string', maxLength: 4000, description: 'The command, run by a login shell in your working folder. Several lines run as a script.' },
+        title: { type: 'string', maxLength: 80, description: 'Short tab title, for example "iOS build" or "Metro". Default: the command.' },
+        wait_sec: { type: 'integer', minimum: 0, maximum: 600, description: 'How long to wait for the command to end before returning (default 30). Use 0 for servers and watchers.' }
+      }
+    },
+    readOnly: false
+  },
+  {
+    name: 'read_terminal',
+    description:
+      'Read the last lines of a terminal of this session, as the user sees them, and its state and exit code. Use it on a terminalId from run_in_terminal, optionally waiting up to wait_sec seconds for the process to end first. Read-only.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['terminalId'],
+      properties: {
+        terminalId: { type: 'string', description: 'Id returned by run_in_terminal.' },
+        lines: { type: 'integer', minimum: 1, maximum: 400, description: 'How many lines (default 120).' },
+        wait_sec: { type: 'integer', minimum: 0, maximum: 600, description: 'Wait up to this many seconds for the process to end before reading (default 0).' }
+      }
+    },
+    readOnly: true
+  },
+  {
+    name: 'stop_terminal',
+    description: 'Stop the process running in a terminal you started with run_in_terminal (and everything it started), for example a dev server you no longer need. The terminal stays with its output.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['terminalId'], properties: { terminalId: { type: 'string', description: 'Id returned by run_in_terminal.' } } },
     readOnly: false
   }
 ]
@@ -260,7 +312,11 @@ export function toolsForRole(role: ToolRole): LadderToolName[] {
     'ladder_list_sessions',
     'ladder_start_session',
     'ladder_send',
-    'ladder_wait'
+    'ladder_wait',
+    'ladder_read_session',
+    'run_in_terminal',
+    'read_terminal',
+    'stop_terminal'
   ]
 }
 
@@ -560,6 +616,11 @@ export class LadderMcpServer {
         case 'propose_plan':
         case 'revise_plan':
           outcome = await this.backend.plan(ctx.sessionId, tool.name, raw)
+          break
+        case 'run_in_terminal':
+        case 'read_terminal':
+        case 'stop_terminal':
+          outcome = await this.backend.terminal(ctx.sessionId, tool.name, raw, signal)
           break
         default:
           outcome = await this.backend.sessions(ctx.sessionId, tool.name, raw, signal)

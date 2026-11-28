@@ -1,4 +1,4 @@
-import { ArrowRightLeft, Check, ChevronLeft, ChevronRight, Ellipsis, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, RefreshCw, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import { ArrowRightLeft, Check, ChevronLeft, ChevronRight, Ellipsis, Files, Folder, FolderInput, FolderMinus, FolderOpen, FolderPlus, GitFork, GitPullRequest, Globe, Inbox, ListPlus, PanelLeft, Plus, RefreshCw, Search, Settings, Sparkles, SquarePen, SquareTerminal, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 import { useShortcutsRevision } from '@/lib/use-shortcuts'
 import { shortcutLabel } from '@shared/shortcuts'
 import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
@@ -16,6 +16,7 @@ import { isDefaultProfileId, isProfileAgent, normalizeProfileId, profilesOf, pro
 import { AllSessionsButton } from '@/components/all-sessions'
 import { runningSubagents } from '@/components/agent-map'
 import { InboxPanel } from '@/components/inbox'
+import { ProjectServers } from '@/components/local-servers'
 import { ProjectBadges, RunningRing, SessionGlyph, UnreadCount, WaitingCount } from '@/components/status'
 import { Kbd } from '@/components/ui/kbd'
 import { MarqueeText } from '@/components/ui/marquee-text'
@@ -30,7 +31,8 @@ import { request, send } from '@/lib/host-client'
 import { isOtherLinked } from '@/lib/other-agents'
 import { NO_SECTION, startProjectDrag, startSectionDrag, useProjectDrag } from '@/lib/project-drag'
 import { layoutProjects, type ProjectLayout } from '@/lib/project-groups'
-import { NO_GROUP, pickClick, startSessionDrag, useSessionDrag, usePick } from '@/lib/session-drag'
+import { NO_GROUP, pickClick, startGroupDrag, startSessionDrag, useGroupDrag, useSessionDrag, usePick } from '@/lib/session-drag'
+import { orderInGroup } from '@/lib/group-order'
 import { isUnreadState, needsYou, noteTone, prNote, projectAttention, sessionNote, sessionState, sidebarSessions } from '@/lib/session-state'
 import { SidebarResizer } from '@/components/sidebar-resizer'
 import { cn } from '@/lib/utils'
@@ -140,11 +142,11 @@ export function AppSidebar() {
     const isSelected = (id: string) => selection.kind === 'session' && selection.sessionId === id
     const groups = ui[project.id]?.groups ?? []
     const groupOf = ui[project.id]?.groupOf ?? {}
-    const inGroup = (id: string) => all.filter((s) => groupOf[s.id] === id)
+    const inGroup = (id: string) => orderInGroup(all.filter((s) => groupOf[s.id] === id), groups.find((g) => g.id === id)?.order)
     const free = all.filter((s) => !groups.some((g) => g.id === groupOf[s.id]))
     const list = open ? sidebarSessions(free, (s) => isSelected(s.id) || s.id === renaming || Boolean(drafts[s.id]?.trim())) : []
     // Visible rows, top to bottom: used for ⇧ selection.
-    const order = open ? [...groups.filter((g) => !g.collapsed || inGroup(g.id).some((s) => isSelected(s.id))).flatMap((g) => inGroup(g.id)), ...list].map((s) => s.id) : []
+    const order = open ? [...groups.filter((g) => !g.collapsed).flatMap((g) => inGroup(g.id)), ...list].map((s) => s.id) : []
     const picked = pick.projectId === project.id ? pick.ids.filter((id) => all.some((s) => s.id === id)) : []
     return (
       <div key={project.id} className={cn('relative flex flex-col gap-1', dragging === project.id && 'opacity-50')}>
@@ -174,7 +176,6 @@ export function AppSidebar() {
                 if (event.button !== 0 || event.metaKey || event.shiftKey || event.ctrlKey) return
                 startProjectDrag({ event, id: project.id, label: project.name })
               }}
-              title={project.path}
               className={cn(
                 'flex min-h-[30px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none in-data-[sidebar-density=compact]:min-h-7',
                 'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 data-[popup-open]:bg-sidebar-accent/60',
@@ -182,7 +183,10 @@ export function AppSidebar() {
               )}
             >
               <FolderIcon className="size-[15px] shrink-0 text-muted-foreground" strokeWidth={1.6} />
-              <span className="truncate">{project.name}</span>
+              <span className="truncate" title={project.path}>
+                {project.name}
+              </span>
+              <ProjectServers project={project} />
               <span className="ml-auto flex items-center group-hover/project:invisible group-has-[:focus-visible]/project:invisible group-has-[[data-popup-open]]/project:invisible">
                 {open ? attention.running && <RunningRing /> : <ProjectBadges attention={attention} />}
               </span>
@@ -359,6 +363,8 @@ interface SessionRowProps {
   order: string[]
   /** Project sessions selected with ⌘ and ⇧ click. */
   picked: string[]
+  /** Dragged sessions would land just above or below this row. */
+  dropLine?: 'before' | 'after' | null
 }
 
 /** Chat group created by you: it opens and closes, and when closed shows what is waiting for you. */
@@ -370,13 +376,19 @@ function SessionGroup({ project, group, sessions, isSelected, order, picked }: {
   const renaming = useApp((s) => s.renamingGroup === group.id)
   const drafts = useApp((s) => s.drafts)
   const dropping = useSessionDrag((s) => s.active !== null && s.over === group.id)
-  // The open session is always visible, even in a closed group.
-  const open = !group.collapsed || sessions.some((s) => isSelected(s.id))
+  // Dropping onto a row draws the line there; onto a closed group (or an empty one) the whole group lights up.
+  const dropLine = useSessionDrag((s) => (s.active !== null && s.over === group.id ? (s.slot?.anchor ?? null) : null))
+  const groupDragging = useGroupDrag((s) => s.active?.id === group.id)
+  const groupSlot = useGroupDrag((s) => (s.active && s.target?.id === group.id ? s.target.position : null))
+  const open = !group.collapsed
+  // A closed group can hold the open session: its header says so, the row stays hidden as you asked.
+  const holdsSelected = !open && sessions.some((s) => isSelected(s.id))
   return (
     // Even when closed the group accepts dragged sessions: the row opens by itself on drop.
-    <div data-drop-group={group.id} data-drop-project={project.id} className={cn('flex flex-col gap-1 rounded-md', dropping && 'bg-sidebar-accent/60 ring-1 ring-ring/50')}>
+    <div data-drop-group={group.id} data-drop-project={project.id} className={cn('relative flex flex-col gap-1 rounded-md', dropping && !dropLine && 'bg-sidebar-accent/60 ring-1 ring-ring/50', groupDragging && 'opacity-50')}>
+      {groupSlot && <DropLine position={groupSlot} />}
       <ContextMenu disabled={renaming}>
-        <ContextMenuTrigger className="ml-5 rounded-md">
+        <ContextMenuTrigger className="ml-5 rounded-md" data-group-head={group.id} data-drop-project={project.id}>
           {renaming ? (
             <GroupNameField
               name={group.name}
@@ -391,7 +403,16 @@ function SessionGroup({ project, group, sessions, isSelected, order, picked }: {
               aria-expanded={open}
               onClick={() => toggleGroup(project.id, group.id)}
               onDoubleClick={() => startRenameGroup(group.id)}
-              className="flex min-h-7 w-full items-center gap-1.5 rounded-md pr-2 pl-2 text-left text-xs font-medium text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              onPointerDown={(event) => {
+                if (event.button !== 0 || event.metaKey || event.shiftKey || event.ctrlKey) return
+                startGroupDrag(event, project.id, group.id)
+              }}
+              title={holdsSelected ? t('The open session is in this group') : undefined}
+              aria-current={holdsSelected ? 'true' : undefined}
+              className={cn(
+                'flex min-h-7 w-full items-center gap-1.5 rounded-md pr-2 pl-2 text-left text-xs font-medium text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+                holdsSelected && 'bg-sidebar-accent text-sidebar-accent-foreground'
+              )}
             >
               <ChevronRight aria-hidden className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
               <span className="truncate">{group.name}</span>
@@ -402,7 +423,10 @@ function SessionGroup({ project, group, sessions, isSelected, order, picked }: {
         </ContextMenuTrigger>
         <GroupMenuContent projectId={project.id} groupId={group.id} />
       </ContextMenu>
-      {open && sessions.map((session) => <SessionRow key={session.id} session={session} project={project} selected={isSelected(session.id)} hasDraft={Boolean(drafts[session.id]?.trim())} nested order={order} picked={picked} />)}
+      {open &&
+        sessions.map((session) => (
+          <SessionRow key={session.id} session={session} project={project} selected={isSelected(session.id)} hasDraft={Boolean(drafts[session.id]?.trim())} nested order={order} picked={picked} dropLine={dropLine?.id === session.id ? dropLine.position : null} />
+        ))}
     </div>
   )
 }
@@ -684,7 +708,7 @@ function GroupNameField({ name, label = t('Group name'), onDone }: { name: strin
 }
 
 /** A session row: click to open it, right click or "…" for actions, double click to rename it. */
-function SessionRow({ session, project, selected, hasDraft, nested, order, picked }: SessionRowProps) {
+function SessionRow({ session, project, selected, hasDraft, nested, order, picked, dropLine }: SessionRowProps) {
   const select = useApp((s) => s.select)
   const renaming = useApp((s) => s.renaming === session.id)
   const startRename = useApp((s) => s.startRename)
@@ -701,7 +725,8 @@ function SessionRow({ session, project, selected, hasDraft, nested, order, picke
 
   return (
     <ContextMenu disabled={renaming}>
-      <ContextMenuTrigger className={cn('group/row relative rounded-md', nested ? 'ml-9' : 'ml-5')} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
+      <ContextMenuTrigger data-session-row={session.id} className={cn('group/row relative rounded-md', nested ? 'ml-9' : 'ml-5')} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
+        {dropLine && <DropLine position={dropLine} />}
         {renaming ? (
           <div className="grid min-h-7 grid-cols-[12px_minmax(0,1fr)] items-center gap-2.5 rounded-md bg-sidebar-accent py-0.5 pr-1 pl-2.5">
             <span className="grid place-items-center">
@@ -988,13 +1013,15 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
   const browsing = useApp((s) => Boolean(s.agentBrowser[session.id]?.action))
   const origin = useApp((s) => (session.handoffFrom ? s.sessions[session.handoffFrom.sessionId]?.title : null))
   const handoffLabel = origin ? t('Handed off from “{title}”', { title: origin }) : t('Handed off from another session')
+  const overlapLabel = session.overlaps?.length ? t('Same files as {titles}', { titles: session.overlaps.map((o) => `“${o.title}”`).join(', ') }) : null
   const doing =
+    (session.waitingOn && session.run === 'running' ? t('Waiting for “{title}”', { title: session.waitingOn.title }) : null) ??
     (session.run === 'running' || session.run === 'starting' || session.run === 'waiting' ? (session.request?.command ?? session.activity) : null) ??
     (session.mode === 'terminal' ? t('Terminal · {command}', { command: session.command ?? 'claude' }) : null) ??
     session.worktree?.branch ??
     null
   return (
-    <span className={cn('col-span-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground', hasGlyph && 'col-start-2')}>
+    <span className={cn('col-span-2 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground', hasGlyph && 'col-start-2')}>
       {session.mode === 'terminal' ? <SquareTerminal aria-label={t('Terminal session')} className="size-3 shrink-0" /> : <AgentMark agent={session.agent} size={12} />}
       <span className="shrink-0">{session.mode === 'terminal' ? (session.command?.split(' ')[0] ?? 'claude') : (model ?? name)}</span>
       {profile && session.mode !== 'terminal' && (
@@ -1029,6 +1056,7 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
       )}
       {browsing && <Globe role="img" aria-label={t('The agent is using the browser')} className="size-3 shrink-0 text-running" strokeWidth={2} />}
       {session.handoffFrom && <ArrowRightLeft role="img" aria-label={handoffLabel} className="size-3 shrink-0 text-faint" strokeWidth={1.9}><title>{handoffLabel}</title></ArrowRightLeft>}
+      {overlapLabel && <Files role="img" aria-label={overlapLabel} className="size-3 shrink-0 text-attention" strokeWidth={1.9}><title>{overlapLabel}</title></Files>}
       {session.worktree && <GitFork aria-label={`Worktree ${session.worktree.branch}`} className="size-3 shrink-0 text-faint" />}
       {session.pr && <GitPullRequest aria-label={`PR #${session.pr.number}`} className="size-3 shrink-0 text-faint" />}
       {session.titleGenerating && <Sparkles aria-label={t('Generating title…')} className="size-3 shrink-0 animate-pulse text-faint motion-reduce:animate-none" />}

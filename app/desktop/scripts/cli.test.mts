@@ -8,6 +8,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AgentSessions, type AgentSessionsDeps, type ListedSession, type SessionInfo, type StartSpec } from '../src/host/agent-sessions.ts'
+import { AgentTerminals, commandTitle } from '../src/host/agent-terminals.ts'
+import { isInside, parseWorktreeList } from '../src/host/worktree-inventory.ts'
+import { matchServers, parseLsof, portOf } from '../src/host/local-servers.ts'
 import { CLI_ALLOWED, CliSocket, checkCliCommand } from '../src/host/cli-socket.ts'
 import { CliInstall } from '../src/host/cli-install.ts'
 import { LadderMcpServer, parseReport, toolsForRole, type LadderBackend, type LadderToolName } from '../src/host/ladder-mcp.ts'
@@ -16,7 +19,7 @@ import { exitCodeFor, parseArgs } from '../src/cli/args.ts'
 import { connectSocket } from '../src/cli/client.ts'
 import { Follower, findProject, findSession, run, type Io } from '../src/cli/index.ts'
 import { discoverSocket, socketPathFor } from '../src/cli/socket-path.ts'
-import type { ChatItem, HostCommand, HostEvent, PermissionLevel, SessionWaitResult } from '../src/shared/protocol.ts'
+import type { ChatItem, HostCommand, HostEvent, PermissionLevel, SessionWaitResult, TerminalInfo } from '../src/shared/protocol.ts'
 
 /** Backend whose tools are not under test: the ones a test needs are overridden. */
 const unusedBackend: LadderBackend = {
@@ -26,9 +29,10 @@ const unusedBackend: LadderBackend = {
   delegate: async () => ({ text: 'unused', isError: true }),
   report: async () => ({ text: 'unused', isError: true }),
   plan: async () => ({ text: 'unused', isError: true }),
-  sessions: async () => ({ text: 'unused', isError: true })
+  sessions: async () => ({ text: 'unused', isError: true }),
+  terminal: async () => ({ text: 'unused', isError: true })
 }
-const COORDINATOR_TOOLS: LadderToolName[] = ['propose_plan', 'revise_plan', 'ladder_list_sessions', 'ladder_start_session', 'ladder_send', 'ladder_wait']
+const COORDINATOR_TOOLS: LadderToolName[] = ['propose_plan', 'revise_plan', 'ladder_list_sessions', 'ladder_start_session', 'ladder_send', 'ladder_wait', 'ladder_read_session']
 
 let passed = 0
 const step = async (name: string, fn: () => void | Promise<void>) => {
@@ -199,10 +203,13 @@ interface World {
   git: boolean
   rulesDelay: number
   onConfirm: (() => void) | null
+  waitingOn: [string, string, boolean][]
+  waits: Map<string, string[]>
+  overlap: Map<string, string[]>
 }
 
 function world(callerPermission: PermissionLevel = 'edit') {
-  const w: World = { sessions: new Map(), starts: [], sends: [], confirms: [], answer: true, clock: 1_000_000, rules: { allowed: [], available: ['claude-code', 'codex'], permissionsMax: null }, waitResult: null, git: true, rulesDelay: 0, onConfirm: null }
+  const w: World = { sessions: new Map(), starts: [], sends: [], confirms: [], answer: true, clock: 1_000_000, rules: { allowed: [], available: ['claude-code', 'codex'], permissionsMax: null }, waitResult: null, git: true, rulesDelay: 0, onConfirm: null, waitingOn: [], waits: new Map(), overlap: new Map() }
   const add = (id: string, permission: PermissionLevel, origin: SessionInfo['origin'] = null, state = 'idle') => w.sessions.set(id, { sessionId: id, projectId: 'p1', agent: 'claude-code', permission, origin, usable: true, state, title: id })
   add('root', callerPermission)
   let seq = 0
@@ -221,7 +228,14 @@ function world(callerPermission: PermissionLevel = 'edit') {
     },
     send: async (id, text) => void w.sends.push({ id, text }),
     wait: async (id) => w.waitResult ?? { sessionId: id, status: 'completed', text: 'the answer', error: null, waitingLabel: null, seq: 3 },
-    confirm: async (_id, title) => (w.confirms.push(title), w.onConfirm?.(), w.answer)
+    confirm: async (_id, title) => (w.confirms.push(title), w.onConfirm?.(), w.answer),
+    read: (id) => {
+      const s = w.sessions.get(id)
+      return s ? { id, title: s.title, agent: s.agent, model: null, state: s.state, origin: s.origin, cwd: `/proj/${id}`, branch: 'main', activity: null, lastAnswer: `answer of ${id}`, files: ['src/api.ts'] } : null
+    },
+    overlap: (a, b) => w.overlap.get(`${a}>${b}`) ?? [],
+    waitingOn: (caller, target, on) => void w.waitingOn.push([caller, target, on]),
+    waitsOn: (id) => w.waits.get(id) ?? []
   }
   return { w, add, mcp: new AgentSessions(deps), signal: new AbortController().signal }
 }
@@ -289,19 +303,52 @@ await step('Ask level: approval card; if denied, nothing starts; Edit and Full d
   assert.equal(edit.w.confirms.length, 0)
 })
 
-await step('send and wait only on sessions started by the caller (children and grandchildren); the list is read-only', async () => {
+await step('peers: read and wait on any session of the project; send freely to your own, to the others only with approval', async () => {
   const { w, add, mcp, signal } = world()
   add('stranger', 'edit')
+  w.sessions.set('elsewhere', { sessionId: 'elsewhere', projectId: 'p2', agent: 'codex', permission: 'edit', origin: null, usable: true, state: 'idle', title: 'elsewhere' })
+  w.overlap.set('root>stranger', ['src/api.ts'])
   const child = JSON.parse((await start(mcp, 'root', {}, signal)).text.split('\n')[0]).sessionId as string
-  assert.match((await mcp.call('root', 'ladder_send', { sessionId: 'stranger', message: 'x' }, signal)).text, /only use sessions you started/)
-  assert.match((await mcp.call('root', 'ladder_wait', { sessionId: 'stranger' }, signal)).text, /only use sessions you started/)
-  assert.match((await mcp.call('child-1', 'ladder_wait', { sessionId: 'root' }, signal)).text, /only use sessions you started/, 'a child cannot reach up')
-  const grand = JSON.parse((await start(mcp, child, {}, signal)).text.split('\n')[0]).sessionId as string
-  assert.equal((await mcp.call('root', 'ladder_wait', { sessionId: grand }, signal)).isError, false, 'root can wait on a grandchild')
-  assert.equal((await mcp.call('root', 'ladder_send', { sessionId: grand, message: 'hey' }, signal)).isError, false)
-  assert.deepEqual(w.sends, [{ id: grand, text: 'hey' }])
-  const list = JSON.parse((await mcp.call('root', 'ladder_list_sessions', {}, signal)).text.split('\n\n')[0]) as { sessions: { sessionId: string; yours: boolean }[] }
-  assert.deepEqual(list.sessions.map((s) => [s.sessionId, s.yours]).sort(), [[child, true], [grand, true], ['root', false], ['stranger', false]].sort())
+  // Reading and waiting change nothing: any session of the same project, never another project or yourself.
+  const read = await mcp.call('root', 'ladder_read_session', { sessionId: 'stranger' }, signal)
+  assert.equal(read.isError, false)
+  assert.match(read.text, /answer of stranger/)
+  assert.deepEqual(JSON.parse(read.text.split('\n\n')[0]).sameFilesAsYou, ['src/api.ts'])
+  assert.equal((await mcp.call('root', 'ladder_read_session', { sessionId: 'elsewhere' }, signal)).isError, true)
+  assert.equal((await mcp.call('root', 'ladder_wait', { sessionId: 'root' }, signal)).isError, true)
+  const waited = await mcp.call('root', 'ladder_wait', { sessionId: 'stranger' }, signal)
+  assert.equal(waited.isError, false)
+  assert.match(waited.text, /changed files you changed too: src\/api.ts/)
+  assert.deepEqual(w.waitingOn, [['root', 'stranger', true], ['root', 'stranger', false]], 'the UI learns of the wait and of its end')
+  // A wait that closes a loop (stranger waits on someone who waits on root) is refused instead of hanging both.
+  w.waits.set('stranger', [child])
+  w.waits.set(child, ['root'])
+  assert.match((await mcp.call('root', 'ladder_wait', { sessionId: 'stranger' }, signal)).text, /itself waiting for you/)
+  w.waits.clear()
+  // Children of other sessions (delegations, advice) are not reachable as peers.
+  w.sessions.set('delegate', { sessionId: 'delegate', projectId: 'p1', agent: 'codex', permission: 'plan', origin: null, usable: true, state: 'running', title: 'delegate', child: true })
+  assert.equal((await mcp.call('root', 'ladder_read_session', { sessionId: 'delegate' }, signal)).isError, true)
+  assert.equal((await mcp.call('child-1', 'ladder_wait', { sessionId: 'root' }, signal)).isError, false, 'a child can wait on its parent too')
+  // Own sessions: no card. Others: a card, refused means nothing sent.
+  assert.equal((await mcp.call('root', 'ladder_send', { sessionId: child, message: 'hey' }, signal)).isError, false)
+  assert.deepEqual(w.sends, [{ id: child, text: 'hey' }])
+  assert.equal(w.confirms.length, 0)
+  w.answer = false
+  assert.match((await mcp.call('root', 'ladder_send', { sessionId: 'stranger', message: 'I am changing src/api.ts' }, signal)).text, /did not allow/)
+  assert.deepEqual(w.confirms, ['Send a message to “stranger”'])
+  assert.equal(w.sends.length, 1)
+  w.answer = true
+  assert.equal((await mcp.call('root', 'ladder_send', { sessionId: 'stranger', message: 'I am changing src/api.ts' }, signal)).isError, false)
+  assert.equal(w.sends[1].id, 'stranger')
+  assert.match(w.sends[1].text, /^Message from the Ladder session "root".*approved by the user/s)
+  assert.match(w.sends[1].text, /I am changing src\/api.ts$/)
+  const readonly = world('plan')
+  readonly.add('stranger', 'edit')
+  assert.match((await readonly.mcp.call('root', 'ladder_send', { sessionId: 'stranger', message: 'x' }, readonly.signal)).text, /read-only/)
+  const list = JSON.parse((await mcp.call('root', 'ladder_list_sessions', {}, signal)).text.split('\n\n')[0]) as { sessions: { sessionId: string; yours: boolean; sameFilesAsYou?: string[] }[] }
+  assert.ok(!list.sessions.some((s) => s.sessionId === 'root'), 'the caller is not listed')
+  assert.deepEqual(list.sessions.find((s) => s.sessionId === 'stranger')?.sameFilesAsYou, ['src/api.ts'])
+  assert.equal(list.sessions.find((s) => s.sessionId === child)?.yours, true)
   assert.match((await mcp.call('root', 'ladder_wait', { sessionId: child, timeoutSec: 601 }, signal)).text, /timeoutSec must be/)
 })
 
@@ -795,7 +842,7 @@ await step('coordinators see propose_plan, revise_plan and the four ladder_* too
   const advice = server.register('advice')!
   const port = Number(new URL(chat.url).port)
   const names = async (h: typeof chat) => ((await rpc(h.token, port, 'tools/list')).result?.tools ?? []).map((t) => t.name).sort()
-  assert.deepEqual(await names(chat), ['ladder_list_sessions', 'ladder_send', 'ladder_start_session', 'ladder_wait', 'propose_plan', 'revise_plan'])
+  assert.deepEqual(await names(chat), ['ladder_list_sessions', 'ladder_read_session', 'ladder_send', 'ladder_start_session', 'ladder_wait', 'propose_plan', 'revise_plan'])
   assert.deepEqual(await names(task), ['report_result'])
   assert.deepEqual(await names(advice), ['list_agents'], 'a read-only advice child only reads')
   assert.equal((await rpc(chat.token, port, 'tools/call', { name: 'ladder_wait', arguments: { sessionId: 'x' } })).result?.content?.[0].text, 'ok')
@@ -815,7 +862,8 @@ await step('one server: handoff, delegation and plan tools together, one report_
     delegate: async (_s, args) => ({ text: `delegate ${args.agent} ${args.readOnly}` }),
     report: async (id, args) => ({ text: `report ${id} ${JSON.stringify(args)}` }),
     plan: async (_s, tool) => ({ text: `plan ${tool}` }),
-    sessions: async (_s, tool) => ({ text: `sessions ${tool}` })
+    sessions: async (_s, tool) => ({ text: `sessions ${tool}` }),
+    terminal: async (_s, tool) => ({ text: `terminal ${tool}` })
   })
   await server.start()
   const chat = server.register('chat')!
@@ -826,7 +874,7 @@ await step('one server: handoff, delegation and plan tools together, one report_
   }
   const listed = (await post(chat, 'tools/list')).result?.tools ?? []
   seen.push(...listed.map((tool) => tool.name))
-  assert.equal(new Set(seen).size, 10)
+  assert.equal(new Set(seen).size, 11)
   const report = listed.find((tool) => tool.name === 'report_result')!
   for (const key of ['status', 'summary', 'files', 'checks', 'verdict']) assert.ok(key in report.inputSchema.properties, `report_result has ${key}`)
   const text = async (h: typeof chat, name: string, args: object) => (await post(h, 'tools/call', { name, arguments: args })).result?.content?.[0].text
@@ -866,6 +914,77 @@ await step('tools by role: agent-started sessions have no handoff; report_result
   assert.deepEqual(toolsForRole({ ...base, childRole: 'review' }), ['list_agents'])
   assert.deepEqual(toolsForRole({ ...base, childRole: 'delegate', canDelegate: false }), ['list_agents', 'report_result'])
   assert.deepEqual(toolsForRole({ ...base, childRole: 'delegate' }), ['list_agents', 'report_result', 'delegate'])
+  assert.ok(user.includes('run_in_terminal') && user.includes('read_terminal') && user.includes('stop_terminal'), 'a chat runs commands in visible terminals')
+  assert.ok(!toolsForRole({ ...base, childRole: 'delegate' }).includes('run_in_terminal'), 'children work without terminals')
+})
+
+await step('worktree list: main checkout first, branches without refs/heads, prunable and detached entries', () => {
+  const text = ['worktree /Users/dev/acme', 'HEAD 1111', 'branch refs/heads/main', '', 'worktree /Users/dev/.ladder/worktrees/acme/fix-login', 'HEAD 2222', 'branch refs/heads/ladder/fix-login', '', 'worktree /Users/dev/.ladder/worktrees/acme/old', 'HEAD 3333', 'detached', 'prunable gitdir file points to non-existent location', ''].join('\n')
+  assert.deepEqual(parseWorktreeList(text), [
+    { path: '/Users/dev/acme', branch: 'main', prunable: false },
+    { path: '/Users/dev/.ladder/worktrees/acme/fix-login', branch: 'ladder/fix-login', prunable: false },
+    { path: '/Users/dev/.ladder/worktrees/acme/old', branch: null, prunable: true }
+  ])
+  assert.equal(isInside('/Users/dev/.ladder/worktrees/acme/x', '/Users/dev/.ladder/worktrees'), true)
+  assert.equal(isInside('/Users/dev/.ladder/worktrees-old/x', '/Users/dev/.ladder/worktrees'), false)
+})
+
+await step('local servers: lsof records, ports, the deepest project root wins, Ladder and unrelated folders skipped', () => {
+  const listening = parseLsof(['p10', 'cnode', 'f20', 'n*:5173', 'f21', 'n[::1]:5173', 'p11', 'cpython3', 'f3', 'n127.0.0.1:8000', 'p12', 'cElectron', 'f4', 'n127.0.0.1:4000', 'p13', 'cpostgres', 'f5', 'n*:5432', 'p14', 'cclaude', 'f6', 'n127.0.0.1:3001', 'p15', 'cnode', 'f7', 'n127.0.0.1:52011', ''].join('\n'))
+  assert.deepEqual(listening.get(10), { command: 'node', names: ['*:5173', '[::1]:5173'] })
+  assert.equal(portOf('[::1]:8080'), 8080)
+  assert.equal(portOf('*:*'), null)
+  const cwds = new Map([[10, '/Users/dev/acme/apps/web'], [11, '/Users/dev/.ladder/worktrees/acme/fix'], [12, '/Users/dev/acme'], [13, '/opt/homebrew/var'], [14, '/Users/dev/acme'], [15, '/Users/dev/acme']])
+  const projects = [{ projectId: 'acme', roots: ['/Users/dev/acme', '/Users/dev/.ladder/worktrees/acme/fix'] }, { projectId: 'web', roots: ['/Users/dev/acme/apps/web'] }]
+  assert.deepEqual(matchServers(listening, cwds, projects, 99), [
+    { pid: 10, projectId: 'web', command: 'node', ports: [5173], cwd: '/Users/dev/acme/apps/web' },
+    { pid: 11, projectId: 'acme', command: 'python3', ports: [8000], cwd: '/Users/dev/.ladder/worktrees/acme/fix' }
+  ])
+})
+
+await step('terminal tools: Plan refuses, Ask confirms, Full runs; only the session’s own terminals', async () => {
+  const terms = new Map<string, TerminalInfo>()
+  const confirms: string[] = []
+  let level: PermissionLevel = 'full'
+  let allow = true
+  const make = (id: string, sessionId: string, patch: Partial<TerminalInfo> = {}): TerminalInfo => ({ id, projectId: 'p', sessionId, kind: 'run', title: 't', cwd: '/Users/dev/acme', command: 'x', state: 'exited', exitCode: 0, createdAt: 0, port: null, ...patch })
+  const tools = new AgentTerminals({
+    t: (text) => text,
+    info: (id) => (id === 'gone' ? null : { projectId: 'p', permission: level, usable: true }),
+    spawn: (sessionId, command, title) => {
+      const term = make(`term-${terms.size}`, sessionId, { command, title, origin: 'agent' })
+      terms.set(term.id, term)
+      return term
+    },
+    get: (id) => terms.get(id) ?? null,
+    list: (sessionId) => [...terms.values()].filter((x) => x.sessionId === sessionId),
+    output: () => 'line 1\nline 2',
+    onceExit: async () => 0,
+    stop: async () => {},
+    confirm: async (_s, _title, command) => (confirms.push(command), allow)
+  })
+  const signal = new AbortController().signal
+  const ran = await tools.call('chat', 'run_in_terminal', { command: 'pnpm build', title: 'Build' }, signal)
+  assert.equal(ran.isError, false)
+  assert.match(ran.text, /"terminalId":"term-0"/)
+  assert.match(ran.text, /line 2/)
+  assert.equal(confirms.length, 0, 'Full access runs without a card')
+  level = 'ask'
+  allow = false
+  const denied = await tools.call('chat', 'run_in_terminal', { command: 'rm -rf build' }, signal)
+  assert.equal(denied.isError, true)
+  assert.deepEqual(confirms, ['rm -rf build'])
+  assert.equal(terms.size, 1, 'nothing runs after a refusal')
+  level = 'plan'
+  assert.equal((await tools.call('chat', 'run_in_terminal', { command: 'ls' }, signal)).isError, true)
+  assert.equal((await tools.call('chat', 'read_terminal', { terminalId: 'term-0' }, signal)).isError, false, 'Plan can still read')
+  assert.equal((await tools.call('other', 'read_terminal', { terminalId: 'term-0' }, signal)).isError, true, 'another session cannot read it')
+  assert.equal((await tools.call('chat', 'run_in_terminal', { command: 'ls', extra: 1 }, signal)).isError, true)
+  assert.equal((await tools.call('gone', 'run_in_terminal', { command: 'ls' }, signal)).isError, true)
+  level = 'full'
+  terms.set('shell', make('shell', 'chat', { kind: 'shell' }))
+  assert.equal((await tools.call('chat', 'stop_terminal', { terminalId: 'shell' }, signal)).isError, true, 'the user’s shell is not the agent’s to stop')
+  assert.equal(commandTitle('# build\n  eas build --platform ios\n'), 'eas build --platform ios')
 })
 
 cliServer2.close()

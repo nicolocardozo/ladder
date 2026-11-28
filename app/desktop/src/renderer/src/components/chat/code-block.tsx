@@ -1,8 +1,10 @@
-// Code block: header with path or language, Copy, horizontal scrolling, Shiki when ready.
-import { Check, Copy } from 'lucide-react'
+// Code block: header with path or language, Copy (and Run for shell blocks), horizontal scrolling, Shiki when ready.
+import { Check, Copy, Play } from 'lucide-react'
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
 import { t } from '@shared/i18n'
+import { commandOfBlock, isShellBlock, runInSessionTerminal } from '@/lib/run-command'
 import { cn } from '@/lib/utils'
+import { useApp } from '@/store/app-store'
 import { useChatActions } from './chat-context'
 import { getCachedTokens, highlight, resolveLang, type TokenLines } from './highlighter'
 
@@ -73,6 +75,48 @@ function Highlighted({ tokens }: { tokens: TokenLines }) {
   )
 }
 
+/**
+ * Run for a shell block of a chat session: the command runs in a terminal of the session, in its folder (the worktree when it
+ * has one), so a command copied from the chat never runs in the wrong checkout. Not while the block streams in.
+ */
+function RunButton({ code }: { code: string }) {
+  const { sessionId } = useChatActions()
+  const session = useApp((s) => (sessionId ? s.sessions[sessionId] : undefined))
+  const [state, setState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null })
+  if (!session || session.archived || session.mode === 'terminal') return null
+  const command = commandOfBlock(code)
+  if (!command) return null
+  const onRun = () => {
+    setState({ busy: true, error: null })
+    runInSessionTerminal(session.projectId, session.id, command).then(
+      () => setState({ busy: false, error: null }),
+      (error: unknown) => setState({ busy: false, error: error instanceof Error ? error.message : String(error) })
+    )
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={onRun}
+        disabled={state.busy}
+        title={state.error ?? t('Run in a terminal of this session, in {cwd}', { cwd: session.cwd })}
+        aria-label={t('Run in terminal')}
+        className={cn(
+          'inline-flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] border border-border px-1.5 font-sans text-xs font-medium text-secondary-foreground outline-none transition-colors dark:border-input/70',
+          'hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60',
+          state.error && 'text-destructive'
+        )}
+      >
+        <Play className="size-3" strokeWidth={1.9} />
+        {t('Run')}
+      </button>
+      <span aria-live="polite" className="sr-only">
+        {state.error ?? ''}
+      </span>
+    </>
+  )
+}
+
 export const CodeBlock = memo(function CodeBlock({ code, lang, path, live }: CodeBlockProps) {
   const { openFile } = useChatActions()
   const tokens = useTokens(code, lang, path, !live)
@@ -136,6 +180,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, path, live }: Cod
         {label ? <span className={cn('shrink-0', path && 'text-faint')}>{path ? `· ${label}` : label}</span> : null}
         {!path && !label ? <span>{t('text')}</span> : null}
         <span className="flex-1" />
+        {!live && isShellBlock(lang) ? <RunButton code={code} /> : null}
         <button
           type="button"
           onClick={onCopy}

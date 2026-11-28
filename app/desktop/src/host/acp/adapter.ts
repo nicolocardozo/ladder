@@ -216,10 +216,10 @@ export async function acpProbe(spec: AcpAgentSpec, cwd: string, timeoutMs = PROB
 
 /** Ladder MCP tool from the tool call title or, if the title does not say, from the input shape. */
 function ladderToolName(title: string, raw: Record<string, unknown>): string | null {
-  const named = /(list_agents|handoff|delegate|report_result)/.exec(title)
+  const named = /(list_agents|handoff|delegate|report_result|run_in_terminal|read_terminal|stop_terminal)/.exec(title)
   if (named) return named[1]
   // Plan and session tools are not rendered as delegations, whatever shape their input has.
-  if (/(propose_plan|revise_plan|ladder_(list_sessions|start_session|send|wait))/.test(title)) return null
+  if (/(propose_plan|revise_plan|ladder_(list_sessions|start_session|send|wait|read_session))/.test(title)) return null
   // Shape detection only for keys that exist in no plan or session tool: delegate's read_only and handoff's summary are unique,
   // and {agent, prompt} alone is also ladder_start_session, so it stays unknown (no wrong delegation row).
   if ('read_only' in raw && 'prompt' in raw) return 'delegate'

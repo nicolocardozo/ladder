@@ -22,7 +22,8 @@ import { plural, t } from '@shared/i18n'
 import { AgentMark, modelLabel } from '@/components/agent-mark'
 import { usePeerSession } from '@/components/handoff-bits'
 import { browserToolOf, browserToolView } from '@/lib/browser-agent'
-import { ladderToolInput, ladderToolOf, ladderToolTitle, resolveAgent } from '@/lib/ladder-tools'
+import { ladderToolInput, ladderToolOf, ladderToolTitle, resolveAgent, terminalToolOf, terminalToolTitle, terminalToolView } from '@/lib/ladder-tools'
+import { showTerminal } from '@/lib/other-agents'
 import { planOfTool } from '@/lib/plan'
 import { findAgentForTool, useSubagentLists } from '@/lib/subagents'
 import { cn } from '@/lib/utils'
@@ -139,6 +140,7 @@ function ToolOutput({ item }: { item: ToolItem }) {
 /** A sub-agent is a single row that opens the detail; other tools expand in place. */
 export const ToolRow = memo(function ToolRow({ item }: { item: ToolItem }) {
   if (ladderToolOf(item.name)) return <LadderToolRow item={item} />
+  if (terminalToolOf(item.name)) return <TerminalToolRow item={item} />
   return item.tool === 'agent' ? <AgentToolRow item={item} /> : <PlainToolRow item={item} />
 })
 
@@ -178,6 +180,26 @@ function LadderToolRow({ item: raw }: { item: ToolItem }) {
       </button>
     ) : null
   return <PlainToolRow item={item} icon={icon} meta={tool === 'delegate' ? model : null} extra={extra} wrap={tool === 'delegate'} tooltip={tool === 'delegate' ? input.prompt : null} />
+}
+
+/** Commands the agent runs in a terminal of the session: the command as the title and a button to bring that terminal into view. */
+function TerminalToolRow({ item: raw }: { item: ToolItem }) {
+  const tool = terminalToolOf(raw.name)!
+  const view = terminalToolView(raw.detail, raw.output)
+  const terminal = useApp((s) => (view.terminalId ? s.terminals[view.terminalId] : undefined))
+  const command = view.command ?? (tool === 'run_in_terminal' ? (terminal?.command ?? null) : null)
+  const item: ToolItem = { ...raw, tool: 'command', title: terminalToolTitle(tool, command, terminal?.title ?? view.title), detail: command }
+  const extra = terminal ? (
+    <button
+      type="button"
+      onClick={() => showTerminal(terminal)}
+      className="flex h-[22px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-xs font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      <SquareTerminal aria-hidden className="size-3" strokeWidth={2} />
+      {t('Show terminal')}
+    </button>
+  ) : null
+  return <PlainToolRow item={item} extra={extra} />
 }
 
 /** Agent browser tools: readable label and no typed text (neither in the detail nor in the result). */

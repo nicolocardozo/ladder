@@ -111,6 +111,8 @@ const it: Record<string, string> = {
   'Permission change timed out': 'Il cambio dei permessi non ha avuto risposta',
   'to switch': 'per cambiare',
   'Not allowed by .ladder/settings.toml': 'Non ammesso da .ladder/settings.toml',
+  'Not for a delegate that writes files': 'Non per un delegato che modifica i file',
+  'Fixed by whoever started this session: it works read-only.': 'Fissato da chi ha avviato questa sessione: lavora in sola lettura.',
   'Stop': 'Ferma',
   'Queue': 'Metti in coda',
   'Send': 'Invia',

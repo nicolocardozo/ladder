@@ -1,6 +1,6 @@
 // Menu for sessions and projects: the same actions for the right click (sidebar and tabs) and for the row's "…" button.
 import { useMemo, useRef, useState } from 'react'
-import { Archive, ArrowDown, ArrowRightLeft, ArrowUp, Bookmark, Check, CheckCheck, CircleDot, Columns2, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, ListPlus, MessagesSquare, Pencil, RotateCw, Sparkles, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDown, CircleStop, ArrowRightLeft, ArrowUp, Bookmark, Check, CheckCheck, CircleDot, Columns2, ExternalLink, FolderInput, FolderMinus, FolderPlus, FolderSearch, ListPlus, MessagesSquare, Pencil, RotateCw, Sparkles, SquarePen, Trash2 } from 'lucide-react'
 import type { Project, SessionSummary } from '@shared/protocol'
 import { plural, t } from '@shared/i18n'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,8 @@ import { handoffBlockedReason } from '@/lib/handoff'
 import { layoutProjects } from '@/lib/project-groups'
 import { openSavePreset } from '@/lib/session-presets'
 import { request } from '@/lib/host-client'
-import { liveColumns, useApp } from '@/store/app-store'
+import { portsText, stopServer, useProjectServers } from '@/components/local-servers'
+import { groupSessionIds, liveColumns, useApp } from '@/store/app-store'
 
 type Variant = 'context' | 'dropdown'
 
@@ -185,6 +186,7 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
           )}
         </SubContent>
       </Sub>
+      {currentGroup && <ShiftInGroupItems variant={variant} session={session} groupId={currentGroup} />}
       <Separator />
       <Item className={itemClass} onClick={() => archiveSession(sessionId)}>
         <Archive />
@@ -194,16 +196,66 @@ export function SessionMenuContent({ variant, session, project }: SessionMenuPro
   )
 }
 
+/**
+ * Move up / Move down inside the session's group. A child of the open menu: the place in the group is computed only while
+ * the menu is open, not for every row on every store update.
+ */
+function ShiftInGroupItems({ variant, session, groupId }: { variant: Variant; session: SessionSummary; groupId: string }) {
+  const { Item } = parts[variant]
+  const shiftInGroup = useApp((s) => s.shiftSessionInGroup)
+  // "index/count": a string keeps the selector stable between renders.
+  const place = useApp((s) => {
+    const ids = groupSessionIds(s, session.projectId, groupId)
+    return `${ids.indexOf(session.id)}/${ids.length}`
+  })
+  const [at, count] = place.split('/').map(Number)
+  if (count < 2) return null
+  return (
+    <>
+      <Item className={itemClass} disabled={at <= 0} onClick={() => shiftInGroup(session.projectId, session.id, -1)}>
+        <ArrowUp />
+        {t('Move up')}
+      </Item>
+      <Item className={itemClass} disabled={at < 0 || at >= count - 1} onClick={() => shiftInGroup(session.projectId, session.id, 1)}>
+        <ArrowDown />
+        {t('Move down')}
+      </Item>
+    </>
+  )
+}
+
 /** Right click on a group. Removing the group leaves the chats in the project's list. */
 export function GroupMenuContent({ projectId, groupId }: { projectId: string; groupId: string }) {
   const startRenameGroup = useApp((s) => s.startRenameGroup)
   const deleteGroup = useApp((s) => s.deleteGroup)
+  const reorderGroups = useApp((s) => s.reorderGroups)
+  const ids = useApp((s) => (s.ui[projectId]?.groups ?? []).map((g) => g.id).join('\n'))
+    .split('\n')
+    .filter(Boolean)
+  const index = ids.indexOf(groupId)
+  const shift = (delta: number) => {
+    const next = [...ids]
+    next.splice(index + delta, 0, ...next.splice(index, 1))
+    reorderGroups(projectId, next)
+  }
   return (
     <ContextMenuContent className={contentClass} finalFocus={() => !useApp.getState().renamingGroup}>
       <ContextMenuItem className={itemClass} onClick={() => startRenameGroup(groupId)}>
         <Pencil />
         {t('Rename')}
       </ContextMenuItem>
+      {ids.length > 1 && (
+        <>
+          <ContextMenuItem className={itemClass} disabled={index <= 0} onClick={() => shift(-1)}>
+            <ArrowUp />
+            {t('Move up')}
+          </ContextMenuItem>
+          <ContextMenuItem className={itemClass} disabled={index < 0 || index >= ids.length - 1} onClick={() => shift(1)}>
+            <ArrowDown />
+            {t('Move down')}
+          </ContextMenuItem>
+        </>
+      )}
       <ContextMenuItem className={itemClass} onClick={() => deleteGroup(projectId, groupId)}>
         <FolderMinus />
         {t('Remove group')}
@@ -265,6 +317,7 @@ export function ProjectMenuContent({ project, onRemove, variant = 'context' }: P
   const moveProject = useApp((s) => s.moveProject)
   const removing = useRef(false)
   const projectEditor = useEditorOf(project.id)
+  const servers = useProjectServers(project.id)
   // Where the project sits: its section (null: outside any section) and its place among its neighbors.
   const place = useMemo(() => {
     const layout = layoutProjects(projects, projectGroups)
@@ -308,6 +361,13 @@ export function ProjectMenuContent({ project, onRemove, variant = 'context' }: P
         <FolderSearch />
         {t('Show in Finder')}
       </Item>
+      {servers.length > 0 && <Separator />}
+      {servers.map((server) => (
+        <Item key={server.pid} className={itemClass} onClick={() => void stopServer(server.pid).catch(() => {})}>
+          <CircleStop />
+          {t('Stop localhost{ports}', { ports: portsText(server) })}
+        </Item>
+      ))}
       <Separator />
       <Sub>
         <SubTrigger className={itemClass}>

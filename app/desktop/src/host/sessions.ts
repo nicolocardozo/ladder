@@ -1,6 +1,6 @@
 // Core of the host: projects, sessions, chat items and the link to adapters, terminals and git.
 import { randomUUID } from 'node:crypto'
-import { constants as fsConstants, existsSync, statSync } from 'node:fs'
+import { constants as fsConstants, existsSync, realpathSync, statSync } from 'node:fs'
 import { open, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -21,6 +21,8 @@ import type {
   HostToMain,
   IssueList,
   GitArchiveResult,
+  WorktreeEntry,
+  WorktreeRemoveResult,
   BranchMap,
   BranchSwitchResult,
   MergeInfo,
@@ -67,10 +69,12 @@ import { BrowserAgent } from './browser-agent'
 import { LadderMcpServer, parseReport, toolsForRole, type DelegateArgs, type HandoffArgs, type LadderCall, type LadderToolName, type ReportArgs, type ToolOutcome } from './ladder-mcp'
 import { isReadOnlyBash } from './claude/read-only'
 import { Plans } from './plans'
-import { AgentSessions, type StartSpec } from './agent-sessions'
+import { AgentSessions, type SessionReport, type StartSpec } from './agent-sessions'
+import { AgentTerminals, commandTitle } from './agent-terminals'
 import { decideWait } from './session-wait'
 import { markOf } from '../cli/follow-mark.ts'
 import type { CliInstall } from './cli-install'
+import { LocalServers } from './local-servers'
 import type { TaskSessionSpec } from './plan-runner'
 import type { PlanState, PlanTask } from '@shared/plan'
 import { agentCatalog, resolveAgentSpec, UNKNOWN_LOGIN } from './acp/catalog'
@@ -112,6 +116,7 @@ import { ProjectGroups } from './project-groups'
 import { Shortcuts } from './keybindings'
 import { cleanBranchPrefix, DEFAULT_BRANCH_PREFIX } from '@shared/worktree-prefs'
 import { backupDatabase, dataInfo } from './data'
+import { folderBytes, isInside, parseWorktreeList } from './worktree-inventory'
 import { createWorktree, freePort, portIsFree, Ports, removeWorktree, runCleanupScript, worktreeIncludeFiles, worktreesRoot, type CleanupResult, type WorktreeBranch } from './worktrees'
 import { BRANCH_SYSTEM, BRANCH_TIMEOUT_MS, COMMIT_LABEL, COMMIT_SYSTEM, COMMIT_TIMEOUT_MS, PR_LABEL, PR_SYSTEM, branchPrompt, branchSubjects, cleanBranch, commitPrompt, conversationExcerpt, diffExcerpt, prPrompt, projectRules, recentSubjects, splitText, textErrors, type TextModel } from './writing'
 
@@ -125,6 +130,8 @@ type Notify = (message: HostToMain) => void
 const PR_POLL_MS = Number(process.env.LADDER_PR_POLL_MS) || 90_000
 /** How often to look for sessions to archive (AppPrefs.autoArchiveDays). */
 const AUTO_ARCHIVE_EVERY_MS = 60 * 60_000
+/** Sessions that worked within this window take part in the same-files check. */
+const OVERLAP_WINDOW_MS = 24 * 60 * 60_000
 type ItemInput = ChatItem extends infer T ? (T extends ChatItem ? Omit<T, 'seq'> : never) : never
 
 interface PendingRequest {
@@ -326,6 +333,19 @@ export class Host {
   private readonly plans: Plans
   /** MCP tools for starting and waiting on other sessions. */
   private readonly agentSessions: AgentSessions
+  /** MCP tools for running commands in terminals of the session (run_in_terminal, read_terminal, stop_terminal). */
+  private readonly agentTerminals: AgentTerminals
+  /**
+   * Paths each session changed, loaded on first need. all: from the 'turn-end' rows (a snapshot of the whole folder, so in a
+   * folder shared with another session it also holds that session's edits); edited: only from the session's own edit tools.
+   */
+  private touched = new Map<string, { all: Set<string>; edited: Set<string> }>()
+  /** Active sessions that changed the same files: session → other session → shared paths. */
+  private overlaps = new Map<string, Map<string, string[]>>()
+  /** Shared paths already announced in the chats, per pair of sessions: a notice only for new ones. */
+  private overlapNoticed = new Map<string, Set<string>>()
+  /** Sessions inside ladder_wait calls on other sessions: caller → sessions waited on (one entry per call in progress). */
+  private waitingOnPeer = new Map<string, string[]>()
   /** Installation of the `ladder` command (created by the host at startup). */
   private cliInstall: CliInstall | null = null
   private readonly watcher: RootWatcher
@@ -341,6 +361,7 @@ export class Host {
   /** `fs.watch` per connection: connection -> folder -> subscriptions (an `off` does not remove those of another window). */
   private readonly fsSubs = new Map<object, Map<string, number>>()
   private readonly ports: Ports
+  private readonly localServers: LocalServers
   /** Service start in progress, per session: archive() waits for it. */
   private readonly servicesStarting = new Map<string, Promise<void>>()
   /** Sessions being archived: services must no longer start. */
@@ -380,7 +401,8 @@ export class Host {
     delegate: (sessionId, args, call, signal) => this.ladderDelegate(sessionId, args, call, signal),
     report: (sessionId, args) => this.ladderReportAny(sessionId, args),
     plan: (sessionId, tool, args) => this.plans.call(sessionId, tool, args),
-    sessions: (sessionId, tool, args, signal) => this.agentSessions.call(sessionId, tool, args, signal)
+    sessions: (sessionId, tool, args, signal) => this.agentSessions.call(sessionId, tool, args, signal),
+    terminal: (sessionId, tool, args, signal) => this.agentTerminals.call(sessionId, tool, args, signal)
   })
   /** Delegations in progress per child session. */
   private readonly delegations = new Map<string, Delegation>()
@@ -503,6 +525,15 @@ export class Host {
       dirty: (cwd) => this.gitStatus.peek(cwd)?.dirty ?? null
     })
     this.ports = new Ports(db)
+    this.localServers = new LocalServers({
+      projects: () =>
+        [...this.projects.values()].map((project) => ({
+          projectId: project.id,
+          // The project's worktree folder too: a server the user started there by hand, with no session open.
+          roots: [project.path, join(worktreesRoot(this.prefs.worktreesDir), project.name), ...[...this.rows.values()].filter((r) => r.project_id === project.id && !r.archived).map((r) => this.cwdOf(r))].filter(Boolean)
+        })),
+      emit: (servers) => this.broadcast({ type: 'servers.update', servers })
+    })
     this.plans = new Plans({
       db,
       broadcast: (event) => this.broadcast(event),
@@ -535,7 +566,7 @@ export class Host {
       info: (sessionId) => {
         const row = this.rows.get(sessionId)
         if (!row) return null
-        return { sessionId, projectId: row.project_id, agent: row.agent as AgentId, permission: row.permission as PermissionLevel, origin: row.origin ? (JSON.parse(row.origin) as NonNullable<SessionSummary['origin']>) : null, usable: row.mode !== 'terminal' && !this.isGone(sessionId) }
+        return { sessionId, projectId: row.project_id, agent: row.agent as AgentId, permission: row.permission as PermissionLevel, origin: row.origin ? (JSON.parse(row.origin) as NonNullable<SessionSummary['origin']>) : null, usable: row.mode !== 'terminal' && !this.isGone(sessionId), title: row.title, child: !!row.parent }
       },
       rules: (projectId) => this.projectRules(projectId),
       isGit: (projectId) => this.projects.get(projectId)?.isGit === true,
@@ -544,21 +575,68 @@ export class Host {
           .filter((r) => r.project_id === projectId && !r.archived && !r.parent && r.mode !== 'terminal')
           .map((r) => ({ id: r.id, title: r.title, agent: r.agent as AgentId, model: this.modelOf(r), state: r.run_state, cwd: this.cwdOf(r), branch: this.branchOf(r), origin: r.origin ? (JSON.parse(r.origin) as NonNullable<SessionSummary['origin']>) : null })),
       start: (spec) => this.startAgentSession(spec),
+      read: (sessionId) => this.peerReport(sessionId),
+      overlap: (callerId, otherId) => this.overlaps.get(callerId)?.get(otherId) ?? [],
+      waitingOn: (callerId, targetId, on) => {
+        const list = [...(this.waitingOnPeer.get(callerId) ?? [])]
+        if (on) list.push(targetId)
+        else if (list.includes(targetId)) list.splice(list.indexOf(targetId), 1)
+        if (list.length) this.waitingOnPeer.set(callerId, list)
+        else this.waitingOnPeer.delete(callerId)
+        this.emitSummary(callerId)
+      },
+      waitsOn: (sessionId) => this.waitingOnPeer.get(sessionId) ?? [],
       send: (sessionId, text) => this.send(sessionId, text),
       wait: (sessionId, timeoutMs, signal) => this.waitSession(sessionId, timeoutMs, signal),
       // Ask level: the same approval card as the other tools.
-      confirm: async (sessionId, title, reason, signal) => {
+      confirm: async (sessionId, title, reason, signal, tool) => {
         const response = await this.openRequest(
           sessionId,
           {
             requestType: 'permission',
-            toolName: 'ladder_start_session',
+            toolName: tool,
             title,
             command: null,
             path: null,
             reason,
             options: [
               { id: 'allow', label: t('Approve'), kind: 'allow' },
+              { id: 'deny', label: t('Deny'), kind: 'deny' }
+            ],
+            questions: null
+          },
+          signal
+        )
+        return 'optionId' in response && response.optionId === 'allow'
+      }
+    })
+    this.agentTerminals = new AgentTerminals({
+      t,
+      info: (sessionId) => {
+        const row = this.rows.get(sessionId)
+        if (!row) return null
+        return { projectId: row.project_id, permission: row.permission as PermissionLevel, usable: row.mode !== 'terminal' && !row.archived && !this.isGone(sessionId) }
+      },
+      spawn: (sessionId, command, title) => this.runInSessionTerminal(sessionId, command, title, 'agent'),
+      get: (id) => this.terminals.get(id),
+      list: (sessionId) => this.terminals.bySession(sessionId),
+      output: (id, lines) => this.terminals.output(id, lines),
+      onceExit: (id) => this.terminals.onceExit(id),
+      stop: (id) => this.terminals.stop(id),
+      // Below Full access: the same approval card as the agent's own shell commands, with the folder it runs in.
+      confirm: async (sessionId, title, command, signal) => {
+        const row = this.rows.get(sessionId)
+        const response = await this.openRequest(
+          sessionId,
+          {
+            requestType: 'permission',
+            toolName: 'run_in_terminal',
+            title: row ? t('Run in a terminal, in {cwd}', { cwd: this.cwdOf(row) }) : title,
+            command,
+            path: null,
+            reason: null,
+            options: [
+              { id: 'allow', label: t('Run'), kind: 'allow' },
               { id: 'deny', label: t('Deny'), kind: 'deny' }
             ],
             questions: null
@@ -598,6 +676,7 @@ export class Host {
     for (const row of this.db.prepare('select * from sessions').all() as unknown as SessionRow[]) this.rows.set(row.id, row)
     // Main checkouts take the first port blocks (4100, …), before any worktree.
     for (const project of this.projects.values()) this.ports.allocate(project.path)
+    this.localServers.start()
     const resumeQueued = this.recoverInterrupted()
     this.restoreLimitWatches()
     this.dismissStaleAgentsRows()
@@ -621,6 +700,7 @@ export class Host {
     await this.plans.recover().catch((error: Error) => console.error(`[host] piani: ${error.message}`))
     // Sessions that were "Queued" before this version: the first queued message starts, once only.
     for (const id of resumeQueued) this.startFirstQueued(id)
+    for (const project of this.projects.values()) this.refreshOverlaps(project.id, true)
     this.updateBadge()
     this.shortcuts.start()
     this.prTimer = setTimeout(() => void this.pollPrs(), 4000)
@@ -1324,9 +1404,16 @@ export class Host {
       case 'session.respond':
         this.respond(command.sessionId, command.requestId, command.response, command.via ?? 'chat', undefined, command.viaDevice)
         return null
-      case 'session.permission.set':
-        this.assertNotChild(command.sessionId, t('The permission level of a child session (advice or delegation) cannot be changed.'))
+      case 'session.permission.set': {
+        // The user may move a delegate that writes between Ask, Edit and Full. Advice, reviews and read-only delegations
+        // stay on Plan: whoever started them relies on an answer that changed no files.
+        const row = this.mustRow(command.sessionId)
+        if (row.parent) {
+          if (this.isReadOnlyRow(row)) throw new Error(t('This session was started read-only: its level stays Plan.'))
+          if (command.permission === 'plan') throw new Error(t('A delegate that writes files cannot move to Plan: stop it instead.'))
+        }
         return await this.setPermission(command.sessionId, command.permission)
+      }
       case 'session.effort.set': {
         this.mustRow(command.sessionId)
         this.updateRow(command.sessionId, { effort: command.effort })
@@ -1491,6 +1578,15 @@ export class Host {
           command: null,
           port: this.ports.allocate(cwd)
         })
+      }
+      case 'terminal.run': {
+        const row = this.mustRow(command.sessionId)
+        if (row.project_id !== command.projectId) throw new Error(t('Session not found.'))
+        // Archived or being archived: its terminals were already cleaned up, a new one would outlive it.
+        if (row.archived || this.archiving.has(row.id) || row.mode === 'terminal') throw new Error(t('This session is archived: open a new one to run commands.'))
+        const text = command.command.trim()
+        if (!text) throw new Error(t('There is no command to run.'))
+        return this.runInSessionTerminal(row.id, text, commandTitle(text), null)
       }
       case 'terminal.attach':
         return { data: this.terminals.attach(command.id, command.cols, command.rows) }
@@ -1697,6 +1793,17 @@ export class Host {
           this.notifyFsChanged(root)
         }
       }
+      case 'worktrees.list':
+        return this.listWorktrees()
+      case 'worktrees.remove':
+        return this.removeWorktrees(command.paths)
+      case 'servers.list':
+        return this.localServers.list()
+      case 'servers.stop':
+        await this.localServers.kill(command.pid).catch(() => {
+          throw new Error(t('That server is no longer running.'))
+        })
+        return null
       case 'git.archive':
         return this.archiveAfterMerge(command.sessionId)
       // ── End of push, merge and archive ──
@@ -1955,12 +2062,23 @@ export class Host {
 
   /** Non-archived session working in the project's main checkout (not in a worktree) with a turn, subagents or a wait in progress. */
   private mainCheckoutBusy(project: Project): SessionRow | null {
+    // A session with an agent at work comes before one that only left commands in the background: the message names it.
+    let commandsOnly: SessionRow | null = null
     for (const row of this.rows.values()) {
       if (row.archived || row.project_id !== project.id || row.worktree || this.cwdOf(row) !== project.path) continue
       const runtime = this.runtimes.get(row.id)
-      if (this.isBusyNow(row.id) || row.run_state === 'running' || row.run_state === 'starting' || row.run_state === 'waiting' || (runtime && this.agentBusy(row.id, runtime))) return row
+      if (!(this.isBusyNow(row.id) || row.run_state === 'running' || row.run_state === 'starting' || row.run_state === 'waiting' || (runtime && this.agentBusy(row.id, runtime)))) continue
+      if (!this.onlyBackgroundCommands(row)) return row
+      commandsOnly ??= row
     }
-    return null
+    return commandsOnly
+  }
+
+  /** The session is busy only because of shell commands it left running in the background (no turn, sub-agent or wait). */
+  private onlyBackgroundCommands(row: SessionRow): boolean {
+    const runtime = this.runtimes.get(row.id)
+    if (!runtime?.adapter.onlyBackgroundCommands || this.isBusyNow(row.id) || row.run_state === 'running' || row.run_state === 'starting') return false
+    return !(runtime.adapter.isRunning || runtime.turnId !== null || runtime.closing > 0 || this.subagents.hasRunning(row.id) || this.agentsIdle.has(row.id) || this.agentsWait.has(row.id))
   }
 
   /** Project's local branches for the branch menu and for a worktree's starting point. */
@@ -1970,7 +2088,7 @@ export class Host {
     const folder = join(worktreesRoot(this.prefs.worktreesDir), project.name)
     const home = homedir()
     const worktreesFolder = folder === home || folder.startsWith(home + sep) ? `~${folder.slice(home.length)}` : folder
-    const empty: ProjectBranches = { projectId, current: null, branches: [], dirty: 0, busy: busy ? { sessionId: busy.id, title: busy.title } : null, worktreesFolder }
+    const empty: ProjectBranches = { projectId, current: null, branches: [], dirty: 0, busy: busy ? { sessionId: busy.id, title: busy.title, ...(this.onlyBackgroundCommands(busy) ? { commands: true } : {}) } : null, worktreesFolder }
     if (!project.path || !project.isGit || !existsSync(project.path)) return empty
     const [{ current, branches }, dirty] = await Promise.all([listLocalBranches(project.path), dirtyCount(project.path).catch(() => 0)])
     return { ...empty, current, branches, dirty }
@@ -1988,6 +2106,7 @@ export class Host {
     this.switchingBranch.add(projectId)
     const assertIdle = () => {
       const busy = this.mainCheckoutBusy(project)
+      if (busy && this.onlyBackgroundCommands(busy)) throw new Error(t('“{title}” has a command running in the background in the main checkout. Wait for it to end, or ask the agent to stop it, then change branch.', { title: busy.title }))
       if (busy) throw new Error(t('“{title}” has an agent at work in the main checkout. Wait for it to finish or stop it, then change branch.', { title: busy.title }))
     }
     try {
@@ -2626,6 +2745,11 @@ export class Host {
       this.archiving.delete(sessionId)
     }
     this.emitSummary(sessionId)
+    // An archived session no longer overlaps with anyone; whoever waited on it is woken by emitSummary.
+    this.touched.delete(sessionId)
+    this.waitingOnPeer.delete(sessionId)
+    for (const key of [...this.overlapNoticed.keys()]) if (key.split('\0').includes(sessionId)) this.overlapNoticed.delete(key)
+    if (this.overlaps.has(sessionId)) this.refreshOverlaps(row.project_id)
     this.attention({ kind: 'resolved', sessionId, itemId: null })
     // Worktree close command (for example docker compose down), in-process and with a timeout. The worktree stays: archiveMerged removes it.
     let cleanupOk = true
@@ -2757,6 +2881,21 @@ export class Host {
     const reusable = action.concurrent ? same.find((t) => t.state !== 'running') : same[0]
     if (reusable) return this.terminals.restart(reusable.id, { command: action.command })
     return this.terminals.spawn({ projectId, sessionId, kind: 'run', title: action.name, cwd, command: action.command, port: this.ports.allocate(cwd) })
+  }
+
+  /**
+   * Runs a command in a terminal of the session, in its folder (the worktree when it has one). The user's Run button reuses an
+   * exited terminal with the same command, so running a block again does not pile up tabs; the agent always gets a new one,
+   * because it reads that terminal's output and exit code.
+   */
+  private runInSessionTerminal(sessionId: string, command: string, title: string, origin: 'agent' | null): TerminalInfo {
+    const row = this.mustRow(sessionId)
+    const cwd = this.cwdOf(row)
+    if (!origin) {
+      const reusable = this.terminals.bySession(sessionId, 'run').find((term) => term.command === command && term.cwd === cwd && !term.origin && !this.terminals.isAlive(term.id))
+      if (reusable) return this.terminals.restart(reusable.id)
+    }
+    return this.terminals.spawn({ projectId: row.project_id, sessionId, kind: 'run', title, cwd, command, port: this.ports.allocate(cwd), ...(origin ? { origin } : {}) })
   }
 
   // ── Terminal sessions ───────────────────────────────────────────────────
@@ -3933,6 +4072,10 @@ export class Host {
     })
     this.flush()
     this.emitSummary(sessionId)
+    if (files.length > 0) {
+      this.touched.delete(sessionId)
+      this.refreshOverlaps(row.project_id)
+    }
     // A background finished while the turn was closing: now that no turn is open the "Continue" wait starts.
     if (!superseded && this.agentsIdle.has(sessionId)) this.armAgentsFinished(sessionId)
     // Row already at rest: only now does the level requested mid-turn become the session's.
@@ -5794,7 +5937,144 @@ export class Host {
       ...(row.parent ? { parent: this.parentOf(row) } : {}),
       agentsNotice: this.agentsNotices.get(row.id) ?? null,
       plan: this.plans.refFor(row.id),
-      ...(row.origin ? { origin: JSON.parse(row.origin) as SessionSummary['origin'] } : {})
+      ...(row.origin ? { origin: JSON.parse(row.origin) as SessionSummary['origin'] } : {}),
+      ...this.peerFields(row.id)
+    }
+  }
+
+  /** waitingOn and overlaps for the summary: omitted when empty, so ordinary sessions carry nothing more. */
+  private peerFields(sessionId: string): Pick<SessionSummary, 'waitingOn' | 'overlaps'> {
+    const out: Pick<SessionSummary, 'waitingOn' | 'overlaps'> = {}
+    const target = this.waitingOnPeer.get(sessionId)?.at(-1)
+    const targetRow = target ? this.rows.get(target) : undefined
+    if (target && targetRow) out.waitingOn = { sessionId: target, title: targetRow.title }
+    const shared = this.overlaps.get(sessionId)
+    if (shared?.size) {
+      out.overlaps = [...shared.entries()].flatMap(([id, files]) => {
+        const other = this.rows.get(id)
+        return other ? [{ sessionId: id, title: other.title, files: files.slice(0, 50) }] : []
+      })
+    }
+    return out
+  }
+
+  // ── Sessions that touch the same files ──────────────────────────────────
+
+  /** Paths the session changed, relative to its folder (renames count with both names). */
+  private touchedFiles(sessionId: string): { all: Set<string>; edited: Set<string> } {
+    const cached = this.touched.get(sessionId)
+    if (cached) return cached
+    const all = new Set<string>()
+    const edited = new Set<string>()
+    const root = this.rows.has(sessionId) ? this.cwdOf(this.mustRow(sessionId)) : ''
+    const rows = this.db.prepare(`select json from items where session_id = ? and (json like '%"kind":"turn-end"%' or json like '%"tool":"edit"%')`).all(sessionId) as { json: string }[]
+    for (const { json } of rows) {
+      const item = JSON.parse(json) as ChatItem
+      if (item.kind === 'turn-end') {
+        for (const file of item.files) {
+          all.add(file.path)
+          if (file.oldPath) all.add(file.oldPath)
+        }
+      } else if (item.kind === 'tool' && item.tool === 'edit' && item.status === 'done' && item.detail) {
+        const path = item.detail.trim()
+        edited.add(root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path)
+      }
+    }
+    const entry = { all, edited }
+    this.touched.set(sessionId, entry)
+    return entry
+  }
+
+  /**
+   * Recomputes which active sessions of the project changed the same files. Paths are relative to each session's folder, so a
+   * worktree and the main checkout compare as the same repository. Only sessions that worked in the last day count: an old idle
+   * session that is still open would otherwise flag every file it ever touched. New overlaps get a notice in both chats.
+   */
+  private refreshOverlaps(projectId: string, quiet = false): void {
+    const since = Date.now() - OVERLAP_WINDOW_MS
+    const active = [...this.rows.values()].filter((r) => r.project_id === projectId && !r.archived && !this.archiving.has(r.id) && r.mode !== 'terminal' && !r.parent && (r.activity_at || r.updated_at) >= since)
+    const next = new Map<string, Map<string, string[]>>()
+    for (let i = 0; i < active.length; i++) {
+      const a = this.touchedFiles(active[i].id)
+      if (a.all.size === 0) continue
+      for (let j = i + 1; j < active.length; j++) {
+        const b = this.touchedFiles(active[j].id)
+        // In the same folder a turn's snapshot also holds the other session's edits: only each one's own edit tools count there.
+        const same = this.cwdOf(active[i]) === this.cwdOf(active[j])
+        const [mine, theirs] = same ? [a.edited, b.edited] : [a.all, b.all]
+        const shared = [...mine].filter((path) => theirs.has(path)).sort()
+        if (shared.length === 0) continue
+        const [x, y] = [active[i].id, active[j].id]
+        if (!next.has(x)) next.set(x, new Map())
+        if (!next.has(y)) next.set(y, new Map())
+        next.get(x)!.set(y, shared)
+        next.get(y)!.set(x, shared)
+      }
+    }
+    const projectIds = new Set([...this.rows.values()].filter((r) => r.project_id === projectId).map((r) => r.id))
+    const changed = new Set<string>()
+    for (const id of projectIds) {
+      const before = JSON.stringify([...(this.overlaps.get(id)?.entries() ?? [])])
+      const after = JSON.stringify([...(next.get(id)?.entries() ?? [])])
+      if (before !== after) changed.add(id)
+      if (next.has(id)) this.overlaps.set(id, next.get(id)!)
+      else this.overlaps.delete(id)
+    }
+    let noticed = false
+    for (const [x, others] of next) {
+      for (const [y, shared] of others) {
+        if (x > y) continue
+        const key = `${x}\0${y}`
+        const seen = this.overlapNoticed.get(key) ?? new Set<string>()
+        const fresh = shared.filter((path) => !seen.has(path))
+        if (fresh.length === 0) continue
+        for (const path of fresh) seen.add(path)
+        this.overlapNoticed.set(key, seen)
+        // At startup the overlaps are only restored: their notices were already written before the restart.
+        if (quiet) continue
+        this.noticeOverlap(x, y, fresh)
+        this.noticeOverlap(y, x, fresh)
+        noticed = true
+      }
+    }
+    if (noticed) this.flush()
+    for (const id of changed) this.emitSummary(id)
+  }
+
+  private noticeOverlap(sessionId: string, otherId: string, files: string[]): void {
+    const other = this.rows.get(otherId)
+    if (!other) return
+    const shown = files.slice(0, 5).join(', ')
+    const list = files.length > 5 ? t('{files} and {n} more', { files: shown, n: files.length - 5 }) : shown
+    this.upsertItem(sessionId, {
+      kind: 'notice',
+      id: randomUUID(),
+      turnId: 'system',
+      at: Date.now(),
+      tone: 'info',
+      text: t('The session “{title}” also changed {files}. Check how the two changes fit together.', { title: other.title, files: list })
+    })
+  }
+
+  /** What ladder_read_session tells about a session: state, folder, last answer and changed files. */
+  private peerReport(sessionId: string): SessionReport | null {
+    const row = this.rows.get(sessionId)
+    if (!row) return null
+    const items = this.loadItems(sessionId)
+    const end = items.findLast((i) => i.kind === 'turn-end')
+    const last = end ? items.findLast((i): i is Extract<ChatItem, { kind: 'assistant' }> => i.kind === 'assistant' && i.turnId === end.turnId && i.text.trim() !== '') : undefined
+    return {
+      id: row.id,
+      title: row.title,
+      agent: row.agent as AgentId,
+      model: this.modelOf(row),
+      state: row.run_state,
+      origin: row.origin ? (JSON.parse(row.origin) as NonNullable<SessionSummary['origin']>) : null,
+      cwd: this.cwdOf(row),
+      branch: this.branchOf(row),
+      activity: this.runtimes.get(sessionId)?.activity ?? null,
+      lastAnswer: last?.text.trim() ?? null,
+      files: [...this.touchedFiles(sessionId).all].sort()
     }
   }
 
@@ -6254,6 +6534,111 @@ export class Host {
     return [...this.rows.values()].some((r) => r.id !== row.id && !r.archived && !r.parent && this.cwdOf(r) === cwd) || this.plans.usesFolder(cwd)
   }
 
+  // ── Worktrees left on disk (Settings → Workspace) ───────────────────────
+
+  /**
+   * Ladder's worktrees of every git project: those inside the worktrees folder and those a session (open or archived) works in.
+   * Worktrees made by other tools elsewhere, and any folder that is itself an open project, are left out. Paths are compared
+   * resolved (git reports real paths, sessions keep the ones Ladder built, which may go through a symlink); each entry
+   * carries the path the sessions use, so services, ports and removal act on the same folder.
+   * `sizes: false` skips du, for the checks before a removal.
+   */
+  private async listWorktrees(options: { sizes?: boolean } = {}): Promise<WorktreeEntry[]> {
+    const real = (path: string) => {
+      try {
+        return realpathSync(path)
+      } catch {
+        return path
+      }
+    }
+    const root = real(worktreesRoot(this.prefs.worktreesDir))
+    const projectFolders = new Set([...this.projects.values()].map((p) => real(p.path)))
+    // Every session of every project, by the real path of its folder: a worktree can be reached from two projects.
+    const usersOf = new Map<string, SessionRow[]>()
+    for (const row of this.rows.values()) {
+      const key = real(this.cwdOf(row))
+      usersOf.set(key, [...(usersOf.get(key) ?? []), row])
+    }
+    const seen = new Set<string>()
+    const out: WorktreeEntry[] = []
+    for (const project of this.projects.values()) {
+      if (!project.isGit || !existsSync(project.path)) continue
+      const listed = await gitRead(project.path, ['worktree', 'list', '--porcelain']).then(parseWorktreeList, () => [])
+      const base = await this.defaultBranchOf(project).catch(() => null)
+      for (const entry of listed) {
+        const key = real(entry.path)
+        if (entry.prunable || seen.has(key) || projectFolders.has(key) || !existsSync(entry.path)) continue
+        seen.add(key)
+        const users = usersOf.get(key) ?? []
+        if (!isInside(key, root) && users.length === 0) continue
+        const path = users[0] ? this.cwdOf(users[0]) : entry.path
+        const baseRef = base ? ((await resolveCommit(path, `refs/remotes/origin/${base}`)) ? `origin/${base}` : base) : null
+        const count = (args: string[]) => gitRead(path, ['rev-list', '--count', ...args]).then((n) => (/^\d+$/.test(n.trim()) ? Number(n.trim()) : null), () => null)
+        const [status, unpushed, merged, orphan] = await Promise.all([
+          gitStatus(path, true, false).catch(() => null),
+          baseRef ? count(['HEAD', '--not', '--remotes', baseRef]) : Promise.resolve(null),
+          baseRef ? gitRead(path, ['merge-base', '--is-ancestor', 'HEAD', baseRef]).then(() => true, () => false) : Promise.resolve(false),
+          // With a detached HEAD, commits on no branch and no remote would be lost with the folder.
+          entry.branch ? Promise.resolve(0) : count(['HEAD', '--not', '--branches', '--remotes'])
+        ])
+        out.push({
+          path,
+          projectId: project.id,
+          projectName: project.name,
+          branch: entry.branch,
+          openSessions: users.filter((r) => !r.archived).map((r) => ({ id: r.id, title: r.title })),
+          archivedSessions: users.filter((r) => r.archived).length,
+          busy: !!this.busySession(path) || this.plans.usesFolder(path) || users.some((r) => this.archiving.has(r.id)),
+          dirty: status ? status.dirty : null,
+          unpushed,
+          merged,
+          orphanCommits: orphan,
+          bytes: null
+        })
+      }
+    }
+    // Sizes last and in parallel: du on a node_modules tree can take a second or two each.
+    if (options.sizes !== false) await Promise.all(out.map(async (entry) => (entry.bytes = await folderBytes(entry.path))))
+    return out
+  }
+
+  /**
+   * Removes worktrees that nothing uses and that hold no uncommitted files and no commits outside a branch; the branches stay.
+   * Removals run one at a time (a cleanup script can take a while), and each one is checked again right before it starts.
+   */
+  private async removeWorktrees(paths: string[]): Promise<WorktreeRemoveResult> {
+    const wanted = [...new Set(paths.filter((p) => typeof p === 'string'))].slice(0, 200)
+    const result: WorktreeRemoveResult = { removed: [], failed: [] }
+    for (const path of wanted) {
+      const entry = (await this.listWorktrees({ sizes: false })).find((w) => w.path === path)
+      const project = entry ? this.projects.get(entry.projectId) : undefined
+      if (!entry || !project) {
+        result.failed.push({ path, error: t('Not one of Ladder’s worktrees.') })
+        continue
+      }
+      if (entry.openSessions.length > 0 || entry.busy) {
+        result.failed.push({ path, error: t('A session or a plan still uses it: archive the session first.') })
+        continue
+      }
+      if (entry.dirty === null || entry.dirty > 0) {
+        result.failed.push({ path, error: entry.dirty ? t('It has uncommitted files: commit or discard them first.') : t('Git could not read its state.') })
+        continue
+      }
+      if (entry.orphanCommits === null || entry.orphanCommits > 0) {
+        result.failed.push({ path, error: t('It has commits on no branch: create a branch for them first.') })
+        continue
+      }
+      // An archived session already ran the cleanup script when it was archived: it does not run twice.
+      const { removed, cleanup, error } = await removeWorktree(project, path, { port: this.ports.peek(path), skipCleanup: entry.archivedSessions > 0, stopServices: () => this.stopServices(path) })
+      if (removed) {
+        if (!cleanup || (cleanup.code === 0 && !cleanup.timedOut)) this.ports.release(path)
+        result.removed.push(path)
+        this.notifyFsChanged(project.path)
+      } else result.failed.push({ path, error: error ?? t('the folder no longer exists') })
+    }
+    return result
+  }
+
   /** Archives the session of a merged PR (`pr`) or of a branch already in the base (null) and removes the worktree if it is clean and no other session uses it. */
   private async archiveMerged(row: SessionRow, pr: PrStatus | null): Promise<GitArchiveResult> {
     const project = this.projects.get(row.project_id)
@@ -6362,6 +6747,7 @@ export class Host {
 
   shutdown(): void {
     this.stopped = true
+    this.localServers.stop()
     if (this.prTimer) clearTimeout(this.prTimer)
     if (this.archiveTimer) clearTimeout(this.archiveTimer)
     if (this.limitTimer) clearInterval(this.limitTimer)
@@ -6446,7 +6832,8 @@ function requestBody(request: UserRequest): string {
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'apply_patch'])
 
 /** Requests that a level change never approves: approving the plan is a user choice. */
-const NEVER_AUTO = new Set(['ExitPlanMode'])
+// ladder_send: a message to a session the agent did not start goes out only with the user's own approval, even in Full access.
+const NEVER_AUTO = new Set(['ExitPlanMode', 'ladder_send'])
 
 /** Origin of commands that do not come from a port (no window): a single fictitious connection. */
 const LOCAL_ORIGIN = {}

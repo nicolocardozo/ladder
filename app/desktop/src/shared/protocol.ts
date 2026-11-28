@@ -391,6 +391,13 @@ export interface SessionSummary {
    * `ladder_start_session` MCP tool (sessionId and agent of the starter). Absent or null = from the UI (or from a plan).
    */
   origin?: { kind: 'cli' } | { kind: 'agent'; sessionId: string; agent: AgentId } | null
+  /** The agent is inside a ladder_wait on another session of the project: shown instead of a plain "working". */
+  waitingOn?: { sessionId: string; title: string } | null
+  /**
+   * Other active sessions of the project (worked in the last day, not archived) that changed some of the same files, with
+   * those paths relative to each session's folder. Absent = none.
+   */
+  overlaps?: { sessionId: string; title: string; files: string[] }[]
 }
 
 /** A sub-agent started by the session (Claude Code Task, Codex spawnAgent). */
@@ -861,8 +868,11 @@ export interface ProjectUiState {
   seenAt?: number
   /** Files opened as tabs, in opening order. */
   fileTabs?: { root: string; path: string }[]
-  /** Chat groups you created, in the order they appear in the sidebar. */
-  groups?: { id: string; name: string; collapsed?: boolean }[]
+  /**
+   * Chat groups you created, in the order they appear in the sidebar. `order`: the group's sessions in the order you arranged
+   * them; sessions not in it (just added) come first, newest on top. Ids of sessions that left the group are ignored.
+   */
+  groups?: { id: string; name: string; collapsed?: boolean; order?: string[] }[]
   /** Group of each grouped session. */
   groupOf?: Record<string, string>
   /** Last agent used in chat in the project: the new chat proposes it. */
@@ -1064,6 +1074,8 @@ export interface TerminalInfo {
   createdAt: number
   /** LADDER_PORT passed to the process. For a service it is the free port assigned, from the worktree's block starting at base + 1 (null if it does not want one). */
   port: number | null
+  /** Who started it, when it was not the user: 'agent' = a chat agent with run_in_terminal (the UI shows it when it opens). */
+  origin?: 'agent'
 }
 
 /** A long-running command to start together with the worktree, for example the dev server. */
@@ -1588,6 +1600,8 @@ export type HostCommand =
   | { type: 'history.list'; root: string; sessionId?: string | null }
   // Terminals.
   | { type: 'terminal.create'; projectId: string; sessionId?: string | null; cwd?: string }
+  /** Runs a command (a code block of the chat) in a terminal of the session, in its folder. An exited terminal with the same command is reused. */
+  | { type: 'terminal.run'; projectId: string; sessionId: string; command: string }
   | { type: 'terminal.attach'; id: string; cols: number; rows: number }
   | { type: 'terminal.input'; id: string; data: string }
   | { type: 'terminal.resize'; id: string; cols: number; rows: number }
@@ -1909,6 +1923,18 @@ export type HostCommand =
    * Answers GitArchiveResult.
    */
   | { type: 'git.archive'; sessionId: string }
+  /** Ladder's worktrees on disk, with what each one holds and the space it takes. Answers WorktreeEntry[]. */
+  | { type: 'worktrees.list' }
+  /**
+   * Removes worktrees from the list: services stopped, cleanup script, `git worktree remove`; the branch stays. Refused (in
+   * `failed`) for one used by an open session or a running plan, with uncommitted files, or with commits on no branch.
+   * Answers WorktreeRemoveResult.
+   */
+  | { type: 'worktrees.remove'; paths: string[] }
+  /** Processes listening on a local port from a project's folder or one of its worktrees. Answers LocalServer[]. */
+  | { type: 'servers.list' }
+  /** Stops a process from the last `servers.list` (SIGTERM, then SIGKILL). Unknown pid: error. */
+  | { type: 'servers.stop'; pid: number }
   // ── end of push and merge ──
   // ── end of commit ──
   // ── end of small-model text ──
@@ -2035,6 +2061,8 @@ export type HostEvent =
   /** Git state of a folder changed (changes, commits, fetch, branch switch): whole, only if different from the last one sent. */
   | { type: 'git.status'; status: GitStatus }
   // ── end of git status ──
+  /** The local servers changed (one started or stopped): the whole list. */
+  | { type: 'servers.update'; servers: LocalServer[] }
   // ── Branch map ──
   /** Branch map changed: whole, only if different from the last one sent, for projects with a subscribed window (`project.branchMap.watch`). */
   | { type: 'project.branchMap'; projectId: string; map: BranchMap }
@@ -3095,6 +3123,16 @@ export interface LocalBranch {
 }
 
 /** Answer of `project.branches`. */
+/** A process listening on a local port whose working folder is inside a project (its folder or a worktree). */
+export interface LocalServer {
+  pid: number
+  projectId: string
+  /** Process name (node, python3, …). */
+  command: string
+  ports: number[]
+  cwd: string
+}
+
 export interface ProjectBranches {
   projectId: string
   /** Branch of the main checkout; null with detached HEAD. */
@@ -3104,7 +3142,7 @@ export interface ProjectBranches {
   /** Files with uncommitted changes in the main checkout (untracked too). */
   dirty: number
   /** Main checkout session (not in a worktree) with a turn or sub-agents at work: while it exists, the branch change is rejected. */
-  busy: { sessionId: string; title: string } | null
+  busy: { sessionId: string; title: string; /** Only shell commands the agent left running in the background, no agent turn. */ commands?: true } | null
   /** Folder where this project's worktrees end up (with `~` in place of the home folder), to show in the new chat. */
   worktreesFolder: string
 }
@@ -3174,6 +3212,35 @@ export interface PrMergeResult {
 }
 
 /** Answer of `git.archive`. */
+/** A worktree on disk, for Settings → Workspace. */
+export interface WorktreeEntry {
+  path: string
+  projectId: string
+  projectName: string
+  branch: string | null
+  /** Open sessions that work in it: while there is one, it cannot be removed. */
+  openSessions: { id: string; title: string }[]
+  /** Archived sessions that worked in it. */
+  archivedSessions: number
+  /** An agent works there right now, or a running plan uses it. */
+  busy: boolean
+  /** Uncommitted files; null if git could not read them. */
+  dirty: number | null
+  /** Commits on neither the base branch nor a remote; the branch keeps them after removal. null if unknown. */
+  unpushed: number | null
+  /** The branch is already in the base branch. */
+  merged: boolean
+  /** With a detached HEAD: commits on no branch and no remote, lost with the folder (so it is not removed). null if unknown. */
+  orphanCommits: number | null
+  /** Space on disk; null while unknown. */
+  bytes: number | null
+}
+
+export interface WorktreeRemoveResult {
+  removed: string[]
+  failed: { path: string; error: string }[]
+}
+
 export interface GitArchiveResult {
   /** The session was archived. */
   archived: true

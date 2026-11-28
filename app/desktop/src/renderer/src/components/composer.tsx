@@ -57,8 +57,10 @@ interface ComposerProps {
   /** Requested level that applies from the next turn; the current level stays that of `permission`. */
   permissionNext?: PermissionLevel | null
   onPermissionChange: (permission: PermissionLevel) => void
-  /** Advice child session (parent): permission is fixed to Plan, no selector and no ⇧Tab. */
+  /** Advice, review or read-only delegation: the level is fixed to Plan, shown without a selector and without ⇧Tab. */
   permissionLocked?: boolean
+  /** A delegate that writes files: it can move between Ask, Edit and Full, not to Plan. */
+  noPlan?: boolean
   running?: boolean
   /** The text is never empty: with images only, a placeholder arrives. */
   onSubmit: (text: string, attachments: Attachment[], busy?: BusyAction) => void
@@ -158,7 +160,7 @@ export function Composer(props: ComposerProps) {
   const { draftKey, projectId, agentName, models, model, onModelChange, effort, onEffortChange, effortEffective, permission, permissionNext, onPermissionChange } = props
   const { running, onSubmit, onStop, queue = [], onQueueChange, canSteer = false, onDeliver, queueReason, queueWorking = running, context, disabledReason, autoFocus, className } = props
   const { agent = 'claude-code', showEffort = true, maxPermission = null, commands: agentCommands, onCommand, onNewSession, onHandoff, onAdvice, onPlan } = props
-  const levels = allowedLevels(maxPermission)
+  const levels = allowedLevels(maxPermission).filter((id) => !(props.noPlan && id === 'plan'))
   const initial = useApp.getState().drafts[draftKey] ?? ''
   const setDraft = useApp((s) => s.setDraft)
   const [text, setText] = useState(initial)
@@ -829,6 +831,14 @@ export function Composer(props: ComposerProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {props.permissionLocked && (
+            <span className={cn(ghost, 'pointer-events-none')} title={t('Fixed by whoever started this session: it works read-only.')}>
+              <ShieldCheck aria-hidden className="size-3.5 shrink-0" />
+              <span className={showWide}>{levelLabel(permission)}</span>
+              <span className={showMedium}>{shortLevelName(permission)}</span>
+              <span className="sr-only">{t('Fixed by whoever started this session: it works read-only.')}</span>
+            </span>
+          )}
           {!props.permissionLocked && (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -861,7 +871,7 @@ export function Composer(props: ComposerProps) {
                     <DropdownMenuRadioItem key={p.id} value={p.id} disabled={!levels.includes(p.id)} className="items-start py-1.5">
                       <span className="flex flex-col">
                         <span className="font-medium">{levelLabel(p.id)}</span>
-                        <span className="text-xs text-muted-foreground">{levels.includes(p.id) ? levelHint(p.id) : t('Not allowed by .ladder/settings.toml')}</span>
+                        <span className="text-xs text-muted-foreground">{levels.includes(p.id) ? levelHint(p.id) : props.noPlan && p.id === 'plan' ? t('Not for a delegate that writes files') : t('Not allowed by .ladder/settings.toml')}</span>
                         <span className="font-mono text-xs text-faint">{agentName}: {levelNative(p.id, agent)}</span>
                       </span>
                     </DropdownMenuRadioItem>

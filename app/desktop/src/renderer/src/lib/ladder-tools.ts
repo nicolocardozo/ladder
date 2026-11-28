@@ -64,3 +64,43 @@ export function ladderToolTitle(tool: LadderTool, agent: string | null, prompt: 
       return t('Reports the result')
   }
 }
+
+export type TerminalTool = 'run_in_terminal' | 'read_terminal' | 'stop_terminal'
+
+const TERMINAL_RE = /^(?:mcp__ladder__|ladder(?:\.|__|:))(run_in_terminal|read_terminal|stop_terminal)$/
+
+/** The Ladder terminal tool, if the name is one (with the MCP prefix of the "ladder" server). */
+export function terminalToolOf(name: string): TerminalTool | null {
+  const match = TERMINAL_RE.exec(name)
+  return match ? (match[1] as TerminalTool) : null
+}
+
+/** Command and terminal of a terminal tool call: the command from the input, the terminal id from the result's first line. */
+export function terminalToolView(detail: string | null, output: string | null): { command: string | null; title: string | null; terminalId: string | null } {
+  let command: string | null = null
+  let title: string | null = null
+  if (detail?.trimStart().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(detail) as Record<string, unknown>
+      command = str(parsed.command)
+      title = str(parsed.title)
+    } catch {
+      command = /"command"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(detail)?.[1]?.replace(/\\n/g, '\n').replace(/\\"/g, '"') ?? null
+    }
+  }
+  const terminalId = output ? (/"terminalId"\s*:\s*"([\w-]{1,80})"/.exec(output)?.[1] ?? null) : null
+  return { command, title, terminalId }
+}
+
+export function terminalToolTitle(tool: TerminalTool, command: string | null, title: string | null): string {
+  switch (tool) {
+    case 'run_in_terminal': {
+      const line = firstChunk(command, 120)
+      return line ? t('Runs {command} in a terminal', { command: line }) : t('Runs a command in a terminal')
+    }
+    case 'read_terminal':
+      return title ? t('Reads the terminal {title}', { title }) : t('Reads the terminal')
+    case 'stop_terminal':
+      return t('Stops a terminal command')
+  }
+}

@@ -180,7 +180,9 @@ export function BranchSwitcherPanel({ projectId, onDone, onOpenMerge }: { projec
           {busy && (
             <p role="status" className="flex items-start gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground">
               <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-attention" />
-              {t('“{title}” has an agent at work in this folder. Wait for it to finish, or stop it, to change branch.', { title: busy.title })}
+              {busy.commands
+                ? t('“{title}” has a command running in the background in this folder. Wait for it to end, or ask the agent to stop it, to change branch.', { title: busy.title })
+                : t('“{title}” has an agent at work in this folder. Wait for it to finish, or stop it, to change branch.', { title: busy.title })}
             </p>
           )}
           {failure && (
@@ -211,7 +213,7 @@ export function BranchSwitcherPanel({ projectId, onDone, onOpenMerge }: { projec
               selected={data.current}
               pending={pending}
               onPick={pick}
-              disabledReason={(b) => (busy ? t('Not while an agent is working here') : inWorktreeReason(b))}
+              disabledReason={(b) => (busy ? (busy.commands ? t('Not while a command runs here') : t('Not while an agent is working here')) : inWorktreeReason(b))}
             />
           )}
           {!confirm && (

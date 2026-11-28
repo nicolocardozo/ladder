@@ -27,6 +27,28 @@ const it: Record<string, string> = {
     'Agenti a cui il coordinatore può affidare un compito. Decide l’agente quando e a chi; Ladder si limita a elencarli. Si leggono dai file del progetto: per cambiarli modifica il file.',
   'No delegates set for this project.': 'Nessun delegato impostato per questo progetto.',
   'Edit {shared} (shared with the team) or {personal} (personal, kept out of git) in the project folder, and add one block per delegate:':
-    'Modifica {shared} (condiviso con il team) o {personal} (personale, fuori da git) nella cartella del progetto, e aggiungi un blocco per ogni delegato:'
+    'Modifica {shared} (condiviso con il team) o {personal} (personale, fuori da git) nella cartella del progetto, e aggiungi un blocco per ogni delegato:',
+  // Commands in terminals of the session (run_in_terminal and the Run button on shell blocks)
+  'Run in a terminal': 'Esegui in un terminale',
+  'Run in a terminal, in {cwd}': 'Esegui in un terminale, in {cwd}',
+  'This session is archived: open a new one to run commands.': 'Questa sessione è archiviata: aprine una nuova per eseguire comandi.',
+  Run: 'Esegui',
+  'There is no command to run.': 'Non c’è nessun comando da eseguire.',
+  'Run in a terminal of this session, in {cwd}': 'Esegui in un terminale di questa sessione, in {cwd}',
+  'Run in terminal': 'Esegui nel terminale',
+  'Runs {command} in a terminal': 'Esegue {command} in un terminale',
+  'Runs a command in a terminal': 'Esegue un comando in un terminale',
+  'Reads the terminal {title}': 'Legge il terminale {title}',
+  'Reads the terminal': 'Legge il terminale',
+  'Stops a terminal command': 'Ferma un comando nel terminale',
+  // Sessions of a project that wait on each other or change the same files
+  'Waiting for “{title}”': 'In attesa di “{title}”',
+  'The agent is waiting for “{title}” to finish before going on. Open that session.': 'L’agente aspetta che “{title}” finisca prima di andare avanti. Apri quella sessione.',
+  'Same files as “{title}”': 'Stessi file di “{title}”',
+  'Same files as {titles}': 'Stessi file di {titles}',
+  'Both sessions changed:': 'Le due sessioni hanno cambiato:',
+  '{files} and {n} more': '{files} e altri {n}',
+  'The session “{title}” also changed {files}. Check how the two changes fit together.': 'Anche la sessione “{title}” ha cambiato {files}. Controlla che le due modifiche stiano insieme.',
+  'Send a message to “{title}”': 'Invia un messaggio a “{title}”'
 }
 export default it

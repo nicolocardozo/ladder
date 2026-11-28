@@ -126,7 +126,8 @@ const it: Record<string, string> = {
   'This session is read-only: answer in text, without asking to run or change anything.': 'Questa sessione è in sola lettura: rispondi a parole, senza chiedere di eseguire o cambiare nulla.',
   'Advice · {title}': 'Parere · {title}',
   'A child session (advice or delegation) cannot be handed over.': 'Una sessione figlia (parere o delega) non si può passare a un altro agente.',
-  'The permission level of a child session (advice or delegation) cannot be changed.': 'Il livello di permesso di una sessione figlia (parere o delega) non si può cambiare.',
+  'This session was started read-only: its level stays Plan.': 'Questa sessione è partita in sola lettura: il suo livello resta Piano.',
+  'A delegate that writes files cannot move to Plan: stop it instead.': 'Un delegato che modifica i file non può passare a Piano: fermalo, piuttosto.',
   'A child session (advice or delegation) cannot implement a plan.': 'Una sessione figlia (parere o delega) non può implementare un piano.',
   'This session is read-only: tools from MCP servers are not available.': 'Questa sessione è in sola lettura: gli strumenti dei server MCP non sono disponibili.',
   'This session is read-only: only read commands such as git diff, git log, ls, cat, rg or grep can run.': 'Questa sessione è in sola lettura: si possono eseguire solo comandi di lettura come git diff, git log, ls, cat, rg o grep.',
@@ -575,6 +576,8 @@ const it: Record<string, string> = {
   'Could not set the changes aside: git saved nothing.': 'Non sono riuscito a mettere da parte le modifiche: git non ha salvato nulla.',
   '{reason} Your changes are in the stash {sha} (“{message}”). Restore them with git stash apply {sha}.': '{reason} Le tue modifiche sono nello stash {sha} (“{message}”). Riprendile con git stash apply {sha}.',
   '“{title}” has an agent at work in the main checkout. Wait for it to finish or stop it, then change branch.': '“{title}” ha un agente al lavoro nel checkout principale. Aspetta che finisca o fermalo, poi cambia branch.',
+  'That server is no longer running.': 'Quel server non è più attivo.',
+  '“{title}” has a command running in the background in the main checkout. Wait for it to end, or ask the agent to stop it, then change branch.': '“{title}” ha un comando in background nel checkout principale. Aspetta che finisca, o chiedi all’agente di fermarlo, poi cambia branch.',
   // Canale remoto (telefono).
   'That option is not available for this request.': 'Questa opzione non è disponibile per la richiesta.',
   'Too many requests. Slow down.': 'Troppe richieste. Rallenta.',

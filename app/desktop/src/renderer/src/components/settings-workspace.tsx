@@ -10,6 +10,7 @@ import { EDITOR_NAME, EDITORS } from '@/components/inspector/open-file'
 import { useProjectSettings } from '@/components/main-views'
 import { ChoiceGroup, Outcome, SettingRow, SettingsBlock, settingsButton, settingsField, type Choice } from '@/components/settings-parts'
 import { ServicesBlock, type PersonalService } from '@/components/settings-services'
+import { WorktreesOnDisk } from '@/components/settings-worktrees'
 import { usePrefs } from '@/hooks/use-prefs'
 import { request } from '@/lib/host-client'
 import { system } from '@/lib/system-bridge'
@@ -28,6 +29,7 @@ export function WorkspaceSection() {
         <WorktreesBlock />
       </div>
       <ProjectWorktreeBlock />
+      <WorktreesOnDisk />
     </>
   )
 }

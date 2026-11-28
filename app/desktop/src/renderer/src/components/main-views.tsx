@@ -65,6 +65,7 @@ import { runPlanCommand } from '@/lib/plan-command'
 import { runAdviceCommand } from '@/lib/advice'
 import { AdviceParentNote } from '@/components/advice-bits'
 import { HandoffFromNote } from '@/components/handoff-bits'
+import { hasPeerNotes, PeerNotes } from '@/components/peer-notes'
 import { cn } from '@/lib/utils'
 import { useSettings } from '@/hooks/use-theme'
 import { isBrowserColumnOpen, liveColumns, useApp } from '@/store/app-store'
@@ -696,13 +697,13 @@ export function NewChat({ projectId }: { projectId: string | null }) {
                     <Check className={cn('mt-0.5 size-3.5', !worktree && 'opacity-0')} />
                     <span className="flex min-w-0 flex-col">
                       {t('New worktree')}
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-xs text-muted-foreground" title={settings?.worktree.setup || undefined}>
                         {source
                           ? branchFor(source, prefix).existing
                             ? t('Checks out {branch} in a separate folder. Local only until you push.', { branch: branchFor(source, prefix).name })
                             : t('New branch {branch} in a separate folder. Local only until you push.', { branch: branchFor(source, prefix).name })
                           : t('New branch {branch} from {base}, in a separate folder. Local only until you push.', { branch: branchName.trim() || `${prefix}…`, base: startBranch ?? 'HEAD' })}
-                        {settings?.worktree.setup ? ` ${t('Then runs “{setup}”.', { setup: settings.worktree.setup })}` : ''}
+                        {settings?.worktree.setup ? ` ${t('Then runs the project’s setup script.')}` : ''}
                         {settings?.worktree.copy.length ? ` ${t('Copies {files}.', { files: settings.worktree.copy.join(', ') })}` : ''}
                       </span>
                       {branchList?.worktreesFolder && (
@@ -1155,7 +1156,7 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
       {session.origin && !isTerminal && <OriginBanner session={session} compact={compact} />}
       {session.plan?.role === 'task' && !isTerminal && <PlanTaskBanner session={session} compact={compact} />}
       {/* Only notes that live nowhere else: a chat's agent and model are already in the composer, the title in the tab. */}
-      {(isTerminal || headerNotes || session.handoffFrom || session.parent || (needsYou(session) && !(column && !column.single))) && (
+      {(isTerminal || headerNotes || session.handoffFrom || session.parent || hasPeerNotes(session) || (needsYou(session) && !(column && !column.single))) && (
         <div
           className={cn('w-full pb-1 text-xs text-muted-foreground', isTerminal ? 'flex min-w-0 items-center gap-1.5 px-5' : 'chat-col chat-gutter')}
           data-compact={!isTerminal && compact ? '' : undefined}
@@ -1188,6 +1189,7 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
               <AdviceParentNote session={session} />
             </>
           )}
+          {!isTerminal && <PeerNotes session={session} lead={Boolean(headerNotes || session.handoffFrom || session.parent)} />}
           {needsYou(session) && !(column && !column.single) && <span className="ml-auto shrink-0 font-semibold text-attention">{session.waitingLabel}</span>}
             </div>
             </div>
@@ -1273,7 +1275,8 @@ function SessionBody({ sessionId, column }: { sessionId: string; column?: { acti
                 }
                 useApp.getState().select({ kind: 'new', projectId: session.projectId })
               }}
-              permissionLocked={Boolean(session.parent)}
+              permissionLocked={Boolean(session.parent) && (session.parent?.role !== 'delegate' || session.permission === 'plan')}
+              noPlan={session.parent?.role === 'delegate' && session.permission !== 'plan'}
               onHandoff={session.parent ? undefined : (args) => runHandoffCommand(session, args, allAgents, sessionSettings?.agents?.allowed ?? [], setError)}
               onAdvice={session.parent ? undefined : (mode, args) => runAdviceCommand(session, mode, args, allAgents, sessionSettings?.agents?.allowed ?? [], setError)}
               onPlan={session.parent || session.mode !== 'chat' || session.archived || session.plan?.role === 'task' ? undefined : (goal) => runPlanCommand(session, goal, setError)}

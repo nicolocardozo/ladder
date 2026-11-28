@@ -2,7 +2,7 @@
 import { create } from 'zustand'
 import { isElectron, onHostConnect, request, send } from '@/lib/host-client'
 import { applyProjectGroupOp, normalizeProjectGroups, type ProjectGroupOp } from '@/lib/project-groups'
-import type { AgentBrowserState, AgentId, AgentStatus, Effort, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo, RemoteStatus } from '@shared/protocol'
+import type { AgentBrowserState, AgentId, AgentStatus, Effort, AppPrefs, Attachment, BranchMap, BrowserState, ShortcutsState, ChatItem, ConnectionId, ConnectionStatus, OtherAgentConnection, Profile, ReviewState, SlashCommand, DiffScope, GitStatus, HostCommand, HostEvent, InspectorTab, IssueItem, Project, ProjectGroupsState, ProjectUiState, SessionPreset, SessionSummary, TerminalInfo, RemoteStatus, LocalServer } from '@shared/protocol'
 import { isConcluded, needsYou, CONCLUDED_AFTER_MS } from '@/lib/session-state'
 import { routeTerminalCleared, routeTerminalData } from '@/lib/terminal-registry'
 import { disposeBuffer } from '@/components/editor/buffers'
@@ -14,6 +14,7 @@ import { plural, t } from '@shared/i18n'
 import { useSettings } from '@/hooks/use-theme'
 import { isDefaultProfileId } from '@/lib/profile-id'
 import type { Plan, PlanChoice, PlanState, PlanTemplate } from '@shared/plan'
+import { orderInGroup } from '@/lib/group-order'
 
 /** Agent states from the snapshot: each one's default in `agents`, the other profiles by id. */
 function splitAgents(list: AgentStatus[]): Pick<AppState, 'agents' | 'profileAgents'> {
@@ -95,6 +96,8 @@ interface AppState {
   history: Selection[]
   historyIndex: number
   terminals: Record<string, TerminalInfo>
+  /** Processes listening on a local port from a project's folder or worktrees (servers.update). */
+  localServers: LocalServer[]
   /** Per-folder counter: it grows when the host reports a change, and the views re-read. */
   fsVersion: Record<string, number>
   // ── Git state of watched sessions ──
@@ -234,6 +237,12 @@ interface AppState {
   moveToGroup: (projectId: string, sessionId: string, groupId: string | null) => void
   /** Moves several sessions together into a group (or out, with null). */
   moveSessionsToGroup: (projectId: string, sessionIds: string[], groupId: string | null) => void
+  /** Puts sessions into a group before `beforeId` (at the end with null), keeping their relative order. */
+  placeSessions: (projectId: string, groupId: string, sessionIds: string[], beforeId: string | null) => void
+  /** Moves a grouped session one place up (-1) or down (1) in its group. */
+  shiftSessionInGroup: (projectId: string, sessionId: string, delta: -1 | 1) => void
+  /** New order of the project's groups (all the ids). */
+  reorderGroups: (projectId: string, groupIds: string[]) => void
   /** New section at the end, with the given projects already inside; the name goes into editing in the sidebar. */
   createProjectGroup: (projectIds?: string[]) => Promise<void>
   renameProjectGroup: (groupId: string, name: string) => void
@@ -727,6 +736,15 @@ function selectionForProject(state: Pick<AppState, 'projects' | 'sessions' | 'ui
   return { kind: 'new', projectId }
 }
 
+/** Ids of a group's sessions as the sidebar shows them: open, not children, newest first, then the manual order. */
+export function groupSessionIds(state: AppState, projectId: string, groupId: string): string[] {
+  const ui = state.ui[projectId]
+  const members = Object.values(state.sessions)
+    .filter((s) => s.projectId === projectId && !s.archived && !s.parent && ui?.groupOf?.[s.id] === groupId)
+    .sort((a, b) => b.createdAt - a.createdAt)
+  return orderInGroup(members, ui?.groups?.find((g) => g.id === groupId)?.order).map((s) => s.id)
+}
+
 /** Changes and saves a project's interface state. */
 function patchUi(state: AppState, projectId: string, change: (ui: ProjectUiState) => ProjectUiState): Pick<AppState, 'ui'> {
   const next = change(state.ui[projectId] ?? emptyUi())
@@ -876,6 +894,7 @@ export const useApp = create<AppState>((set, get) => ({
   history: [],
   historyIndex: -1,
   terminals: {},
+  localServers: [],
   fsVersion: {},
   gitStatus: {},
   gitRoot: {},
@@ -929,6 +948,8 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => {
       switch (event.type) {
         case 'snapshot': {
+          // The list is not in the snapshot: it is read once, then servers.update keeps it current.
+          queueMicrotask(() => void request<LocalServer[]>({ type: 'servers.list' }).then((localServers) => useApp.setState({ localServers }), () => {}))
           const sessions: Record<string, SessionSummary> = {}
           for (const s of event.sessions) sessions[s.id] = s
           const terminals: Record<string, TerminalInfo> = {}
@@ -1058,8 +1079,17 @@ export const useApp = create<AppState>((set, get) => ({
         }
         case 'review.update':
           return { reviews: { ...state.reviews, [event.review.id]: event.review } }
-        case 'terminal.upsert':
-          return { terminals: { ...state.terminals, [event.terminal.id]: event.terminal } }
+        case 'terminal.upsert': {
+          // A command the agent just started in the session on screen comes into view, without taking the focus.
+          const term = event.terminal
+          const seen = state.selection.kind === 'session' && state.selection.sessionId === term.sessionId
+          if (term.origin === 'agent' && !state.terminals[term.id] && seen) {
+            queueMicrotask(() => useApp.getState().setTerminalPanel(term.projectId, { open: true, active: term.id }))
+          }
+          return { terminals: { ...state.terminals, [term.id]: term } }
+        }
+        case 'servers.update':
+          return { localServers: event.servers }
         case 'terminal.removed': {
           const terminals = { ...state.terminals }
           delete terminals[event.id]
@@ -1436,7 +1466,49 @@ export const useApp = create<AppState>((set, get) => ({
           if (groupId) groupOf[sessionId] = groupId
           else delete groupOf[sessionId]
         }
-        return { ...ui, groupOf, groups: ui.groups?.map((g) => (g.id === groupId ? { ...g, collapsed: false } : g)) }
+        // A moved session loses its old place everywhere: back in a group it counts as just added, so it shows up on top.
+        const unplace = (order: string[] | undefined) => order?.filter((id) => !sessionIds.includes(id))
+        return { ...ui, groupOf, groups: ui.groups?.map((g) => ({ ...g, order: unplace(g.order), ...(g.id === groupId ? { collapsed: false } : {}) })) }
+      })
+    ),
+
+  placeSessions: (projectId, groupId, sessionIds, beforeId) =>
+    set((state) =>
+      patchUi(state, projectId, (ui) => {
+        const current = groupSessionIds(state, projectId, groupId)
+        const moving = [...current.filter((id) => sessionIds.includes(id)), ...sessionIds.filter((id) => !current.includes(id))]
+        const rest = current.filter((id) => !sessionIds.includes(id))
+        const at = beforeId ? rest.indexOf(beforeId) : -1
+        const order = at < 0 ? [...rest, ...moving] : [...rest.slice(0, at), ...moving, ...rest.slice(at)]
+        const groupOf = { ...ui.groupOf, ...Object.fromEntries(sessionIds.map((id) => [id, groupId])) }
+        return {
+          ...ui,
+          groupOf,
+          groups: ui.groups?.map((g) => (g.id === groupId ? { ...g, collapsed: false, order } : { ...g, order: g.order?.filter((id) => !sessionIds.includes(id)) }))
+        }
+      })
+    ),
+  shiftSessionInGroup: (projectId, sessionId, delta) =>
+    set((state) =>
+      patchUi(state, projectId, (ui) => {
+        const groupId = ui.groupOf?.[sessionId]
+        if (!groupId) return ui
+        const order = groupSessionIds(state, projectId, groupId)
+        const from = order.indexOf(sessionId)
+        const to = from + delta
+        if (from < 0 || to < 0 || to >= order.length) return ui
+        order.splice(to, 0, ...order.splice(from, 1))
+        return { ...ui, groups: ui.groups?.map((g) => (g.id === groupId ? { ...g, order } : g)) }
+      })
+    ),
+  reorderGroups: (projectId, groupIds) =>
+    set((state) =>
+      patchUi(state, projectId, (ui) => {
+        const byId = new Map((ui.groups ?? []).map((g) => [g.id, g]))
+        const next = groupIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []))
+        // Groups missing from the list (created meanwhile) keep their place at the end.
+        for (const g of ui.groups ?? []) if (!groupIds.includes(g.id)) next.push(g)
+        return { ...ui, groups: next }
       })
     ),
 

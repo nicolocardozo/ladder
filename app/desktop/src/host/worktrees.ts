@@ -275,6 +275,12 @@ export class Ports {
     return this.allocate(cwd)
   }
 
+  /** The port block of a folder if it has one, without assigning a new one. */
+  peek(cwd: string): number | null {
+    const slot = this.load()[cwd]
+    return slot === undefined ? null : PORT_BASE + slot * PORT_BLOCK
+  }
+
   allocate(cwd: string): number {
     const slots = this.load()
     if (slots[cwd] === undefined) {
