@@ -10,6 +10,23 @@ export type Entry = {
 
 export const ENTRIES: Entry[] = [
   {
+    date: "2026-11-28",
+    title: "Commands in visible terminals, sessions that see each other and a localhost mark",
+    summary: "Ladder 0.1.6: agents run commands where you can watch them, coordinate with the sessions you started, and Ladder shows what is still running.",
+    items: [
+      "Shell code blocks in the chat have a Run button: the command runs in a terminal of the session, in its folder or worktree.",
+      "Agents run builds, tests, dev servers and scripts in a terminal you can watch, with run_in_terminal, read_terminal and stop_terminal. Plan can't run anything, Ask and Edit ask you first, Full access runs.",
+      "Agents see the other sessions of the project, including yours: what each one is doing, the files you both changed, and they can wait for one to finish. A message to a session the agent did not start needs your approval.",
+      "The session header shows when an agent is waiting for another session, and when two sessions changed the same files.",
+      "A mark next to a project's name when a server listens on localhost from its folder or a worktree, with its ports, Open and Stop.",
+      "A session says how many commands its agent left running after the turn, for Claude and Codex.",
+      "A delegate that writes files can be moved between Ask, Edit and Full access from its own message box.",
+      "Settings → Workspace → Worktrees on disk shows the worktrees left behind, their size and what they still hold, and removes the ones nothing needs. Branches stay; files git ignores go with the folder.",
+      "Drag groups, and the sessions inside a group, into the order you want.",
+      "The branch menu tells a background command apart from an agent at work in the main checkout.",
+    ],
+  },
+  {
     date: "2026-11-26",
     title: "Agents that work together, executable plans and a ladder command",
     summary: "Ladder 0.1.4 and 0.1.5: hand work from one agent to another, run plans task by task, drive Ladder from the terminal, and one more agent.",

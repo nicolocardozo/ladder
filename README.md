@@ -30,7 +30,7 @@ It has been in development since November 7, 2026, and the first public release,
 - **Agents that work together.** Hand a session off to another agent with a summary of what was done, ask one or more agents for a second opinion, or let an agent delegate part of the work.
 - **Plans that run themselves.** Type `/plan` and a goal: the agent proposes a plan, you edit and approve it, and Ladder runs it task by task, each with the right agent, in dependency order.
 - **Your subscriptions, your limits.** Agents use their own sign-in and your existing plans. Ladder shows how much of each plan limit is left and suggests another agent when one runs out.
-- **Files, diffs and a terminal at hand.** Review changes per turn, comment on lines, open files and run commands without leaving the session.
+- **Files, diffs and a terminal at hand.** Review changes per turn, comment on lines, open files and run commands without leaving the session. Agents run builds and dev servers in terminals you can watch, and the sidebar shows which projects have a localhost running.
 - **No account, no telemetry.** Ladder talks to the network only for what you use, and stores no secrets apart from an optional Linear API key, encrypted in the Keychain.
 
 The [full feature list](docs/FEATURES.md) covers everything in detail.

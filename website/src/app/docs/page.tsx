@@ -7,7 +7,7 @@ import { DownloadLink } from "@/components/download-link"
 export const metadata: Metadata = {
   title: "Docs",
   description:
-    "How to use Ladder: projects and sessions, reviewing changes, worktrees, handing work between agents, executable plans, plan limits, settings and shortcuts.",
+    "How to use Ladder: sessions, reviewing changes, worktrees, terminals, handing work between agents, executable plans, plan limits and shortcuts.",
   alternates: { canonical: "/docs" },
   openGraph: { url: "/docs" },
 }
@@ -182,7 +182,16 @@ export default function Page() {
               <ul>
                 <li>
                   Group sessions inside a project and sort projects into sections from the sidebar menu, or drag them
-                  around. <Kbd>⌘</Kbd> <Kbd>1…9</Kbd> switches project.
+                  around. Groups, and the sessions inside a group, can be dragged into the order you want: Ladder keeps it. <Kbd>⌘</Kbd> <Kbd>1…9</Kbd> switches project.
+                </li>
+                <li>
+                  A green mark next to a project&apos;s name means a server is listening on localhost from its folder or one
+                  of its worktrees, whoever started it: you, an agent or a run button. Hover it to see the ports, open one in
+                  the built-in browser or stop it; the project menu has <strong>Stop localhost</strong> too.
+                </li>
+                <li>
+                  A Claude or Codex session whose agent left a command running after its turn, such as a test suite or a watcher, says how
+                  many are still going, so an idle session that promised to come back is not a mystery.
                 </li>
                 <li>
                   <Kbd>⌘</Kbd> <Kbd>\</Kbd> opens a second session in a column next to the first. Tabs can be moved and a
@@ -361,6 +370,13 @@ note       = "Reviews and second opinions"`}</CodeBlock>
                   Where worktrees live, the branch prefix, whether the first message waits for the setup script and your own
                   background services are in <strong>Settings → Workspace</strong>.
                 </li>
+                <li>
+                  Ladder removes a worktree by itself once its branch is merged. Archiving a session without merging leaves
+                  the folder on disk: <strong>Settings → Workspace → Worktrees on disk</strong> lists them with their size and
+                  what they still hold (uncommitted files, commits only on their branch), and removes the ones nothing needs.
+                  The branch always stays; files git ignores, like <Code>.env.local</Code> or a local database, go with the
+                  folder.
+                </li>
               </ul>
             </Prose>
           </Section>
@@ -372,6 +388,16 @@ note       = "Reviews and second opinions"`}</CodeBlock>
                 restarts in the same folder after a relaunch. <Kbd>⌘</Kbd> <Kbd>K</Kbd> clears it while it has focus (use{" "}
                 <Kbd>⌘</Kbd> <Kbd>⇧</Kbd> <Kbd>P</Kbd> to open the command palette from there). Type <Code>@terminal</Code> in the message box to attach a
                 terminal&apos;s output to your message.
+              </p>
+              <p>
+                Shell code blocks in the chat have a <strong>Run</strong> button: the command runs in a terminal of the
+                session, in its folder (the worktree, when it has one), so it never lands in the wrong checkout.
+              </p>
+              <p>
+                Agents can do the same with <Code>run_in_terminal</Code>, <Code>read_terminal</Code> and{" "}
+                <Code>stop_terminal</Code>: builds, test suites, dev servers and release scripts run in a terminal you can
+                watch and answer prompts in, instead of a command for you to copy. The session&apos;s permission level
+                decides: Plan can&apos;t run anything, Ask and Edit ask you with a card, Full access runs.
               </p>
               <p>
                 A new chat can also be a terminal session running <Code>claude</Code>, <Code>codex</Code> or any command.
@@ -453,6 +479,12 @@ note       = "Reviews and second opinions"`}</CodeBlock>
                 or dismiss it. A delegated task goes back through <Code>report_result</Code>.
               </p>
               <p>
+                A delegate starts at the lowest of three levels: the delegating session&apos;s, the one in its{" "}
+                <Code>[[agents.delegates]]</Code> block and the project&apos;s maximum. A delegate that writes files can then be
+                moved between Ask, Edit and Full access from its own message box, within the project&apos;s maximum; a
+                read-only delegate stays in Plan.
+              </p>
+              <p>
                 In <Code>.ladder/settings.toml</Code>, <Code>[[agents.delegates]]</Code> lists the delegates you prefer, each
                 with its agent, model, effort, permission and a note on what it is for. The agent still decides when and to
                 whom; Ladder only tells it who is there.
@@ -518,9 +550,17 @@ note       = "Reviews and second opinions"`}</CodeBlock>
                 Agents can also start and follow other sessions of the project with <Code>ladder_list_sessions</Code>,{" "}
                 <Code>ladder_start_session</Code>, <Code>ladder_send</Code> and <Code>ladder_wait</Code>. A session never gets
                 more permission than the one that started it or than the project&apos;s maximum; from an agent at the Ask level,
-                each start waits for your approval. An agent can message and wait only for the sessions it started, up to two
-                levels deep, with at most five working at once and twenty starts an hour. In a git project, a session that writes gets
-                its own worktree by default.
+                each start waits for your approval. Sessions started by agents nest up to two levels deep, with at most five
+                working at once and twenty starts an hour. In a git project, a session that writes gets its own worktree by
+                default.
+              </p>
+              <p>
+                Agents also see the sessions you started. <Code>ladder_list_sessions</Code> and{" "}
+                <Code>ladder_read_session</Code> show what each one is doing and which files it changed that they changed too;{" "}
+                <Code>ladder_wait</Code> waits for any of them to finish. A message to a session the agent did not start goes
+                through only after you approve it with a card, even in Full access; in Plan it can&apos;t send one. The session header shows{" "}
+                <strong>Waiting for…</strong> while an agent waits for another session, and <strong>Same files as…</strong>{" "}
+                when two sessions changed the same files.
               </p>
               <p>
                 A session started by an agent, or from the terminal, says so in its header, with a link to the agent session
