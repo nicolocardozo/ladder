@@ -391,6 +391,8 @@ export interface SessionSummary {
    * `ladder_start_session` MCP tool (sessionId and agent of the starter). Absent or null = from the UI (or from a plan).
    */
   origin?: { kind: 'cli' } | { kind: 'agent'; sessionId: string; agent: AgentId } | null
+  /** Shell commands the agent left running after its turn (Claude background tasks, Codex background terminals). */
+  backgroundCommands?: number
   /** The agent is inside a ladder_wait on another session of the project: shown instead of a plain "working". */
   waitingOn?: { sessionId: string; title: string } | null
   /**

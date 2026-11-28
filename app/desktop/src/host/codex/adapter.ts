@@ -85,6 +85,8 @@ export class CodexSession implements AgentSession {
   private models: CodexModel[] = []
   private texts = new Map<string, string>()
   private items = new Map<string, OpenItem>()
+  /** Commands still alive after their turn ended (unified exec keeps them as background terminals). */
+  private lingering = new Set<string>()
   private context: { used: number; window: number } | null = null
   /** Open server requests: they close when Codex resolves them itself (end of turn). */
   private requests = new Map<string, AbortController>()
@@ -422,9 +424,12 @@ export class CodexSession implements AgentSession {
       case 'item/started':
         if (this.isCurrent(params)) this.itemStarted(params.item as Record<string, unknown>)
         return
-      case 'item/completed':
+      case 'item/completed': {
+        const id = String((params.item as { id?: unknown } | undefined)?.id ?? '')
+        if (this.lingering.delete(id)) this.events.background?.(this.lingering.size)
         if (this.isCurrent(params)) this.itemCompleted(params.item as Record<string, unknown>)
         return
+      }
       case 'item/agentMessage/delta': {
         if (!this.isCurrent(params)) return
         const id = String(params.itemId)
@@ -476,6 +481,11 @@ export class CodexSession implements AgentSession {
         this.finishTurn({ status, error: turn.error?.message ?? null, durationMs: turn.durationMs ?? undefined })
         // A command alive after the interruption: the process restarts, the thread resumes at the next message.
         if (status === 'interrupted' && [...this.items.values()].some((i) => i.kind === 'command')) this.restart()
+        else {
+          // Otherwise a command still open outlives the turn: it shows as running in the background until it completes.
+          for (const [id, item] of this.items) if (item.kind === 'command') this.lingering.add(id)
+          if (this.lingering.size) this.events.background?.(this.lingering.size)
+        }
         return
       }
       case 'skills/changed':
@@ -777,6 +787,10 @@ export class CodexSession implements AgentSession {
     this.rpc = null
     this.ready = null
     this.items.clear()
+    if (this.lingering.size) {
+      this.lingering.clear()
+      this.events.background?.(0)
+    }
     rpc?.kill()
   }
 

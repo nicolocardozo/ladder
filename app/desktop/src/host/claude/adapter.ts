@@ -107,6 +107,8 @@ export interface AdapterEvents {
   compacted(info: { trigger: 'manual' | 'auto'; preTokens: number | null; postTokens: number | null }): void
   /** Context updated after the turn (arrives late relative to turnEnd): replaces the known one. */
   context?(context: NonNullable<TurnResult['context']>): void
+  /** Shell commands and monitors the agent left running in the background: how many are alive now. */
+  background?(commands: number): void
   exit(error: string | null): void
 }
 
@@ -761,7 +763,10 @@ export class ClaudeSession {
     }
     this.liveTasks = live
     this.liveBackground = background
-    this.liveCommands = commands
+    if (commands !== this.liveCommands) {
+      this.liveCommands = commands
+      this.events.background?.(commands)
+    }
     if (this.bgTimer || ![...this.bgTasks].some((task) => !live.has(task))) return
     // Only the tasks missing right now: if they are still absent when the grace period expires, they are finished.
     const missing = [...this.bgTasks].filter((task) => !live.has(task))

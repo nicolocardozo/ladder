@@ -1018,6 +1018,7 @@ function SessionMeta({ session, hasGlyph }: { session: SessionSummary; hasGlyph:
     (session.waitingOn && session.run === 'running' ? t('Waiting for “{title}”', { title: session.waitingOn.title }) : null) ??
     (session.run === 'running' || session.run === 'starting' || session.run === 'waiting' ? (session.request?.command ?? session.activity) : null) ??
     (session.mode === 'terminal' ? t('Terminal · {command}', { command: session.command ?? 'claude' }) : null) ??
+    (session.backgroundCommands && session.run === 'idle' ? plural(session.backgroundCommands, '1 command in the background', '{n} commands in the background') : null) ??
     session.worktree?.branch ??
     null
   return (

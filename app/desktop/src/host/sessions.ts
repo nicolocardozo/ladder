@@ -346,6 +346,8 @@ export class Host {
   private overlapNoticed = new Map<string, Set<string>>()
   /** Sessions inside ladder_wait calls on other sessions: caller → sessions waited on (one entry per call in progress). */
   private waitingOnPeer = new Map<string, string[]>()
+  /** Background shell commands per session, as the agent reports them. */
+  private backgroundCommands = new Map<string, number>()
   /** Installation of the `ladder` command (created by the host at startup). */
   private cliInstall: CliInstall | null = null
   private readonly watcher: RootWatcher
@@ -3725,6 +3727,11 @@ export class Host {
           this.emitSummary(sessionId)
         }
       },
+      background: (commands) => {
+        if (commands > 0) this.backgroundCommands.set(sessionId, commands)
+        else this.backgroundCommands.delete(sessionId)
+        if (this.rows.has(sessionId)) this.emitSummary(sessionId)
+      },
       context: (context) => {
         if (!this.rows.has(sessionId)) return
         this.contextAt.set(sessionId, Date.now())
@@ -3736,6 +3743,8 @@ export class Host {
         const runtime = this.runtimes.get(sessionId)
         if (!runtime) return
         runtime.exited = true
+        // The process is gone and its background commands with it.
+        if (this.backgroundCommands.delete(sessionId)) this.emitSummary(sessionId)
         this.agentsPending.delete(sessionId)
         this.agentsIdle.delete(sessionId)
         this.agentsRows.delete(sessionId)
@@ -5943,8 +5952,10 @@ export class Host {
   }
 
   /** waitingOn and overlaps for the summary: omitted when empty, so ordinary sessions carry nothing more. */
-  private peerFields(sessionId: string): Pick<SessionSummary, 'waitingOn' | 'overlaps'> {
-    const out: Pick<SessionSummary, 'waitingOn' | 'overlaps'> = {}
+  private peerFields(sessionId: string): Pick<SessionSummary, 'waitingOn' | 'overlaps' | 'backgroundCommands'> {
+    const out: Pick<SessionSummary, 'waitingOn' | 'overlaps' | 'backgroundCommands'> = {}
+    const commands = this.backgroundCommands.get(sessionId)
+    if (commands) out.backgroundCommands = commands
     const target = this.waitingOnPeer.get(sessionId)?.at(-1)
     const targetRow = target ? this.rows.get(target) : undefined
     if (target && targetRow) out.waitingOn = { sessionId: target, title: targetRow.title }
