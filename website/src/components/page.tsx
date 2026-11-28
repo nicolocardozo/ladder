@@ -56,7 +56,7 @@ export function Prose({ children, className }: { children: ReactNode; className?
         "[&_strong]:font-semibold [&_strong]:text-ink",
         "[&_a]:font-medium [&_a]:text-iris [&_a]:underline-offset-2 hover:[&_a]:underline",
         "[&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1.5 [&_ol]:pl-5",
-        "[&_li]:pl-1 [&_li::marker]:text-hairline",
+        "[&_li]:pl-1 [&_li::marker]:text-muted-ink [&_ol>li::marker]:font-medium [&_ol>li::marker]:tabular-nums",
         "[&_h3]:pt-4 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:tracking-tight [&_h3]:text-ink",
         className,
       )}
